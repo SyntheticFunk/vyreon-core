@@ -17,7 +17,7 @@ option prints, and the API that Reporter and plain Python read.
   ┌───────────────────────────────────────────────────────────────────────────────┐
   │ core pool: 1 node, always on (the data box)   worker pools: 0..N, autoscaled   │
   │  Postgres 16 (CloudNativePG, DO volume)  ◄──►  engine Jobs (one per claim)     │
-  │  vyreon-manager: reader API · worker API  HTTP  started by KEDA ScaledJobs     │
+  │  vyreon-core: reader API · worker API     HTTP  started by KEDA ScaledJobs     │
   │   · scheduler · budget · notices                (one per job type)             │
   │  KEDA · daily capture (CronJob)                                                │
   └───────────────┬──────────────────────────────────────────┬────────────────────┘
@@ -31,7 +31,7 @@ option prints, and the API that Reporter and plain Python read.
 
 **Principles:**
 - The **job table** in Postgres is the source of truth for work. Kubernetes only runs containers.
-- **Workers hold no credentials to the store.** They publish through the manager, which keeps
+- **Workers hold no credentials to the store.** They publish through core, which keeps
   today's atomic, inventory-checked publish.
 - **The store keeps outputs; object storage keeps the few things that cannot or should not be
   re-downloaded.** Everything else comes from Intrinio again when needed.
@@ -92,7 +92,7 @@ duty. Worker Jobs are kept off it by node selectors (and a taint), and core pods
   - **coverage:** per day, per sensor, per asset: state counts and absences by cause (drives the
     pause checks and the 80% coverage report);
   - **artifacts:** an index of what is in object storage (key, kind, session, asset, digest, bytes).
-- **vyreon-manager**, one Rust service (axum + tokio-postgres, like `vyreon-api`), reusing the
+- **vyreon-core**, one Rust service (axum + tokio-postgres, like `vyreon-api`), reusing the
   engine's crates as pinned git dependencies (sensor registry, coordinates, store logic):
   - **reader API:** the agreed `GET /v1/assets/{symbol}/history` and `GET /v1/sessions/{date}` (JSON and
     Parquet), plus the engine's existing v1 routes ported over (window, rankings, peers, review,
@@ -119,7 +119,7 @@ S3-compatible, $5/month for 250 GB (+$0.02/GB). Bucket `vyreon-data` in nyc3 (cr
 the droplet's nightly archive of captured inputs already writes to it). Holds: option prints, ACT01
 pulls and company captures (zstd, ~22 MB a day), tape caches (~4 GB + 1.1 GB a year), per-day derive
 inputs (size to measure), publish bundles (transient), and Postgres backups (CloudNativePG base
-backups + WAL; restore tested). Workers get presigned URLs from the manager, so they hold no storage
+backups + WAL; restore tested). Workers get presigned URLs from core, so they hold no storage
 keys. nyc3 is the same metro as the cluster; traffic is modest.
 
 ### 3.3 Compute (DOKS, nyc1)
@@ -132,7 +132,7 @@ keys. nyc3 is the same metro as the cluster; traffic is modest.
 - **KEDA ScaledJobs, one per job type** (tape, base block, date-order derive with at most one
   replica, daily, recompute), each polling a queue-depth query on Postgres (`claimable jobs of this
   type`) and starting that many Jobs, minus those running. The scheduler decides what is claimable;
-  KEDA only turns the count into Jobs, so the manager needs no Kubernetes credentials.
+  KEDA only turns the count into Jobs, so core needs no Kubernetes credentials.
 - Each Job pod: one claim → run → publish each day → release → exit. Annotated
   `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"` so scale-down never picks a busy node;
   scratch on the node's local disk (`emptyDir`) with a disk request sized from the measured peak.
@@ -155,11 +155,11 @@ only the web droplet; or Tailscale, as the engine API planned). Chosen in phase 
    budget lease.
 4. It fills inputs from Intrinio (paced by the budget), pulls tape caches and T−5 artifacts it needs
    from storage, computes each day, uploads the day's export bundle and derive inputs, and asks the
-   manager to publish. The manager stages, verifies, publishes (the existing `publish_revision`) and
+   core to publish. Core stages, verifies, publishes (the existing `publish_revision`) and
    reads back. The lease records the last published day.
 5. On a crash, eviction or a bug, the lease expires; the job is reclaimed and resumes from the next
    unpublished day (one block warm-up lost, ~3 h).
-6. After every published day the manager updates coverage and runs the checks; a failed check pauses
+6. After every published day core updates coverage and runs the checks; a failed check pauses
    the queue and posts to Discord.
 
 **Blocks:** ~30–40 sessions (5–8% warm-up overhead, small enough that a straggler or a loss is
@@ -173,11 +173,11 @@ later). ~4–5 h of one 4 vCPU node, ~$11/month.
 **Recomputes** are ordinary jobs with a scope (families or measurements) and a date range. The
 engine's D-104 machinery decides the same-day closure and the later days a change reaches. Derived
 recomputes read stored derive inputs (cheap); base recomputes re-download (about a day per day).
-Superseded revisions are pruned by a manager job (retention rule: replaced values may be deleted).
+Superseded revisions are pruned by a core job (retention rule: replaced values may be deleted).
 
 ## 5. The Intrinio budget
 
-- The manager holds the account window: 2,000 requests a minute, used at most 1,800 (10% margin).
+- Core holds the account window: 2,000 requests a minute, used at most 1,800 (10% margin).
   *To confirm with Intrinio:* whether the limit is per access code (`api`, `edi_uscomp`) or per
   account, and whether presigned file downloads count.
 - Workers take **leases of K requests** (e.g. 500, valid 2 minutes) and spend them locally; usage by
@@ -193,7 +193,7 @@ Superseded revisions are pruned by a manager job (retention rule: replaced value
 
 | # | Change | Kind | Size |
 |---|---|---|---|
-| E1 | `vyreon-worker` entrypoint: claim loop around today's day/fill code; per-day publish through the manager; lease heartbeat | engineering | M |
+| E1 | `vyreon-worker` entrypoint: claim loop around today's day/fill code; per-day publish through core; lease heartbeat | engineering | M |
 | E2 | Storage adapters: tape caches, prints, derive inputs and T−5 artifacts read from and written to object storage | engineering | M |
 | E3 | Budget gate, 429 handling, usage reporting (§5) | engineering | M |
 | E4 | Determinism: every worker fetches 200 option sessions (or the scan is capped); `last_adjusted` bounded; the derived ex-date scan matches retention; a fixed DLM-TECHNICAL origin; one `VYREON_TAPE_HISTORY_FROM` | values change (declared) | S–M |
@@ -204,8 +204,8 @@ Superseded revisions are pruned by a manager job (retention rule: replaced value
 | E9 | FIELD on days whose membership differs from 64: published as a stated absence (FIELD pending its membership rulings) until the FIELD science is revisited on the complete database after the backfill (owner, 2026-11-10); then FIELD over the members present (MAP §8) and a FIELD-scoped recompute | S now; science + L later | S → L |
 
 The store side of E6 (per-date inventory, seeding, readback, API objects/rankings/window, derive
-`objects()`) is manager work (§3.1). **Identity:** `object_id` stays a stable Vyreon asset key
-(today's tickers: META covers Meta Platforms back to 2012, including its FB years); the manager maps
+`objects()`) is core work (§3.1). **Identity:** `object_id` stays a stable Vyreon asset key
+(today's tickers: META covers Meta Platforms back to 2012, including its FB years); core maps
 key ↔ Intrinio security id ↔ dated tickers, and the engine asks for "the provider ticker of this
 object on T". This avoids rewriting every body's identity while staying correct; a future member
 that reuses a ticker gets a distinct key. Decision D2.
@@ -232,7 +232,7 @@ effect: one day computed fresh (131 sessions) vs inside the chain (200). (d) The
 derive inputs. (e) One timed day on a 4 vCPU node (*owner approves a temporary droplet, <$1*). (f)
 Intrinio: access codes and file downloads (ask support or test with the usage endpoint).
 
-**Phase 2: manager core (this repo; ~2 weeks).**
+**Phase 2: vyreon-core service (this repo; ~2 weeks).**
 Rust workspace; schema and migrations (store moved from the engine, universe, work, budget, coverage,
 artifacts); universe builder from Intrinio (security records, ticker history, listings, provider
 starts) for the 64 at first; worker API; budget; publish path; reader API (new endpoints + ported
@@ -243,7 +243,7 @@ D-102).
 E1–E5. Exit: golden days through the worker path pass, and the block-start test passes.
 
 **Phase 4: cluster (~1 week).**
-*Owner approves the spend.* DOKS in nyc1 with the core pool (CloudNativePG, KEDA, the manager),
+*Owner approves the spend.* DOKS in nyc1 with the core pool (CloudNativePG, KEDA, vyreon-core),
 registry, secrets; the core node's headroom measured; a worker pool scaling up from zero and back; a backup and
 restore of Postgres through Spaces; the store imported from the droplet; a 2-node trial on one week of recent dates compared with the droplet's runs; then the daily chain in
 parallel with the droplet's capture for several sessions, compared, and the capture moved over (the
@@ -256,7 +256,7 @@ sessions) needs no E6–E9.
 Stage T from 2023-05-24, then stage A in blocks, era checks first, then stage B. This delivers the
 recent history readers see most (the 252-session context) and proves the system at scale.
 
-**Phase 6: point-in-time universe (engine + manager; ~2–3 weeks).**
+**Phase 6: point-in-time universe (engine + core; ~2–3 weeks).**
 E6–E8 and E9's stated absence; validated on era-boundary days (2021-09, 2022-05/06 with FB→META,
 2023-05, 2024-01 IBIT, 2024-07 ETHA). No FIELD science rulings here.
 
@@ -296,7 +296,7 @@ Proposals with a recommendation; each is evaluated when its phase starts (owner,
 - **D1 Object storage for compact intermediates** (tape caches, per-day derive inputs) beside the
   prints. Recommend yes: it makes stage B and derived recomputes cheap and EVC01 possible on
   disposable machines; it is D-160's planned next step.
-- **D2 Identity:** stable Vyreon asset keys mapped to Intrinio ids in the manager (recommend) vs
+- **D2 Identity:** stable Vyreon asset keys mapped to Intrinio ids in core (recommend) vs
   rewriting the engine to security ids.
 - **D3 Orchestration — decided (owner, 2026-11-10):** DOKS with the always-on core node as the data
   box; KEDA ScaledJobs per job type; worker pools 0..N. Rejected: self-hosted k3s (we would write
@@ -314,6 +314,6 @@ Proposals with a recommendation; each is evaluated when its phase starts (owner,
 - **D7 Daily bars as one ranged request per asset** (−48k requests per cold block; binding change).
 - **D8 FIELD rulings (E9):** deferred by the owner (2026-11-10) until the backfill is complete;
   FIELD is a stated absence on days without the full 64 until then (phase 7b).
-- **D9 Manager language:** Rust (recommend: shares the engine's crates and types) vs Python.
+- **D9 Core language:** Rust (recommend: shares the engine's crates and types) vs Python.
 - **D10 Company capture on historical dates** (~2.7k requests a day): fundamentals are not served as
   of a past date; confirm what the company owners should read in the backfill.

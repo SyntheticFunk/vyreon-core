@@ -1,6 +1,6 @@
 # Engine map (vyreon-engine `engine-v1`, a046bf54, read 2026-11-10)
 
-What the engine does today, seen from the manager: how a day runs, what it keeps on disk, what it
+What the engine does today, seen from vyreon-core: how a day runs, what it keeps on disk, what it
 reads from earlier days, what assumes the fixed 64-asset universe, and where it calls Intrinio.
 Read-only survey; paths are relative to `/home/diggz/vyreon-engine`. Claims were read in the code
 unless marked *(inferred)*. Line numbers drift; re-check before editing. The design built on this
@@ -66,7 +66,7 @@ workers clear `LD_LIBRARY_PATH`), an AVX2 CPU (`h5-field/src/mkl.rs:83-96`).
 ## 3. The home and its state
 
 Class: **a** transient per day · **b** needed across consecutive days of a block · **c** long-lived,
-belongs to the manager · **d** dev only.
+belongs to core · **d** dev only.
 
 | Path | Read by | Lifetime | Class |
 |---|---|---|---|
@@ -74,7 +74,7 @@ belongs to the manager · **d** dev only.
 | `h5-acq/<SYM>/daily/<T>` | views (380 sessions); **derive `load_bars` from 2020** | kept (~2 MB/session) | b |
 | `h5-acq/<SYM>/consolidated/<T>/capture` (+ `derived/` cache ~70 KB/asset-session) | EVC01, intraday FIELD, VWAP | raw dropped once cached; cache kept from 2023-05-24 | **c** |
 | `h5-acq/<SYM>/security.json` (`first_stock_price`) | fill, FIELD view | per home | c (universe) |
-| `h4-account/attempts.sqlite3` | request ledger (§9) | forever, per home | a (budget → manager) |
+| `h4-account/attempts.sqlite3` | request ledger (§9) | forever, per home | a (budget → core) |
 | `h5-carry/<T>`, `h5-macro/<T>`, `h5-company-capture-<T>`, `h5-act01-auto/<T>` | surface, views, company, intent B | to T−5 | b |
 | `h5-surface/<date>/<id16>/<SYM>.json` | intent B (T−5), **derive** | to T−5 | b, and derive needs T's |
 | `h5-exq01-events/<T>/<SYM>` | intent B (T) | **perishable, kept forever** | **c** |
@@ -295,7 +295,7 @@ on daily bars, company `/securities/{id}`, splits/dividends/adjustments. Not use
 
 **vyreon-api** (axum, bearer SHA-256, gzip, NoTls, a new connection per request): contract, objects,
 rankings, review, window (≤260), peers, slots, coordinates, streams. Keep its revision pinning,
-coordinate projection and review; the manager adds the bulk `history`/`sessions` shapes, TLS and
+coordinate projection and review; core adds the bulk `history`/`sessions` shapes, TLS and
 pooling.
 
 ## 11. What breaks when the worker is a disposable pod

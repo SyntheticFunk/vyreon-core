@@ -14,12 +14,12 @@ The one living status document. History is in git; decisions in `docs/DECISIONS.
    completeness.
 2. **API:** asset history and session endpoints (`AGENTS.md`), JSON and Parquet.
 3. **Worker:** the engine packaged as a container that claims a block, draws on the request budget,
-   publishes to the manager and exits; a measured block run on the droplet.
+   publishes to core and exits; a measured block run on the droplet.
 4. **Orchestration:** chosen with measured numbers; a small trial (one week of dates on 2 nodes).
 5. **Backfill** to the provider starts, oldest first (later days' own-history readings depend on
    earlier days); the spend is the owner's call.
 
 ## Open questions
 - Where the database lives (the current droplet, a managed Postgres, or a dedicated node) and backups.
-- How the engine publishes: through the manager's API, or straight into Postgres with the manager
+- How the engine publishes: through core's API, or straight into Postgres with core
   reading.

@@ -1,17 +1,17 @@
-# Vyreon Manager
+# Vyreon Core
 
 The data platform around the Vyreon engine: the PostgreSQL database of sensor measurements, the API
 that Reporter and plain Python read, the job queue that hands date blocks to engine workers, the
 Intrinio request budget, the point-in-time security universe, and the cluster that runs the workers.
-The engine computes; the manager schedules, stores and serves. The measurements are the product.
+The engine computes; core schedules, stores and serves. The measurements are the product.
 
 ## Authority
 - `docs/PRODUCT_INTENT.md` is the ultimate guide (a copy of the engine's; the engine's is canonical).
 - Science belongs to the engine: `/home/diggz/vyreon-engine` (tag `engine-v1`), its
-  `docs/DECISIONS.md` ("Rules in force" at the top) and `AGENTS.md`. The manager never computes,
+  `docs/DECISIONS.md` ("Rules in force" at the top) and `AGENTS.md`. Core never computes,
   fills, smooths or alters a measurement; it stores and serves exactly what the engine publishes,
   including every absence with its state and reason.
-- Manager engineering decisions go in `docs/DECISIONS.md` here (short, dated, with reasons). When
+- Core engineering decisions go in `docs/DECISIONS.md` here (short, dated, with reasons). When
   implementation shows a better way than the plan, record it and proceed; conflicts with product
   intent go to the owner.
 - Intent decides what and why; established standards decide how (cite them). Prefer boring, proven
@@ -19,15 +19,15 @@ The engine computes; the manager schedules, stores and serves. The measurements 
 
 ## Design (agreed with the owner, 2026-11-08 to 11-10)
 - **Workers are stateless engine runs.** Each node takes a block of consecutive dates, downloads from
-  Intrinio, computes, publishes to the manager, deletes its raw data and exits. Consecutive days share
+  Intrinio, computes, publishes to core, deletes its raw data and exits. Consecutive days share
   most of a 132-session quote window, so a block downloads it once; `vyreon-days --fill` already
   computes day T while the next date downloads.
 - **Measured per day** (2025-12-10, laptop–droplet parity, 2026-11-09): download ~200 min
   (provider-bound), compute 110–160 min on 8 vCPU, peak disk 44.7 GB, ~39k Intrinio requests.
 - **Budget:** at most 10 droplets on the account, less a web server and a database, so 8 worker nodes.
   Candidate node: 8 vCPU shared, 80 GB disk, $0.17/h. Anything that costs money is the owner's call.
-- **Intrinio rate limit: 2,000 requests a minute, owned by the manager.** Workers draw from a shared
-  budget (with margin) and report what they use; the manager tracks usage over time.
+- **Intrinio rate limit: 2,000 requests a minute, owned by core.** Workers draw from a shared
+  budget (with margin) and report what they use; core tracks usage over time.
 - **Point-in-time universe, built into the database.** Key securities by Intrinio security id (and
   FIGI), never by ticker: tickers are reused (FB is now a ProShares ETF; META was a Roundhill ETF to
   2022-01-28). Store dated ticker spans (`get_security_history_by_ticker`), listing and delisting
@@ -45,7 +45,7 @@ The engine computes; the manager schedules, stores and serves. The measurements 
 - **Storage:** Intrinio is the default store; keep only perishable inputs (option prints) and outputs.
   Full and per-sensor rebuilds are a recurring workload, not a one-off.
 - Orchestration (DigitalOcean Kubernetes + KEDA, or a job table plus scripted droplets) is chosen
-  after the manager exists and with measured numbers.
+  after core exists and with measured numbers.
 
 ## Rules
 - Real data only (engine D-102): tests and validation use real Intrinio data or frozen slices of it;
