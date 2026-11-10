@@ -1,0 +1,9 @@
+[Unit]
+Description=Vyreon archive: captured inputs the provider will not serve again, to the volume and Spaces
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/vyreon/bin/archive-perishables.sh
+Nice=10

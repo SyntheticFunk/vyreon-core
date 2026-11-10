@@ -1,0 +1,9 @@
+[Unit]
+Description=Vyreon archive after each daily capture (capture runs 02:00 and 12:00 UTC)
+
+[Timer]
+OnCalendar=*-*-* 04,14:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target
