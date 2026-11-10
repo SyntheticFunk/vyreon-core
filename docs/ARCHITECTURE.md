@@ -107,7 +107,8 @@ duty. Worker Jobs are kept off it by node selectors (and a taint), and core pods
   - **notices and health:** Discord (channel only, silent), absorbing `vyreon-notify`'s checks.
 - **Daily capture** (prints and the other perishable inputs) as a Kubernetes CronJob, once the cluster
   has matched the droplet's captures.
-- Size: small (2–4 vCPU, 4–8 GB; DigitalOcean's cluster components take ~1 GB; measure). Postgres
+- Size (owner, 2026-11-10): **4 vCPU / 8 GB basic AMD** (`s-4vcpu-8gb-amd`, $56/month, 160 GB disk),
+  one size down from today's droplet; DigitalOcean's cluster components take ~1 GB. Postgres
   needs disk, not CPU: ~150 MB of store a day, ~190 GB for 2021-09-27 onward plus indexes.
 - **Transition:** today's engine droplet keeps Postgres, the capture and the archive running until
   the cluster has matched them; the store moves into CloudNativePG by its import from an existing
@@ -243,7 +244,7 @@ E1–E5. Exit: golden days through the worker path pass, and the block-start tes
 
 **Phase 4: cluster (~1 week).**
 *Owner approves the spend.* DOKS in nyc1 with the core pool (CloudNativePG, KEDA, the manager),
-registry, secrets; size the core node; a worker pool scaling up from zero and back; a backup and
+registry, secrets; the core node's headroom measured; a worker pool scaling up from zero and back; a backup and
 restore of Postgres through Spaces; the store imported from the droplet; a 2-node trial on one week of recent dates compared with the droplet's runs; then the daily chain in
 parallel with the droplet's capture for several sessions, compared, and the capture moved over (the
 droplet keeps capturing until the cluster has matched it).
@@ -278,7 +279,7 @@ report per sensor (≥80% target, misses diagnosed), the current droplet retired
 
 | Item | Cost |
 |---|---|
-| Core node = data box (2–4 vCPU) | ~$24–48 (today's droplet $112 until it is retired) |
+| Core node = data box (4 vCPU / 8 GB AMD) | $56 (today's droplet $112 until it is retired) |
 | Postgres volume (~250 GB) | ~$25 |
 | Spaces | $5 (+$0.02/GB over 250 GB) |
 | Registry | $0–5 |
