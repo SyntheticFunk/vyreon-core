@@ -1,324 +1,290 @@
-# Architecture and implementation plan (2026-11-10)
+# Architecture and plan (design pass 2, 2026-11-10)
 
-Status: reviewed with the owner on 2026-11-10. Decided: the orchestration and the data box (D3, D4),
-FIELD deferred until after the backfill (D8), Spaces for the data we keep (bucket live). Every other
-recommendation is evaluated when its phase starts. Decisions go to `docs/DECISIONS.md`; status goes to
-`docs/MILESTONES.md`. The engine
-facts it rests on are in `docs/ENGINE_MAP.md` (cited as MAP §n).
+Status: for the owner's review before any code. It replaces the first draft of the same day and
+folds in the decisions since (`docs/DECISIONS.md` C-001 to C-011). Engine facts are in
+`docs/ENGINE_MAP.md` (MAP §n); new facts read or measured in this pass are marked **(pass 2)**.
+Proposals still to confirm are collected in §10.
 
 ## 1. What we are building
 
-A data platform that runs the engine as stateless batch workers and owns everything that must last:
-the measurements, the point-in-time universe, the job queue, the Intrinio budget, the perishable
-option prints, and the API that Reporter and plain Python read.
+A data platform that runs the engine as disposable workers and owns everything that must last: the
+measurements with their provenance, the point-in-time universe, the job queue, the Intrinio budget,
+the tape caches, and the API that vyreon-reporter (later vyreon-web) reads.
 
 ```text
   DOKS cluster, nyc1 (control plane free, managed by DigitalOcean)
-  ┌───────────────────────────────────────────────────────────────────────────────┐
-  │ core pool: 1 node, always on (the data box)   worker pools: 0..N, autoscaled   │
-  │  Postgres 16 (CloudNativePG, DO volume)  ◄──►  engine Jobs (one per claim)     │
-  │  vyreon-core: reader API · worker API     HTTP  started by KEDA ScaledJobs     │
-  │   · scheduler · budget · notices                (one per job type)             │
-  │  KEDA · daily capture (CronJob)                                                │
-  └───────────────┬──────────────────────────────────────────┬────────────────────┘
-                  │ S3 API (backups, artifacts)              │ S3 API (presigned URLs)
-          ┌───────▼──────────────────────────────────────────▼──┐
-          │ Object storage (DO Spaces, nyc3, bucket vyreon-data): │
-          │ prints, tape caches, derive inputs, DB backups        │
-          └───────────────────────────────────────────────────────┘
-  Web droplet (nyc3) ── authenticated HTTPS ──► reader API          Intrinio ◄── workers
+  ┌──────────────────────────────────────────────────────────────────────────────┐
+  │ core pool: 1 node, always on (4 vCPU / 8 GB)   worker pools: 0..N, autoscaled │
+  │  Postgres 16 (CloudNativePG, DO volume)         engine Jobs, one per claim:   │
+  │  vyreon-core (Rust): worker API · publish  ◄──  download from Intrinio,       │
+  │   · scheduler · budget · ordered pass      HTTP compute, publish through core,│
+  │   · reader API · notices                        delete, exit                  │
+  │  KEDA (starts Jobs from the claimable count)                                  │
+  └───────────────┬──────────────────────────────────────────────────────────────┘
+                  │ S3 API: database backups only (and the perishable archive)
+          ┌───────▼───────────────────────────┐
+          │ DO Spaces, nyc3, bucket vyreon-data │        Intrinio ◄── workers
+          └─────────────────────────────────────┘
+  vyreon-reporter / vyreon-web ── authenticated HTTPS ──► reader API
 ```
 
-**Principles:**
-- The **job table** in Postgres is the source of truth for work. Kubernetes only runs containers.
-- **Workers hold no credentials to the store.** They publish through core, which keeps
-  today's atomic, inventory-checked publish.
-- **The store keeps outputs; object storage keeps the few things that cannot or should not be
-  re-downloaded.** Everything else comes from Intrinio again when needed.
-- **Every day is a pure function of (T, the provider's data, the declared windows)**, whatever block
-  or machine computes it. This is tested, not assumed.
+**Principles**
+- **A worker downloads what it can, computes its measurements, writes them to the permanent database
+  and is done** (C-011). It keeps nothing and holds no database or storage credentials; it talks only
+  to Intrinio and to core's worker API.
+- **Only what is needed is stored** (C-004): the measurements, the perishable and volatile inputs
+  Intrinio will not serve again, and the tape caches (C-010). Everything else is downloaded again.
+- **The job table in Postgres is the source of truth for work.** Kubernetes only runs containers.
+- **Every day is a pure function of (T, the provider's data, the declared windows)** whatever block
+  or machine computes it (C-001); the block-start test proves it.
 
-## 2. The key finding: three kinds of work, two of them parallel
+## 2. How the work splits
 
-The map (MAP §5) shows the engine's cross-day reads split cleanly:
+Three kinds of job. Two are parallel; the third is cheap and ordered.
 
-| Stage | What | Reads from earlier days | Parallel? | Cost |
+| Job | What | Reads | Parallel? | Cost |
 |---|---|---|---|---|
-| **T: tape** | turn each session's consolidated tape into its compact cache (~70 KB per asset-session) | nothing | fully, per session | streaming ~30 GB per session; network-bound (to measure) |
-| **A: base** | the base layer of day T (2,853 slots), published without derive | raw input windows (≤200 option, 379 daily, T−5) downloaded per block; **tape caches of every earlier session** (EVC01, intraday FIELD) from storage | yes, in blocks of consecutive dates | ~2–2.5 h a day on 8 vCPU; cold start ~3 h per block |
-| **B: derived** | the derived layer (1,826 slots) | published history (≤252, plus expanding event tables and pooled unusualness lines) and T's own derive inputs | **no: strictly in date order** | ~22 s a day + unusualness ~4.6 min a day |
+| **tape(session)** | stream the session's replay files, reduce to the per-asset cache, store it in core | Intrinio only | fully | **5–7 min a session** on the droplet for the 64 (fill logs of 2025-12-10/11/12, pass 2); ~870 sessions since 2023-05-24 ≈ 90 node-hours ≈ $15 |
+| **day block(dates)** | for each date: the base layer (2,853 slots) and the day-local derived sensors (1,105 slots, below) | Intrinio windows downloaded once per block; tape caches from core | yes, in blocks of consecutive dates | cold start ~3.3 h, then ~2.5 h a day on 8 vCPU (parity run; the warm day is to measure) |
+| **ordered pass** | the history-reading derived sensors (721 slots) | the database only | no: strictly in date order, one at a time | minutes a day (today ~22 s + ~4.6 min of unusualness); runs on the core node |
 
-So the backfill is: stage T for every session (any order, cheap nodes), stage A in parallel blocks,
-and stage B as one ordered job trailing behind A. Stage T also saves stage A from streaming each
-day's ~30 GB of tape again: a block reads caches instead.
+The tape job runs first for every session, because every day reads the caches of all earlier
+sessions (EVC01's baseline, MAP §5). Workers then never stream a tape: a day reads T's cache from core.
 
-Two changes make A and B work on disposable machines:
-- **Tape caches live in object storage** (64 × 70 KB × ~870 sessions since 2023-05-24 ≈ 4 GB; grows
-  ~1.1 GB a year).
-- **Each day's derive inputs live in object storage**: the option population, the surface file and
-  the VWAP cache that the derived layer reads for T (MAP §5, last row). Stage B, and any later
-  derived recompute, then takes seconds per day instead of a re-download. Size to measure.
+### 2.1 The derived sensors, sorted (pass 2, read in `vyreon-cli/src/derive/mod.rs` and `h5-derived`)
 
-**This touches product intent** ("production stores final values … nothing intermediate"; "raw
-captures are transient"). These are compact per-session results, not raw captures, and they are
-exactly what D-160's "next step" (windows read compact per-session results) points to. Owner
-decision D1 below.
+Today all 30 derived sensors (28 per security, 2 more per company) run in one ordered pass that also
+reads files from the machine that computed the base layer. That hand-off cannot exist with disposable
+workers. Sorted by what each actually reads:
 
-## 3. Components
+**Day-local: computed by the worker (E10).** They read only T's own inputs and T's base values.
 
-### 3.1 Data box (the cluster's always-on core node, nyc1)
-One DOKS node pool of one fixed node holds everything that runs all the time (owner's design,
-2026-11-10). DigitalOcean recommends keeping one such node anyway so its own cluster components
-(networking, DNS) stay available; using it as the data box means the always-on droplet does double
-duty. Worker Jobs are kept off it by node selectors (and a taint), and core pods are kept on it.
-- **Postgres 16** run by **CloudNativePG** (the standard Postgres operator for Kubernetes), data on a
-  DigitalOcean volume through the cluster's storage driver (a PersistentVolumeClaim, resizable),
-  continuous backup (base backups + WAL) to Spaces with CloudNativePG's built-in tooling, restore
-  tested. When DigitalOcean replaces the node (cluster upgrades, which we schedule), Postgres
-  restarts on the new node and its volume reattaches: minutes of downtime, during which workers wait
-  on their leases. The engine's store schema moves here unchanged at first
-  (`measurement`, `day_revision`, `publish_revision`, streams, `reader_scalar`, `unusual_score`,
-  `republish_job`), then gains:
-  - **universe:** `security` (Intrinio security id, FIGI, composite FIGI, company id, code), `ticker_span`
-    (security, ticker, from, to), `listing` (first/last price date, delisted, merged into), `profile_member`
-    (profile, object key, security, from, to, group, asset class), `source_coverage` (source, from;
-    option EOD 2021-09-27, snapshots 2022-05-27, tapes 2023-05-24, prints 2026-10-23);
-  - **per-date inventory:** `expected_slot` becomes a template (sensor × member kind) and
-    `expected_slots(profile, date)` expands it over the members present on that date; `publish_revision`
-    compares against it;
-  - **work:** `job` (type, dates, scope, engine build, priority, state, attempts), `lease` (job, worker,
-    expires, last published date), `queue_control` (paused, reason);
-  - **budget:** `budget_grant` and `request_usage` (worker, category, count, window);
-  - **coverage:** per day, per sensor, per asset: state counts and absences by cause (drives the
-    pause checks and the 80% coverage report);
-  - **artifacts:** an index of what is in object storage (key, kind, session, asset, digest, bytes).
-- **vyreon-core**, one Rust service (axum + tokio-postgres, like `vyreon-api`), reusing the
-  engine's crates as pinned git dependencies (sensor registry, coordinates, store logic):
-  - **reader API:** the agreed `GET /v1/assets/{symbol}/history` and `GET /v1/sessions/{date}` (JSON and
-    Parquet), plus the engine's existing v1 routes ported over (window, rankings, peers, review,
-    slots, coordinates, streams);
-  - **worker API** (per-worker token, private network only): claim, heartbeat, publish a day, budget
-    lease, presigned artifact URLs, usage, completion/failure;
-  - **scheduler:** turns requests ("backfill 2024-08-01…2026-11-10", "recompute family X over dates")
-    into jobs; decides what is claimable (block order, one date-order pass at a time, budget, pause);
-    expires dead leases; pauses on failed checks. It does not talk to Kubernetes: KEDA reads the
-    claimable count (§3.3);
-  - **budget:** the account's Intrinio window (§5);
-  - **notices and health:** Discord (channel only, silent), absorbing `vyreon-notify`'s checks.
-- **Daily capture** (prints and the other perishable inputs) as a Kubernetes CronJob, once the cluster
-  has matched the droplet's captures.
-- Size (owner, 2026-11-10): **4 vCPU / 8 GB basic AMD** (`s-4vcpu-8gb-amd`, $56/month, 160 GB disk),
-  one size down from today's droplet; DigitalOcean's cluster components take ~1 GB. Postgres
-  needs disk, not CPU: ~150 MB of store a day, ~190 GB for 2021-09-27 onward plus indexes.
-- **Transition:** today's engine droplet keeps Postgres, the capture and the archive running until
-  the cluster has matched them; the store moves into CloudNativePG by its import from an existing
-  Postgres (or dump/restore), and the droplet is retired after.
+| Sensors | Reads today | Change needed |
+|---|---|---|
+| DLM-MAX-PAIN, -ZERO-DTE, -UNUSUAL-CONTRACTS, -QUOTE-FRICTION, -OI-CENTROID, -PREMIUM-YIELD (6) | T's option population, P01 close | none: both are on the worker |
+| DLM-EXPECTED-MOVE, DLM-GREEK-EXPOSURE, DLM-IMPLIED-PROBABILITY (3) | population, T's surface file, IV30 | IV30 read from VS-IVS01 (the same number DLM-IV30 republishes) |
+| DLM-GAMMA-EXPOSURE (1) | M0-GAMMA's stream, the surface's spot | none: both are the worker's own output |
+| DLM-TECHNICAL, -PRICE-LEVELS, -CANDLESTICK, -RELATIVE, -DRAWDOWN, -VWAP, -BETA (7) | every daily bar on disk from 2020, SPY's bars, FIELD-DEP01 of T, T's tape cache | bars fetched from a fixed origin (one ranged request per asset, C-008): removes a start-dependence (MAP §6) |
+| DLM-EVENT-WINDOW (companies, 1) | population, surface, T's expected date, the 8-K ledger over all published days | the ledger read from T's own CDD-EVENTS01 body, which already carries every 8-K the day knew (D-126) |
 
-### 3.2 Object storage (DigitalOcean Spaces)
-S3-compatible, $5/month for 250 GB (+$0.02/GB). Bucket `vyreon-data` in nyc3 (created 2026-11-10;
-the droplet's nightly archive of captured inputs already writes to it). Holds: option prints, ACT01
-pulls and company captures (zstd, ~22 MB a day), tape caches (~4 GB + 1.1 GB a year), per-day derive
-inputs (size to measure), publish bundles (transient), and Postgres backups (CloudNativePG base
-backups + WAL; restore tested). Workers get presigned URLs from core, so they hold no storage
-keys. nyc3 is the same metro as the cluster; traffic is modest.
+**History: the ordered pass.** They read earlier published days.
 
-### 3.3 Compute (DOKS, nyc1)
-- **Core pool:** the data box (§3.1), one fixed node.
-- **Worker pools, autoscaling 0…N** (N ≤ droplet limit − 2, for the core node and the web droplet).
-  Backfill on 8 vCPU nodes (today's measured shape, 320 GB disk); tape and daily work on 4 vCPU
-  (size by measurement). DigitalOcean's cluster autoscaler adds a node when a Job pod is waiting for
-  room and removes idle nodes; worker pools may scale to zero beside the core pool (docs,
-  2026-11-10; confirm with a small test).
-- **KEDA ScaledJobs, one per job type** (tape, base block, date-order derive with at most one
-  replica, daily, recompute), each polling a queue-depth query on Postgres (`claimable jobs of this
-  type`) and starting that many Jobs, minus those running. The scheduler decides what is claimable;
-  KEDA only turns the count into Jobs, so core needs no Kubernetes credentials.
-- Each Job pod: one claim → run → publish each day → release → exit. Annotated
-  `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"` so scale-down never picks a busy node;
-  scratch on the node's local disk (`emptyDir`) with a disk request sized from the measured peak.
-- Image: the engine's 19 binaries with MKL/mpfr/gmp and the pinned SQLite at their rpaths, build
-  identity baked in (no git at runtime). Registry: DOCR Basic ($5/month; not offered in nyc1, pulled
-  from nyc3) or GitHub's.
+| Sensors | Reads | Change needed |
+|---|---|---|
+| DLM-PCR-OI, -PCR-VOLUME, -PCR-HISTORY, -OI-CHANGE, -OPTIONS-VOLUME, -HV-CONTEXT (6) | base parents up to 252 sessions back; **the OCC ex-date of the last 260 sessions from close-quote files** | the ex-date published as a value in T's base layer, so the pass reads it from the database |
+| DLM-IV30, -IV-CONTEXT, -IV-RV, -IV-TERM (4) | VS-IVS01 and their own history | none |
+| DLM-IV-CRUSH (companies, 1) | expected dates and 8-Ks over published history, IV30 before and after | none |
+| DLM-UNUSUALNESS (1) | every reader value of T and its prior 63 sessions; flag lines pooled over 252 | none |
 
-### 3.4 Web
-Unchanged on its own droplet (nyc3); reads the reader API over authenticated HTTPS (a DigitalOcean
-load balancer, ~$12/month, or an ingress on the core node's address behind a firewall that admits
-only the web droplet; or Tailscale, as the engine API planned). Chosen in phase 4.
+After E10 the ordered pass reads nothing but Postgres, so it can run anywhere, at any later time, and a
+recompute of any of its sensors needs no download at all.
 
-## 4. How a job runs
+## 3. Where every byte lives
 
-1. The scheduler queues jobs: `tape(session)`, `base(block of dates)`, `derive(dates, ordered)`,
-   `capture(T)` (daily perishables), `recompute(scope, dates)`, `universe(refresh)`.
-2. It creates a Kubernetes Job for each claimable job up to the per-type caps (derive: exactly 1).
-3. The pod claims a job: it gets the dates, the engine build, the **membership manifest** (for each
-   date: members present, the provider ticker in use per source, provider availability) and a
-   budget lease.
-4. It fills inputs from Intrinio (paced by the budget), pulls tape caches and T−5 artifacts it needs
-   from storage, computes each day, uploads the day's export bundle and derive inputs, and asks the
-   core to publish. Core stages, verifies, publishes (the existing `publish_revision`) and
-   reads back. The lease records the last published day.
-5. On a crash, eviction or a bug, the lease expires; the job is reclaimed and resumes from the next
-   unpublished day (one block warm-up lost, ~3 h).
-6. After every published day core updates coverage and runs the checks; a failed check pauses
-   the queue and posts to Discord.
-
-**Blocks:** ~30–40 sessions (5–8% warm-up overhead, small enough that a straggler or a loss is
-cheap). The first blocks of a backfill sit at era boundaries (2021-09, 2022-05/06, 2023-05, 2024-01,
-2024-07, and one recent block compared with the droplet's own runs).
-
-**Daily operation:** one `capture(T)` + `base(T)` + `derive(T)` chain after the close; the prints for
-the last 5 sessions are captured every day whether or not compute succeeds (they cannot be fetched
-later). ~4–5 h of one 4 vCPU node, ~$11/month.
-
-**Recomputes** are ordinary jobs with a scope (families or measurements) and a date range. The
-engine's D-104 machinery decides the same-day closure and the later days a change reaches. Derived
-recomputes read stored derive inputs (cheap); base recomputes re-download (about a day per day).
-Superseded revisions are pruned by a core job (retention rule: replaced values may be deleted).
-
-## 5. The Intrinio budget
-
-- Core holds the account window: 2,000 requests a minute, used at most 1,800 (10% margin).
-  *To confirm with Intrinio:* whether the limit is per access code (`api`, `edi_uscomp`) or per
-  account, and whether presigned file downloads count.
-- Workers take **leases of K requests** (e.g. 500, valid 2 minutes) and spend them locally; usage by
-  category returns with each renewal. One round trip per 500 requests, no per-request call.
-- Engine changes: the ledger's grant (`authorize_api_attempt`) draws from the lease instead of the
-  hard-coded 1,800/min; the five unledgered helpers call the same gate; act01/exq01 wait instead of
-  failing; 429 is retried with backoff in the main capture transport.
-- Measured demand: a cold block start ~65k requests (~36 minutes of the whole account), a warm day
-  ~8k, the daily capture ~16k. Cold starts are staggered. Fetching daily bars as one ranged request
-  per asset would remove ~48k of the 65k (an engine binding change; decision D7).
-
-## 6. Engine changes (vyreon-engine, v1.x)
-
-| # | Change | Kind | Size |
+| Data | Where | Size | Kept? |
 |---|---|---|---|
-| E1 | `vyreon-worker` entrypoint: claim loop around today's day/fill code; per-day publish through core; lease heartbeat | engineering | M |
-| E2 | Storage adapters: tape caches, prints, derive inputs and T−5 artifacts read from and written to object storage | engineering | M |
-| E3 | Budget gate, 429 handling, usage reporting (§5) | engineering | M |
-| E4 | Determinism: every worker fetches 200 option sessions (or the scan is capped); `last_adjusted` bounded; the derived ex-date scan matches retention; a fixed DLM-TECHNICAL origin; one `VYREON_TAPE_HISTORY_FROM` | values change (declared) | S–M |
-| E5 | Packaging: build identity at build time, container image, disk guard by env, TLS for the derive job's store connection | engineering | S |
-| E6 | Membership-aware day: members present on T drive the plan, views, intents, surfaces; P01/PATH/tape windows listing-aware; no 64 cap | engineering | L |
-| E7 | Provider ticker per date (FB → META roots), challenge registry from split/ticker history, adjusted roots at their own origin (audit items 1, 2, 4) | engineering | M |
-| E8 | Absences with causes: `NOT_LISTED`, `BEFORE_PROVIDER_START` (codes to name); a code→cause table (D-094); sources not yet existing become stated absences instead of refusals | science + engineering | M |
-| E9 | FIELD on days whose membership differs from 64: published as a stated absence (FIELD pending its membership rulings) until the FIELD science is revisited on the complete database after the backfill (owner, 2026-11-10); then FIELD over the members present (MAP §8) and a FIELD-scoped recompute | S now; science + L later | S → L |
+| Measurements, receipts, event streams, reader scalars | Postgres | **135 MB a day** measured (droplet store, 3 days: streams 88 MB, bodies 45 MB); ~57 GB for the first build (~420 sessions), ~175 GB back to 2021-09-27 (~1,290) | yes: the product |
+| Universe, jobs, leases, budget and usage, coverage | Postgres | MBs | yes |
+| Tape caches (per asset-session: the 15-minute and 5-minute bodies and their manifest) | Postgres, one compressed row per asset-session (C-010) | **~82 KB per asset-session** uncompressed JSON measured, ~5 MB a session for the 64, ~4.6 GB for 870 sessions (less compressed), +1.3 GB a year | yes: EVC01 and intraday FIELD need every earlier session |
+| Option prints, ACT01 pulls, company captures | Spaces (the droplet's nightly archive; the daily capture job later) | ~30–50 MB a session compressed | yes: Intrinio will not serve them again |
+| Database backups (base backups + WAL) | Spaces, written by CloudNativePG | about the database's size per retained base backup, plus WAL; a retention policy bounds it (propose 2 base backups, 7 days of WAL) | yes |
+| A worker's downloads and intermediates (quote window, chains, surfaces, run directories) | the worker node's local disk | 44.7 GB peak measured on a cold day | no: deleted when the pod exits |
+| A day's publish bundle in transit | core node's disk, while it is checked | ~200 MB a day uncompressed (100 MB bodies + 84 MB gzipped streams) | no |
+| Raw Intrinio data of any kind | nowhere | | no (C-004) |
 
-The store side of E6 (per-date inventory, seeding, readback, API objects/rankings/window, derive
-`objects()`) is core work (§3.1). **Identity:** `object_id` stays a stable Vyreon asset key
-(today's tickers: META covers Meta Platforms back to 2012, including its FB years); core maps
-key ↔ Intrinio security id ↔ dated tickers, and the engine asks for "the provider ticker of this
-object on T". This avoids rewriting every body's identity while staying correct; a future member
-that reuses a ticker gets a distinct key. Decision D2.
+Notes:
+- The Postgres volume starts at 250 GB (~$25 a month) and is resizable. A rebuild attempt into a
+  second database (§5.4) doubles the store while both exist: fine for the first build (2 × 57 GB),
+  a temporary resize for the full history.
+- Possible saving, not now: each body is stored twice (canonical text and JSONB), and the M0 event
+  streams are 65% of the store. Both are the engine's schema; they stay as they are for the first build.
+- Adding an asset later means re-running the tape job for its sessions (the cache is per asset).
 
-**Proof:** after E1–E5, the golden days through the worker path equal `engine-v1` except the declared
-E4 changes and provenance (the existing golden comparison); plus the **block-start test**: a day
-computed as the first day of a block equals the same day computed mid-block.
+## 4. Components
 
-## 7. Implementation plan
+### 4.1 Core node (always on, `s-4vcpu-8gb-amd`, $56 a month)
+- **Postgres 16 under CloudNativePG** (C-003), data on a DigitalOcean volume, continuous backup to
+  Spaces, restore drilled before the first build. Schema: the engine's store unchanged
+  (`db/schema.sql`: `measurement`, `day_revision`, `publish_revision`, streams, `reader_scalar`,
+  `unusual_score`, `republish_job`), plus:
+  - **universe:** `security` (Intrinio id, FIGI, composite FIGI, company id, code), `ticker_span`
+    (security, ticker, from, to), `listing` (first and last price date, merged into), `member`
+    (profile, Vyreon asset key, security, from, to, group, class), `source_coverage` (option EOD
+    2021-09-27, snapshots 2022-05-27, tapes 2023-05-24, prints 2026-10-23). Filled for the 64 from
+    Intrinio's ticker history (fetched 2026-11-10);
+  - **work:** `job` (type, dates, scope, engine build, state, attempts), `lease` (job, worker, expires,
+    last published date), `queue_control` (paused, reason);
+  - **budget:** `budget_lease`, `request_usage` (worker, category, count, minute);
+  - **coverage:** per day, sensor and asset: states and absences by cause;
+  - **tape_cache:** (asset key, session, method version, digest, compressed body).
+  Migrations are checksummed and applied under an advisory lock (telemetry-backend's pattern, C-009).
+- **vyreon-core**, one Rust service (C-007; axum + tokio-postgres) that uses the engine's crates as
+  pinned git dependencies:
+  - **worker API** (private network, per-worker token): claim a block, heartbeat, budget lease, read
+    tape caches, publish a day, report usage, finish or fail;
+  - **publish:** receives the day's bundle (the engine's export directories as one compressed
+    stream), then runs the engine's own `stage → verify → publish → readback` against Postgres, so
+    the atomic, inventory-checked publish is unchanged (MAP §4);
+  - **scheduler:** turns a request ("days 2025-03-03 to 2026-11-10") into block jobs; decides what is
+    claimable; expires dead leases; pauses the queue on a failed check;
+  - **ordered pass:** the engine's derive, run in-process in date order behind the published days;
+  - **budget:** the account's Intrinio window (§6);
+  - **reader API** (after the first database, C-009) and **notices** (Discord, channel only).
+- **KEDA:** one ScaledJob per job type reads "claimable jobs of this type" from Postgres and starts
+  that many Jobs. Core needs no Kubernetes credentials.
 
-Effort figures are rough guesses for planning, to be replaced by measured pace after phase 2.
+To measure in the trial: the core node's headroom with 8 workers publishing (each day is ~200 MB to
+check and insert) and the ordered pass running. The ordered pass today loads its parents for every
+published day into memory; it must be bounded to its windows (252 sessions) before the full history.
 
-**Phase 0: a place to keep data while we build (~half a day).**
-Database integrity is only verifiable from launch day forward, so pre-launch perishable data is kept
-on a best-effort basis, not treated as an emergency (owner, 2026-11-10). Create the Spaces bucket
-early and sync the droplet's prints (`/srv/vyreon-home/h5-exq01-events`, 1.5 GB for 7 sessions on the
-root disk) to it nightly, compressed. Ask DigitalOcean to raise the droplet limit (to ~25–30).
-*Owner: approve the bucket ($5/month + $0.02/GB) and the nightly sync on the droplet.*
+### 4.2 Spaces (`vyreon-data`, nyc3, $5 a month for 250 GB)
+The perishable archive and the database backups. Nothing else. Workers never touch it.
 
-**Phase 1: measurements. Folded into phase 4's first blocks (C-006, 2026-11-10); originally:**
-(a) A warm chain of 5–10 consecutive days with a kept history: per-day time and peak disk of a
-running block. (b) Tape materialization time per session (stage T's cost). (c) The block-start
-effect: one day computed fresh (131 sessions) vs inside the chain (200). (d) The size of a day's
-derive inputs. (e) One timed day on a 4 vCPU node (*owner approves a temporary droplet, <$1*). (f)
-Intrinio: access codes and file downloads (ask support or test with the usage endpoint).
+### 4.3 Workers (DOKS pools, 0..N)
+- 8 vCPU nodes for day blocks (the measured shape), smaller nodes for tape jobs (network-bound).
+  N ≤ the droplet limit less the core node and the web droplet.
+- Each Job pod: one claim → run → publish each day as it finishes → exit. Marked not safe to evict;
+  scratch on the node's local disk.
+- Image: the engine's binaries with MKL, mpfr, gmp and the pinned SQLite, build identity baked in.
 
-**Phase 2: vyreon-core service (this repo; ~2 weeks).**
-Rust workspace; schema and migrations (store moved from the engine, universe, work, budget, coverage,
-artifacts); universe builder from Intrinio (security records, ticker history, listings, provider
-starts) for the 64 at first; worker API; budget; publish path; reader API (new endpoints + ported
-v1); scheduler with Kubernetes Jobs (a fake runner first); notices. Tests on real data (frozen slices,
-D-102).
+## 5. How it runs
 
-**Phase 3: engine as worker (engine repo, v1.x branch; ~2 weeks, overlaps phase 2).**
-E1–E5. Exit: golden days through the worker path pass, and the block-start test passes.
+### 5.1 A day block
+1. The pod claims a block and receives: the dates, the engine build, the member manifest (for each
+   date: members, the provider ticker in use, provider availability), the tape-history start, a
+   budget lease.
+2. It downloads the windows once (cold start), pulls the tape caches it needs from core, then for
+   each date: computes the base layer and the day-local derived sensors, sends the day's bundle to
+   core, and continues while the next date's inputs download.
+3. Core stages, verifies, publishes and reads back each day, updates coverage, runs the checks. A
+   failed check pauses the queue and posts to Discord.
+4. On a crash or eviction the lease expires; the block is reclaimed and resumes at the first
+   unpublished date (one cold start lost).
 
-**Phase 4: cluster (~1 week).**
-*Owner approves the spend.* DOKS in nyc1 with the core pool (CloudNativePG, KEDA, vyreon-core),
-registry, secrets; the core node's headroom measured; a worker pool scaling up from zero and back; a backup and
-restore of Postgres through Spaces; the store imported from the droplet; a 2-node trial on one week of recent dates compared with the droplet's runs; then the daily chain in
-parallel with the droplet's capture for several sessions, compared, and the capture moved over (the
-droplet keeps capturing until the cluster has matched it).
+Blocks of ~30–40 sessions (5–8% cold-start overhead). The first blocks are chosen to prove the
+system: one overlapping the droplet's own published days, and the block-start test.
 
-**Phase 5: backfill, stage 1, the recent fixed-universe range (~1–2 weeks of runs).**
-Today's engine can only run days where all 64 exist with full windows: ETHA lists 2024-07-23 and
-its P01 and PATH windows need 131 and 153 sessions after listing, so roughly **2025-03 onward** (~420
-sessions) needs no E6–E9.
-Checked against Intrinio's ticker history (2026-11-10): from 2024-07-23 no member of the 64 lists,
-delists or changes ticker. Before it, four events: FB → META (2022-06-08), the META ticker held by a
-Roundhill ETF to 2022-01-28, IBIT listing 2024-01-11 (its ticker held by a Defiance ETF to 2023-05-01),
-ETHA listing 2024-07-23. SLV, DBA and UUP (commodity pools) are absent from the history endpoint;
-their security records show no previous tickers and continuous prices since 2006–07.
-Stage T from 2023-05-24, then stage A in blocks, era checks first, then stage B. This delivers the
-recent history readers see most (the 252-session context) and proves the system at scale.
+### 5.2 The ordered pass
+One at a time, in date order, behind the contiguous run of published days. It never blocks workers.
+When older days are added later, it re-runs from the first new day forward (minutes a day).
 
-**Phase 6: point-in-time universe (engine + core; ~2–3 weeks).**
-E6–E8 and E9's stated absence; validated on era-boundary days (2021-09, 2022-05/06 with FB→META,
-2023-05, 2024-01 IBIT, 2024-07 ETHA). No FIELD science rulings here.
+### 5.3 Recomputing one sensor
+The engine's family republish (D-104) already recomputes a family, its same-day dependants and the
+later days that read it. With E10 the cost depends only on what the sensor reads:
 
-**Phase 7: backfill, stage 2, back to 2021-09-27.**
-Stage A for the older days (independent of stage 1's days), then stage B re-derives everything in
-order (~5 min a day; the derived layer of stage 1's days gains its older history). Because base days
-are independent and the ordered derive is cheap, **the start date is no longer fixed once**: older
-years can be added later at the cost of a re-derive.
+| Sensor class | Needs | Cost per day |
+|---|---|---|
+| Ordered-pass sensors (levels, IV context, IV crush, unusualness) | the database | seconds to minutes, no download |
+| DLM-TECHNICAL family | one ranged bar request per asset | seconds |
+| Chain sensors without the surface (max pain, 0DTE, …) | T's option chain | a small download |
+| Surface readers (expected move, Greeks, event window) and the surface itself | T's chain and quotes, the surface rebuilt | ~25 min |
+| M0 | T's inputs | ~20 min |
+| P (price path) | its windows | about a whole day |
 
-**Phase 7b: FIELD science on the complete database (owner).** FIELD's rulings for a changing
-membership (E9) are made with the whole history in hand, then a FIELD-scoped recompute fills the
-older days and re-derives FIELD's readers (BETA reads FIELD-DEP01). It is cheap because FIELD's inputs
-are daily bars (re-downloaded, ~64 requests with D7) and the tape caches kept in object storage. Stage
-1's FIELD values need no recompute if the rulings leave N = 64 unchanged.
+A base recompute is a block job with a scope. Any change cascades into DLM-UNUSUALNESS for the next
+63 sessions (and its flag lines for 252), which the ordered pass redoes.
 
-**Phase 8: steady state.** Daily chain, recompute jobs, pruning, backup restore drill, coverage
-report per sensor (≥80% target, misses diagnosed), the current droplet retired.
+### 5.4 A rebuild attempt
+A new attempt builds into a new database beside the current one; readers stay on the last good
+database until the owner accepts the new one. Tape caches are copied, not recomputed, unless the tape
+method changed.
 
-## 8. Costs (monthly unless stated)
+### 5.5 Daily operation
+One chain after the close: capture the perishables, tape(T), day(T), ordered pass. The droplet keeps
+doing today's capture until the cluster has matched it for several sessions.
+
+## 6. The Intrinio budget
+
+- Core holds the account window: 2,000 requests a minute, used to 1,800. Intrinio's usage endpoint
+  reports the limit per access code (`api`: `one_min_call_limit` 2,000; pass 2); whether other codes
+  have their own window, and whether presigned file downloads count, is still to confirm.
+- Workers take leases of K requests (e.g. 500, valid 2 minutes) and report usage by category.
+- Demand after C-008 (ranged daily bars): a cold block start ~17–21k requests (was ~65k), a warm day
+  ~8k. Eight workers average a few hundred a minute; only simultaneous cold starts need staggering.
+
+## 7. Engine changes (vyreon-engine, v1.x)
+
+| # | Change | Kind |
+|---|---|---|
+| E1 | `vyreon-worker`: a claim loop around today's day/fill code; each day's bundle sent to core; heartbeat | engineering |
+| E2 | Tape caches read from and written to core (not the home); the tape job as its own entrypoint | engineering |
+| E3 | Shared budget: the ledger's grant draws from a lease; the five unmetered call sites use the same gate; act01/exq01 wait; 429 retried | engineering |
+| E4 | Determinism: 200 option sessions everywhere; `last_adjusted` bounded to the declared window; a fixed bar origin for DLM-TECHNICAL (the calendar's first session, 2020-01-02, or the listing); one tape-history start from the claim | values may change, each declared |
+| E5 | Packaging: build identity at build time, container image, disk guard by env, no git at runtime | engineering |
+| E7′ | Daily bars as one ranged request per asset (C-008); the binding `INTRINIO-CI-DAILY-BAR-1@1` changes, values must not | engineering |
+| E10 | The 18 day-local derived sensors computed in the worker's day and published with it; the OCC ex-date published as a base value; the ordered pass reads only the database (C-011, §2.1) | engineering; values must not change |
+| E6 | Member-aware day: the members present on T drive the plan, views, surfaces; listing-aware windows; no 64 cap | after the first build |
+| E7 | Provider ticker per date (FB → META), challenge registry from history | after the first build |
+| E8 | Absences with causes (`NOT_LISTED`, `BEFORE_PROVIDER_START`) | after the first build |
+| E9 | FIELD over a changing membership: stated absence until its rulings (C-005) | after the first build |
+
+**Proof for E1–E5, E7′, E10:** the golden days through the worker path equal `engine-v1` except the
+declared E4 changes and provenance; a day computed first in a block equals the same day mid-block; a
+day published through core reads back identical to the droplet's own.
+
+## 8. Plan
+
+Durations are guesses until the first blocks give a measured pace.
+
+1. **Core service** (this repo, ~2 weeks): workspace, migrations, the schema of §4.1, the universe for
+   the 64, worker API, publish through core, scheduler, budget. *Exit:* a day already published on
+   the droplet goes through core into an empty database and reads back identical.
+2. **Engine as worker** (engine branch, ~2–3 weeks, alongside 1): E1–E5, E7′, E10. *Exit:* the proof
+   in §7.
+3. **Cluster** (~1 week; owner approves the spend): DOKS, CloudNativePG, KEDA, registry, secrets; a
+   backup restored from Spaces; a pool scaling from zero and back; a 2-node trial on one recent week
+   compared with the droplet; the measurements of C-006.
+4. **First build** (~1–2 weeks of runs; owner approves the spend): the tape job for every session
+   since 2023-05-24, then day blocks from ~2025-03 on the fixed 64, the ordered pass behind them.
+5. **Rebuilds and recomputes** exercised for real: one family republish across the history; a second
+   attempt if the first shows the need.
+6. **After the first database:** the reader API for vyreon-reporter (C-009); N assets in the engine
+   (E6–E9) and the backfill to 2021-09-27; the daily chain on the cluster and the droplet retired.
+
+Why the fixed 64 first: from 2024-07-23 no member lists, delists or renames (checked against
+Intrinio's ticker history, 2026-11-10: FB → META 2022-06-08, the META ticker held by a Roundhill ETF
+to 2022-01-28, IBIT listed 2024-01-11, ETHA 2024-07-23), and ETHA's windows fill by ~2025-03. Older
+days need E6–E8 and are independent of the newer ones; the ordered pass is re-run when they arrive.
+
+## 9. Costs
 
 | Item | Cost |
 |---|---|
-| Core node = data box (4 vCPU / 8 GB AMD) | $56 (today's droplet $112 until it is retired) |
-| Postgres volume (~250 GB) | ~$25 |
-| Spaces | $5 (+$0.02/GB over 250 GB) |
-| Registry | $0–5 |
-| DOKS control plane | free (HA $40, not needed) |
-| Daily worker (~4–5 h/day, 4 vCPU) | ~$11 |
-| Reader API exposure (if a load balancer) | ~$12 |
-| Backfill stage A, full 2021-09-27 → now | ~$450–550 compute per pass (+ stage T, to measure) |
-| Web droplet | unchanged |
+| Core node (4 vCPU / 8 GB AMD) | $56 a month (the current droplet, $112, until it is retired) |
+| Postgres volume, 250 GB | ~$25 a month |
+| Spaces | $5 a month (250 GB included) |
+| Registry | $0–5 a month |
+| Tape job, all ~870 sessions | ~90 node-hours, ~$15 once |
+| First build, ~420 days | ~1,100 node-hours at $0.17 ≈ **$190**, about 6 days on 8 nodes |
+| Full history, ~1,290 days (later) | ~3,300 node-hours ≈ $560 per pass |
+| Daily worker | ~3 h a day ≈ $15 a month |
 
-## 9. Decisions for the review
+## 10. To confirm on review, and what is still unknown
 
-Proposals with a recommendation; each is evaluated when its phase starts (owner, 2026-11-10).
+**Proposed in this pass (not yet decisions):**
+1. **E10's split** (§2.1): 18 sensors move into the worker, 12 stay in the ordered pass, the OCC
+   ex-date becomes a published base value. No value should change; the golden days check it.
+2. **How the two derived groups are published:** the day-local group with the worker's day in the same
+   atomic publish, the history group by the ordered pass; measurement ids unchanged, so readers see
+   no difference. Whether that is one profile or two is settled when E10 starts.
+3. **Workers publish by sending the day's bundle to core over HTTP** (no shared storage, no database
+   credentials on workers).
+4. **The ordered pass runs inside core** on the core node.
+5. **Identity (old D2):** a stable Vyreon asset key per member, mapped in core to the Intrinio
+   security id and dated tickers. META stays one key across its FB years; a reused ticker gets a new key.
+6. **Backup retention:** 2 base backups and 7 days of WAL in Spaces.
+7. **A rebuild attempt is a new database** (§5.4).
 
-- **D1 — declined by the owner (C-004): Object storage for compact intermediates** (tape caches, per-day derive inputs) beside the
-  prints. Recommend yes: it makes stage B and derived recomputes cheap and EVC01 possible on
-  disposable machines; it is D-160's planned next step.
-- **D2 Identity:** stable Vyreon asset keys mapped to Intrinio ids in core (recommend) vs
-  rewriting the engine to security ids.
-- **D3 Orchestration — decided (owner, 2026-11-10):** DOKS with the always-on core node as the data
-  box; KEDA ScaledJobs per job type; worker pools 0..N. Rejected: self-hosted k3s (we would write
-  the node autoscaler ourselves; DigitalOcean's cluster autoscaler only drives DOKS pools); a
-  separate data-box droplet with the cluster at zero nodes (same droplet count, but against
-  DigitalOcean's recommendation and two systems to deploy); scripted droplets without Kubernetes.
-- **D4 Postgres — decided with D3:** CloudNativePG on the core node, volume-backed, continuous backup
-  to Spaces. Accepted cost: minutes of downtime when the node is replaced at an upgrade we schedule.
-  DigitalOcean managed Postgres stays an option if that proves a problem (more cost).
-- **D5 Staged backfill:** stage 1 (~2025-03 → now) before the universe work (recommend) vs one
-  backfill after it.
-- **D6 Determinism rules (E4):** 200 option sessions everywhere; a fixed DLM-TECHNICAL origin (e.g.
-  the asset's first session or the database start minus 379 sessions); these change some values
-  against the golden days (declared).
-- **D7 — decided (C-008): Daily bars as one ranged request per asset** (−48k requests per cold block; binding change).
-- **D8 FIELD rulings (E9):** deferred by the owner (2026-11-10) until the backfill is complete;
-  FIELD is a stated absence on days without the full 64 until then (phase 7b).
-- **D9 Core language — decided (C-007):** Rust (shares the engine's crates and types).
-- **D10 Company capture on historical dates** (~2.7k requests a day): fundamentals are not served as
-  of a past date; confirm what the company owners should read in the backfill.
+**Open, decided when their phase starts:** the order of N assets against the first build is now
+settled by the ticker-history check (§8) unless the owner wants it otherwise; E4's exact rules and
+their value changes; company inputs on historical dates (fundamentals are not served as of a past
+date: which company sensors are a stated absence in the backfill).
+
+**Still unknown, measured in the trial:** a warm day inside a block; the block-start effect; whether
+several workers streaming tapes at once are throttled by Intrinio; the core node's headroom; EVC01's
+per-day cost as the history grows (it reads ~78 numbers per asset from each earlier session, so the
+tape job could store those instead of the worker re-reducing every cache: an engineering option, no
+science change).
+
+**For Intrinio support (owner):** is the 2,000-a-minute limit per access code or per account; do
+presigned file downloads count against it.
