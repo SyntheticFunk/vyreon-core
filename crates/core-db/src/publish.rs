@@ -138,9 +138,11 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
             if lease.kind == "TAPE" {
                 return refuse("a tape job publishes no days");
             }
+            // a day block's current day stays its next until the worker says it is done, so a
+            // bundle of it sent again is answered like one of an earlier day
             if lease.engine_build == header.engine_build
                 && lease.profile_id == header.profile_id
-                && lease.next_session.as_deref() != Some(date)
+                && (lease.kind == "DAY_BLOCK" || lease.next_session.as_deref() != Some(date))
                 && let Some(revision_id) = published_before(&tx, &header, &lease).await?
             {
                 return Ok(Published {
@@ -166,6 +168,15 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
                     header.profile_id,
                     header.engine_build
                 ));
+            }
+            // a day block publishes a day's base and what reads that day alone; the ordered pass
+            // publishes what reads history
+            let based = header.base_profile_revision.is_some();
+            if lease.kind == "DAY_BLOCK" && based && !header.day_local {
+                return refuse("a day block publishes no revision that reads history: that is the ordered pass's");
+            }
+            if lease.kind == "ORDERED_PASS" && (!based || header.day_local) {
+                return refuse("the ordered pass publishes only a revision computed from the day's base that reads history");
             }
             Some(lease)
         }
@@ -231,7 +242,9 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
     let (reader_scalars, unusual_scores) = insert_scalars(&tx, revision, date, &scalars).await?;
     let (streams, stream_bytes) = read_back(&tx, revision, date, inventory.len()).await?;
     let superseded = promote(&tx, revision, &header, base).await?;
-    if let Some(lease) = &lease {
+    // an ordered pass's day is its one bundle; a day block's is every bundle of the day (the base,
+    // then what was computed on it: C-031), so its worker says when the day is done (`work::day_done`)
+    if let Some(lease) = lease.as_ref().filter(|l| l.kind != "DAY_BLOCK") {
         work::session_done(&tx, lease, date).await.map_err(|e| Error::Failed(e.to_string()))?;
     }
     tx.commit().await.map_err(db)?;
@@ -249,13 +262,15 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
     })
 }
 
-/// The published revision of the bundle's day, when the lease's job has already done that day
-/// with this very bundle: an earlier session of the job, the same profile and build, and every
+/// The published revision of the bundle's day, when the lease's job has already published that
+/// day with this very bundle: an earlier session of the job (or a day block's current one), the
+/// same profile and build, and every
 /// slot's body digest equal. A worker sends a day again when the answer to its first sending was
 /// lost; that is answered, not refused.
 async fn published_before(tx: &Transaction<'_>, header: &Header, lease: &work::Held) -> Result<Option<i64>, Error> {
     let date = header.represented_date.as_str();
-    if !core_contract::is_date(date) || date > lease.last_session.as_str() || lease.next_session.as_deref().is_some_and(|next| date >= next) {
+    let current = lease.kind == "DAY_BLOCK" && lease.next_session.as_deref() == Some(date);
+    if !core_contract::is_date(date) || date > lease.last_session.as_str() || (!current && lease.next_session.as_deref().is_some_and(|next| date >= next)) {
         return Ok(None);
     }
     let slots: Vec<Value> = header.slots.iter().map(|s| serde_json::json!({"measurement_id": s.measurement_id, "object_id": s.object_id, "body_sha256": s.body_sha256})).collect();

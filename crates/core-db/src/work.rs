@@ -342,6 +342,31 @@ pub async fn session_done(db_client: &impl GenericClient, lease: &Held, session:
     Ok(())
 }
 
+/// Marks a day block's next day done, under its lease, once the worker has published every bundle
+/// of it: the day's base revision from the job's build must be the published one. What else a
+/// build publishes with a day (its day-local derived profile, C-031) is the engine's to send
+/// before this; the ordered pass refuses a day without it.
+pub async fn day_done(client: &mut Client, token: &str, session: &str) -> Result<(), LeaseError> {
+    let tx = client.transaction().await.map_err(failed)?;
+    let lease = held(&tx, token).await?;
+    if lease.kind != "DAY_BLOCK" {
+        return Err(LeaseError::Refused(format!("job {} is not a day block", lease.job_id)));
+    }
+    let published = tx
+        .query_opt(
+            "SELECT FROM vyreon.day_revision
+             WHERE represented_date = $1::text::date AND profile_id = $2 AND engine_build = $3 AND state = 'PUBLISHED' AND base_revision IS NULL",
+            &[&session, &lease.profile_id, &lease.engine_build],
+        )
+        .await
+        .map_err(failed)?;
+    if published.is_none() {
+        return Err(LeaseError::Refused(format!("job {} has not published {session}", lease.job_id)));
+    }
+    session_done(&tx, &lease, session).await?;
+    tx.commit().await.map_err(failed)
+}
+
 /// Ends the lease with the job done. Refused while sessions remain.
 pub async fn finish(client: &mut Client, token: &str) -> Result<i64, LeaseError> {
     let tx = client.transaction().await.map_err(failed)?;

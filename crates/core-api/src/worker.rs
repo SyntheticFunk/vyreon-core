@@ -44,6 +44,7 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/lease/finish", post(finish))
         .route("/lease/fail", post(fail))
         .route("/days", post(publish_day))
+        .route("/days/{session}/done", post(day_done))
         .route("/tape-caches/{session}", get(tape_get))
         .route("/tape-caches/{session}/done", post(tape_done))
         .route("/tape-caches/{session}/{asset}", put(tape_put))
@@ -199,6 +200,15 @@ async fn tape_done(State(app): Shared, headers: HeaderMap, Path(session): Path<S
         return Err(refused(format!("{session} is not a date written YYYY-MM-DD")));
     }
     tape::session_done(&mut client, bearer(&headers)?, &session).await?;
+    ok(json!({"session": session}))
+}
+
+async fn day_done(State(app): Shared, headers: HeaderMap, Path(session): Path<String>) -> Reply {
+    let mut client = app.db().await?;
+    if !core_contract::is_date(&session) {
+        return Err(refused(format!("{session} is not a date written YYYY-MM-DD")));
+    }
+    work::day_done(&mut client, bearer(&headers)?, &session).await?;
     ok(json!({"session": session}))
 }
 
