@@ -1,6 +1,9 @@
 # Decisions
 
-Core engineering decisions: short, dated, with reasons. Science decisions live in the engine's
+Core engineering decisions: short, dated, with reasons. Order of authority (owner, 2026-11-10):
+product intent and reasonableness first, then established standards (cited); at this stage a
+science change that makes the system implementable is preferred over keeping science that cannot be
+built, provided the results stay correct. Science decisions live in the engine's
 `docs/DECISIONS.md`; open proposals in `docs/ARCHITECTURE.md` §9.
 
 ## C-001 Workers compute blocks of consecutive dates (2026-11-10)
@@ -60,3 +63,20 @@ a report context (a session with the previous one), ingest/admin status, `/healt
 hashed API keys with scopes; an ETag from the canonical revision's digest; corrections kept, one
 canonical revision per day; the roster and versions in tables, not constants; checksummed migrations
 under an advisory lock. The engine's own v1 routes (`vyreon-api`) are not ported: nothing uses them.
+
+## C-010 Tape caches are kept, in Postgres (owner, 2026-11-10)
+EVC01's baseline reads a compact cache (~70 KB per asset-session) of every tape session since
+2023-05-24: ~4 GB in all, ~1.1 GB a year. Re-streaming the raw tapes instead (~30 GB a session, every
+earlier session, every day) is infeasible, so the caches are kept; the raw tapes stay with Intrinio.
+They live in the database (one row per asset-session) because objects this small are better served
+by a database than by file or object storage (Sears, van Ingen, Gray, "To BLOB or Not To BLOB",
+Microsoft Research 2006: under ~256 KB the database wins), and it keeps one store, one backup and no
+storage keys on workers. Spaces keeps the perishable archives (files of MBs) and the database backups.
+
+## C-011 A worker computes every measurement that reads its day's inputs (owner, 2026-11-10)
+The owner's model of a worker: download what it can, compute its measurements, write them to the
+permanent database, exit. Measurements that read the day's own downloaded inputs (today's derived
+families DLM-CHAIN, -GREEKS, -GAMMA and the expected move, which read T's option population, surface
+and VWAP cache) move into the worker's layer (engine change E10). The ordered derived pass then reads
+only the database. Rejected: staging those inputs in Spaces until the ordered pass reaches the day (a
+second, unreliable hand-off). Recomputing one of these families later re-downloads the day.
