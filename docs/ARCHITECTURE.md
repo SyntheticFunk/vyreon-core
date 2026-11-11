@@ -232,6 +232,7 @@ doing today's capture until the cluster has matched it for several sessions.
 | E7 | Provider ticker per date (FB → META), challenge registry from history | after the first build |
 | E8 | Absences with causes (`NOT_LISTED`, `BEFORE_PROVIDER_START`) | after the first build |
 | E9 | FIELD over a changing membership: stated absence until its rulings (C-005); the constants tied to 64 (pair counts, group positions, minimum cross-sections) follow the day's member list | after the first build |
+| E15 | Monthly partitioning of the store (C-014a): `measurement`, `measurement_stream`, `reader_scalar` and `unusual_score` are keyed by revision only, so each gains the represented date in its key and the engine's inserts supply it. The store's schema stays the engine's (`db/schema.sql`, applied by the publisher's build); core's own tables (universe, work, budget, coverage, tape cache) live in a separate `core` schema with core's migrations | engineering; before the first build |
 | E14 | The stored format slimmed (each body is stored twice; M0 streams are 65% of the store) | before a larger universe |
 
 **Proof for E1–E5, E7′, E10–E13:** the golden days through the worker path equal `engine-v1` except the
