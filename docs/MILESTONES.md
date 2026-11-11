@@ -126,7 +126,21 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   heartbeat, publish of the engine-written bundle, the refusal of a second copy, finish.
   Not yet exercised: a whole computed day through the loop (it needs the droplet), stage timings and
   request counts in the bundle (E13), the build identity without git (B7).
-- Next without waiting: tape caches through core (B5), the budget gate (B4), ranged daily bars (B2).
+- B5 (tape caches through core) is studied, not started. Facts: a day needs, per asset-session, only
+  `capture/manifest.json` and `capture/derived/{derived.json, body.json, body-5m.json}` (the raw
+  per-security files are read only to derive); a session without a tape is itself a small cache
+  (`withheld_session`), not an absence. Three bindings decide the design:
+  (1) a cache is valid only for the build's `READER_IDENTITY` (a hash of eight source files): that
+  is core's `method_version`, and a build that touches those files recomputes every tape (~$15);
+  (2) a cache names the daily attempt directory it was derived against and is re-derived (which
+  needs the raw files) when the local name differs or the day's daily bar is absent;
+  (3) so the day needs the daily bar of **every** session whose cache it reads, back to 2023-05-24,
+  while it downloads only 380 sessions of bars. A full tape history has never run with a short bar
+  window. Ranged bars from a fixed origin (B2) supply them, so **B2 comes before B5**.
+  Later, for daily operation: a recent session's bar is re-captured for three sessions and its cache
+  re-derived, which core's write-once rule does not allow yet.
+- Next: B2 (ranged daily bars; the capture layout and the binding change, values identical on real
+  responses), then B5 on top of it, then the budget gate (B4).
 
 ## Open
 - Before the first build (ARCHITECTURE §8 step 0): E4's rules; stated absences on historical dates
