@@ -346,6 +346,14 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   FIELD-DEP01's body for `spy_pairs`, CDD-EVENTS01's body for the events, `iv_today` = VS-IVS01's
   supported `iv30`. The laptop's frozen exports hold only VS-O02/O06/P01/L01/V02 and two M0 owners,
   so a laptop test can cover the chain sensors for DBA and VGK at most; the proof is the droplet's.
+  **Step 3's computation proven (droplet, 2026-11-11, engine 64c1988d):** `vyreon-worker
+  derive-local` over the droplet store's published base day 2025-12-10 written out as export
+  directories (274: VS-O02, VS-P01, VS-IVS01, M0-GAMMA with its stream, FIELD-DEP01, CDD-EVENTS01)
+  and the droplet home's archive and surfaces: 1,105 slots in 61 s, 0.4 GB; every role of every
+  slot equals the droplet's published derived day (1,105 of 1,105, all 18 sensors, same method
+  versions). So the event window from T's own ledger equals the one read over published days, on
+  this day. Left in step 3: the stage in DayRun, the second bundle, E11's withheld assets, and a
+  test from a frozen real slice. Proof scripts: `/root/worker-proof/b3/` on the droplet.
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
   derived sensors into the day), E11 (decided, C-029), E4 (owner decisions
   first).
