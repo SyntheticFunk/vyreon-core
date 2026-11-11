@@ -218,3 +218,29 @@ through core into an empty PostgreSQL 16 in 17.6 s, 151 MB on disk. A listing of
 scalar and revision taken with psql from the droplet's store and from core's is identical (18,724
 lines; digests, text, JSONB, receipts, versions, states, scalar values).
 
+## C-025 The queue, the budget and the worker API (2026-11-10)
+- **The queue is a PostgreSQL table** claimed with `FOR UPDATE SKIP LOCKED` (the documented way to
+  run a queue with several consumers); no message broker (C-014). One view, `core.claimable_job`,
+  says what may be claimed, and both the claim and the autoscaler's count read it.
+- **Order:** a day block waits for every tape job up to its last session; the ordered pass takes one
+  day at a time, behind the published days. Blocks themselves run in any order.
+- **A lease is a token.** The claim (made with the workers' shared token, of which core holds only
+  the SHA-256) returns a random lease token; every other call carries it; core keeps its digest. A
+  lease not renewed for `VYREON_CORE_LEASE_SECONDS` (300) expires and the job resumes at its first
+  session not done. Three failed attempts leave a job FAILED and pause the queue; so does a refused
+  bundle. Nothing is claimed while paused; a running worker learns of it at its heartbeat.
+- **A worker's bundle must be its job's next day**, for its profile and build, and the day is
+  published and the job moved on in one transaction. One bundle is published at a time.
+- **The budget is a reservation, not a rate estimate.** A worker draws a lease of up to 600 requests
+  valid 30 s; the lease counts against the ceiling (1,800 of Intrinio's 2,000 a minute) from its
+  grant until 60 s after its end, at full size while open and at what was used once released. The
+  requests of any rolling minute therefore cannot exceed the ceiling. Sustained throughput is about
+  1,200 a minute if every lease is held to its end, more when workers release early.
+- **Tape caches are opaque and written once**: stored as the worker packed them; the same bytes
+  again are accepted, other bytes refused. A session without a tape is a stated absence. A tape job
+  is done only when every member listed on the session has one or the other.
+- **Sessions come from the engine's calendar**, loaded as a list; core does not compute trading days.
+- **The claim carries the member manifest**: for each session, each member's key, security id,
+  ticker in use (none when not listed), group and company flag, and the provider sources' first
+  dates. The engine ignores it until E6.
+
