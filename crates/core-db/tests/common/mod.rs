@@ -3,6 +3,8 @@
 #![allow(dead_code)]
 use tokio_postgres::{Client, Config, NoTls};
 
+pub mod slice;
+
 const NEEDS: &str = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)";
 
 pub async fn connect(config: &Config) -> Client {
