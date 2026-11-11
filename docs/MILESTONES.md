@@ -236,7 +236,7 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   requests its account ledger does not record as attempts, so it stays at the step. With the gate
   holding all workers under core's ceiling, a 429 is the exception this handles.
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
-  derived sensors into the day), B5, E11 (decided, C-029), E4 (owner decisions
+  derived sensors into the day), E11 (decided, C-029), E4 (owner decisions
   first).
 
 ## Open
