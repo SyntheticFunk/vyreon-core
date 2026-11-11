@@ -28,8 +28,9 @@ The engine computes; core schedules, stores and serves. The measurements are the
   Candidate node: 8 vCPU shared, 80 GB disk, $0.17/h. Anything that costs money is the owner's call.
 - **Intrinio rate limit: 2,000 requests a minute, owned by core.** Workers draw from a shared
   budget (with margin) and report what they use; core tracks usage over time.
-- **Point-in-time universe, built into the database.** Key securities by Intrinio security id (and
-  FIGI), never by ticker: tickers are reused (FB is now a ProShares ETF; META was a Roundhill ETF to
+- **Point-in-time universe, built into the database.** Key securities by a permanent Vyreon asset key, never by
+  ticker or by a provider id alone (C-023: an Intrinio security id changes on a rename, Meta is two
+  records); provider ids and FIGIs are stored against the key as evidence. Tickers are reused: tickers are reused (FB is now a ProShares ETF; META was a Roundhill ETF to
   2022-01-28). Store dated ticker spans (`get_security_history_by_ticker`), listing and delisting
   dates, merges, and per-source provider start dates. Option EOD is keyed by the ticker in use on that
   date. Delisted securities keep prices and options history (TWTR, SIVB checked). Provider starts:

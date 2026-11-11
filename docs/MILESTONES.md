@@ -168,11 +168,10 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
 - `unusual_score` is untested with real rows: the droplet has none yet (one derived day).
 - Publish memory, measured on the full day: the core process peaks at ~0.7 GB and its database
   backend at ~0.6 GB. Not yet bounded; A7 runs one publish at a time (a day takes ~18 s).
-- **Owner decisions for E11:** (1) a new provider-limited slot reason for an absent input (proposed
-  `PROVIDER_INPUT_MISSING`, not counted in the 10% engine-fault hold); (2) FIELD on such a day follows
-  h5-field's existing rules for a missing member; (3) how many assets may be withheld before the day
-  is held for a retry instead (proposed: more than 6 of 64, the same tenth as the fault hold).
-- **Owner decision, with track B:** how Reporter gets each coordinate's state, reason, unit and
-  quality (C-026). Proposed: the engine adds its coordinates projection to the day's bundle.
+- **Decided by the owner, 2026-11-11 (to build in track B):** E11 as proposed: an absent provider
+  input gives its assets the new provider-limited reason `PROVIDER_INPUT_MISSING`, not counted in the
+  10% engine-fault hold; FIELD follows h5-field's existing rules for a missing member; the day is held
+  for a retry when more than 6 of 64 assets are withheld. C-026 as proposed: the engine adds its
+  coordinates projection to the day's bundle, and core stores and serves it.
 - Not built in A7, on purpose: core's own Intrinio fetch for the universe (no caller until the daily
   chain), and Kubernetes manifests with KEDA's query on `core.claimable_job` (milestone 3).

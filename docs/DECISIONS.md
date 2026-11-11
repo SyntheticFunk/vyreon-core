@@ -287,3 +287,12 @@ job, for the same profile and build, with every slot's body digest equal to the 
 revision's. Anything else that is not the job's next day is still refused and pauses the queue. This
 makes the publish call safe to retry, so the worker retries it on a transport failure.
 
+## C-029 Owner decisions on E11, coordinates and the security key (2026-11-11)
+- E11: an absent provider input withholds its assets with a new provider-limited reason,
+  `PROVIDER_INPUT_MISSING`, outside the 10% engine-fault hold; FIELD follows its existing
+  missing-member rules; more than 6 of 64 withheld holds the day for a retry.
+- C-026 is settled: the engine writes each slot's coordinates projection into the bundle; core
+  stores and serves it. This is a contract change (a new bundle version) made with track B.
+- The security key is Vyreon's own permanent asset key, the practice of reference databases (CRSP's
+  PERMNO): every provider identifier can change or be reused, so each is stored against the key as
+  dated evidence, none is the key. `AGENTS.md` corrected to say so.
