@@ -398,10 +398,19 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   claimed the 2025-12-10 job from a scratch core over HTTP, computed from its database, published
   revision 3 on base 1 (naming it) and finished the job. Writing it showed core would have refused
   a day's second bundle (the base publish moved the block on): a day block now posts
-  `days/{date}/done` after its bundles (C-031). **Left in B3:** a whole real day through the worker
-  with both bundles and the done step, then the pass on it (running on the droplet, started
-  2026-11-11 ~17:25 UTC); the base load bounded to its windows (it loads every published day);
-  history, which only several days can prove.
+  `days/{date}/done` after its bundles (C-031).
+  **B3 proven on a whole real day (droplet, 2026-11-11, build `ce3c50b9+25c5107c2761`):**
+  2025-12-10 through `vyreon-worker run day-block` on the home copy, filling off, in 175 min (the
+  day-local stage 67 s): base bundle published as revision 1, the day-local bundle as revision 2
+  on it, `done`, job finished; then `run ordered-pass` (laptop build, core's database) published
+  revision 3 and finished. Against the droplet's own published day: base 2,853 slots, no numeric
+  difference, no slot or stream difference, 1,573 bodies byte-identical (the rest differ in the
+  cutoff clock, the calendar digest and provenance digests, as in the earlier golden run);
+  derived 1,826 of 1,826 slots present, every role value equal, 1,791 with the same role order
+  and 35 DLM-UNUSUALNESS bodies in another order (explained above). One heartbeat request failed
+  in transit during the publish and the next succeeded.
+  **Left in B3:** the pass's base load bounded to its windows (it loads every published day);
+  history, which only several days can prove (the two-node run's adjacent days are the first).
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
   derived sensors into the day), E11 (decided, C-029), E4 (owner decisions
   first).
