@@ -198,9 +198,16 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   **A value question for E4:** the droplet derived its oldest tape sessions with no daily bar
   (official volume unavailable); a tape worker always has the bar, so those sessions' volume
   reconciliation gate will run where `engine-v1` withheld. It is declared with E4.
-  Not done: the tape entrypoint (`vyreon-worker run tape`: the session's bars and round-lot month,
-  the raw tapes, each member's cache put, the session marked done; members not listed on the
-  session), and a build that changes the reader's eight source files recomputes every tape.
+  The tape entrypoint is written (engine, the commit after d3d0239d), not yet run on real tapes:
+  `vyreon-worker run tape` claims a tape job and, per session, captures the session's bar and its
+  round-lot evaluation month (ranged) for every member trading by then, captures the tapes, derives
+  and stores each cache, and marks the session done; it draws the budget and heartbeats as a day
+  block does. **Its first real run is the next proof on the droplet** (one session, core on the
+  laptop through an SSH tunnel, the derived bodies compared with the droplet's own cache).
+  Known limits: the droplet's existing caches cannot seed core (they name its superseding daily
+  attempts, which a ranged-bar worker does not have), so the first build recomputes the tape
+  history as planned; a build that changes the reader's eight source files recomputes every tape;
+  a member core lists on a session that the engine's security record does not is refused at done.
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
   derived sensors into the day), B5, E11 (decided, C-029), E4 (owner decisions
   first), the 429 audit (E3).
