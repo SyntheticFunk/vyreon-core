@@ -167,14 +167,19 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   Not done: file downloads from presigned URLs are not gated (the open Intrinio question); the
   engine's own per-stream pacing is still on underneath; each site's handling of a 429 is not yet
   audited (E3); the counts are printed, not yet in the bundle (E13).
+- Done (contract 2, C-030; core ecf69fa, engine the two commits after b9046fb5): the bundle carries
+  each body-projected slot's coordinates view and the run's report (E13: stage seconds, requests by
+  category). Core stores both and serves `GET /v1/assets/{object}/history?...&detail=coordinates`:
+  every coordinate with its value, state, reason, unit and quality, exactly as the engine projected
+  it (tested on a real engine-written bundle of AAPL's five body slots). Stream-backed M0 slots
+  carry no view (it would double stream storage); their coordinates are in the stream core serves.
 - An alternative for B5 that does not wait for B2, for whoever picks it up: a worker that did not
   derive a cache could accept it on core's digest and its recorded daily-bar identity instead of
   re-checking the local daily bar. That is a change to the cache's validity rule, so it is recorded
   as a decision before it is coded.
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
   derived sensors into the day), B5, B7 (the image), E11 (decided, C-029), E4 (owner decisions
-  first), E13 (timings and request counts in the bundle), the coordinates projection in the bundle
-  (C-029), the 429 audit (E3).
+  first), the 429 audit (E3).
 
 ## Open
 - Before the first build (ARCHITECTURE §8 step 0): E4's rules; stated absences on historical dates

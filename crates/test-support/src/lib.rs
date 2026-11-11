@@ -51,4 +51,9 @@ pub fn fixtures() -> std::path::PathBuf {
 pub const CALENDAR: &str = include_str!("../fixtures/engine-v1-sessions.json");
 
 /// AAPL's reduced tape of 2025-12-10 from the droplet, packed as its four files.
+/// A bundle the engine wrote (contract 2, `vyreon-worker bundle`, engine b9046fb5 + contract 2)
+/// from its retained real exports of 2025-12-10: AAPL's five slots without an event stream, each
+/// with its coordinates view.
+pub const ENGINE_BUNDLE_AAPL: &[u8] = include_bytes!("../fixtures/engine-bundle-2025-12-10-aapl.tar.gz");
+
 pub const TAPE_AAPL: &[u8] = include_bytes!("../fixtures/tape-cache-AAPL-2025-12-10.tar.gz");

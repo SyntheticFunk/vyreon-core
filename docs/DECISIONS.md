@@ -187,7 +187,7 @@ left until members vary (E6). Core does not call Intrinio yet: `vyreon-core univ
 saved responses; the fetch joins the budget work (A7).
 
 ## C-024 The publish contract and what core checks (2026-11-10)
-`crates/core-contract` is the whole contract (VYREON-DAY-BUNDLE@1): one day of one profile as a gzip
+`crates/core-contract` is the whole contract (VYREON-DAY-BUNDLE@1, now @2: C-030): one day of one profile as a gzip
 tar holding a header (the day, the build, one entry per slot), the day's reader scalars and
 unusualness scores, and each slot's body, receipt and event stream as the engine wrote them.
 - **Core takes each slot's identity, state and versions from the header.** The engine's store dug
@@ -296,3 +296,25 @@ makes the publish call safe to retry, so the worker retries it on a transport fa
 - The security key is Vyreon's own permanent asset key, the practice of reference databases (CRSP's
   PERMNO): every provider identifier can change or be reused, so each is stored against the key as
   dated evidence, none is the key. `AGENTS.md` corrected to say so.
+
+## C-030 Bundle contract 2: coordinates views and the run report (2026-11-11)
+Settles C-026 as the owner decided (C-029). `VYREON-DAY-BUNDLE@2` adds, per slot, an optional
+`coordinates.json` with its digest in the header, and a `report` object in the header. Core checks
+the digest and that both are JSON objects, stores them (`vyreon.measurement.coordinates`,
+`vyreon.day_revision.report`, migration 0009) and serves the view with `detail=coordinates`. Core
+reads only contract 2; nothing in production wrote contract 1.
+- The view is the engine's own projection, built by the code its API uses; core cannot recompute
+  it and takes it as stated, like a slot's state and versions.
+- **Measured on 2025-12-10's retained real exports (448 slots):** the 320 slots projected from their
+  bodies have 5.5 MB of views beside 8.3 MB of bodies. The 128 stream-backed M0 slots' views are
+  their event streams over again (202 MB beside 201 MB of events), so the engine leaves them out
+  and a reader takes those coordinates from the stream, which core already serves byte for byte.
+  The earlier estimate of +30% store size was wrong in both directions: about +65% of body size for
+  body slots, and it would have doubled stream storage. If Reporter needs M0 views pre-projected,
+  that is the cost to weigh.
+- `detail=full` stays the default until Reporter's needs are settled (AGENTS.md names coordinates as
+  the default; a day published without views would then answer nulls).
+- The report (E13) is the engine's to shape: today the day's stage seconds and the worker block's
+  Intrinio requests by category so far (later days download during a day, so the count is the
+  block's, not one day's).
+

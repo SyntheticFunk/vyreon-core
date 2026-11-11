@@ -211,3 +211,77 @@ async fn a_body_and_its_stream_are_served_byte_for_byte() {
     assert_eq!(s.get_as(&s.reader, &format!("/revisions/{}/slots/DLM-IV30/AAPL", s.derived_revision)).await.status(), StatusCode::NOT_FOUND);
     s.scratch.drop().await;
 }
+
+/// Contract 2: the engine's own bundle of real slots carries each slot's coordinates view and the
+/// run's report; core stores both as published and serves the view with `detail=coordinates`.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn the_engines_coordinates_view_is_stored_and_served_as_published() {
+    use core_contract::{BundleWriter, Item, read_bundle};
+    let scratch = Scratch::new("reader_coordinates").await;
+    let mut client = scratch.client().await;
+    migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
+    work::load_calendar(&mut client, &serde_json::from_str(CALENDAR).unwrap()).await.unwrap();
+    client.query_one("SELECT vyreon.ensure_months('2025-12-01', '2025-12-31')", &[]).await.unwrap();
+
+    let (mut header, mut scalars, mut files) = (None, None, Vec::new());
+    read_bundle(test_support::ENGINE_BUNDLE_AAPL, &mut |item| {
+        match item {
+            Item::Header(h) => header = Some(*h),
+            Item::Scalars(s) => scalars = Some(s),
+            Item::Slot(f) => files.push(f),
+        }
+        Ok(())
+    })
+    .unwrap();
+    let (mut header, scalars) = (header.unwrap(), scalars.unwrap());
+    assert_eq!((header.slots.len(), header.slots.iter().filter(|s| s.coordinates_sha256.is_some()).count()), (5, 5));
+    let slots: Vec<Value> = header
+        .slots
+        .iter()
+        .enumerate()
+        .map(|(i, s)| json!({"profile_revision": header.profile_revision, "slot_ordinal": i, "measurement_id": s.measurement_id, "object_id": s.object_id, "layer": "BASELINE"}))
+        .collect();
+    build::register(&mut client, &json!({"engine_build": header.engine_build, "slots": slots})).await.unwrap();
+    // the run's report travels in the header
+    let report = json!({"schema": "VYREON-RUN-REPORT@1", "stages": [{"stage": "intent B (T)", "seconds": 4211}], "block_requests_so_far": {"captures": 31250}});
+    header.report = Some(report.clone());
+    let path = test_support::slice::temp("reader-coordinates");
+    let mut writer = BundleWriter::new(std::fs::File::create(&path).unwrap(), &header, &scalars).unwrap();
+    files.iter().for_each(|f| writer.add(f).unwrap());
+    writer.finish().unwrap();
+    let revision = publish_file(&mut client, &path).await.unwrap().revision_id;
+    std::fs::remove_file(&path).unwrap();
+    let stored: String = client.query_one("SELECT report::text FROM vyreon.day_revision WHERE revision_id = $1", &[&revision]).await.unwrap().get(0);
+    assert_eq!(serde_json::from_str::<Value>(&stored).unwrap(), report);
+
+    let key = api_key::create(&client, "reporter", &["read".to_owned()]).await.unwrap();
+    let pool = deadpool_postgres::Pool::builder(deadpool_postgres::Manager::new(scratch.config.clone(), tokio_postgres::NoTls)).max_size(2).build().unwrap();
+    let config = Config { worker_token_sha256: sha256_hex(b"unused"), spool: std::env::temp_dir(), lease_seconds: 300.0, budget: Budget::default(), max_bundle_bytes: 1 << 20 };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/v1", listener.local_addr().unwrap());
+    let app = App::new(pool, config);
+    tokio::spawn(async move { axum::serve(listener, core_api::router(app)).await.unwrap() });
+    let get = |query: &'static str| {
+        let (url, key) = (url.clone(), key.clone());
+        async move { Http::new().get(format!("{url}/assets/AAPL/history?from=2025-12-10&to=2025-12-10{query}")).bearer_auth(key).send().await.unwrap().json::<Value>().await.unwrap() }
+    };
+    let served = get("&detail=coordinates").await;
+    assert_eq!(served["detail"], "coordinates");
+    let measurements = served["sessions"][0]["revisions"][0]["measurements"].as_array().unwrap();
+    assert_eq!(measurements.len(), 5);
+    let mut stated = 0;
+    for (m, (slot, f)) in measurements.iter().zip(header.slots.iter().zip(&files)) {
+        assert_eq!(m["measurement_id"], slot.measurement_id.as_str());
+        // exactly the engine's view: every coordinate with its value, state, reason, unit and quality
+        let view: Value = serde_json::from_slice(f.coordinates.as_ref().unwrap()).unwrap();
+        assert_eq!(m["coordinates"], view);
+        assert!(m.get("body").is_none() && m.get("scalars").is_none());
+        stated += view["coordinates"].as_array().unwrap().iter().filter(|c| c["state"].is_string()).count();
+    }
+    assert!(stated > 20, "{stated}");
+    // the other details do not carry it
+    assert!(get("").await["sessions"][0]["revisions"][0]["measurements"][0].get("coordinates").is_none());
+    assert!(get("&detail=headline").await["sessions"][0]["revisions"][0]["measurements"][0].get("coordinates").is_none());
+    scratch.drop().await;
+}
