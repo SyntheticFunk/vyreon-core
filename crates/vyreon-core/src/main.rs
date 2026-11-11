@@ -18,7 +18,8 @@
 //!                                                     VYREON_CORE_WORKER_TOKEN_SHA256 (required: the SHA-256 of the
 //!                                                     workers' shared token), VYREON_CORE_LISTEN (0.0.0.0:8080),
 //!                                                     VYREON_CORE_SPOOL (the temp dir), VYREON_CORE_LEASE_SECONDS (300),
-//!                                                     VYREON_CORE_INTRINIO_PER_MINUTE (1800)
+//!                                                     VYREON_CORE_INTRINIO_PER_MINUTE (1800), VYREON_CORE_WEBHOOK_FILE
+//!                                                     (a file holding the Discord webhook URL; without it notices wait)
 //!   vyreon-core engine-store export <date> <dir>      bundles and inventories of a day from a store in
 //!                                                     the engine's schema (VYREON_ENGINE_PG[_FILE]; read-only)
 //!
@@ -138,6 +139,13 @@ async fn serve() -> Result<(), String> {
     let listen: String = setting("VYREON_CORE_LISTEN", "0.0.0.0:8080".to_string())?;
     let listener = tokio::net::TcpListener::bind(&listen).await.map_err(|e| format!("{listen}: {e}"))?;
     core_api::spawn_sweeper(app.clone());
+    match std::env::var("VYREON_CORE_WEBHOOK_FILE") {
+        Ok(file) => {
+            let webhook = std::fs::read_to_string(&file).map_err(|e| format!("{file}: {e}"))?.trim().to_owned();
+            core_api::notices::spawn_sender(app.clone(), webhook);
+        }
+        Err(_) => println!("VYREON_CORE_WEBHOOK_FILE is not set: notices are kept unsent"),
+    }
     println!("vyreon-core listening on {listen}");
     axum::serve(listener, core_api::router(app)).await.map_err(|e| e.to_string())
 }

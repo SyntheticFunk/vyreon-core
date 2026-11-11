@@ -5,6 +5,7 @@
 //! Who may call: a claim carries the workers' shared token (core is given only its SHA-256); the
 //! claim returns a lease token, and every other call carries that. Both travel as
 //! `Authorization: Bearer <token>`. Workers hold no database or storage credentials (C-016).
+pub mod notices;
 pub mod reader;
 pub mod worker;
 

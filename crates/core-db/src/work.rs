@@ -6,6 +6,7 @@
 //! done. A job that fails `max_attempts` times stays FAILED and pauses the queue, as does any
 //! failed check: nothing more is claimed until someone has looked (ARCHITECTURE 5.1).
 use serde_json::Value;
+use crate::notice;
 use tokio_postgres::{Client, GenericClient};
 
 fn db(e: tokio_postgres::Error) -> String {
@@ -349,7 +350,24 @@ pub async fn finish(client: &mut Client, token: &str) -> Result<i64, LeaseError>
         return Err(LeaseError::Refused(format!("job {} is not done: {next} to {} remain", lease.job_id, lease.last_session)));
     }
     tx.execute("UPDATE core.lease SET ended_at = now(), outcome = 'DONE' WHERE lease_id = $1", &[&lease.lease_id]).await.map_err(failed)?;
-    tx.execute("UPDATE core.job SET state = 'DONE', finished_at = now() WHERE job_id = $1", &[&lease.job_id]).await.map_err(failed)?;
+    let job = tx
+        .query_one(
+            "UPDATE core.job SET state = 'DONE', finished_at = now() WHERE job_id = $1
+             RETURNING first_session::text, last_session::text,
+                       (SELECT count(*) FROM core.job o WHERE o.kind = core.job.kind AND o.job_id <> core.job.job_id AND o.state IN ('QUEUED', 'LEASED', 'FAILED'))",
+            &[&lease.job_id],
+        )
+        .await
+        .map_err(failed)?;
+    let (first, last, remaining): (String, String, i64) = (job.get(0), job.get(1), job.get(2));
+    // one line per finished day block; for the many small jobs, only when the last one is in
+    if lease.kind == "DAY_BLOCK" {
+        let text = format!("Day block {first} to {last} done by {} ({remaining} blocks to go).", lease.worker);
+        notice::post(&tx, &text).await.map_err(LeaseError::Failed)?;
+    } else if remaining == 0 {
+        let what = if lease.kind == "TAPE" { "tape" } else { "ordered pass" };
+        notice::post(&tx, &format!("Every scheduled {what} job is done (the last: {last}).")).await.map_err(LeaseError::Failed)?;
+    }
     tx.commit().await.map_err(failed)?;
     Ok(lease.job_id)
 }
@@ -373,17 +391,23 @@ pub async fn fail(client: &mut Client, token: &str, stage: &str, message: &str, 
 
 /// Stops claims until `resume`. The first reason is kept: it is what stopped the queue.
 pub async fn pause(db_client: &impl GenericClient, reason: &str) -> Result<(), String> {
-    db_client
+    let paused = db_client
         .execute("UPDATE core.queue_control SET paused = true, reason = $1, changed_at = now() WHERE NOT paused", &[&reason])
         .await
         .map_err(db)?;
+    if paused == 1 {
+        notice::post(db_client, &format!("Queue paused: {reason}. No work is handed out until `vyreon-core queue resume`.")).await?;
+    }
     Ok(())
 }
 
 /// Lets work be claimed again. Returns the reason the queue was paused for, if it was.
 pub async fn resume(db_client: &impl GenericClient) -> Result<Option<String>, String> {
     let was: Option<String> = db_client.query_one("SELECT reason FROM core.queue_control", &[]).await.map_err(db)?.get(0);
-    db_client.execute("UPDATE core.queue_control SET paused = false, reason = NULL, changed_at = now() WHERE paused", &[]).await.map_err(db)?;
+    let resumed = db_client.execute("UPDATE core.queue_control SET paused = false, reason = NULL, changed_at = now() WHERE paused", &[]).await.map_err(db)?;
+    if resumed == 1 {
+        notice::post(db_client, "Queue resumed.").await?;
+    }
     Ok(was)
 }
 

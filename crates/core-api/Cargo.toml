@@ -11,6 +11,7 @@ core-contract = { path = "../core-contract" }
 core-db = { path = "../core-db" }
 deadpool-postgres.workspace = true
 futures-util.workspace = true
+reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 tar.workspace = true
@@ -20,6 +21,5 @@ tokio-postgres.workspace = true
 
 [dev-dependencies]
 flate2.workspace = true
-reqwest.workspace = true
 tar.workspace = true
 test-support = { path = "../test-support" }

@@ -80,7 +80,10 @@ pub async fn admit(client: &Client, build: &str, evidence: &Value) -> Result<(),
         )
         .await
         .map_err(db)?;
-    if n == 0 { Err(format!("engine build {build} is not registered")) } else { Ok(()) }
+    if n == 0 {
+        return Err(format!("engine build {build} is not registered"));
+    }
+    crate::notice::post(client, &format!("Engine build {build} admitted: its workers may claim work.")).await
 }
 
 /// Withdraws an admitted build: its queued jobs are no longer claimable.
@@ -89,5 +92,8 @@ pub async fn withdraw(client: &Client, build: &str, reason: &str) -> Result<(), 
         .execute("UPDATE core.engine_build SET withdrawn_at = now(), withdrawal = $2 WHERE engine_build = $1 AND admitted_at IS NOT NULL", &[&build, &reason])
         .await
         .map_err(db)?;
-    if n == 0 { Err(format!("engine build {build} is not admitted")) } else { Ok(()) }
+    if n == 0 {
+        return Err(format!("engine build {build} is not admitted"));
+    }
+    crate::notice::post(client, &format!("Engine build {build} withdrawn: {reason}.")).await
 }
