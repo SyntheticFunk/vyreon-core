@@ -86,7 +86,7 @@ async fn claim(State(app): Shared, headers: HeaderMap, Json(request): Json<Claim
             "SELECT COALESCE(jsonb_agg(jsonb_build_object('session', s.session, 'members',
                         (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.ordinal) FROM core.members_on($1, s.session) m)) ORDER BY s.session), '[]'::jsonb)::text,
                     (SELECT jsonb_object_agg(source, first_date)::text FROM core.source_coverage),
-                    (SELECT to_jsonb(min(first_session))::text FROM core.job WHERE kind = 'TAPE' AND profile_id = $1 AND state <> 'CANCELLED')
+                    (SELECT COALESCE(to_jsonb(min(first_session)), 'null'::jsonb)::text FROM core.job WHERE kind = 'TAPE' AND profile_id = $1 AND state <> 'CANCELLED')
              FROM core.session s WHERE s.session = ANY($2::text[]::date[])",
             &[&c.profile_id, &c.sessions],
         )
