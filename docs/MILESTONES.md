@@ -452,6 +452,17 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   per-session captures.
   (4) *Tape-history start:* `VYREON_TAPE_HISTORY_FROM` (an environment variable, default
   2023-05-24); to come from core's claim.
+- **Priority (owner, 2026-11-11): the database before general rules.** Rules tuned on the few
+  golden dates have overfitted for weeks; the built database is where they are judged, and a
+  recompute is cheap. So E4 is cut to what a distributed build needs (the same day gives the same
+  values on any node and at any place in a block), each rule a plain declared default: the
+  `last_adjusted` lookback fixed at 21 sessions with the quote window extended to match (not tuned
+  on XLE; a query over the built database shows whether stale rows outlive it), the fixed bar
+  origin, the tape-history start from the claim. E11's narrowing waits for the build to show how
+  often inputs go missing; missed values, listings and delistings handled cleanly are the eventual
+  aim (E6 to E8). The cluster is what builds the database and what keeps running costs below the
+  single-node plan. Order: today's whole-day proof, E4's three defaults, cluster setup, the
+  two-node run (spend to the owner first), the build.
 - **First major deliverable (owner, 2026-11-11):** two cluster nodes, each computing a golden
   day from an empty disk (adjacent days 2025-12-10 and 2025-12-11, tape jobs before, the ordered
   pass after, compared with the droplet's published days). No cold-start rehearsal on the droplet
