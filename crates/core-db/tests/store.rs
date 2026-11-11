@@ -27,8 +27,21 @@ fn state(e: &Error) -> Option<&SqlState> {
     e.code()
 }
 
+/// Registers the builds the slice's revisions name.
+async fn register_builds(client: &Client) {
+    client
+        .execute(
+            "INSERT INTO core.engine_build (engine_build)
+             SELECT DISTINCT engine_build FROM jsonb_to_recordset($1::text::jsonb->'day_revision') AS r(engine_build text)",
+            &[&SLICE],
+        )
+        .await
+        .unwrap();
+}
+
 /// Inserts the slice's revisions as STAGED and returns (the slice's id, core's id) pairs, base first.
 async fn stage_revisions(client: &Client) -> Vec<(i64, i64)> {
+    register_builds(client).await;
     let rows = client
         .query(
             "SELECT revision_id, base_revision FROM jsonb_to_recordset($1::text::jsonb->'day_revision')
@@ -246,6 +259,26 @@ async fn a_real_day_slice_is_stored_in_its_month_and_reads_back_exact() {
         .await
         .unwrap_err();
     assert_eq!(state(&second), Some(&SqlState::UNIQUE_VIOLATION));
+    scratch.drop().await;
+}
+
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_revision_needs_a_registered_build() {
+    let (scratch, client) = migrated("build").await;
+    let insert = "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff)
+                  SELECT represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff
+                  FROM jsonb_to_recordset($1::text::jsonb->'day_revision')
+                      AS r(represented_date date, profile_id text, profile_revision text, engine_build text, snapshot_cutoff timestamptz, base_revision bigint)
+                  WHERE base_revision IS NULL";
+    let unregistered = client.execute(insert, &[&SLICE]).await.unwrap_err();
+    assert_eq!(state(&unregistered), Some(&SqlState::FOREIGN_KEY_VIOLATION));
+    register_builds(&client).await;
+    assert_eq!(client.execute(insert, &[&SLICE]).await.unwrap(), 1);
+    // admission carries its evidence, and only an admitted build can be withdrawn
+    for bad in ["UPDATE core.engine_build SET admitted_at = now()", "UPDATE core.engine_build SET withdrawn_at = now(), withdrawal = 'x'"] {
+        assert_eq!(state(&client.execute(bad, &[]).await.unwrap_err()), Some(&SqlState::CHECK_VIOLATION), "{bad}");
+    }
     scratch.drop().await;
 }
 
