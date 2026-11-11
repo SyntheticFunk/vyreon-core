@@ -526,7 +526,7 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   asset from 2020-01-02 (B2's `daily_range_chain` and `link_range` already fetch and verify ranged
   bars), kept as a range of its own that the technical records read, not per-session captures.
   Engine `worker` is at the tape-history commit, pushed.
-- **Spend authorized (owner, 2026-11-11 ~15:20 Alberta time): the two-node run, up to $25.** Created
+- **Spend authorized (owner, 2026-11-11 ~15:00 Alberta time): the two-node run, up to $25.** Created
   through the DigitalOcean connector; the worker pool is deleted after every run; the owner is
   asked before the cluster or the registry is deleted. A ledger of what is created, when, and
   what it costs is kept here as it happens.
