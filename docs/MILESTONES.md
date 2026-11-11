@@ -510,6 +510,13 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   a 2025 day (~3,500), and a per-session directory for each of ~1,100 older sessions an asset:
   the time `link_range` takes over that many is unmeasured. The technical seven will differ from
   `engine-v1` (longer history).
+  **Dry-run fill plan of 2025-12-10 on the home copy (build `89e13c3e+be7f7dadc3b5`, no network,
+  10 s):** per asset 92 more option sessions (2025-01-22 to 2025-06-03: 5,888 chain captures in
+  all), 92 quote-snapshot sessions to fetch, 3,330 ranged daily months to link (about 52 an asset,
+  back to 2020-01), 507 quote files whose markers change (the old splits' markers go), and carry
+  for 2025-12-03 again. The quote snapshots are the slow part of a download and their count goes
+  from 132 to 224 sessions at a block's start: how long that adds is for the filled run to say.
+  Script: `/root/worker-proof/dry-fill.sh` (private mount namespace, `vyreon-inputs fill --dry-run`).
   **All three defaults are built. Next: one run on the droplet with filling on** (the 2025-12-10
   home copy lacks 92 sessions of chains and quote files and the bars before 2024-06), after the
   02:00 UTC capture, to measure the added requests and time and to see the day through; then the
