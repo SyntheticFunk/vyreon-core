@@ -364,10 +364,18 @@ ARCHITECTURE left "one profile or two" to when E10 starts. Two.
   a weekly publication.
 - **Pushing:** both repositories may be pushed whenever there is something to push.
 
-## C-033 E4: `last_adjusted` scans the 200-session quote window (2026-11-11)
-The marker depended on how many daily sessions a disk held. Measured on the droplet's real chains
-(MILESTONES, E4): the overlay's frozen rule drops rows only in the days after an adjustment
-(hundreds of rows at 3 sessions, none at 25 or more), so a 200-session scan gives the populations
-an unbounded one does. The owner had agreed to a wider design (splits from the provider's list at
-any age); it is not built, because the measurement shows it would change nothing. If a stale
-pre-adjustment row with open interest ever survives 200 sessions, the cure is that design.
+## C-033 E4: `last_adjusted` needs a short, fixed lookback; its length is not settled (2026-11-11)
+The marker depended on how many daily sessions a disk held. Two findings, same day:
+- **A long lookback buys nothing at the far end.** On the droplet's real chains the overlay's
+  frozen rule had no row to drop for any adjustment 25 sessions old or older (MILESTONES, E4).
+- **"Scan the 200-session quote window" is not deterministic either** (my first version of this
+  entry said it was; it was wrong). A day rebuilds the quote file of every session d in
+  [T-200, T], and d's marker looks back from d: for the oldest files that reaches before T-200,
+  where a worker has no quote files, so new-root and strike-shift adjustments cannot be detected
+  there and the same file gets a different marker depending on where T is. The stale rows are
+  large when it matters (XLE: 1,137 rows, 2.1 million contracts of open interest).
+- **So:** the marker of session d reads a fixed lookback [d-L, d), and the quote window a worker
+  downloads grows by L+1 sessions so every file in the day's window has what its marker needs.
+  L must outlast the stale rows: ETHA's were gone 5 sessions after its adjustment, the sector
+  funds' were still there at 6 and are unmeasured until 200. L is chosen when that is measured
+  (about 20 provider requests); until then nothing is built.
