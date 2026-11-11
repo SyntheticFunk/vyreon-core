@@ -225,7 +225,7 @@ early and sync the droplet's prints (`/srv/vyreon-home/h5-exq01-events`, 1.5 GB 
 root disk) to it nightly, compressed. Ask DigitalOcean to raise the droplet limit (to ~25–30).
 *Owner: approve the bucket ($5/month + $0.02/GB) and the nightly sync on the droplet.*
 
-**Phase 1: measurements (current droplet; ~3–5 days, mostly waiting on runs).**
+**Phase 1: measurements. Folded into phase 4's first blocks (C-006, 2026-11-10); originally:**
 (a) A warm chain of 5–10 consecutive days with a kept history: per-day time and peak disk of a
 running block. (b) Tape materialization time per session (stage T's cost). (c) The block-start
 effect: one day computed fresh (131 sessions) vs inside the chain (200). (d) The size of a day's
@@ -314,6 +314,6 @@ Proposals with a recommendation; each is evaluated when its phase starts (owner,
 - **D7 Daily bars as one ranged request per asset** (−48k requests per cold block; binding change).
 - **D8 FIELD rulings (E9):** deferred by the owner (2026-11-10) until the backfill is complete;
   FIELD is a stated absence on days without the full 64 until then (phase 7b).
-- **D9 Core language:** Rust (recommend: shares the engine's crates and types) vs Python.
+- **D9 Core language — decided (C-007):** Rust (shares the engine's crates and types).
 - **D10 Company capture on historical dates** (~2.7k requests a day): fundamentals are not served as
   of a past date; confirm what the company owners should read in the backfill.
