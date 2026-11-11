@@ -100,11 +100,13 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
 - Done (8b0f183b): the readers' window lengths are `day_inputs`' declared windows, resolved at
   compile time (B1, first part; no value changes); `list_sessions all` prints the whole calendar
   with opens and closes (it equals core's loaded copy: 2,261 sessions, same digest).
-- Next in B1: the plan checks every declared window (today only the option history and close-quote
-  windows; the daily, PATH, FIELD and intraday windows are found missing ~75 min into the day), then
-  a missing input withholding its assets instead of the day (E11).
-Proof: golden days through the worker path against a core on the droplet or laptop; the block-start
-test; a bundle published through core reads back identical.
+- Done (the commit after it): the plan's new `daily_window` entry checks every daily capture the
+  views read, per asset from its first session where the reader does (B1/E12). The droplet's archive
+  agrees with the rule (SPY 380 sessions from 2024-06-06, ETHA 349 from its listing). Its
+  real-archive test (`plan_verdicts`, ignored by default) runs with the golden proofs on the droplet.
+- Next in B1: a missing input withholds the assets it touches instead of the day (E11). This adds
+  absence reasons and touches FIELD (which needs every member), so its design comes to the owner
+  with the cases before code.
 
 ## Open
 - Before the first build (ARCHITECTURE §8 step 0): E4's rules; stated absences on historical dates
