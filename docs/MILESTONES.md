@@ -114,8 +114,13 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   intent B's views and sources, the trade guard, VS-IVS01's exports, the FIELD driver's missing-view
   refusal), and there is no reason code for an absent provider input. Carry, macro and company stay
   whole-day inputs. Design questions are with the owner (Open).
-- Next without waiting: B6's contract side (the engine vendors its crates, so `core-contract` is
-  copied in byte for byte and `tar` vendored), then B5, B4, B2.
+- Done: `core-contract` copied into the engine byte for byte (it builds from vendored crates only;
+  `tar` and `filetime` vendored), and `vyreon-worker bundle` / `inventory`. The laptop's retained
+  real exports of 2025-12-10 (448 slots, 128 streams of 200 MB, 625 reader scalars) were bundled by
+  the engine in 1 s and published through core: every stored body hashes to its digest. The export
+  loading moved from the store's binary to its library, unchanged.
+- Next without waiting: the worker's claim loop over HTTP (B6), then tape caches through core (B5),
+  the budget gate (B4), ranged daily bars (B2).
 
 ## Open
 - Before the first build (ARCHITECTURE §8 step 0): E4's rules; stated absences on historical dates
