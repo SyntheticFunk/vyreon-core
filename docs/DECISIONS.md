@@ -128,3 +128,9 @@ credentials. The ordered pass is an engine job that reads history and publishes 
 same contract; for the first build it reads with a read-only database role, later through core's
 reader API. The engine's `db/schema.sql` and `vyreon-store` become the starting point of core's
 schema and publish code and are retired from the engine once the worker path is proven.
+
+## C-020 The ordered pass reads core's database directly; the reader API is built early (owner, 2026-11-10)
+The ordered pass reads history with a read-only database role (accepted, not a stopgap to hurry away
+from). Core's reader API is built in milestone 1's tail rather than after the first database: it is
+small, vyreon-reporter needs it anyway, and engines can read through it too. Moving the ordered
+pass's reads onto it is an engine change made when it pays for itself.

@@ -14,7 +14,8 @@ The one living status document. History is in git; decisions in `docs/DECISIONS.
 
 ## Plan (ARCHITECTURE §8)
 1. **Core service** (this repo): schema, universe for the 64, worker API, publish through core,
-   scheduler, budget. Exit: a droplet-published day goes through core and reads back identical.
+   scheduler, budget, then the reader API (C-020). Exit: a droplet-published day goes through core and
+   reads back identical.
 2. **Engine as worker** (engine v1.x: E1–E5, ranged bars, E10–E13), alongside 1. Exit:
    golden days through the worker path; the block-start test.
 3. **Cluster:** DOKS, CloudNativePG, KEDA; build admission; a 2-node trial on a recent week with the
