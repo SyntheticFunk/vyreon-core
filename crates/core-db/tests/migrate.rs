@@ -2,44 +2,9 @@
 //! string to a disposable server whose role may create databases; every test creates its own
 //! database and drops it. Run with `cargo test -- --ignored`.
 use core_db::migrate::{self, Error, Migration};
-use tokio_postgres::{Client, Config, NoTls};
-
-const NEEDS: &str = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)";
-
-async fn connect(config: &Config) -> Client {
-    let (client, connection) = config.connect(NoTls).await.expect("connect");
-    tokio::spawn(connection);
-    client
-}
-
-/// A fresh database for one test: its config and the admin client that drops it.
-struct Scratch {
-    admin: Client,
-    name: String,
-    config: Config,
-}
-
-impl Scratch {
-    async fn new(test: &str) -> Scratch {
-        let admin_config: Config = std::env::var("VYREON_CORE_TEST_PG").expect(NEEDS).parse().expect("VYREON_CORE_TEST_PG");
-        let admin = connect(&admin_config).await;
-        let name = format!("core_test_{}_{test}", std::process::id());
-        // one statement per call: CREATE/DROP DATABASE cannot run inside a multi-statement batch
-        admin.batch_execute(&format!("DROP DATABASE IF EXISTS {name}")).await.unwrap();
-        admin.batch_execute(&format!("CREATE DATABASE {name}")).await.unwrap();
-        let mut config = admin_config.clone();
-        config.dbname(&name);
-        Scratch { admin, name, config }
-    }
-
-    async fn client(&self) -> Client {
-        connect(&self.config).await
-    }
-
-    async fn drop(self) {
-        self.admin.batch_execute(&format!("DROP DATABASE {} WITH (FORCE)", self.name)).await.unwrap();
-    }
-}
+mod common;
+use common::Scratch;
+use tokio_postgres::Client;
 
 fn m(version: i32, name: &str, sql: &str) -> Migration {
     Migration { version, name: name.to_owned(), sql: sql.to_owned() }
