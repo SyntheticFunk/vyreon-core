@@ -530,6 +530,12 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   through the DigitalOcean connector; the worker pool is deleted after every run; the owner is
   asked before the cluster or the registry is deleted. A ledger of what is created, when, and
   what it costs is kept here as it happens.
+- **Blocked on access, nothing created (2026-11-11 ~21:05 UTC):** the DigitalOcean connector can
+  read (sizes, prices, the empty lists of clusters and registries) but its token is refused on
+  creating a registry and a cluster (403, "not authorized"). The owner either widens the
+  connector's token (Kubernetes and container registry, write) or runs the three paid commands of
+  `deploy/k8s/README.md` himself; everything else I can do. Chosen version: Kubernetes
+  `1.36.5-do.3` (KEDA 2.21 is tested to 1.36), region nyc3. Spend so far: $0.
 - **Cluster setup written, nothing created (2026-11-11):** `deploy/core/Dockerfile` (built on the
   laptop: 142 MB; it migrated a scratch database to 0011 and loaded the universe from its own seed
   files), `deploy/k8s/` (namespace, the CloudNativePG database, core's Deployment and Service, the
