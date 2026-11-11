@@ -209,9 +209,9 @@ doing today's capture until the cluster has matched it for several sessions.
 
 ## 6. The Intrinio budget
 
-- Core holds the account window: 2,000 requests a minute, used to 1,800. Intrinio's usage endpoint
-  reports the limit per access code (`api`: `one_min_call_limit` 2,000; pass 2); whether other codes
-  have their own window, and whether presigned file downloads count, is still to confirm.
+- Core holds the account window: **2,000 requests a minute for the whole account** (owner,
+  2026-11-10), shared by every worker, used to 1,800. Whether presigned file downloads count is
+  still to confirm.
 - Workers take leases of K requests (e.g. 500, valid 2 minutes) and report usage by category.
 - Demand after C-008 (ranged daily bars): a cold block start ~17–21k requests (was ~65k), a warm day
   ~8k. Eight workers average a few hundred a minute; only simultaneous cold starts need staggering.
@@ -249,9 +249,8 @@ January 2027, first build $200–350.
 
 0. **Before the tracks finish:** E4's rules and the values they change; the sensors that are a stated
    absence on historical dates (prints exist only from 2026-10-23; fundamentals are not served as of a
-   past date) with the coverage each can reach; a temporary 8 vCPU droplet for the engine's golden
-   proofs (owner approves; the laptop computes nothing and the droplet runs the capture); the Intrinio
-   rate-limit question (owner).
+   past date) with the coverage each can reach; the engine's golden proofs run on
+   the current droplet (owner, 2026-11-10).
 
 1. **Core service** (this repo, ~2 weeks): workspace, migrations, the schema of §4.1, the universe for
    the 64, publish through core, worker API (a failing worker sends its log), scheduler, budget;
@@ -308,5 +307,6 @@ per-day cost as the history grows (it reads ~78 numbers per asset from each earl
 tape job could store those instead of the worker re-reducing every cache: an engineering option, no
 science change).
 
-**For Intrinio support (owner):** is the 2,000-a-minute limit per access code or per account; do
-presigned file downloads count against it.
+**Answered (owner, 2026-11-10):** Intrinio's limit is 2,000 calls a minute per account. The engine's
+golden proofs run on the current 8 vCPU droplet (`ssh vyreon-engine`), outside its capture times
+(02:00 and 12:00 UTC) and never from the checkout a running job uses.
