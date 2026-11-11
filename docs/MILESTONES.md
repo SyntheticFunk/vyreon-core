@@ -15,7 +15,7 @@ The one living status document. History is in git; decisions in `docs/DECISIONS.
 ## Plan (ARCHITECTURE §8)
 1. **Core service** (this repo): schema, universe for the 64, worker API, publish through core,
    scheduler, budget, then the reader API (C-020). Exit: a droplet-published day goes through core and
-   reads back identical.
+   reads back identical. **Done.**
 2. **Engine as worker** (engine v1.x: E1–E5, ranged bars, E10–E13), alongside 1. Exit:
    golden days through the worker path; the block-start test.
 3. **Cluster:** DOKS, CloudNativePG, KEDA; build admission; a 2-node trial on a recent week with the
@@ -59,7 +59,16 @@ Done:
   session of the range, published or explicitly not, with each measurement's body or headline
   scalars; bodies and streams are served byte for byte. Tested over HTTP on the published real slice.
 
-Now: A9 (Discord notices; build admission recorded from its checks). Then track B on an engine branch.
+- A9: notices to the Discord channel through an outbox (C-027): queue paused and resumed, blocks
+  done, builds admitted, the calendar nearing its end; silent, naming no one.
+
+**Track A is complete** (2026-11-10, 32 tests on PostgreSQL 16 with real data). Not in it, on
+purpose: automated admission (track B's proof harness writes the evidence; C-027), Parquet output,
+core's own Intrinio fetch, Kubernetes manifests (milestone 3).
+
+Now: track B, the engine as a stateless worker, on a branch off `engine-v1` in vyreon-engine
+(B1–B7 in the plan; the items collected for it are under Open). Its proofs run on the droplet
+outside 02:00 and 12:00 UTC, from a separate checkout.
 
 Owner (2026-11-10): tracks A and B are both completed before any new DigitalOcean spend, then we
 evaluate together. Spend is approved in principle (be mindful of costs), but nothing is created until

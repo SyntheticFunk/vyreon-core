@@ -263,3 +263,20 @@ history pages at 20 sessions, headline at 260. No Parquet yet (no reader has ask
 - The service reads through its one database pool; a separate login in the `vyreon_reader` role
   comes with the deployment.
 
+## C-027 Notices are an outbox; automated admission waits for track B (2026-11-10)
+- A notice is a row written in the same transaction as the event it reports, and the service posts
+  it to the Discord channel afterwards (the transactional outbox pattern): no notice for an event
+  that was rolled back, none lost when Discord or the service is down, and they arrive in order.
+  Every post carries Discord's silent flag and an empty mention list (channel only, never a phone
+  ping). The webhook URL comes from the file named by `VYREON_CORE_WEBHOOK_FILE` and is kept out of
+  logs and stored errors. Without that setting notices wait unsent.
+- Reported: the queue paused (with the reason that stopped it) and resumed; each day block done;
+  the last tape or ordered-pass job done; a build admitted or withdrawn; the trading calendar within
+  45 days of its last session (C-014f).
+- **Automated build admission is not built in track A.** What admits a build is the engine's golden
+  comparison (values equal except the declared changes and provenance) and the block-start test,
+  run through the worker path; both are track B's proof harness, and comparing values is the
+  engine's knowledge, not core's. Core's part exists: a build claims nothing until
+  `vyreon-core build admit <build> <evidence.json>` records what it passed. Track B's harness will
+  write that evidence file; admission stays one command by hand for the first build, as planned.
+
