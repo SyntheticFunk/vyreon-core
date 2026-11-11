@@ -131,6 +131,7 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
     let token = day["lease_token"].as_str().unwrap();
     let members = day["days"][0]["members"].as_array().unwrap();
     assert_eq!((day["days"][0]["session"].as_str(), members.len()), (Some("2025-12-10"), 64));
+    assert_eq!(day["tape_history_from"], "2025-12-10", "the first scheduled tape session");
     assert_eq!(members.iter().find(|m| m["asset_key"] == "META").unwrap()["ticker"], "META");
     let tar_bytes = s.http.get(format!("{caches}?method_version=engine-v1")).bearer_auth(token).send().await.unwrap().bytes().await.unwrap();
     let mut archive = tar::Archive::new(&tar_bytes[..]);
