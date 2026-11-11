@@ -394,8 +394,14 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   **Not proven: any history.** 2025-12-10 is the first published day, so every window was empty;
   the droplet has no second derived day to compare with. A real check needs several days through
   the worker path (the multi-day block proof) against the old derive run on the same days.
-  **Left in B3:** `vyreon-worker run ordered-pass` under core's lease (claim, bundle naming the base
-  revision, publish, finish); the base load bounded to its windows (it loads every published day).
+  **The worker entry done (engine ce3c50b9, core 73f5a91):** `vyreon-worker run ordered-pass`
+  claimed the 2025-12-10 job from a scratch core over HTTP, computed from its database, published
+  revision 3 on base 1 (naming it) and finished the job. Writing it showed core would have refused
+  a day's second bundle (the base publish moved the block on): a day block now posts
+  `days/{date}/done` after its bundles (C-031). **Left in B3:** a whole real day through the worker
+  with both bundles and the done step, then the pass on it (running on the droplet, started
+  2026-11-11 ~17:25 UTC); the base load bounded to its windows (it loads every published day);
+  history, which only several days can prove.
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
   derived sensors into the day), E11 (decided, C-029), E4 (owner decisions
   first).
