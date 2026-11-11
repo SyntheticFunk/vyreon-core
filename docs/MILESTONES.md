@@ -365,7 +365,21 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   been built and unit-compiled there), the cross-day supersede rule (needs two real days: the
   multi-day block proof), and no laptop test from a frozen slice exists for `derive::local` (the
   laptop has no surfaces, populations or bar archive). Left in B3: step 5, the ordered pass over
-  core's database for the 12 history sensors, with the OCC ex-date published as a base value.
+  core's database for the 12 history sensors (C-020: a read-only database role).
+  **Step 5 scoped (2026-11-11).** The ex-date needs no new published value: T's VS-O04 body (and
+  VS-OIJ01's) already states `history_terminal: "CORPORATE_ACTION <date>"`, the latest OCC
+  ex-date in [T-200, T] (`views.rs` `history_rows`; 2025-12-10: BABA 2025-06-12, XLB/XLE/XLK
+  2025-12-05), which is the derive's `action` with a 200-session lookback instead of 260. Only
+  OI-CHANGE and OPTIONS-VOLUME read it. **A value question for the owner (E4):** an ex-date 201 to
+  252 sessions back restarts OPTIONS-VOLUME's 252-session window in the old derive when the files
+  are still on disk, and would not under the 200 rule; a worker's home keeps 200, so the old derive
+  already behaves that way on any pruned home. The work: `derive_day` computes only the 12, reads
+  the 18's bodies it needs (UNUSUALNESS scores them) from the day's day-local revision, reads no
+  archive, bounds its loads to the windows (252 sessions), writes exports and a bundle
+  (`HISTORY_DERIVED_PROFILE`, naming core's base revision id) instead of inserting, and runs as
+  `vyreon-worker run ordered-pass` under an ordered-pass lease; core's `vyreon.*` views must match
+  the queries it makes (`accepted_measurement`, `reader_scalar`, `unusual_score`). The body's
+  history digest then lists core's revision ids.
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
   derived sensors into the day), E11 (decided, C-029), E4 (owner decisions
   first).
