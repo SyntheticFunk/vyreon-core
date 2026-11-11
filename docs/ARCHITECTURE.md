@@ -128,7 +128,8 @@ Notes:
   - **worker API** (private network, per-worker token): claim a block, heartbeat, budget lease, read
     tape caches, publish a day, report usage, finish or fail;
   - **publish (the only writer):** takes each day's bundle (the publish contract: bodies, receipts,
-    streams, digests, the build and its slot inventory), checks digests and the exact inventory,
+    streams, digests, the build), checks digests and the exact slot inventory **registered for that
+    build when it was admitted** (a worker never supplies its own checklist),
     writes it all-or-nothing and reads it back. Core's code, started from the engine's `vyreon-store`
     and `publish_revision` (MAP §4);
   - **scheduler:** turns a request ("days 2025-03-03 to 2026-11-10") into block jobs; decides what is
@@ -137,7 +138,7 @@ Notes:
   - **budget:** the account's Intrinio window (§6);
   - **reader API** (after the first database, C-009) and **notices** (Discord, channel only).
 - **The ordered pass** is an engine job (the engine's derive), one at a time, in date order behind the
-  published days. It reads history with a read-only database role for the first build (through the
+  published days; it may run on a worker node, so the core node's memory does not bound it. It reads history with a read-only database role for the first build (through the
   reader API later) and publishes its day through the same contract as every worker.
 - **Health checks** include the engine's frozen trading calendar: a notice well before its last
   session, since daily runs stop when it runs out.
@@ -242,10 +243,20 @@ day published through core reads back identical to the droplet's own.
 
 ## 8. Plan
 
-Durations are guesses until the first blocks give a measured pace.
+Durations are guesses until the first blocks give a measured pace; the audit of 2026-11-10 judged the
+first drafts low. Likely: core to the worker API ~2 weeks, the engine track 4–6 weeks, first database
+January 2027, first build $200–350.
+
+0. **Before the tracks finish:** E4's rules and the values they change; the sensors that are a stated
+   absence on historical dates (prints exist only from 2026-10-23; fundamentals are not served as of a
+   past date) with the coverage each can reach; a temporary 8 vCPU droplet for the engine's golden
+   proofs (owner approves; the laptop computes nothing and the droplet runs the capture); the Intrinio
+   rate-limit question (owner).
 
 1. **Core service** (this repo, ~2 weeks): workspace, migrations, the schema of §4.1, the universe for
-   the 64, worker API, publish through core, scheduler, budget. *Exit:* a day already published on
+   the 64, publish through core, worker API (a failing worker sends its log), scheduler, budget;
+   build admission by checklist at first. The reader API and notices follow and do not gate the
+   cluster. *Exit:* a day already published on
    the droplet goes through core into an empty database and reads back identical.
 2. **Engine as worker** (engine branch, ~2–3 weeks, alongside 1): E1–E5, E7′, E10. *Exit:* the proof
    in §7.
@@ -274,7 +285,7 @@ days need E6–E8 and are independent of the newer ones; the ordered pass is re-
 | Spaces | $5 a month (250 GB included) |
 | Registry | $0–5 a month |
 | Tape job, all ~870 sessions | ~90 node-hours, ~$15 once |
-| First build, ~420 days | ~1,100 node-hours at $0.17 ≈ **$190**, about 6 days on 8 nodes |
+| First build, ~420 days | ~1,100 node-hours at $0.17 ≈ $190 if nothing is retried; **$200–350** allowed; about 6 days on 8 nodes |
 | Full history, ~1,290 days (later) | ~3,300 node-hours ≈ $560 per pass |
 | Daily worker | ~3 h a day ≈ $15 a month |
 

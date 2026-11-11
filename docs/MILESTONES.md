@@ -26,9 +26,13 @@ The one living status document. History is in git; decisions in `docs/DECISIONS.
 6. **After:** backups (C-013); the reader API for vyreon-reporter; N assets (E6–E9) and the backfill to 2021-09-27;
    the droplet retired.
 
-Next: milestone 1 (design accepted by the owner, 2026-11-10).
+Plan approved by the owner 2026-11-10 (audited: engine track 4–6 weeks, first database January 2027,
+first build $200–350; of ~420 sessions the last ~170 carry full 252-session context).
+
+Now: milestone 1, step A1–A2 (workspace, migration runner).
 
 ## Open
-- ARCHITECTURE §10: E4's rules; company inputs on historical dates; the trial's measurements.
+- Before the first build (ARCHITECTURE §8 step 0): E4's rules; stated absences on historical dates
+  and expected coverage; a temporary droplet for the engine's golden proofs (owner approves).
 - Intrinio (owner to ask support): is the rate limit per access code or per account; do file
   downloads count.
