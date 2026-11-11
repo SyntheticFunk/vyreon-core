@@ -472,6 +472,31 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   aim (E6 to E8). The cluster is what builds the database and what keeps running costs below the
   single-node plan. Order: today's whole-day proof, E4's three defaults, cluster setup, the
   two-node run (spend to the owner first), the build.
+- **E4's three defaults, state (2026-11-11 evening):**
+  (a) *Tape-history start: done* (core `claims` carries `tape_history_from`, the first scheduled
+  tape session of the profile; engine `day_inputs::set_tape_history_from`, called by the day-block
+  and tape workers right after the claim; without a tape job the engine's own setting stands).
+  Not yet run on the droplet.
+  (b) *`last_adjusted`, fixed 21-session lookback: designed, not built.* Sites: `occ.rs:153`
+  (`last_adjusted` iterates `daily_dates`, every daily capture on disk: make it the 21 calendar
+  sessions before the file's date); the files a marker needs are the quote files of each of those
+  sessions and the one before (new-root and strike-shift detection, `occ.rs` `detect`), so the
+  quote files must reach 23 sessions before the 200-session `close_quotes` window. Add a window
+  rule (`day_inputs.rs` `WINDOWS`, e.g. `quote_detection`, prior 223) used where quote files are
+  fetched (`fill.rs:373`, `:556`), planned (`plan.rs:522`) and retained (`retain.rs:79`); the
+  marker check and rewrite stay on `close_quotes` (`plan.rs:595`, `fill.rs` `rewrite_markers`). A
+  quote file lives in its session's option attempt directory, so those 23 sessions need their
+  option chains too (about +1,500 requests a block): check how sessions 132 to 200 get theirs
+  (`option_captures` is 131, `option_history` 200) before choosing how. The oldest file's
+  `ex_date` and `prior_session_adjusted` have the same edge today (they read the two sessions
+  before it); the longer window cures that as well. On the golden days the markers of NVDA, AVGO,
+  MSTR and BABA go (older than 21 sessions), the sector funds' stay; headers are rewritten by the
+  fill, and a run with filling off will refuse the stale headers.
+  (c) *Bar origin: not started.* `derive/local.rs` reads `ArchiveCache::load_bars` (every daily
+  capture through T; a missing session restarts the series). To build: one ranged request per
+  asset from 2020-01-02 (B2's `daily_range_chain` and `link_range` already fetch and verify ranged
+  bars), kept as a range of its own that the technical records read, not per-session captures.
+  Engine `worker` is at the tape-history commit, pushed.
 - **First major deliverable (owner, 2026-11-11):** two cluster nodes, each computing a golden
   day from an empty disk (adjacent days 2025-12-10 and 2025-12-11, tape jobs before, the ordered
   pass after, compared with the droplet's published days). No cold-start rehearsal on the droplet
