@@ -49,9 +49,15 @@ Done:
   lines compared: every slot, stream, scalar and revision). A wrong bundle (eighteen kinds tested)
   is refused and leaves nothing.
 
-Now: A7, the worker API and scheduler: claim, heartbeat, budget lease, tape caches, publish over
-HTTP, usage, finish and fail; blocks, lease expiry, pause on a failed check. Then A8–A9, then
-track B.
+- A7, first part: the job queue. `vyreon-core schedule day-block FREE_REPORT_64 <build> 2025-03-03
+  2026-11-10` makes the first build's 15 blocks over 427 sessions and their 84 partitions; workers
+  claim under leases, a lost worker's block resumes at its first unpublished day, a job that fails
+  three times pauses the queue with the worker's log kept, the ordered pass follows the published
+  days one at a time. Sessions come from the engine's calendar (2020-01-02 to 2028-12-29).
+
+Now: the rest of A7: the Intrinio budget, tape caches, and the worker API over HTTP (claim,
+heartbeat, budget lease, tape cache, publish, usage, finish, fail), with a small real client that
+claims a block and publishes the droplet's days. Then A8–A9, then track B.
 
 Owner (2026-11-10): tracks A and B are both completed before any new DigitalOcean spend, then we
 evaluate together. Spend is approved in principle (be mindful of costs), but nothing is created until
@@ -68,4 +74,6 @@ that evaluation. Track B's golden proofs use the droplet we already pay for.
   parent revision ids, which the ordered pass must read from core.
 - For A8: the droplet's database and a stock PostgreSQL sort text differently (collation); the
   reader API orders with an explicit collation.
+- For track B: the engine's `list_sessions` cannot print its whole calendar (core's copy was
+  assembled from its `before` and `session` outputs); add an `all` mode with open and close times.
 
