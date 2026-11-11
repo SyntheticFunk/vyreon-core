@@ -136,28 +136,32 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   needs the raw files) when the local name differs or the day's daily bar is absent;
   (3) so the day needs the daily bar of **every** session whose cache it reads, back to 2023-05-24,
   while it downloads only 380 sessions of bars. A full tape history has never run with a short bar
-  window. Ranged bars from a fixed origin (B2) supply them, so **B2 comes before B5**.
+  window. Ranged bars (B2, done) supply them cheaply: 31 months an asset back to 2023-05.
   Later, for daily operation: a recent session's bar is re-captured for three sessions and its cache
   re-derived, which core's write-once rule does not allow yet.
-- B2 (ranged daily bars) is studied, not started. Facts: today each bar is its own capture made by
-  two requests to `/securities/{SYM}/prices` with `start_date = end_date` and `page_size=1` (the row,
-  then an empty terminal page), and every capture proves it: the verified decode
-  (`intrinio-daily` `reopen_day_from_read`) requires the single-day URL, `page_size == 1`, the token
-  chain and exactly one row. So a ranged response cannot be split into today's per-session
-  directories without inventing provenance. The honest design: a new binding (for example
-  `INTRINIO-CI-DAILY-RANGE-1@1`), one range capture per asset holding the raw pages, a per-session
-  view that names it by digest and row, a new schema branch in the verified decode, and the five
-  raw-body scanners and the history-file count taught the new layout. Bar values stay equal; what
-  must change and be declared: the binding and its receipt checksum, every daily manifest digest,
-  and two body fields the golden comparison does not yet treat as provenance
-  (`current_daily_capture_sha256`, `source_input_set_sha256`). One real risk to measure first on
-  real responses: P01 falls back to the provider's adjusted prices when any bar lacks `factor`, and
-  those depend on when the bar was fetched.
+- Done (B2, engine f71c2ae4..054189cf): daily bars are one ranged request per asset per calendar
+  month (`INTRINIO-CI-DAILY-RANGE-1@1`, page of 100, so one page). The capture is published as the
+  month's last missing session; every other session gets its own copy of the pages (hard links) under
+  a manifest naming its date, and the verified decode reads exactly that date's row after the same
+  URL, chain, clock and digest checks. So each session keeps its own capture root and every reader
+  and view works unchanged; single-day captures still read. A fresh worker's 380-session window is
+  19 requests an asset instead of 760 (1,216 for the 64, was 48,640).
+  Proven on real data: AAPL's November 2025 captured through `h2-engine live-capture-batch` (frozen
+  as the test's fixture), each bar equal to the single-day request's. On the droplet (read-only,
+  2026-11-11): every archived single-day bar of the 64 assets, 39,009 bars from 2024-06 to
+  2026-11, compared with ranged responses: 38,882 identical in every field, 127 recent bars differ
+  only in `adj_volume`, which the engine does not read; no row missing, none without `factor`
+  (P01's adjusted-price fallback does not arise), no response paged.
+  Declared changes for the golden comparison: the daily sensors' binding statement (so their
+  receipts' `binding_checksum`), every ranged session's capture root, and with it
+  `current_daily_capture_sha256` and `source_input_set_sha256`.
+  Not changed: T's own bar is still superseded by a single-day re-capture (128 requests a day).
+  Left for the golden run: a whole day computed from ranged bars.
 - An alternative for B5 that does not wait for B2, for whoever picks it up: a worker that did not
   derive a cache could accept it on core's digest and its recorded daily-bar identity instead of
   re-checking the local daily bar. That is a change to the cache's validity rule, so it is recorded
   as a decision before it is coded.
-- Remaining in track B, each a multi-day change proven on golden days: B2, B3 (the 18 day-local
+- Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
   derived sensors into the day), B4 (the budget gate), B5, B7 (the image), E11 and E4 (owner
   decisions first), E13 (timings in the bundle).
 
