@@ -282,8 +282,19 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   42 of AAPL's 47). The other five are the company family, which h5-company computes from the
   day's company capture and which does not depend on the asset's option, bar or tape inputs, so a
   left-out asset keeps them. VS-IVS01 (from `h5_surface`) still needs its withheld export.
-  Next: the driver (which assets are left out, from the plan's per-asset entries; the stages over
-  the present assets; the containment slots into the exports; the more-than-6 hold).
+  Done (engine 773f93b1): the driver. When all that refuses the day is some assets' own Missing
+  provider input (`options`, `daily`, `consolidated`, `option_history`, `daily_window`), those
+  assets are left out, logged with what each lacks, and kept in `withheld-assets.json` for a
+  resume; more than 6 holds the day; a stale input, a day-wide one, an absence naming no asset or
+  any other input still refuses it. The stages run over the remaining assets; after the export
+  index the left-out assets' slots are written as containment exports, and VS-IVS01 as the
+  surface's own body with every reading withheld. Tested: the rule over plan entries, the slot
+  coverage per asset, the withheld surface body through the coordinates projection.
+  **Not yet proven on a real day.** Next, on the droplet after the 12:00 UTC capture: 2025-12-10
+  in the home copy with one asset's option chain of the day set aside
+  (`VYREON_WORKER_FILL=off`, so nothing is fetched back), published through core; that asset's
+  slots must all be withheld for the new reason, FIELD must treat it as a missing member, and
+  every other asset's bodies must equal the golden day's.
   None of it is in the tape reader's eight source files. Tests need a real day with one asset's
   real input left out (as `h5-field/tests/fault_members.rs` does), and the golden days must be
   unchanged when nothing is missing.
