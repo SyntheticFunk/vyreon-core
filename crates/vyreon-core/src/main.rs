@@ -103,6 +103,10 @@ async fn publish_bundles(bundles: &[&str]) -> Result<(), String> {
     let mut client = connect().await?;
     for bundle in bundles {
         let p = publish::publish_file(&mut client, Path::new(bundle)).await.map_err(|e| format!("{bundle}: {e}"))?;
+        if p.already_published {
+            println!("{} {} was already published as revision {}", p.represented_date, p.profile_revision, p.revision_id);
+            continue;
+        }
         println!(
             "published {} {} as revision {}: {} slots, {} streams ({} bytes), {} reader scalars, {} unusual scores, {} superseded",
             p.represented_date, p.profile_revision, p.revision_id, p.slots, p.streams, p.stream_bytes, p.reader_scalars, p.unusual_scores, p.superseded

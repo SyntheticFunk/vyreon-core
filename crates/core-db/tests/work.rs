@@ -188,8 +188,24 @@ async fn the_ordered_pass_follows_the_published_days_one_at_a_time() {
     let (header, scalars, files) = parts(BASE);
     let path = bundle("ordered-base", &header, &scalars, &files);
     let base = publish_for_lease(&mut client, &path, &block.token).await.unwrap();
-    // the same day again is not the block's next day any more
-    assert!(matches!(publish_for_lease(&mut client, &path, &block.token).await, Err(LeaseError::Refused(m)) if m.contains("expects 2025-12-11")));
+    // the same day sent again (its first answer lost on the way) is answered, not written twice
+    let again = publish_for_lease(&mut client, &path, &block.token).await.unwrap();
+    assert_eq!((again.already_published, again.revision_id, again.slots), (true, base.revision_id, 4));
+    assert!(!base.already_published);
+    // but another day's bundle, or this day with another body, is not the block's next day
+    let (mut other, scalars_again, mut changed) = parts(BASE);
+    other.represented_date = "2025-12-09".into();
+    let wrong_day = bundle("ordered-wrong-day", &other, &scalars_again, &changed);
+    assert!(matches!(publish_for_lease(&mut client, &wrong_day, &block.token).await, Err(LeaseError::Refused(m)) if m.contains("expects 2025-12-11")));
+    std::fs::remove_file(&wrong_day).unwrap();
+    let (mut edited, _, _) = parts(BASE);
+    changed[0].receipt.push(b' ');
+    changed[0].body.insert(0, b' ');
+    edited.slots[0].body_sha256 = core_contract::sha256_hex(&changed[0].body);
+    edited.slots[0].receipt_sha256 = core_contract::sha256_hex(&changed[0].receipt);
+    let other_body = bundle("ordered-other-body", &edited, &scalars_again, &changed);
+    assert!(matches!(publish_for_lease(&mut client, &other_body, &block.token).await, Err(LeaseError::Refused(m)) if m.contains("expects 2025-12-11")));
+    std::fs::remove_file(&other_body).unwrap();
     assert_eq!(publish_for_lease(&mut client, &path, "not-a-token").await, Err(LeaseError::Gone));
     let tenth = ordered(&mut client, &d).await.unwrap();
     assert_eq!(tenth.sessions, ["2025-12-10"]);

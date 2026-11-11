@@ -280,3 +280,10 @@ history pages at 20 sessions, headline at 260. No Parquet yet (no reader has ask
   `vyreon-core build admit <build> <evidence.json>` records what it passed. Track B's harness will
   write that evidence file; admission stays one command by hand for the first build, as planned.
 
+## C-028 A day sent twice is answered, not refused (2026-11-10)
+A worker whose publish succeeded but whose answer was lost will send the day again. Core answers
+"already published" (and writes nothing) when the bundle is of an earlier session of the lease's own
+job, for the same profile and build, with every slot's body digest equal to the published
+revision's. Anything else that is not the job's next day is still refused and pauses the queue. This
+makes the publish call safe to retry, so the worker retries it on a transport failure.
+

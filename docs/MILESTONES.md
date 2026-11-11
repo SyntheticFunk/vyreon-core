@@ -143,7 +143,3 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   quality (C-026). Proposed: the engine adds its coordinates projection to the day's bundle.
 - Not built in A7, on purpose: core's own Intrinio fetch for the universe (no caller until the daily
   chain), and Kubernetes manifests with KEDA's query on `core.claimable_job` (milestone 3).
-- Core: a worker that sends a day again after a lost answer is refused, and the refusal pauses the
-  queue. Make a repeat of the job's own already-published day (same digests) an "already published"
-  answer instead.
-

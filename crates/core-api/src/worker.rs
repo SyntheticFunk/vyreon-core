@@ -144,7 +144,7 @@ async fn publish_day(State(app): Shared, headers: HeaderMap, body: Body) -> Repl
         Ok(p) => ok(json!({
             "revision_id": p.revision_id, "represented_date": p.represented_date, "profile_revision": p.profile_revision, "slots": p.slots,
             "streams": p.streams, "stream_bytes": p.stream_bytes, "reader_scalars": p.reader_scalars, "unusual_scores": p.unusual_scores,
-            "superseded": p.superseded,
+            "superseded": p.superseded, "already_published": p.already_published,
         })),
         Err(e) => {
             if e.0 == StatusCode::UNPROCESSABLE_ENTITY {

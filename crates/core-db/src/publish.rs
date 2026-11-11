@@ -44,6 +44,9 @@ pub struct Published {
     pub unusual_scores: u64,
     /// Published revisions this one superseded (the day's previous one, and later computed days).
     pub superseded: u64,
+    /// True when a worker sent again a day its job had already published (the answer to the
+    /// first sending was lost): nothing was written, and the counts other than `slots` are zero.
+    pub already_published: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -135,6 +138,24 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
             if lease.kind == "TAPE" {
                 return refuse("a tape job publishes no days");
             }
+            if lease.engine_build == header.engine_build
+                && lease.profile_id == header.profile_id
+                && lease.next_session.as_deref() != Some(date)
+                && let Some(revision_id) = published_before(&tx, &header, &lease).await?
+            {
+                return Ok(Published {
+                    revision_id,
+                    represented_date: header.represented_date.clone(),
+                    profile_revision: header.profile_revision.clone(),
+                    slots: header.slots.len() as u64,
+                    streams: 0,
+                    stream_bytes: 0,
+                    reader_scalars: 0,
+                    unusual_scores: 0,
+                    superseded: 0,
+                    already_published: true,
+                });
+            }
             if lease.next_session.as_deref() != Some(date) || lease.engine_build != header.engine_build || lease.profile_id != header.profile_id {
                 return refuse(format!(
                     "job {} expects {} of {} from build {}, the bundle is {date} of {} from build {}",
@@ -220,7 +241,36 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
         reader_scalars,
         unusual_scores,
         superseded,
+        already_published: false,
     })
+}
+
+/// The published revision of the bundle's day, when the lease's job has already done that day
+/// with this very bundle: an earlier session of the job, the same profile and build, and every
+/// slot's body digest equal. A worker sends a day again when the answer to its first sending was
+/// lost; that is answered, not refused.
+async fn published_before(tx: &Transaction<'_>, header: &Header, lease: &work::Held) -> Result<Option<i64>, Error> {
+    let date = header.represented_date.as_str();
+    if !core_contract::is_date(date) || date > lease.last_session.as_str() || lease.next_session.as_deref().is_some_and(|next| date >= next) {
+        return Ok(None);
+    }
+    let slots: Vec<Value> = header.slots.iter().map(|s| serde_json::json!({"measurement_id": s.measurement_id, "object_id": s.object_id, "body_sha256": s.body_sha256})).collect();
+    let row = tx
+        .query_opt(
+            "SELECT d.revision_id,
+                    (SELECT count(*) FROM vyreon.measurement m WHERE m.revision_id = d.revision_id AND m.represented_date = d.represented_date),
+                    (SELECT count(*) FROM vyreon.measurement m
+                         JOIN jsonb_to_recordset($4::text::jsonb) AS s(measurement_id text, object_id text, body_sha256 text)
+                         USING (measurement_id, object_id, body_sha256)
+                     WHERE m.revision_id = d.revision_id AND m.represented_date = d.represented_date)
+             FROM vyreon.day_revision d
+             WHERE d.represented_date = $1::text::date AND d.profile_revision = $2 AND d.engine_build = $3 AND d.state = 'PUBLISHED'",
+            &[&date, &header.profile_revision, &header.engine_build, &Value::Array(slots).to_string()],
+        )
+        .await
+        .map_err(db)?;
+    let n = header.slots.len() as i64;
+    Ok(row.filter(|r| r.get::<_, i64>(1) == n && r.get::<_, i64>(2) == n).map(|r| r.get(0)))
 }
 
 fn prefixed(name: &str, e: Error) -> Error {
