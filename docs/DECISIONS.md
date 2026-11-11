@@ -335,7 +335,9 @@ ARCHITECTURE left "one profile or two" to when E10 starts. Two.
   droplet's published derived bodies.
 - **Core must follow:** publishing a base supersedes every later day's revision that was built on
   a base, because the ordered pass reads history. A day-local revision of a later day reads none
-  and must stay. The bundle header will say whether a revision reads history (contract 3); core
-  supersedes later days only for those.
+  and must stay. The bundle header says so (`day_local`, an optional field of contract 2 that
+  defaults to today's behaviour; migration 0010 keeps it with the revision), and core supersedes a
+  later day's based revision only when it is not day-local. A republished base still supersedes
+  its own day's day-local revision.
 - The engine's direct-to-Postgres derive is not kept working for the 18 on the `worker` branch; it
   becomes the ordered pass.
