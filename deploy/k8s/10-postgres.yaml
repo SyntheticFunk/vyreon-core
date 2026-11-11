@@ -1,0 +1,19 @@
+# The database (C-003): PostgreSQL under CloudNativePG, one instance, data on a DigitalOcean volume
+# (the cluster's default storage class). The operator creates the database `vyreon` owned by
+# `vyreon`, a Secret `vyreon-pg-app` with that user's name and password, and the Service
+# `vyreon-pg-rw`. Backups to Spaces are added once a database is worth keeping (C-013).
+# The worker pools are tainted, so this lands on the core pool.
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: vyreon-pg
+  namespace: vyreon
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  bootstrap:
+    initdb:
+      database: vyreon
+      owner: vyreon
+  storage:
+    size: 60Gi

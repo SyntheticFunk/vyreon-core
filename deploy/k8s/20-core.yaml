@@ -1,0 +1,68 @@
+# vyreon-core: one replica (it is the only writer and publishes one bundle at a time). It migrates
+# the database before it serves. Reachable only inside the cluster, as http://vyreon-core:8080.
+# Secret `vyreon-core` (made by hand, see README): `worker-token-sha256`.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vyreon-core
+  namespace: vyreon
+spec:
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels: {app: vyreon-core}
+  template:
+    metadata:
+      labels: {app: vyreon-core}
+    spec:
+      initContainers:
+        - name: migrate
+          image: VYREON_CORE_IMAGE
+          args: ["migrate"]
+          env:
+            - name: PGUSER
+              valueFrom: {secretKeyRef: {name: vyreon-pg-app, key: username}}
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: vyreon-pg-app, key: password}}
+            - name: VYREON_CORE_PG
+              value: "host=vyreon-pg-rw port=5432 dbname=vyreon user=$(PGUSER) password=$(PGPASSWORD)"
+      containers:
+        - name: core
+          image: VYREON_CORE_IMAGE
+          args: ["serve"]
+          env:
+            - name: PGUSER
+              valueFrom: {secretKeyRef: {name: vyreon-pg-app, key: username}}
+            - name: PGPASSWORD
+              valueFrom: {secretKeyRef: {name: vyreon-pg-app, key: password}}
+            - name: VYREON_CORE_PG
+              value: "host=vyreon-pg-rw port=5432 dbname=vyreon user=$(PGUSER) password=$(PGPASSWORD)"
+            - name: VYREON_CORE_WORKER_TOKEN_SHA256
+              valueFrom: {secretKeyRef: {name: vyreon-core, key: worker-token-sha256}}
+            - name: VYREON_CORE_LEASE_SECONDS
+              value: "600"
+          ports:
+            - containerPort: 8080
+          readinessProbe:
+            httpGet: {path: /ready, port: 8080}
+            periodSeconds: 10
+          resources:
+            requests: {cpu: "500m", memory: 1Gi}
+          volumeMounts:
+            - {name: spool, mountPath: /var/spool/vyreon-core}
+      volumes:
+        # a day's bundle while it is checked: about 200 MB, one at a time
+        - name: spool
+          emptyDir: {sizeLimit: 4Gi}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vyreon-core
+  namespace: vyreon
+spec:
+  selector: {app: vyreon-core}
+  ports:
+    - port: 8080
+      targetPort: 8080

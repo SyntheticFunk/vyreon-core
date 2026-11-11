@@ -1,0 +1,128 @@
+# The engine's workers, as plain Jobs for the first cluster run (KEDA starts them from the queue
+# at the build; see README). Each pod makes one claim, does that job and exits; a pod that finds
+# nothing to claim exits at once, so the three Jobs are applied in order: tape, then day-block,
+# then ordered-pass. Set `completions` to the number of jobs scheduled and `parallelism` to the
+# nodes of the pool.
+# Secret `vyreon-worker` (made by hand, see README): `worker-token`, `intrinio-key`,
+# `ordered-pass-pg` (the read-only connection string of the ordered pass's login).
+# A day needs its node to itself: 6 CPUs requested on an 8-vCPU node, scratch on the node's disk.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: tape
+  namespace: vyreon
+spec:
+  completions: 2
+  parallelism: 2
+  backoffLimit: 0
+  template:
+    metadata:
+      labels: {app: vyreon-worker, work: tape}
+    spec:
+      restartPolicy: Never
+      nodeSelector: {vyreon: worker}
+      tolerations:
+        - {key: vyreon, operator: Equal, value: worker, effect: NoSchedule}
+      containers:
+        - name: worker
+          image: VYREON_WORKER_IMAGE
+          args: ["run", "tape", "--bin", "/opt/vyreon/bin", "--repo", "/opt/vyreon/bin"]
+          env:
+            - {name: VYREON_HOME, value: /work}
+            - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
+            - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
+            - {name: VYREON_KEY_FILE, value: /secrets/intrinio-key}
+            - name: VYREON_WORKER_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+          resources:
+            requests: {cpu: "2", memory: 3Gi}
+          volumeMounts:
+            - {name: work, mountPath: /work}
+            - {name: secrets, mountPath: /secrets, readOnly: true}
+      volumes:
+        - name: work
+          emptyDir: {}
+        - name: secrets
+          secret: {secretName: vyreon-worker, defaultMode: 0400}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: day-block
+  namespace: vyreon
+spec:
+  completions: 2
+  parallelism: 2
+  backoffLimit: 0
+  template:
+    metadata:
+      labels: {app: vyreon-worker, work: day-block}
+      annotations:
+        # a day is hours of work; the node is not drained under it
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+    spec:
+      restartPolicy: Never
+      nodeSelector: {vyreon: worker}
+      tolerations:
+        - {key: vyreon, operator: Equal, value: worker, effect: NoSchedule}
+      containers:
+        - name: worker
+          image: VYREON_WORKER_IMAGE
+          args: ["run", "day-block", "--bin", "/opt/vyreon/bin", "--repo", "/opt/vyreon/bin"]
+          env:
+            - {name: VYREON_HOME, value: /work}
+            - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
+            - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
+            - {name: VYREON_KEY_FILE, value: /secrets/intrinio-key}
+            - name: VYREON_WORKER_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+          resources:
+            requests: {cpu: "6", memory: 10Gi}
+          volumeMounts:
+            - {name: work, mountPath: /work}
+            - {name: secrets, mountPath: /secrets, readOnly: true}
+      volumes:
+        - name: work
+          emptyDir: {}
+        - name: secrets
+          secret: {secretName: vyreon-worker, defaultMode: 0400}
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: ordered-pass
+  namespace: vyreon
+spec:
+  # one day at a time, in date order: never parallel
+  completions: 2
+  parallelism: 1
+  backoffLimit: 0
+  template:
+    metadata:
+      labels: {app: vyreon-worker, work: ordered-pass}
+    spec:
+      restartPolicy: Never
+      nodeSelector: {vyreon: worker}
+      tolerations:
+        - {key: vyreon, operator: Equal, value: worker, effect: NoSchedule}
+      containers:
+        - name: worker
+          image: VYREON_WORKER_IMAGE
+          args: ["run", "ordered-pass", "--bin", "/opt/vyreon/bin", "--repo", "/opt/vyreon/bin"]
+          env:
+            - {name: VYREON_HOME, value: /work}
+            - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
+            - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
+            - {name: VYREON_CORE_PG_RO_FILE, value: /secrets/ordered-pass-pg}
+            - name: VYREON_WORKER_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+          resources:
+            requests: {cpu: "1", memory: 2Gi}
+          volumeMounts:
+            - {name: work, mountPath: /work}
+            - {name: secrets, mountPath: /secrets, readOnly: true}
+      volumes:
+        - name: work
+          emptyDir: {}
+        - name: secrets
+          secret: {secretName: vyreon-worker, defaultMode: 0400}
