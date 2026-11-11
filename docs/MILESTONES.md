@@ -179,8 +179,10 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   vouch for other sources (tested against the built binaries). `vyreon-worker` is now a stamped
   binary. `deploy/worker/Dockerfile` builds from `git archive HEAD` with the droplet's pinned
   libraries (MKL 2022.1.0, MPFR, GMP, the SQLite library's bytes) and runs
-  `vyreon-worker run day-block`; the disk guard's second path is off by env. The image's first
-  build and its values against the droplet's binaries belong to the golden run.
+  `vyreon-worker run day-block`; the disk guard's second path is off by env. Built on the laptop
+  (`vyreon-worker:36b2def2`, 1.5 GB): no git inside, every library resolves, the record's code
+  identity is the one compiled into h3-asset, and the worker reaches its claim call. Its values
+  against the droplet's binaries belong to the golden run.
 - An alternative for B5 that does not wait for B2, for whoever picks it up: a worker that did not
   derive a cache could accept it on core's digest and its recorded daily-bar identity instead of
   re-checking the local daily bar. That is a change to the cache's validity rule, so it is recorded
