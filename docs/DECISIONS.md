@@ -41,4 +41,4 @@ path that will actually run, leaving the droplet to its daily capture.
 ## C-007 vyreon-core is written in Rust (2026-11-10; ARCHITECTURE D9)
 It reuses the engine's crates (sensor registry, coordinates, store logic) as pinned git dependencies
 and the engine API's stack (axum, tokio-postgres), so the store's types and checks are shared, not
-re-implemented. Python remains a reader of the API.
+re-implemented. Rust is the default; Python only where necessary (owner, 2026-11-10).

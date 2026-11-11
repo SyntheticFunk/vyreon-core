@@ -253,6 +253,11 @@ droplet keeps capturing until the cluster has matched it).
 Today's engine can only run days where all 64 exist with full windows: ETHA lists 2024-07-23 and
 its P01 and PATH windows need 131 and 153 sessions after listing, so roughly **2025-03 onward** (~420
 sessions) needs no E6–E9.
+Checked against Intrinio's ticker history (2026-11-10): from 2024-07-23 no member of the 64 lists,
+delists or changes ticker. Before it, four events: FB → META (2022-06-08), the META ticker held by a
+Roundhill ETF to 2022-01-28, IBIT listing 2024-01-11 (its ticker held by a Defiance ETF to 2023-05-01),
+ETHA listing 2024-07-23. SLV, DBA and UUP (commodity pools) are absent from the history endpoint;
+their security records show no previous tickers and continuous prices since 2006–07.
 Stage T from 2023-05-24, then stage A in blocks, era checks first, then stage B. This delivers the
 recent history readers see most (the 252-session context) and proves the system at scale.
 
