@@ -19,7 +19,8 @@ saved Intrinio responses; `vyreon-core universe on <profile> <date>` lists them 
 <bundle>...` checks, writes, reads back and publishes day bundles (`crates/core-contract`).
 `vyreon-core engine-store export <date> <dir>` writes a day of the droplet's store as bundles.
 
-`vyreon-core serve` runs the HTTP service (the worker API, `crates/core-api/src/worker.rs`);
+`vyreon-core serve` runs the HTTP service: the worker API (`crates/core-api/src/worker.rs`) and the reader API
+(`crates/core-api/src/reader.rs`; keys from `vyreon-core api-key create`);
 `vyreon-core calendar load`, `schedule` and `queue` manage work. Every command and setting is listed
 at the top of `crates/vyreon-core/src/main.rs`.
 

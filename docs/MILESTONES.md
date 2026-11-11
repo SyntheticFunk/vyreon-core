@@ -55,8 +55,11 @@ Done:
   paused the queue; a failing worker's log was kept. `vyreon-core schedule day-block FREE_REPORT_64
   <build> 2025-03-03 2026-11-10` makes the first build's 15 blocks over 427 sessions.
 
-Now: A8, the reader API (sessions, an asset's history, report context, status), then A9 (Discord
-notices, automated admission). Then track B on an engine branch.
+- A8: the reader API (C-026). With a key, `GET /v1/assets/AAPL/history?from=…&to=…` returns every
+  session of the range, published or explicitly not, with each measurement's body or headline
+  scalars; bodies and streams are served byte for byte. Tested over HTTP on the published real slice.
+
+Now: A9 (Discord notices; build admission recorded from its checks). Then track B on an engine branch.
 
 Owner (2026-11-10): tracks A and B are both completed before any new DigitalOcean spend, then we
 evaluate together. Spend is approved in principle (be mindful of costs), but nothing is created until
@@ -71,8 +74,8 @@ that evaluation. Track B's golden proofs use the droplet we already pay for.
   backend at ~0.6 GB. Not yet bounded; A7 runs one publish at a time (a day takes ~18 s).
 - For track B: the worker's bundle carries the day's reader scalars (C-024); derived bodies record
   parent revision ids, which the ordered pass must read from core.
-- For A8: the droplet's database and a stock PostgreSQL sort text differently (collation); the
-  reader API orders with an explicit collation.
+- **Owner decision, with track B:** how Reporter gets each coordinate's state, reason, unit and
+  quality (C-026). Proposed: the engine adds its coordinates projection to the day's bundle.
 - For track B: the engine's `list_sessions` cannot print its whole calendar (core's copy was
   assembled from its `before` and `session` outputs); add an `all` mode with open and close times.
 - Not built in A7, on purpose: core's own Intrinio fetch for the universe (no caller until the daily

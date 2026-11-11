@@ -244,3 +244,22 @@ lines; digests, text, JSONB, receipts, versions, states, scalar values).
   ticker in use (none when not listed), group and company flag, and the provider sources' first
   dates. The engine ignores it until E6.
 
+## C-026 The reader API, and what it cannot serve yet (2026-11-10)
+`crates/core-api/src/reader.rs` (VYREON-CORE-API@1), the shape of AGENTS.md and C-009: sessions from
+the calendar with NOT_PUBLISHED explicit; an asset's history session by session, `detail=full` (each
+complete body, the default) or `detail=headline` (each measurement's reader scalars); the exact body
+and event stream by revision, as the engine's API serves them; `/v1/status`; hashed keys with
+`read` and `admin` scopes. One response is one database snapshot, so it never mixes revisions. Full
+history pages at 20 sessions, headline at 260. No Parquet yet (no reader has asked for it).
+- **Not served: per-coordinate state, reason, unit and quality.** The engine's API offers a
+  `coordinates` view that decodes each body family into role objects with those fields. That decoder
+  is engine code over body shapes the engine owns; core holds none (C-012). Until decided, a reader
+  gets the supported numbers from `headline` and everything else from the body. Proposal for the
+  owner: the engine writes each slot's coordinates projection into the day's bundle, as it already
+  writes the scalars, and core stores and serves it (roughly +30% store size). The alternative is
+  Reporter decoding bodies with the engine's crate.
+- **Dates are `YYYY-MM-DD` at every boundary** (`core_contract::is_date`): PostgreSQL also reads
+  words such as "yesterday" as dates, which a test caught on the session route.
+- The service reads through its one database pool; a separate login in the `vyreon_reader` role
+  comes with the deployment.
+
