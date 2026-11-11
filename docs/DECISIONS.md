@@ -134,3 +134,33 @@ The ordered pass reads history with a read-only database role (accepted, not a s
 from). Core's reader API is built in milestone 1's tail rather than after the first database: it is
 small, vyreon-reporter needs it anyway, and engines can read through it too. Moving the ordered
 pass's reads onto it is an engine change made when it pays for itself.
+
+## C-021 The store schema: what changed from the engine's (2026-11-10)
+Migration 0002 starts from the engine's `db/schema.sql` at engine-v1 and changes this:
+(a) `measurement`, `measurement_stream`, `reader_scalar` and `unusual_score` carry the represented
+date in their primary keys and are range-partitioned by month (C-014a; a PostgreSQL primary key on a
+partitioned table must include the partition key). (b) A composite foreign key
+`(revision_id, represented_date)` to `day_revision` ties each row's date to its revision's, and a
+derived revision's base must be a revision of the same day, so the date added in (a) cannot disagree
+with the revision. (c) No default partition: a row for a month without partitions is refused, not
+parked. `vyreon.ensure_months(first, last)` creates partitions by create-then-attach, which leaves
+the parent readable and writable (PostgreSQL documentation, "Table Partitioning", 5.12.2.2). It is
+called when work is scheduled, never inside a publish: attaching briefly locks `day_revision`, and
+two publishing transactions doing it would deadlock. (d) Identity columns instead of `bigserial`
+(the SQL standard form). Core assigns revision ids; a derived body records its parents' revision
+ids, so the ordered pass must read them from core. (e) Left out: the engine's `republish_job` (a
+recompute is a job in core's queue), `revision_progress`, the D-080 backfill, and the `vyreon_api`
+login (logins and passwords belong to the deployment; the migration creates only the `vyreon_reader`
+group role where the deployment has not, and grants it the four reader views). (f) The slot
+inventory is keyed by engine build as well as profile (migration 0003), and every revision names a
+registered build. `publish_revision` is rewritten with the publish path (A6).
+A body's digest is the SHA-256 of its canonical text plus the final newline the engine writes (the
+engine hashes the body file and stores the text without the newline).
+
+## C-022 A table lands with the step that first uses it (2026-11-10)
+The plan's A4 listed every core table in one step. Instead each group gets its migration with the
+code and real data that exercise it: the universe with A5 (shaped by Intrinio's real responses),
+coverage with publish (A6; it may be a view over `measurement`), work, budget and tape caches with
+the worker API (A7), API keys with the reader API (A8). Reason: tables designed ahead of their code
+are guesses, and an applied migration is never edited. Engine builds and inventories are in now
+because publish needs them next.
