@@ -44,8 +44,14 @@ Done:
   nothing changes, as the plan assumed. New fact: IBIT was a Defiance ETF's ticker 2022-09-08 to
   2023-05-01 (matters for the backfill, not the first build).
 
-Now: A6, publish: the bundle format, the checks ported from the engine's store, and the exit test
-on a real droplet day.
+- A6: publish through core (C-024). **Milestone 1's exit is met:** the droplet's published
+  2025-12-10 went through core into an empty database in 17.6 s and reads back identical (18,724
+  lines compared: every slot, stream, scalar and revision). A wrong bundle (eighteen kinds tested)
+  is refused and leaves nothing.
+
+Now: A7, the worker API and scheduler: claim, heartbeat, budget lease, tape caches, publish over
+HTTP, usage, finish and fail; blocks, lease expiry, pause on a failed check. Then A8–A9, then
+track B.
 
 Owner (2026-11-10): tracks A and B are both completed before any new DigitalOcean spend, then we
 evaluate together. Spend is approved in principle (be mindful of costs), but nothing is created until
@@ -55,7 +61,11 @@ that evaluation. Track B's golden proofs use the droplet we already pay for.
 - Before the first build (ARCHITECTURE §8 step 0): E4's rules; stated absences on historical dates
   and expected coverage.
 - Intrinio: do presigned file downloads count against the 2,000 a minute (per account).
-- A6: the droplet's days carry two build ids (base `71f3fe5d+fd722383a013`, derived `71f3fe5d`) and
-  derived bodies record parent revision ids: the exit test's "reads back identical" is over bodies
-  and digests, with core's own revision ids.
 - `unusual_score` is untested with real rows: the droplet has none yet (one derived day).
+- Publish memory, measured on the full day: the core process peaks at ~0.7 GB and its database
+  backend at ~0.6 GB. Not yet bounded; A7 runs one publish at a time (a day takes ~18 s).
+- For track B: the worker's bundle carries the day's reader scalars (C-024); derived bodies record
+  parent revision ids, which the ordered pass must read from core.
+- For A8: the droplet's database and a stock PostgreSQL sort text differently (collation); the
+  reader API orders with an explicit collation.
+

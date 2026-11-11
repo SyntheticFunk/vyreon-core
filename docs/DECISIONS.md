@@ -186,3 +186,35 @@ other users of their tickers; listing dates are columns, not a table), `core.mem
 left until members vary (E6). Core does not call Intrinio yet: `vyreon-core universe load` reads
 saved responses; the fetch joins the budget work (A7).
 
+## C-024 The publish contract and what core checks (2026-11-10)
+`crates/core-contract` is the whole contract (VYREON-DAY-BUNDLE@1): one day of one profile as a gzip
+tar holding a header (the day, the build, one entry per slot), the day's reader scalars and
+unusualness scores, and each slot's body, receipt and event stream as the engine wrote them.
+- **Core takes each slot's identity, state and versions from the header.** The engine's store dug
+  them out of bodies and receipts, whose shapes differ by sensor family (four body shapes, three
+  receipt shapes in one day) and are the engine's own; doing that in core would tie core to every
+  engine version (C-012, C-019). The engine keeps its identity check before it bundles. Core checks
+  what is generic: the exact slot list against the build's registered inventory, every digest, the
+  stream commitments (root, events, length, line count), the scalars' slots, and the base binding.
+- **Stage, verify and publish are one transaction.** A staged revision is never visible and a
+  refused bundle leaves nothing. The readback is done inside that transaction, on what the
+  database returns, before promotion.
+- **A day's reader scalars and unusualness scores travel in its bundle.** They are the engine's
+  projection of the bodies; core cannot derive them. Today the engine's derive writes the base
+  day's scalars afterwards, which a single writer rules out: the worker's bundle carries its own
+  (Track B, with E10).
+- **A revision computed from a base names the base's profile**, and core binds it to the day's
+  published revision of that profile; it may also name the revision id it read, and is refused if
+  the day's base has been replaced since.
+- **The supersession rules are the engine's** (`publish_revision`): the day's previous revision of
+  the profile, and, on a base publish, every later day's revision computed from a base.
+- **An inventory is written once.** Registering a build again is accepted only with the same rows.
+- Left for the recompute work (milestone 5): copy-forward revisions (`carried_from_revision`,
+  `republish_scope`).
+
+Exit test (2026-11-11 UTC): the droplet's published 2025-12-10 (2,853 base and 1,826 derived slots,
+320 streams of 724 MB, 13,723 scalars) exported read-only as two bundles (96 MB and 1.7 MB), published
+through core into an empty PostgreSQL 16 in 17.6 s, 151 MB on disk. A listing of every slot, stream,
+scalar and revision taken with psql from the droplet's store and from core's is identical (18,724
+lines; digests, text, JSONB, receipts, versions, states, scalar values).
+
