@@ -235,6 +235,36 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   300 s (three tries of 30 s for macro). A retry inside the capture engine's transport would send
   requests its account ledger does not record as attempts, so it stays at the step. With the gate
   holding all workers under core's ceiling, a 429 is the exception this handles.
+- E11 mapped for coding (engine `worker`, 2026-11-11; decided in C-029). The work, in order:
+  1. **The reason.** `h1-contract/src/lib.rs` `mod fault` (lines 32-58): `REASONS` (ENGINE_FAULT,
+     PARENT_ENGINE_FAULT), `EMPTY_DELIVERED_POPULATION`, `SLOT_REASONS`, `is_reason`,
+     `is_slot_reason`. Add `PROVIDER_INPUT_MISSING` to `SLOT_REASONS`. About 28 family validators use
+     `is_reason` (two fault reasons only; only v03, v03-matched, g01 and m0-contract use
+     `is_slot_reason`), so each family's withheld-body builder and validator must accept it;
+     `h3-asset/src/node.rs` `fault_receipt` (961) and `fault_receipt_ok` (1041) check the closed list;
+     `vyreon-coordinates/tests/faulted_bodies.rs:39` and `tools/reference/refcheck/causes.py` name the
+     reasons; `h5-field/src/option_field.rs:41` `REASON_PRECEDENCE` ranks an unknown reason last.
+  2. **The executor** (`h3-asset/src/h4_run.rs`): a missing-input marker on the intent's asset
+     (`load_intent` 449 requires `option_eod` 503 and `daily_bar` 527 for every asset; the canonical
+     re-serialisation check at 459 needs a struct field); `slot_reason` (994) returns the new reason
+     for that asset's tasks (the D-117 template: `empty_slot` 958, `reads_empty_population` 966,
+     `FaultQueue::push` 949, `fault_job` in catalogue.rs 1386, `execute_faulted` node.rs 1081);
+     `outcome_of` (2503) and `summarize` (2519-2558) get a new outcome kept out of `faulted`
+     (the 10% hold, `hold_threshold` 2478), and a hold when more than 6 of 64 assets are withheld.
+  3. **The six stages** (`vyreon-cli/src/day.rs`, `views.rs`, `guards.rs`, `exports.rs`), easiest
+     first: FIELD (day.rs 612-622: pass the present symbols; h5-field already treats the rest as
+     missing members, `tests/fault_members.rs`); `surface_exports` (day.rs 591, exports.rs 370);
+     `equity_trade_guard` (guards.rs 111; intent B must then not bind `security_interval`,
+     views.rs 730); intent A `history_rows` (views.rs 235-268, 325); intent B `asset_views`,
+     `evc_history`, `intent_b_sources` (day.rs 510-522; views.rs 482-563, 728-764, `act01_route`
+     678-699); the surfaces (`surface_identity` views.rs 369-375; one `h5_surface` process for all
+     assets, and its identity names every asset, so the directory key changes).
+  4. **The plan** (`vyreon-cli/src/plan.rs`): per-asset blocking entries already name the assets
+     (`Entry.assets`, lines 204-574); the day stops at day.rs 270 on any refusal. Per-asset absences
+     must become withholding instead, up to the limit; `carry`, `macro` and `company` stay day-wide.
+  None of it is in the tape reader's eight source files. Tests need a real day with one asset's
+  real input left out (as `h5-field/tests/fault_members.rs` does), and the golden days must be
+  unchanged when nothing is missing.
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
   derived sensors into the day), E11 (decided, C-029), E4 (owner decisions
   first).
