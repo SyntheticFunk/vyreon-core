@@ -139,8 +139,27 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   window. Ranged bars from a fixed origin (B2) supply them, so **B2 comes before B5**.
   Later, for daily operation: a recent session's bar is re-captured for three sessions and its cache
   re-derived, which core's write-once rule does not allow yet.
-- Next: B2 (ranged daily bars; the capture layout and the binding change, values identical on real
-  responses), then B5 on top of it, then the budget gate (B4).
+- B2 (ranged daily bars) is studied, not started. Facts: today each bar is its own capture made by
+  two requests to `/securities/{SYM}/prices` with `start_date = end_date` and `page_size=1` (the row,
+  then an empty terminal page), and every capture proves it: the verified decode
+  (`intrinio-daily` `reopen_day_from_read`) requires the single-day URL, `page_size == 1`, the token
+  chain and exactly one row. So a ranged response cannot be split into today's per-session
+  directories without inventing provenance. The honest design: a new binding (for example
+  `INTRINIO-CI-DAILY-RANGE-1@1`), one range capture per asset holding the raw pages, a per-session
+  view that names it by digest and row, a new schema branch in the verified decode, and the five
+  raw-body scanners and the history-file count taught the new layout. Bar values stay equal; what
+  must change and be declared: the binding and its receipt checksum, every daily manifest digest,
+  and two body fields the golden comparison does not yet treat as provenance
+  (`current_daily_capture_sha256`, `source_input_set_sha256`). One real risk to measure first on
+  real responses: P01 falls back to the provider's adjusted prices when any bar lacks `factor`, and
+  those depend on when the bar was fetched.
+- An alternative for B5 that does not wait for B2, for whoever picks it up: a worker that did not
+  derive a cache could accept it on core's digest and its recorded daily-bar identity instead of
+  re-checking the local daily bar. That is a change to the cache's validity rule, so it is recorded
+  as a decision before it is coded.
+- Remaining in track B, each a multi-day change proven on golden days: B2, B3 (the 18 day-local
+  derived sensors into the day), B4 (the budget gate), B5, B7 (the image), E11 and E4 (owner
+  decisions first), E13 (timings in the bundle).
 
 ## Open
 - Before the first build (ARCHITECTURE §8 step 0): E4's rules; stated absences on historical dates
