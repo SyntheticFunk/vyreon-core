@@ -477,7 +477,18 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   tape session of the profile; engine `day_inputs::set_tape_history_from`, called by the day-block
   and tape workers right after the claim; without a tape job the engine's own setting stands).
   Not yet run on the droplet.
-  (b) *`last_adjusted`, fixed 21-session lookback: designed, not built.* Sites: `occ.rs:153`
+  (b') **Built, untested on real data (engine 233d7670), and it found what rule (1) really
+  meant:** `engine-v1` captured 131 option chains a day and let a home accumulate the 200-session
+  history, so a worker from an empty disk would read a 131-session history and the droplet 200
+  (the golden days read 131 only because the droplet's option archive began 2025-06-04). The
+  capture window is now 223 sessions (200 + the 21-session marker lookback + 2), with quote files
+  for the same sessions; markers, identity and requotes stay on the 200 the readers read; the
+  plan requires the extra quote files. About +92 chains an asset at a block's start (~+6,000
+  requests on ~39,000). **Values will differ from `engine-v1`** wherever a history was shorter
+  than 200 sessions, the golden days included; what must hold instead is that a day is the same
+  first in a block and mid-block, and on two nodes. Not yet run on the droplet (it needs filling
+  on: 92 more sessions of chains and quote files per asset).
+  (b) *`last_adjusted`, fixed 21-session lookback: the design as first written.* Sites: `occ.rs:153`
   (`last_adjusted` iterates `daily_dates`, every daily capture on disk: make it the 21 calendar
   sessions before the file's date); the files a marker needs are the quote files of each of those
   sessions and the one before (new-root and strike-shift detection, `occ.rs` `detect`), so the
