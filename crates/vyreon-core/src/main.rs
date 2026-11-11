@@ -5,6 +5,11 @@
 //!                                                     history from saved Intrinio responses
 //!   vyreon-core universe on <profile> <date>          the members and their tickers on a date
 //!   vyreon-core build register <inventory.json>       register an engine build with its slot inventory
+//!   vyreon-core build admit <build> <evidence.json>   let the build's workers claim work (the checks it passed)
+//!   vyreon-core build withdraw <build> <reason>       stop them claiming
+//!   vyreon-core calendar load <sessions.json>         store the engine's trading sessions
+//!   vyreon-core schedule <tape|day-block|ordered-pass> <profile> <build> <first> <last> [block sessions]
+//!   vyreon-core queue [pause <reason> | resume | retry-failed]   the queue at a glance, or change it
 //!   vyreon-core months <first> <last>                 create the store's monthly partitions for a date range
 //!   vyreon-core publish <bundle>...                   check, write, read back and publish day bundles, in order
 //!   vyreon-core engine-store export <date> <dir>      bundles and inventories of a day from a store in
@@ -13,7 +18,7 @@
 //! The database connection string comes from `VYREON_CORE_PG`, or from the file named by
 //! `VYREON_CORE_PG_FILE`. It is a secret and is never printed.
 mod engine_store;
-use core_db::{build, migrate, publish, universe};
+use core_db::{build, migrate, publish, universe, work};
 use std::path::Path;
 use tokio_postgres::Client;
 use std::process::ExitCode;
@@ -46,6 +51,32 @@ async fn build_register(file: &str) -> Result<(), String> {
     let inventory = serde_json::from_str(&text).map_err(|e| format!("{file}: {e}"))?;
     let r = build::register(&mut connect().await?, &inventory).await?;
     println!("{} {}: {} slots", if r.new { "registered" } else { "already registered" }, r.engine_build, r.slots);
+    Ok(())
+}
+
+fn json_file(file: &str) -> Result<serde_json::Value, String> {
+    let text = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
+    serde_json::from_str(&text).map_err(|e| format!("{file}: {e}"))
+}
+
+async fn schedule(kind: &str, profile: &str, engine_build: &str, first: &str, last: &str, block: &str) -> Result<(), String> {
+    let block: i32 = block.parse().map_err(|_| format!("block sessions: {block}"))?;
+    let made = work::schedule(&mut connect().await?, work::Kind::parse(kind)?, profile, engine_build, first, last, block).await?;
+    println!("{} jobs over {} sessions; {} partitions created", made.jobs, made.sessions, made.partitions);
+    Ok(())
+}
+
+async fn queue(change: &[&str]) -> Result<(), String> {
+    let client = connect().await?;
+    match change {
+        [] => {}
+        ["pause", reason] => work::pause(&client, reason).await?,
+        ["resume"] => println!("was paused for: {}", work::resume(&client).await?.as_deref().unwrap_or("(it was not paused)")),
+        ["retry-failed"] => println!("{} failed jobs queued again", work::retry_failed(&client).await?),
+        _ => return Err("queue [pause <reason> | resume | retry-failed]".into()),
+    }
+    work::sweep(&client).await?;
+    println!("{}", serde_json::to_string_pretty(&work::status(&client).await?).map_err(|e| e.to_string())?);
     Ok(())
 }
 
@@ -123,12 +154,25 @@ async fn main() -> ExitCode {
         ["universe", "load", profile, dir] => universe_load(profile, dir).await,
         ["universe", "on", profile, date] => universe_on(profile, date).await,
         ["build", "register", file] => build_register(file).await,
+        ["build", "admit", engine_build, evidence] => match (connect().await, json_file(evidence)) {
+            (Ok(client), Ok(evidence)) => build::admit(&client, engine_build, &evidence).await,
+            (Err(e), _) | (_, Err(e)) => Err(e),
+        },
+        ["build", "withdraw", engine_build, reason] => match connect().await {
+            Ok(client) => build::withdraw(&client, engine_build, reason).await,
+            Err(e) => Err(e),
+        },
+        ["calendar", "load", file] => match (connect().await, json_file(file)) {
+            (Ok(mut client), Ok(calendar)) => work::load_calendar(&mut client, &calendar).await.map(|n| println!("{n} sessions")),
+            (Err(e), _) | (_, Err(e)) => Err(e),
+        },
+        ["schedule", kind, profile, engine_build, first, last] => schedule(kind, profile, engine_build, first, last, "30").await,
+        ["schedule", kind, profile, engine_build, first, last, block] => schedule(kind, profile, engine_build, first, last, block).await,
+        ["queue", ref change @ ..] => queue(change).await,
         ["months", first, last] => months(first, last).await,
         ["publish", ref bundles @ ..] if !bundles.is_empty() => publish_bundles(bundles).await,
         ["engine-store", "export", date, dir] => engine_store_export(date, dir).await,
-        _ => Err("usage: vyreon-core migrate | universe load <PROFILE.json> <dir> | universe on <profile> <date> | build register <inventory.json> \
-                  | months <first> <last> | publish <bundle>... | engine-store export <date> <dir>"
-            .to_string()),
+        _ => Err("unknown command; the commands are listed at the top of crates/vyreon-core/src/main.rs".to_string()),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

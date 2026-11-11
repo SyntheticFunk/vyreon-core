@@ -66,3 +66,28 @@ pub async fn register(client: &mut Client, inventory: &Value) -> Result<Register
     tx.commit().await.map_err(db)?;
     Ok(Registered { engine_build: build, slots, new: !known })
 }
+
+/// Admits a registered build to the queue, with the evidence it was admitted on (C-014b): the
+/// checks, their results and who ran them. For the first build this is a checklist by hand.
+pub async fn admit(client: &Client, build: &str, evidence: &Value) -> Result<(), String> {
+    if !evidence.is_object() || evidence.as_object().is_some_and(serde_json::Map::is_empty) {
+        return Err("admission needs its evidence: a JSON object of the checks and their results".into());
+    }
+    let n = client
+        .execute(
+            "UPDATE core.engine_build SET admitted_at = now(), admission = $2::text::jsonb, withdrawn_at = NULL, withdrawal = NULL WHERE engine_build = $1",
+            &[&build, &evidence.to_string()],
+        )
+        .await
+        .map_err(db)?;
+    if n == 0 { Err(format!("engine build {build} is not registered")) } else { Ok(()) }
+}
+
+/// Withdraws an admitted build: its queued jobs are no longer claimable.
+pub async fn withdraw(client: &Client, build: &str, reason: &str) -> Result<(), String> {
+    let n = client
+        .execute("UPDATE core.engine_build SET withdrawn_at = now(), withdrawal = $2 WHERE engine_build = $1 AND admitted_at IS NOT NULL", &[&build, &reason])
+        .await
+        .map_err(db)?;
+    if n == 0 { Err(format!("engine build {build} is not admitted")) } else { Ok(()) }
+}
