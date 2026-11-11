@@ -349,3 +349,17 @@ ARCHITECTURE left "one profile or two" to when E10 starts. Two.
   revision, the ordered pass only a based revision that reads history. Consequence, accepted: the
   day's base is readable for the seconds before its day-local revision lands (C-015's "one
   all-or-nothing step" is two transactions); a worker that dies in between repeats the day.
+
+## C-032 Owner rulings, 2026-11-11 (E4, E11's scope, two-step days, pushing)
+- **E4 goes ahead as planned.** A day's values must not depend on what a disk holds, or stateless
+  workers cannot work: 200 option sessions everywhere (the corporate-action lookback with it), a
+  fixed bar origin for the technical sensors, `last_adjusted` bounded, one tape-history start, and
+  the oldest tape sessions gaining their volume reconciliation. Each change is still measured on
+  real days and declared with before-and-after values.
+- **E11 narrows.** A missing input withholds the sensors that read it and whatever depends on
+  them downstream, not the whole asset. The as-built whole-asset withholding (proven 2026-11-11)
+  is the starting point; UNG's price and tape sensors should publish when only its chain is
+  missing, and the cross-asset sensors should lose a member only where they read what is missing.
+- **A day in two publishes is accepted** (C-031): nothing reads the database live; the product is
+  a weekly publication.
+- **Pushing:** both repositories may be pushed whenever there is something to push.
