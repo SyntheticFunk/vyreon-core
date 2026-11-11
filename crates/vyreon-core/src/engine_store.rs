@@ -69,6 +69,7 @@ pub async fn export_day(store: &Client, date: &str, dir: &Path) -> Result<Vec<St
                 body_sha256: s.get(5),
                 receipt_sha256: s.get(6),
                 stream_root_sha256: s.get(7),
+                coordinates_sha256: None,
             })
             .collect();
         let header = Header {
@@ -80,6 +81,7 @@ pub async fn export_day(store: &Client, date: &str, dir: &Path) -> Result<Vec<St
             snapshot_cutoff: cutoff,
             base_profile_revision: base_profile,
             base_revision: None,
+            report: None,
             slots,
         };
         let all = Scalars {
@@ -115,7 +117,7 @@ pub async fn export_day(store: &Client, date: &str, dir: &Path) -> Result<Vec<St
                 _ => None,
             };
             // the engine hashes the body file: the stored text and its final newline
-            bundle.add(&SlotFiles { body: format!("{body_text}\n").into_bytes(), receipt: receipt.into_bytes(), stream }).map_err(|e| e.to_string())?;
+            bundle.add(&SlotFiles { body: format!("{body_text}\n").into_bytes(), receipt: receipt.into_bytes(), coordinates: None, stream }).map_err(|e| e.to_string())?;
         }
         bundle.finish().map_err(|e| e.to_string())?;
         written.push(name);

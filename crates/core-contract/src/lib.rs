@@ -9,12 +9,16 @@
 //!   slots/00000/body.json               slot 0's body, exactly as the engine wrote it (it ends
 //!                                       with a newline; `body_sha256` is over these bytes)
 //!   slots/00000/receipt.json            its receipt
+//!   slots/00000/coordinates.json        only for a slot the engine projects: its coordinates view
+//!                                       (each coordinate's value, state, reason, unit and quality)
 //!   slots/00000/events/root.json        only for a slot with a stream: the stream's root,
 //!   slots/00000/events/events.jsonl     and its events, uncompressed
 //!   slots/00001/...
 //!
 //! What the bundle states and core takes as given: each slot's identity, state and versions (the
-//! engine checks them against its bodies and receipts, whose shapes are its own). What core
+//! engine checks them against its bodies and receipts, whose shapes are its own), its coordinates
+//! view (the engine's projection of its own body; core cannot recompute it), and the header's
+//! `report` (the run's stage timings and request counts). What core
 //! checks: every digest, the stream commitments, and the slot list against the inventory
 //! registered for the build.
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
@@ -22,7 +26,7 @@ use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{self, Read, Write};
 
-pub const CONTRACT: &str = "VYREON-DAY-BUNDLE@1";
+pub const CONTRACT: &str = "VYREON-DAY-BUNDLE@2";
 
 /// Whether `text` is a calendar date written `YYYY-MM-DD`. Dates cross the contract in this form
 /// only: PostgreSQL would also read words such as "yesterday" as dates.
@@ -55,6 +59,10 @@ pub struct Header {
     /// Core's id of the base revision the bodies were computed from, when the engine knows it;
     /// the bundle is refused if that is no longer the day's published base.
     pub base_revision: Option<i64>,
+    /// What the run that computed the day measured of itself: stage timings, request counts by
+    /// category. A JSON object of the engine's choosing; core stores it with the revision.
+    #[serde(default)]
+    pub report: Option<serde_json::Value>,
     pub slots: Vec<Slot>,
 }
 
@@ -70,6 +78,9 @@ pub struct Slot {
     pub receipt_sha256: String,
     /// The SHA-256 of the stream's root.json, for a body that commits to an event stream.
     pub stream_root_sha256: Option<String>,
+    /// The SHA-256 of the slot's coordinates.json, when the engine projects the slot.
+    #[serde(default)]
+    pub coordinates_sha256: Option<String>,
 }
 
 /// The reader-facing numbers of the day's bodies (the engine's projection of them) and, for the
@@ -103,6 +114,8 @@ pub struct StreamRoot {
 pub struct SlotFiles {
     pub body: Vec<u8>,
     pub receipt: Vec<u8>,
+    /// coordinates.json
+    pub coordinates: Option<Vec<u8>>,
     /// (root.json, events.jsonl)
     pub stream: Option<(Vec<u8>, Vec<u8>)>,
 }
@@ -150,9 +163,15 @@ impl<W: Write> BundleWriter<W> {
             (None, None) => {}
             _ => return Err(invalid(format!("{name}: stream does not match the header"))),
         }
+        if slot.coordinates_sha256 != files.coordinates.as_deref().map(sha256_hex) {
+            return Err(invalid(format!("{name}: coordinates do not match the header")));
+        }
         let dir = format!("slots/{:05}", self.next);
         self.entry(&format!("{dir}/body.json"), &files.body)?;
         self.entry(&format!("{dir}/receipt.json"), &files.receipt)?;
+        if let Some(coordinates) = &files.coordinates {
+            self.entry(&format!("{dir}/coordinates.json"), coordinates)?;
+        }
         if let Some((root, events)) = &files.stream {
             self.entry(&format!("{dir}/events/root.json"), root)?;
             self.entry(&format!("{dir}/events/events.jsonl"), events)?;
@@ -217,6 +236,13 @@ pub fn read_bundle<R: Read>(input: R, visit: &mut dyn FnMut(Item) -> io::Result<
         let dir = format!("slots/{i:05}");
         let body = named(next(&mut held)?, &format!("{dir}/body.json"))?;
         let receipt = named(next(&mut held)?, &format!("{dir}/receipt.json"))?;
+        let coordinates = match next(&mut held)? {
+            Some((name, bytes)) if name == format!("{dir}/coordinates.json") => Some(bytes),
+            other => {
+                held = other;
+                None
+            }
+        };
         let stream = match next(&mut held)? {
             Some((name, root)) if name == format!("{dir}/events/root.json") => {
                 Some((root, named(next(&mut held)?, &format!("{dir}/events/events.jsonl"))?))
@@ -226,7 +252,7 @@ pub fn read_bundle<R: Read>(input: R, visit: &mut dyn FnMut(Item) -> io::Result<
                 None
             }
         };
-        visit(Item::Slot(SlotFiles { body, receipt, stream }))?;
+        visit(Item::Slot(SlotFiles { body, receipt, coordinates, stream }))?;
     }
     match next(&mut held)? {
         None => Ok(()),

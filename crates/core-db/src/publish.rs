@@ -173,12 +173,16 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
     // one publish at a time per day and profile
     tx.execute("SELECT pg_advisory_xact_lock(hashtextextended($1 || ' ' || $2, 0))", &[&date, &header.profile_revision]).await.map_err(db)?;
     let inventory = check_header(&tx, &header).await?;
+    if header.report.as_ref().is_some_and(|r| !r.is_object()) {
+        return refuse("the report is not a JSON object");
+    }
+    let report = header.report.as_ref().map(Value::to_string);
     let base = bind_base(&tx, &header).await?;
     let revision: i64 = tx
         .query_one(
-            "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, base_revision)
-             VALUES ($1::text::date, $2, $3, $4, $5::text::timestamptz, $6) RETURNING revision_id",
-            &[&date, &header.profile_id, &header.profile_revision, &header.engine_build, &header.snapshot_cutoff, &base],
+            "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, base_revision, report)
+             VALUES ($1::text::date, $2, $3, $4, $5::text::timestamptz, $6, $7::text::jsonb) RETURNING revision_id",
+            &[&date, &header.profile_id, &header.profile_revision, &header.engine_build, &header.snapshot_cutoff, &base, &report],
         )
         .await
         .map_err(db)?
@@ -187,8 +191,8 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
     let insert_slot = tx
         .prepare(
             "INSERT INTO vyreon.measurement (revision_id, measurement_id, object_id, represented_date, slot_state, science_version,
-                 method_version, body_sha256, body_text, body, receipt)
-             VALUES ($1, $2, $3, $4::text::date, $5, $6, $7, $8, $9, $9::text::jsonb, $10::text::jsonb)",
+                 method_version, body_sha256, body_text, body, receipt, coordinates)
+             VALUES ($1, $2, $3, $4::text::date, $5, $6, $7, $8, $9, $9::text::jsonb, $10::text::jsonb, $11::text::jsonb)",
         )
         .await
         .map_err(db)?;
@@ -207,7 +211,7 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
         tx.execute(
             &insert_slot,
             &[&revision, &slot.measurement_id, &slot.object_id, &date, &slot.slot_state, &slot.science_version, &slot.method_version,
-              &slot.body_sha256, &staged.body_text, &staged.receipt_text],
+              &slot.body_sha256, &staged.body_text, &staged.receipt_text, &staged.coordinates_text],
         )
         .await
         .map_err(|e| prefixed(&name, db(e)))?;
@@ -373,6 +377,7 @@ struct StagedStream {
 struct Staged {
     body_text: String,
     receipt_text: String,
+    coordinates_text: Option<String>,
     stream: Option<StagedStream>,
 }
 
@@ -389,6 +394,20 @@ fn check_slot(slot: &core_contract::Slot, files: &SlotFiles) -> Result<Staged, S
     let body: Value = serde_json::from_str(body_text).map_err(|e| format!("body: {e}"))?;
     let receipt_text = std::str::from_utf8(&files.receipt).map_err(|e| format!("receipt: {e}"))?;
     serde_json::from_str::<Value>(receipt_text).map_err(|e| format!("receipt: {e}"))?;
+    let coordinates_text = match (&slot.coordinates_sha256, &files.coordinates) {
+        (None, None) => None,
+        (Some(listed), Some(bytes)) => {
+            if sha256_hex(bytes) != *listed {
+                return Err("coordinates digest mismatch".into());
+            }
+            let text = std::str::from_utf8(bytes).map_err(|e| format!("coordinates: {e}"))?;
+            if !serde_json::from_str::<Value>(text).map_err(|e| format!("coordinates: {e}"))?.is_object() {
+                return Err("coordinates are not a JSON object".into());
+            }
+            Some(text.to_owned())
+        }
+        _ => return Err("the header and the bundle disagree on the slot's coordinates".into()),
+    };
     let stream = match (stream_reference(&body), slot.stream_root_sha256.as_deref(), &files.stream) {
         (None, None, None) => None,
         (Some(committed), Some(listed), Some((root_bytes, events))) => {
@@ -415,7 +434,7 @@ fn check_slot(slot: &core_contract::Slot, files: &SlotFiles) -> Result<Staged, S
         (None, _, Some(_)) | (None, Some(_), None) => return Err("event stream without a body commitment".into()),
         (Some(_), None, Some(_)) => return Err("the header does not list the stream the body commits to".into()),
     };
-    Ok(Staged { body_text: body_text.to_owned(), receipt_text: receipt_text.to_owned(), stream })
+    Ok(Staged { body_text: body_text.to_owned(), receipt_text: receipt_text.to_owned(), coordinates_text, stream })
 }
 
 async fn insert_scalars(tx: &Transaction<'_>, revision: i64, date: &str, scalars: &Scalars) -> Result<(u64, u64), Error> {

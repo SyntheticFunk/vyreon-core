@@ -44,8 +44,9 @@ pub fn parts(revision: i64) -> (Header, Scalars, Vec<SlotFiles>) {
             body_sha256: sha256_hex(&body),
             receipt_sha256: sha256_hex(&receipt),
             stream_root_sha256: stream.as_ref().map(|(root, _)| sha256_hex(root)),
+            coordinates_sha256: None,
         });
-        files.push(SlotFiles { body, receipt, stream });
+        files.push(SlotFiles { body, receipt, coordinates: None, stream });
     }
     let header = Header {
         contract: CONTRACT.to_owned(),
@@ -56,6 +57,7 @@ pub fn parts(revision: i64) -> (Header, Scalars, Vec<SlotFiles>) {
         snapshot_cutoff: text(&head["snapshot_cutoff"]),
         base_profile_revision: (revision == DERIVED).then(|| text(&s["day_revision"][0]["profile_revision"])),
         base_revision: None,
+        report: None,
         slots,
     };
     let reader_scalar = of("reader_scalar")

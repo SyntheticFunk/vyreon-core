@@ -5,7 +5,7 @@
 //!   GET /v1/contract                                      the contract version, the calendar's range, the profiles, the latest session
 //!   GET /v1/sessions?from=A&to=B                          every trading session from A to B: PUBLISHED with its revisions, or NOT_PUBLISHED
 //!   GET /v1/sessions/{date|latest}                        one session, with each revision's slots
-//!   GET /v1/assets/{object}/history?from=A&to=B[&detail=full|headline][&measurement=ID]
+//!   GET /v1/assets/{object}/history?from=A&to=B[&detail=full|coordinates|headline][&measurement=ID]
 //!                                                         the object's measurements, session by session
 //!   GET /v1/assets/{object}/latest[?detail=...]           the same for the latest published session
 //!   GET /v1/revisions/{rev}/slots/{mid}/{obj}             the exact body the engine published
@@ -19,6 +19,9 @@
 //!   * one response is read from one snapshot of the database: it never mixes revisions of a day;
 //!   * `detail=full` (the default) carries each measurement's complete body, value-exact; the
 //!     body route returns the engine's bytes, and sha256(bytes) is `body_sha256`;
+//!   * `detail=coordinates` carries each measurement's coordinates view as the engine projected it:
+//!     every coordinate with its value, state, reason, unit and quality (null for a measurement
+//!     the engine does not project, or a day published before bundles carried the view);
 //!   * `detail=headline` carries each measurement's reader scalars (`role_id: value`), the
 //!     supported numbers only: an absent role is in the body, with its state and reason;
 //!   * a long range is cut at `limit` sessions and `next` names the session to continue from;
@@ -208,6 +211,8 @@ struct Measurement {
     #[serde(skip_serializing_if = "Option::is_none")]
     scalars: Option<Box<RawValue>>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    coordinates: Option<Box<RawValue>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     body: Option<Box<RawValue>>,
 }
 
@@ -246,12 +251,13 @@ async fn history(State(app): Shared, headers: HeaderMap, Path(object): Path<Stri
 async fn read_history(client: &Client, headers: &HeaderMap, object: &str, q: HistoryQuery) -> Reply {
     let (Some(from), Some(to)) = (&q.from, &q.to) else { return Err(bad("history needs from and to (YYYY-MM-DD)")) };
     dates(&[from, to])?;
-    let full = match q.detail.as_deref() {
-        None | Some("full") => true,
-        Some("headline") => false,
-        Some(other) => return Err(bad(format!("detail is full or headline, not {other}"))),
+    let detail = match q.detail.as_deref() {
+        None | Some("full") => "full",
+        Some("coordinates") => "coordinates",
+        Some("headline") => "headline",
+        Some(other) => return Err(bad(format!("detail is full, coordinates or headline, not {other}"))),
     };
-    let limit = if full { FULL_SESSIONS } else { HEADLINE_SESSIONS };
+    let limit = if detail == "headline" { HEADLINE_SESSIONS } else { FULL_SESSIONS };
     if client.query_opt("SELECT FROM core.expected_slot WHERE object_id = $1 LIMIT 1", &[&object]).await.map_err(db)?.is_none() {
         return Err(not_found(format!("no profile has an object {object}")));
     }
@@ -265,8 +271,9 @@ async fn read_history(client: &Client, headers: &HeaderMap, object: &str, q: His
                     to_char(d.published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),
                     to_char(d.snapshot_cutoff AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'), d.base_revision,
                     m.measurement_id, m.slot_state, m.science_version, m.method_version, m.body_sha256, st.root_sha256,
-                    CASE WHEN $5 THEN m.body_text END,
-                    CASE WHEN NOT $5 THEN (SELECT COALESCE(jsonb_object_agg(r.role_id, r.value), '{}'::jsonb)::text FROM vyreon.reader_scalar r
+                    CASE WHEN $5 = 'full' THEN m.body_text END,
+                    CASE WHEN $5 = 'coordinates' THEN m.coordinates::text END,
+                    CASE WHEN $5 = 'headline' THEN (SELECT COALESCE(jsonb_object_agg(r.role_id, r.value), '{}'::jsonb)::text FROM vyreon.reader_scalar r
                                            WHERE r.revision_id = m.revision_id AND r.represented_date = m.represented_date
                                              AND r.object_id = m.object_id AND r.measurement_id = m.measurement_id) END
              FROM range s
@@ -278,12 +285,12 @@ async fn read_history(client: &Client, headers: &HeaderMap, object: &str, q: His
              LEFT JOIN vyreon.measurement_stream st ON st.revision_id = m.revision_id AND st.represented_date = m.represented_date
                                                    AND st.measurement_id = m.measurement_id AND st.object_id = m.object_id
              ORDER BY s.session, d.base_revision NULLS FIRST, d.revision_id, e.slot_ordinal",
-            &[from, to, &limit, &object, &full, &q.measurement],
+            &[from, to, &limit, &object, &detail, &q.measurement],
         )
         .await
         .map_err(db)?;
     let raw = |text: Option<String>| text.map(RawValue::from_string).transpose().map_err(|e| failed(format!("a stored body is not JSON: {e}")));
-    let (mut sessions, mut next, mut identity): (Vec<Session>, Option<String>, String) = (Vec::new(), None, format!("{object} {full} {:?}", q.measurement));
+    let (mut sessions, mut next, mut identity): (Vec<Session>, Option<String>, String) = (Vec::new(), None, format!("{object} {detail} {:?}", q.measurement));
     for row in rows {
         let (date, n): (String, i64) = (row.get(0), row.get(1));
         if n > limit {
@@ -317,7 +324,9 @@ async fn read_history(client: &Client, headers: &HeaderMap, object: &str, q: His
             body_sha256: row.get(12),
             stream_root_sha256: row.get(13),
             body: raw(row.get(14))?,
-            scalars: raw(row.get(15))?,
+            // stated as null when the engine did not project the measurement
+            coordinates: if detail == "coordinates" { raw(Some(row.get::<_, Option<String>>(15).unwrap_or_else(|| "null".to_owned())))? } else { None },
+            scalars: raw(row.get(16))?,
         });
     }
     // published revisions never change: the ids served, with what was asked, identify the response
@@ -333,7 +342,7 @@ async fn read_history(client: &Client, headers: &HeaderMap, object: &str, q: His
         sessions: Vec<Session>,
         next: Option<String>,
     }
-    let reply = History { contract_version: CONTRACT, object_id: object, detail: if full { "full" } else { "headline" }, sessions, next };
+    let reply = History { contract_version: CONTRACT, object_id: object, detail, sessions, next };
     let text = serde_json::to_string(&reply).map_err(|e| failed(e.to_string()))?;
     Ok(([(header::CONTENT_TYPE, "application/json".to_owned()), (header::ETAG, etag)], text).into_response())
 }
