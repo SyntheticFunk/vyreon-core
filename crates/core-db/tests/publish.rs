@@ -187,6 +187,7 @@ async fn a_wrong_bundle_is_refused_and_leaves_nothing() {
     case("scalar_twice", "duplicate key", &|_, s, _| s.reader_scalar.push(s.reader_scalar[0].clone()));
     case("base_without_profile", "base_revision without base_profile_revision", &|h, _, _| h.base_revision = Some(1));
     case("bad_date", "date", &|h, _, _| h.represented_date = "2025-13-45".into());
+    case("a_word_for_a_date", "is not a date written YYYY-MM-DD", &|h, _, _| h.represented_date = "yesterday".into());
     for (name, h, s, f, expect) in cases {
         let refused = publish(&mut client, &raw_bundle(name, &h, &s, &f)).await.unwrap_err();
         assert!(matches!(&refused, Error::Refused(m) if m.contains(expect)), "{name}: {refused}");
