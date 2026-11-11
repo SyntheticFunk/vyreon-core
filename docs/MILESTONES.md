@@ -290,11 +290,24 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   index the left-out assets' slots are written as containment exports, and VS-IVS01 as the
   surface's own body with every reading withheld. Tested: the rule over plan entries, the slot
   coverage per asset, the withheld surface body through the coordinates projection.
-  **Not yet proven on a real day.** Next, on the droplet after the 12:00 UTC capture: 2025-12-10
-  in the home copy with one asset's option chain of the day set aside
-  (`VYREON_WORKER_FILL=off`, so nothing is fetched back), published through core; that asset's
-  slots must all be withheld for the new reason, FIELD must treat it as a missing member, and
-  every other asset's bodies must equal the golden day's.
+  **Proven on a real day (droplet, 2026-11-11, build `c676d944+9f32b85c5a6a`):** 2025-12-10 in the
+  home copy with UNG's option chain of the day set aside and filling off, published through core in
+  166 min. The plan left UNG out (`PROVIDER_INPUT_MISSING`: options, option_history) and the day
+  ran over 63 assets. Against the golden worker run: all 2,853 slots present; UNG's 43 slots are
+  all withheld bodies naming the new reason; every other asset's per-asset slot has no numeric or
+  state difference (differences are the cutoff clock and digests that cover the 64-asset input
+  set; no stream's events differ). FIELD followed h5-field's own rules: breadth, distribution and
+  concentration computed over 63 of 64; every pair without UNG kept its pearson, spearman and
+  concordance exactly (only `common_scale_pearson` moved, 4th decimal), UNG's 63 pairs withheld
+  `INCOMPATIBLE_COMMON_SUPPORT`; the owners that need all 64 (DIM01, RMT01, SUB01, SYNC01) withheld,
+  with their existing reasons `NO_PRIOR_HISTORY` / `INCOMPATIBLE_COMMON_SUPPORT`.
+  **Two things for the owner to judge:** (1) the driver withholds the whole asset, so UNG's price
+  and tape sensors (VS-P01, PATH-*, …) were withheld although only its chain was missing, and that
+  is also what costs FIELD its four all-64 owners; withholding only the slots that read the
+  missing input is possible but is a larger change (the executor's intent requires every asset's
+  chain). (2) `NO_PRIOR_HISTORY` is a misleading reason for "a member is missing today".
+  Found on the way: the proof home lacked carry 2025-12-03 (the golden run's prune removed it); a
+  one-day rerun needs T-5's carry kept or fetched.
   None of it is in the tape reader's eight source files. Tests need a real day with one asset's
   real input left out (as `h5-field/tests/fault_members.rs` does), and the golden days must be
   unchanged when nothing is missing.
