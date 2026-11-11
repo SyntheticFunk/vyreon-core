@@ -341,3 +341,11 @@ ARCHITECTURE left "one profile or two" to when E10 starts. Two.
   its own day's day-local revision.
 - The engine's direct-to-Postgres derive is not kept working for the 18 on the `worker` branch; it
   becomes the ordered pass.
+- **A day block says when its day is done** (2026-11-11). Publishing the base used to move the
+  block to its next day, so the day's second bundle would have been refused. A day-block publish
+  no longer moves the job; the worker posts `days/{date}/done` after its bundles, and core checks
+  the day's base from that build is the published one. A bundle of the current day sent again is
+  answered, not written twice, as for earlier days. A day block may publish a base or a day-local
+  revision, the ordered pass only a based revision that reads history. Consequence, accepted: the
+  day's base is readable for the seconds before its day-local revision lands (C-015's "one
+  all-or-nothing step" is two transactions); a worker that dies in between repeats the day.
