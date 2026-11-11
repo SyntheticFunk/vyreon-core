@@ -255,10 +255,11 @@ fn failed(e: tokio_postgres::Error) -> LeaseError {
     LeaseError::Failed(db(e))
 }
 
-/// A live lease's job, locked for the transaction.
+/// A live lease and its job.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Held {
     pub lease_id: i64,
+    pub worker: String,
     pub job_id: i64,
     pub kind: String,
     pub profile_id: String,
@@ -267,21 +268,40 @@ pub struct Held {
     pub last_session: String,
 }
 
-/// Finds the live lease the token names and locks its job.
-pub async fn held(db_client: &impl GenericClient, token: &str) -> Result<Held, LeaseError> {
+async fn find(db_client: &impl GenericClient, token: &str, lock: &str) -> Result<Held, LeaseError> {
     let row = db_client
         .query_opt(
-            "SELECT l.lease_id, j.job_id, j.kind, j.profile_id, j.engine_build, j.next_session::text, j.last_session::text
-             FROM core.lease l JOIN core.job j USING (job_id)
-             WHERE l.token_sha256 = encode(sha256(convert_to($1, 'UTF8')), 'hex') AND l.ended_at IS NULL AND l.expires_at >= now()
-               AND j.state = 'LEASED'
-             FOR UPDATE OF l, j",
+            &format!(
+                "SELECT l.lease_id, l.worker, j.job_id, j.kind, j.profile_id, j.engine_build, j.next_session::text, j.last_session::text
+                 FROM core.lease l JOIN core.job j USING (job_id)
+                 WHERE l.token_sha256 = encode(sha256(convert_to($1, 'UTF8')), 'hex') AND l.ended_at IS NULL AND l.expires_at >= now()
+                   AND j.state = 'LEASED' {lock}"
+            ),
             &[&token],
         )
         .await
         .map_err(failed)?
         .ok_or(LeaseError::Gone)?;
-    Ok(Held { lease_id: row.get(0), job_id: row.get(1), kind: row.get(2), profile_id: row.get(3), engine_build: row.get(4), next_session: row.get(5), last_session: row.get(6) })
+    Ok(Held {
+        lease_id: row.get(0),
+        worker: row.get(1),
+        job_id: row.get(2),
+        kind: row.get(3),
+        profile_id: row.get(4),
+        engine_build: row.get(5),
+        next_session: row.get(6),
+        last_session: row.get(7),
+    })
+}
+
+/// Finds the live lease the token names and locks it and its job for the transaction.
+pub async fn held(db_client: &impl GenericClient, token: &str) -> Result<Held, LeaseError> {
+    find(db_client, token, "FOR UPDATE OF l, j").await
+}
+
+/// Finds the live lease the token names, without locking: who is calling.
+pub async fn identify(db_client: &impl GenericClient, token: &str) -> Result<Held, LeaseError> {
+    find(db_client, token, "").await
 }
 
 /// Renews a lease. Returns its new expiry and whether the queue is paused (a worker may finish

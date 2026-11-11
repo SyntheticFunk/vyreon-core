@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core-contract", "crates/core-db", "crates/test-support", "crates/vyreon-core"]
+members = ["crates/core-api", "crates/core-contract", "crates/core-db", "crates/test-support", "crates/vyreon-core"]
 
 [workspace.package]
 edition = "2024"
@@ -8,6 +8,9 @@ license = "UNLICENSED"
 publish = false
 
 [workspace.dependencies]
+reqwest = { version = "0.12", default-features = false, features = ["json"] }
+axum = "0.8"
+deadpool-postgres = "0.14"
 flate2 = "1"
 futures-util = { version = "0.3", default-features = false }
 include_dir = "0.7"
@@ -15,5 +18,5 @@ serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip"] }
 tar = { version = "0.4", default-features = false }
 sha2 = "0.11"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "fs", "io-util", "net", "time"] }
 tokio-postgres = "0.7"

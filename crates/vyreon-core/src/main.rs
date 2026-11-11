@@ -12,6 +12,11 @@
 //!   vyreon-core queue [pause <reason> | resume | retry-failed]   the queue at a glance, or change it
 //!   vyreon-core months <first> <last>                 create the store's monthly partitions for a date range
 //!   vyreon-core publish <bundle>...                   check, write, read back and publish day bundles, in order
+//!   vyreon-core serve                                 the HTTP service (the worker API). Settings:
+//!                                                     VYREON_CORE_WORKER_TOKEN_SHA256 (required: the SHA-256 of the
+//!                                                     workers' shared token), VYREON_CORE_LISTEN (0.0.0.0:8080),
+//!                                                     VYREON_CORE_SPOOL (the temp dir), VYREON_CORE_LEASE_SECONDS (300),
+//!                                                     VYREON_CORE_INTRINIO_PER_MINUTE (1800)
 //!   vyreon-core engine-store export <date> <dir>      bundles and inventories of a day from a store in
 //!                                                     the engine's schema (VYREON_ENGINE_PG[_FILE]; read-only)
 //!
@@ -103,6 +108,38 @@ async fn publish_bundles(bundles: &[&str]) -> Result<(), String> {
     Ok(())
 }
 
+fn setting<T: std::str::FromStr>(name: &str, default: T) -> Result<T, String> {
+    match std::env::var(name) {
+        Ok(v) => v.parse().map_err(|_| format!("{name}: cannot read {v}")),
+        Err(_) => Ok(default),
+    }
+}
+
+async fn serve() -> Result<(), String> {
+    let digest = std::env::var("VYREON_CORE_WORKER_TOKEN_SHA256").map_err(|_| "set VYREON_CORE_WORKER_TOKEN_SHA256".to_string())?;
+    if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return Err("VYREON_CORE_WORKER_TOKEN_SHA256 is not a SHA-256 in hex".into());
+    }
+    let mut budget = core_db::budget::Budget::default();
+    budget.per_minute = setting("VYREON_CORE_INTRINIO_PER_MINUTE", budget.per_minute)?;
+    let config = core_api::Config {
+        worker_token_sha256: digest.to_ascii_lowercase(),
+        spool: std::env::var_os("VYREON_CORE_SPOOL").map_or_else(std::env::temp_dir, Into::into),
+        lease_seconds: setting("VYREON_CORE_LEASE_SECONDS", 300.0)?,
+        budget,
+        max_bundle_bytes: 2 << 30,
+    };
+    let pg: tokio_postgres::Config = conninfo("VYREON_CORE_PG")?.parse().map_err(|_| "VYREON_CORE_PG: not a connection string".to_string())?;
+    let manager = deadpool_postgres::Manager::new(pg, NoTls);
+    let pool = deadpool_postgres::Pool::builder(manager).max_size(16).build().map_err(|e| e.to_string())?;
+    let app = core_api::App::new(pool, config);
+    let listen: String = setting("VYREON_CORE_LISTEN", "0.0.0.0:8080".to_string())?;
+    let listener = tokio::net::TcpListener::bind(&listen).await.map_err(|e| format!("{listen}: {e}"))?;
+    core_api::spawn_sweeper(app.clone());
+    println!("vyreon-core listening on {listen}");
+    axum::serve(listener, core_api::router(app)).await.map_err(|e| e.to_string())
+}
+
 async fn engine_store_export(date: &str, dir: &str) -> Result<(), String> {
     let store = connect_to("VYREON_ENGINE_PG").await?;
     for file in engine_store::export_day(&store, date, Path::new(dir)).await? {
@@ -169,6 +206,7 @@ async fn main() -> ExitCode {
         ["schedule", kind, profile, engine_build, first, last] => schedule(kind, profile, engine_build, first, last, "30").await,
         ["schedule", kind, profile, engine_build, first, last, block] => schedule(kind, profile, engine_build, first, last, block).await,
         ["queue", ref change @ ..] => queue(change).await,
+        ["serve"] => serve().await,
         ["months", first, last] => months(first, last).await,
         ["publish", ref bundles @ ..] if !bundles.is_empty() => publish_bundles(bundles).await,
         ["engine-store", "export", date, dir] => engine_store_export(date, dir).await,

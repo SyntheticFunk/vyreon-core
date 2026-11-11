@@ -6,7 +6,10 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+core-api = { path = "../core-api" }
 core-contract = { path = "../core-contract" }
+deadpool-postgres.workspace = true
+axum.workspace = true
 core-db = { path = "../core-db" }
 flate2.workspace = true
 futures-util.workspace = true
