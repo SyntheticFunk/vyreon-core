@@ -119,8 +119,14 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   real exports of 2025-12-10 (448 slots, 128 streams of 200 MB, 625 reader scalars) were bundled by
   the engine in 1 s and published through core: every stored body hashes to its digest. The export
   loading moved from the store's binary to its library, unchanged.
-- Next without waiting: the worker's claim loop over HTTP (B6), then tape caches through core (B5),
-  the budget gate (B4), ranged daily bars (B2).
+- Done (B6, first form): `vyreon-worker run day-block` claims a block, runs each session with the
+  engine's multi-day runner (download ahead, prune behind), bundles the day and publishes it through
+  core, then finishes, or fails with the day's logs. The day has a publish-through-core mode beside
+  its store path, which is unchanged. The client was run against a live local core: claim,
+  heartbeat, publish of the engine-written bundle, the refusal of a second copy, finish.
+  Not yet exercised: a whole computed day through the loop (it needs the droplet), stage timings and
+  request counts in the bundle (E13), the build identity without git (B7).
+- Next without waiting: tape caches through core (B5), the budget gate (B4), ranged daily bars (B2).
 
 ## Open
 - Before the first build (ARCHITECTURE §8 step 0): E4's rules; stated absences on historical dates
@@ -137,4 +143,7 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   quality (C-026). Proposed: the engine adds its coordinates projection to the day's bundle.
 - Not built in A7, on purpose: core's own Intrinio fetch for the universe (no caller until the daily
   chain), and Kubernetes manifests with KEDA's query on `core.claimable_job` (milestone 3).
+- Core: a worker that sends a day again after a lost answer is refused, and the refusal pauses the
+  queue. Make a repeat of the job's own already-published day (same digests) an "already published"
+  answer instead.
 
