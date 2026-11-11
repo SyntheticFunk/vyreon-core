@@ -173,12 +173,20 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   every coordinate with its value, state, reason, unit and quality, exactly as the engine projected
   it (tested on a real engine-written bundle of AAPL's five body slots). Stream-backed M0 slots
   carry no view (it would double stream storage); their coordinates are in the stream core serves.
+- B7 in code (engine 36b2def2 and the commit before): a build record beside the binaries
+  (`build-record.json`: the commit and its code identity) gives the build identity where there is
+  no checkout; the binaries' own compiled identity still decides clean or dirty, so a record cannot
+  vouch for other sources (tested against the built binaries). `vyreon-worker` is now a stamped
+  binary. `deploy/worker/Dockerfile` builds from `git archive HEAD` with the droplet's pinned
+  libraries (MKL 2022.1.0, MPFR, GMP, the SQLite library's bytes) and runs
+  `vyreon-worker run day-block`; the disk guard's second path is off by env. The image's first
+  build and its values against the droplet's binaries belong to the golden run.
 - An alternative for B5 that does not wait for B2, for whoever picks it up: a worker that did not
   derive a cache could accept it on core's digest and its recorded daily-bar identity instead of
   re-checking the local daily bar. That is a change to the cache's validity rule, so it is recorded
   as a decision before it is coded.
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
-  derived sensors into the day), B5, B7 (the image), E11 (decided, C-029), E4 (owner decisions
+  derived sensors into the day), B5, E11 (decided, C-029), E4 (owner decisions
   first), the 429 audit (E3).
 
 ## Open
