@@ -536,6 +536,10 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   connector's token (Kubernetes and container registry, write) or runs the three paid commands of
   `deploy/k8s/README.md` himself; everything else I can do. Chosen version: Kubernetes
   `1.36.5-do.3` (KEDA 2.21 is tested to 1.36), region nyc3. Spend so far: $0.
+- **Images ready on the laptop (2026-11-11):** `vyreon-core:6e15a27` (142 MB; a later docs-only
+  commit does not change it) and `vyreon-worker:89e13c3e` (1.51 GB), whose own build identity is
+  `89e13c3e+ede98f764f0d` (clean) with an inventory of 2,853 + 1,105 + 721 slots (saved in the
+  session scratchpad as `cluster/inventory.json`; regenerate from the image, README step 2).
 - **Cluster setup written, nothing created (2026-11-11):** `deploy/core/Dockerfile` (built on the
   laptop: 142 MB; it migrated a scratch database to 0011 and loaded the universe from its own seed
   files), `deploy/k8s/` (namespace, the CloudNativePG database, core's Deployment and Service, the
