@@ -6,7 +6,7 @@ The one living status document. History is in git; decisions in `docs/DECISIONS.
 ## Where things stand (2026-11-10)
 - Engine: `engine-v1` tagged (vyreon-engine a046bf54). A fresh 2025-12-10 agrees laptop vs droplet to
   within 1e-11 (2026-11-09). The droplet is authoritative: Postgres, the daily capture, health checks.
-- Architecture reviewed with the owner (`docs/ARCHITECTURE.md`); decided items in `docs/DECISIONS.md`.
+- Design accepted by the owner (`docs/ARCHITECTURE.md`, design pass 2); decisions C-001 to C-018.
 - Kept inputs: the droplet archives prints, ACT01 pulls and company captures nightly to the volume and
   the Spaces bucket `vyreon-data` (C-004).
 - Repo renamed from vyreon-manager (2026-11-10).
@@ -25,9 +25,9 @@ The one living status document. History is in git; decisions in `docs/DECISIONS.
 6. **After:** backups (C-013); the reader API for vyreon-reporter; N assets (E6–E9) and the backfill to 2021-09-27;
    the droplet retired.
 
-Next: the owner reviews ARCHITECTURE (design pass 2, §10 lists what to confirm); then milestone 1.
+Next: milestone 1 (design accepted by the owner, 2026-11-10).
 
 ## Open
-- ARCHITECTURE §10: five proposals to confirm; E4's rules; company inputs on historical dates.
+- ARCHITECTURE §10: E4's rules; company inputs on historical dates; the trial's measurements.
 - Intrinio (owner to ask support): is the rate limit per access code or per account; do file
   downloads count.

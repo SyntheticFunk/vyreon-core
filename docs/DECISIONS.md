@@ -99,3 +99,21 @@ input windows for the plan and the readers (E12). (e) Per-stage timings and requ
 every day (E13). (f) A health check on the frozen calendar's last session. Left out on purpose: a
 high-availability database, a message queue, several regions, several core services, stored
 intermediates.
+
+## C-015 Derived sensors split between the worker and the ordered pass (owner, 2026-11-10)
+The 18 day-local derived sensors are computed by the worker and published with the base layer in one
+all-or-nothing step; the 12 history sensors are published by the ordered pass, which reads only the
+database (ARCHITECTURE §2.1; engine E10). Measurement ids do not change. No value may change; the
+golden days check it.
+
+## C-016 Workers publish over HTTP (owner, 2026-11-10)
+A worker sends each finished day to core as one compressed bundle; the publisher job checks and writes
+it. Workers hold no database or storage credentials and there is no shared storage between them.
+
+## C-017 Stable Vyreon asset keys (owner, 2026-11-10; ARCHITECTURE D2)
+Each asset has a permanent key; core maps it to the Intrinio security id and the dated tickers.
+Tickers are reused (FB, META), so history is never keyed by ticker. The 64's keys are today's tickers.
+
+## C-018 A rebuild attempt is a new database (owner, 2026-11-10)
+An attempt fills a fresh database beside the current one; readers switch when the owner accepts it.
+Tape caches are copied. There is no database yet: the first attempt is simply the first one.

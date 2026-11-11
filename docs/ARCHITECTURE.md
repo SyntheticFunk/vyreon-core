@@ -1,9 +1,9 @@
 # Architecture and plan (design pass 2, 2026-11-10)
 
-Status: for the owner's review before any code. It replaces the first draft of the same day and
+Status: reviewed and accepted by the owner (2026-11-10). It replaces the first draft of the same day and
 folds in the decisions since (`docs/DECISIONS.md` C-001 to C-011). Engine facts are in
 `docs/ENGINE_MAP.md` (MAP §n); new facts read or measured in this pass are marked **(pass 2)**.
-Proposals still to confirm are collected in §10.
+What is still open or unmeasured is in §10.
 
 ## 1. What we are building
 
@@ -278,19 +278,11 @@ days need E6–E8 and are independent of the newer ones; the ordered pass is re-
 
 ## 10. To confirm on review, and what is still unknown
 
-**Proposed in this pass (not yet decisions):**
-1. **E10's split** (§2.1): 18 sensors move into the worker, 12 stay in the ordered pass, the OCC
-   ex-date becomes a published base value. No value should change; the golden days check it.
-2. **How the two derived groups are published:** the day-local group with the worker's day in the same
-   atomic publish, the history group by the ordered pass; measurement ids unchanged, so readers see
-   no difference. Whether that is one profile or two is settled when E10 starts.
-3. **Workers publish by sending the day's bundle to core over HTTP** (no shared storage, no database
-   credentials on workers).
-4. **The publisher and the ordered pass run as engine-image jobs on the core node** (decided, C-012).
-5. **Identity (old D2):** a stable Vyreon asset key per member, mapped in core to the Intrinio
-   security id and dated tickers. META stays one key across its FB years; a reused ticker gets a new key.
-6. **Backups** wait for a database worth keeping (decided, C-013); retention is set then.
-7. **A rebuild attempt is a new database** (§5.4).
+**Confirmed by the owner (2026-11-10; C-012, C-013, C-015 to C-018):** E10's split of the derived
+sensors (§2.1); the day-local group published with the worker's day, the history group by the ordered
+pass, measurement ids unchanged (one profile or two is settled when E10 starts); workers publish by
+sending the day's bundle to core over HTTP; stable Vyreon asset keys; a rebuild attempt is a new
+database; the publisher and ordered pass as engine-image jobs; backups later.
 
 **Open, decided when their phase starts:** the order of N assets against the first build is now
 settled by the ticker-history check (§8) unless the owner wants it otherwise; E4's exact rules and
