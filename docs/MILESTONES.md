@@ -413,6 +413,33 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
 - `unusual_score` is untested with real rows: the droplet has none yet (one derived day).
 - Publish memory, measured on the full day: the core process peaks at ~0.7 GB and its database
   backend at ~0.6 GB. Not yet bounded; A7 runs one publish at a time (a day takes ~18 s).
+- **E4 started: what each rule touches (engine `worker`, 2026-11-11).**
+  (1) *Option sessions, 200:* the windows are declared once (`day_inputs.rs` `WINDOWS`:
+  close_quotes 200, option_history 200, daily_captures 379, field_panel 376, ...); the one reader
+  outside them was the derive's 260-session ex-date scan, which the ordered pass no longer makes
+  (it reads T's VS-O04).
+  (2) *`last_adjusted`* (`occ.rs:151`): the latest OCC-adjustment date before T "over every session
+  with a daily capture", so it depends on how many daily sessions the disk holds, and mid-block a
+  worker holds more than at a block's start. It feeds the quote overlay
+  (`quote_overlay.rs` `frozen_by_adjustment`: a dead contract still holding open interest is dropped
+  when its last trade predates the last adjustment, "whatever its distance"). **Real markers on
+  the droplet:** on 2025-12-10 NVDA 2024-06-10, AVGO 2024-07-15, MSTR 2024-08-08 (splits, 337 to
+  378 sessions back), BABA 2025-06-12, five sector funds 2025-12-05; on 2026-11-10 the same, the
+  three splits now about 600 sessions back, only because the droplet's daily archive reaches
+  2024-06-06. A worker with 380 daily sessions would drop the three splits on 2026-11-10. So the
+  plan's "bound it to the window" changes populations for NVDA, AVGO and MSTR, against the
+  overlay's stated intent. **Proposed instead (to measure, then the owner):** splits from the
+  provider's split list at any age (one request per asset), the owner-confirmed table at any age,
+  and the detections that need quote files (new roots, strike shifts) within the 200-session quote
+  window; what that drops is a non-split adjustment older than 200 sessions that is not in the
+  table. Not yet measured: how many contracts the frozen rule actually removes for an old
+  adjustment.
+  (3) *Bar origin:* the technical seven read every daily capture on disk through T
+  (`derive/local.rs`, `ArchiveCache::load_bars`); a worker holds 380. Needs bars from a fixed
+  origin (2020-01-02 or the listing) as one ranged request per asset (C-008), read apart from the
+  per-session captures.
+  (4) *Tape-history start:* `VYREON_TAPE_HISTORY_FROM` (an environment variable, default
+  2023-05-24); to come from core's claim.
 - **First major deliverable (owner, 2026-11-11):** two cluster nodes, each computing a golden
   day from an empty disk (adjacent days 2025-12-10 and 2025-12-11, tape jobs before, the ordered
   pass after, compared with the droplet's published days). No cold-start rehearsal on the droplet
