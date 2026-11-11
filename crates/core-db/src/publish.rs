@@ -27,6 +27,7 @@ use std::io::{Read, Write};
 use std::path::Path;
 use tokio::sync::mpsc::{Receiver, channel};
 use tokio_postgres::types::ToSql;
+use crate::work::{self, LeaseError};
 use tokio_postgres::{Client, Transaction};
 
 /// What a publish stored.
@@ -85,13 +86,29 @@ fn stream_reference(body: &Value) -> Option<&str> {
 
 /// Publishes the bundle file at `path`.
 pub async fn publish_file(client: &mut Client, path: &Path) -> Result<Published, Error> {
+    publish(client, path, None).await
+}
+
+/// Publishes the bundle a worker sends under its lease: the day must be its job's next session,
+/// for the job's profile and build. The day is published and the job moved on in one transaction.
+pub async fn publish_for_lease(client: &mut Client, path: &Path, token: &str) -> Result<Published, LeaseError> {
+    publish(client, path, Some(token)).await.map_err(|e| match e {
+        Error::Refused(m) if m == GONE => LeaseError::Gone,
+        Error::Refused(m) => LeaseError::Refused(m),
+        Error::Failed(m) => LeaseError::Failed(m),
+    })
+}
+
+const GONE: &str = "no live lease has this token";
+
+async fn publish(client: &mut Client, path: &Path, token: Option<&str>) -> Result<Published, Error> {
     let file = std::fs::File::open(path).map_err(|e| Error::Failed(format!("{}: {e}", path.display())))?;
     // the bundle is read on a blocking thread, one slot ahead of the database
     let (sender, mut items) = channel::<Item>(1);
     let reader = tokio::task::spawn_blocking(move || {
         read_bundle(std::io::BufReader::new(file), &mut |item| sender.blocking_send(item).map_err(|_| std::io::Error::other("publish stopped")))
     });
-    let result = publish_items(client, &mut items).await;
+    let result = publish_items(client, &mut items, token).await;
     drop(items);
     match reader.await {
         // a bundle that cannot be read is refused, whatever the publish made of its beginning
@@ -101,11 +118,37 @@ pub async fn publish_file(client: &mut Client, path: &Path) -> Result<Published,
     }
 }
 
-async fn publish_items(client: &mut Client, items: &mut Receiver<Item>) -> Result<Published, Error> {
+async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: Option<&str>) -> Result<Published, Error> {
     let Some(Item::Header(header)) = items.recv().await else { return refuse("the bundle has no header") };
     let Some(Item::Scalars(scalars)) = items.recv().await else { return refuse("the bundle has no scalars") };
     let tx = client.transaction().await.map_err(db)?;
     let date = header.represented_date.as_str();
+    let lease = match token {
+        None => None,
+        Some(token) => {
+            let lease = match work::held(&tx, token).await {
+                Ok(lease) => lease,
+                Err(LeaseError::Gone) => return refuse(GONE),
+                Err(LeaseError::Refused(m)) => return refuse(m),
+                Err(LeaseError::Failed(m)) => return Err(Error::Failed(m)),
+            };
+            if lease.kind == "TAPE" {
+                return refuse("a tape job publishes no days");
+            }
+            if lease.next_session.as_deref() != Some(date) || lease.engine_build != header.engine_build || lease.profile_id != header.profile_id {
+                return refuse(format!(
+                    "job {} expects {} of {} from build {}, the bundle is {date} of {} from build {}",
+                    lease.job_id,
+                    lease.next_session.as_deref().unwrap_or("no further day"),
+                    lease.profile_id,
+                    lease.engine_build,
+                    header.profile_id,
+                    header.engine_build
+                ));
+            }
+            Some(lease)
+        }
+    };
     // one publish at a time per day and profile
     tx.execute("SELECT pg_advisory_xact_lock(hashtextextended($1 || ' ' || $2, 0))", &[&date, &header.profile_revision]).await.map_err(db)?;
     let inventory = check_header(&tx, &header).await?;
@@ -163,6 +206,9 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>) -> Resul
     let (reader_scalars, unusual_scores) = insert_scalars(&tx, revision, date, &scalars).await?;
     let (streams, stream_bytes) = read_back(&tx, revision, date, inventory.len()).await?;
     let superseded = promote(&tx, revision, &header, base).await?;
+    if let Some(lease) = &lease {
+        work::session_done(&tx, lease, date).await.map_err(|e| Error::Failed(e.to_string()))?;
+    }
     tx.commit().await.map_err(db)?;
     Ok(Published {
         revision_id: revision,
