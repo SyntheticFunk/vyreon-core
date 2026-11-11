@@ -198,12 +198,17 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   **A value question for E4:** the droplet derived its oldest tape sessions with no daily bar
   (official volume unavailable); a tape worker always has the bar, so those sessions' volume
   reconciliation gate will run where `engine-v1` withheld. It is declared with E4.
-  The tape entrypoint is written (engine, the commit after d3d0239d), not yet run on real tapes:
-  `vyreon-worker run tape` claims a tape job and, per session, captures the session's bar and its
-  round-lot evaluation month (ranged) for every member trading by then, captures the tapes, derives
-  and stores each cache, and marks the session done; it draws the budget and heartbeats as a day
-  block does. **Its first real run is the next proof on the droplet** (one session, core on the
-  laptop through an SSH tunnel, the derived bodies compared with the droplet's own cache).
+  The tape entrypoint (`vyreon-worker run tape`) claims a tape job and, per session, captures the
+  session's bar and its round-lot evaluation month (ranged) for every member trading by then,
+  captures the tapes, derives and stores each cache, and marks the session done; it draws the
+  budget and heartbeats as a day block does.
+  **Proven on the droplet, 2026-11-11** (branch built clean there in 6 min, separate checkout and
+  binaries; core on the laptop through an SSH tunnel): the tape job of 2025-12-10 took 6 minutes
+  (tapes 330 s, 1.5 GB peak memory), stored 64 caches (1.3 MB in all) and finished. Against the
+  droplet's own caches of that session all 64 fifteen-minute and 64 five-minute bodies are
+  byte-identical; only provenance differs (the ranged bar's page digest, clocks, tape object
+  records). The run found that the capture child, started with a cleared environment, did not
+  see the request gate: fixed (engine f4dad345).
   Known limits: the droplet's existing caches cannot seed core (they name its superseding daily
   attempts, which a ranged-bar worker does not have), so the first build recomputes the tape
   history as planned; a build that changes the reader's eight source files recomputes every tape;
