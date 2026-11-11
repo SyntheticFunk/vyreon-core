@@ -265,6 +265,18 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   Step 1 is done (engine 17202e14): the reason exists and all the families' containment bodies
   build and validate with it (their own tests now run over it); nothing produces it yet. Steps 2
   to 4 remain.
+  **A smaller design for steps 2 to 4, chosen 2026-11-11 after reading the executor** (4,266 lines,
+  its intent canonical and versioned): do not teach the executor about a withheld asset. The day
+  driver leaves such an asset out of the intent (the executor already accepts 2 to 64 assets), so
+  an ordinary day's intent, tasks and bodies are byte for byte what they were. The driver then
+  commits the left-out asset's slots as containment bodies through a new `h3-asset` command built
+  on `fault_job` and `execute_faulted` (they need no sources and no parents; D-113's
+  `fault-export` is the precedent, but it looks the task up in the intent). Each stage loops over
+  the present assets instead of handling an error per site; FIELD gets the present assets and
+  treats the rest as missing members; the more-than-6 hold and the plan's per-asset refusals
+  become the driver's rule. The fault count never sees these assets, so the 10% hold is
+  untouched. Still to learn: the slots the executor does not own (VS-IVS01 from `h5_surface`, the
+  company family) need their own withheld bodies for a left-out asset.
   None of it is in the tape reader's eight source files. Tests need a real day with one asset's
   real input left out (as `h5-field/tests/fault_members.rs` does), and the golden days must be
   unchanged when nothing is missing.
