@@ -352,8 +352,20 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   and the droplet home's archive and surfaces: 1,105 slots in 61 s, 0.4 GB; every role of every
   slot equals the droplet's published derived day (1,105 of 1,105, all 18 sensors, same method
   versions). So the event window from T's own ledger equals the one read over published days, on
-  this day. Left in step 3: the stage in DayRun, the second bundle, E11's withheld assets, and a
-  test from a frozen real slice. Proof scripts: `/root/worker-proof/b3/` on the droplet.
+  this day. Proof scripts: `/root/worker-proof/b3/` on the droplet.
+  **Steps 3 and 4 done (engine 99a9ddbe, core b6b3490):** the day computes the 18 after its base
+  bundle and sends a second bundle on it (`day_local` in the header; core keeps the flag, migration
+  0010, and an earlier day's republished base no longer supersedes a later day's day-local
+  revision). Checked on real data without a whole day: (a) with UNG's four parents replaced by the
+  E11 run's withheld bodies, UNG's 18 slots withhold every measured role as `DEPENDENCY_WITHHELD`
+  / `PROVIDER_INPUT_MISSING` and the other 1,088 bodies are byte-identical; (b) the droplet's
+  exported base day and the derived bundle published into a scratch core: revision 2 bound to
+  base 1, day-local, 1,105 slots each with its coordinates view, 5,528 reader scalars equal to the
+  droplet's for these sensors. **Not yet proven:** the stage inside a real day run (it has only
+  been built and unit-compiled there), the cross-day supersede rule (needs two real days: the
+  multi-day block proof), and no laptop test from a frozen slice exists for `derive::local` (the
+  laptop has no surfaces, populations or bar archive). Left in B3: step 5, the ordered pass over
+  core's database for the 12 history sensors, with the OCC ex-date published as a base value.
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
   derived sensors into the day), E11 (decided, C-029), E4 (owner decisions
   first).
