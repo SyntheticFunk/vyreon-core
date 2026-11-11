@@ -318,3 +318,24 @@ reads only contract 2; nothing in production wrote contract 1.
   Intrinio requests by category so far (later days download during a day, so the count is the
   block's, not one day's).
 
+
+## C-031 B3's shape: the day-local derived sensors are a second profile and a second bundle (2026-11-11)
+ARCHITECTURE left "one profile or two" to when E10 starts. Two.
+- **Why not join the base profile:** its slot set would change, so its revision string would, and
+  every base body names that string: all 2,853 bodies of a day would differ from `engine-v1` byte
+  for byte and the golden comparisons would lose their sharpest check for no gain in values.
+- **So:** the engine's derived profile splits. The 18 day-local sensors get their own profile
+  revision, computed in the day from the run's own exports and files and published by the day-block
+  worker as a second bundle on the day's base (`base_profile_revision`). The 12 history sensors
+  keep a profile of their own for the ordered pass.
+- **Body identity changes, values must not.** A derived body today hashes the list of every
+  published revision id into its `result_id` and names the base revision id in `parents[]`. A
+  worker knows neither and a day-local sensor reads no history, so the 18 name their parents by
+  result id and body digest only and carry no history digest. Proof is role equality with the
+  droplet's published derived bodies.
+- **Core must follow:** publishing a base supersedes every later day's revision that was built on
+  a base, because the ordered pass reads history. A day-local revision of a later day reads none
+  and must stay. The bundle header will say whether a revision reads history (contract 3); core
+  supersedes later days only for those.
+- The engine's direct-to-Postgres derive is not kept working for the 18 on the `worker` branch; it
+  becomes the ordered pass.

@@ -330,6 +330,12 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   disk, so their values depend on where the bars start: that is E4's fixed bar origin, an owner
   ruling. Also found: the ex-date scan reads 260 sessions of close-quote files but retention keeps
   200, and a missing file reads as "no ex-date" silently (unverified whether it has moved a value).
+- B3 started (shape decided, C-031: a second profile and bundle). Steps: (1) science: EVENT-WINDOW
+  split from IV-CRUSH (done, engine 3a000f2a; `greek_records` already takes IV30 as a value), a
+  day-local body builder; (2) `vyreon-sensors`: a day-local flag, the two profiles, slots,
+  inventory, graph; (3) `vyreon-cli`: inputs from the run's exports, the 18 computed per asset, an
+  export set, the second bundle, a DayRun stage, E11's withheld assets; (4) core: contract 3 and
+  the supersede rule; (5) the ordered pass and the ex-date as a base value. Proof on the droplet.
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
   derived sensors into the day), E11 (decided, C-029), E4 (owner decisions
   first).
