@@ -85,12 +85,13 @@ async fn claim(State(app): Shared, headers: HeaderMap, Json(request): Json<Claim
         .query_one(
             "SELECT COALESCE(jsonb_agg(jsonb_build_object('session', s.session, 'members',
                         (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.ordinal) FROM core.members_on($1, s.session) m)) ORDER BY s.session), '[]'::jsonb)::text,
-                    (SELECT jsonb_object_agg(source, first_date)::text FROM core.source_coverage)
+                    (SELECT jsonb_object_agg(source, first_date)::text FROM core.source_coverage),
+                    (SELECT to_jsonb(min(first_session))::text FROM core.job WHERE kind = 'TAPE' AND profile_id = $1 AND state <> 'CANCELLED')
              FROM core.session s WHERE s.session = ANY($2::text[]::date[])",
             &[&c.profile_id, &c.sessions],
         )
         .await
-        .map(|r| format!("{{\"days\":{},\"sources\":{}}}", r.get::<_, String>(0), r.get::<_, String>(1)))
+        .map(|r| format!("{{\"days\":{},\"sources\":{},\"tape_history_from\":{}}}", r.get::<_, String>(0), r.get::<_, String>(1), r.get::<_, String>(2)))
         .map_err(|e| failed(e.to_string()))?;
     let manifest: Value = serde_json::from_str(&manifest).map_err(|e| failed(e.to_string()))?;
     ok(json!({
@@ -98,6 +99,9 @@ async fn claim(State(app): Shared, headers: HeaderMap, Json(request): Json<Claim
         "scope": c.scope.as_deref().map(serde_json::from_str::<Value>).transpose().map_err(|e| failed(e.to_string()))?,
         "attempt": c.attempt, "lease_token": c.token, "expires_at": c.expires_at, "lease_seconds": app.config.lease_seconds,
         "days": manifest["days"], "sources": manifest["sources"],
+        // E4: where this database's tape history starts (its first scheduled tape session), so
+        // every worker of a build reads the same history; null while no tape job is scheduled
+        "tape_history_from": manifest["tape_history_from"],
     }))
 }
 
