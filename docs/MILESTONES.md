@@ -526,6 +526,17 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   asset from 2020-01-02 (B2's `daily_range_chain` and `link_range` already fetch and verify ranged
   bars), kept as a range of its own that the technical records read, not per-session captures.
   Engine `worker` is at the tape-history commit, pushed.
+- **Cluster setup written, nothing created (2026-11-11):** `deploy/core/Dockerfile` (built on the
+  laptop: 142 MB; it migrated a scratch database to 0011 and loaded the universe from its own seed
+  files), `deploy/k8s/` (namespace, the CloudNativePG database, core's Deployment and Service, the
+  three worker Jobs) and `deploy/k8s/README.md`, the runbook with every paid command marked and
+  the prices read from DigitalOcean's API: core node `s-4vcpu-8gb-amd` $0.083 an hour, worker
+  `s-8vcpu-16gb-amd` $0.167 an hour, about $10 for the two-node run torn down after (the
+  registry's $5 a month is half of it), about $67 a month if the core node, volume and registry
+  stay. Migration 0011 gives the ordered pass its read-only group role. Plain Jobs for the first
+  run; KEDA and autoscaling to zero come with the build (two things to settle are in the README).
+  The manifests have been parsed, not applied: no cluster exists to apply them to.
+  Also fixed: a claim with no tape job scheduled failed to answer (the null tape-history start).
 - **First major deliverable (owner, 2026-11-11):** two cluster nodes, each computing a golden
   day from an empty disk (adjacent days 2025-12-10 and 2025-12-11, tape jobs before, the ordered
   pass after, compared with the droplet's published days). No cold-start rehearsal on the droplet
