@@ -18,6 +18,9 @@ pub enum Cache {
 /// Stores one asset-session's cache. Storing the same content again changes nothing (true is
 /// returned only when it was new); other content for the same key is refused.
 pub async fn put(client: &Client, asset: &str, session: &str, method: &str, cache: &Cache) -> Result<bool, String> {
+    if !core_contract::is_date(session) {
+        return Err(format!("{session} is not a date written YYYY-MM-DD"));
+    }
     let (body, digest, absence) = match cache {
         Cache::Body(bytes) if bytes.is_empty() => return Err("an empty tape cache".into()),
         Cache::Body(bytes) => (Some(bytes.as_slice()), Some(sha256_hex(bytes)), None),
@@ -49,6 +52,9 @@ pub async fn put(client: &Client, asset: &str, session: &str, method: &str, cach
 
 /// Every asset's cache of a session for a method version, by asset key.
 pub async fn of_session(client: &Client, session: &str, method: &str) -> Result<Vec<(String, Cache)>, String> {
+    if !core_contract::is_date(session) {
+        return Err(format!("{session} is not a date written YYYY-MM-DD"));
+    }
     let rows = client
         .query(
             "SELECT asset_key, body, body_sha256, absence FROM core.tape_cache

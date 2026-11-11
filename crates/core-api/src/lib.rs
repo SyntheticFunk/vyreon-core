@@ -1,10 +1,11 @@
 //! vyreon-core's HTTP service. `worker` is the private API the engine's workers use (ARCHITECTURE
 //! 4.1): claim a job, renew the lease, draw request budget, read and write tape caches, publish a
-//! day, finish or fail.
+//! day, finish or fail. `reader` is what vyreon-reporter reads.
 //!
 //! Who may call: a claim carries the workers' shared token (core is given only its SHA-256); the
 //! claim returns a lease token, and every other call carries that. Both travel as
 //! `Authorization: Bearer <token>`. Workers hold no database or storage credentials (C-016).
+pub mod reader;
 pub mod worker;
 
 use axum::Json;
@@ -58,6 +59,7 @@ pub fn router(app: Arc<App>) -> axum::Router {
         .route("/health", get(|| async { "ok" }))
         .route("/ready", get(ready))
         .nest("/worker/v1", worker::routes())
+        .nest("/v1", reader::routes().layer(tower_http::compression::CompressionLayer::new()))
         .with_state(app)
 }
 

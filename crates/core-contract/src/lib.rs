@@ -24,6 +24,13 @@ use std::io::{self, Read, Write};
 
 pub const CONTRACT: &str = "VYREON-DAY-BUNDLE@1";
 
+/// Whether `text` is a calendar date written `YYYY-MM-DD`. Dates cross the contract in this form
+/// only: PostgreSQL would also read words such as "yesterday" as dates.
+pub fn is_date(text: &str) -> bool {
+    let b = text.as_bytes();
+    b.len() == 10 && b.iter().enumerate().all(|(i, c)| if i == 4 || i == 7 { *c == b'-' } else { c.is_ascii_digit() })
+}
+
 /// Lowercase hex SHA-256.
 pub fn sha256_hex(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()

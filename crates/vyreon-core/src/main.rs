@@ -12,7 +12,9 @@
 //!   vyreon-core queue [pause <reason> | resume | retry-failed]   the queue at a glance, or change it
 //!   vyreon-core months <first> <last>                 create the store's monthly partitions for a date range
 //!   vyreon-core publish <bundle>...                   check, write, read back and publish day bundles, in order
-//!   vyreon-core serve                                 the HTTP service (the worker API). Settings:
+//!   vyreon-core api-key create <holder> <read[,admin]>   make a reader API key (printed once; only its digest is kept)
+//!   vyreon-core api-key revoke <holder>
+//!   vyreon-core serve                                 the HTTP service (the worker and reader APIs). Settings:
 //!                                                     VYREON_CORE_WORKER_TOKEN_SHA256 (required: the SHA-256 of the
 //!                                                     workers' shared token), VYREON_CORE_LISTEN (0.0.0.0:8080),
 //!                                                     VYREON_CORE_SPOOL (the temp dir), VYREON_CORE_LEASE_SECONDS (300),
@@ -206,6 +208,14 @@ async fn main() -> ExitCode {
         ["schedule", kind, profile, engine_build, first, last] => schedule(kind, profile, engine_build, first, last, "30").await,
         ["schedule", kind, profile, engine_build, first, last, block] => schedule(kind, profile, engine_build, first, last, block).await,
         ["queue", ref change @ ..] => queue(change).await,
+        ["api-key", "create", holder, scopes] => match connect().await {
+            Ok(client) => core_db::api_key::create(&client, holder, &scopes.split(',').map(str::to_owned).collect::<Vec<_>>()).await.map(|key| println!("{key}")),
+            Err(e) => Err(e),
+        },
+        ["api-key", "revoke", holder] => match connect().await {
+            Ok(client) => core_db::api_key::revoke(&client, holder).await,
+            Err(e) => Err(e),
+        },
         ["serve"] => serve().await,
         ["months", first, last] => months(first, last).await,
         ["publish", ref bundles @ ..] if !bundles.is_empty() => publish_bundles(bundles).await,

@@ -233,6 +233,9 @@ fn prefixed(name: &str, e: Error) -> Error {
 /// The build, its inventory for the profile against the bundle's slots, and the month's partitions.
 async fn check_header(tx: &Transaction<'_>, header: &Header) -> Result<HashSet<(String, String)>, Error> {
     let (build, profile) = (&header.engine_build, &header.profile_revision);
+    if !core_contract::is_date(&header.represented_date) {
+        return refuse(format!("represented_date {} is not a date written YYYY-MM-DD", header.represented_date));
+    }
     if tx.query_opt("SELECT FROM core.engine_build WHERE engine_build = $1", &[build]).await.map_err(db)?.is_none() {
         return refuse(format!("engine build {build} is not registered"));
     }

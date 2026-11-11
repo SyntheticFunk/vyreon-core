@@ -195,6 +195,9 @@ async fn tape_put(State(app): Shared, headers: HeaderMap, Path((session, asset))
 
 async fn tape_done(State(app): Shared, headers: HeaderMap, Path(session): Path<String>) -> Reply {
     let mut client = app.db().await?;
+    if !core_contract::is_date(&session) {
+        return Err(refused(format!("{session} is not a date written YYYY-MM-DD")));
+    }
     tape::session_done(&mut client, bearer(&headers)?, &session).await?;
     ok(json!({"session": session}))
 }

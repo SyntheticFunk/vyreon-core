@@ -90,6 +90,9 @@ pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &st
         return Err("a day block holds at least one session".into());
     }
     let block = if kind == Kind::DayBlock { block } else { 1 };
+    if !core_contract::is_date(first) || !core_contract::is_date(last) {
+        return Err(format!("{first} to {last}: dates are written YYYY-MM-DD"));
+    }
     let sessions: i64 = client
         .query_one("SELECT count(*) FROM core.session WHERE session BETWEEN $1::text::date AND $2::text::date", &[&first, &last])
         .await
