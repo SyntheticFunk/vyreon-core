@@ -275,8 +275,15 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   the present assets instead of handling an error per site; FIELD gets the present assets and
   treats the rest as missing members; the more-than-6 hold and the plan's per-asset refusals
   become the driver's rule. The fault count never sees these assets, so the 10% hold is
-  untouched. Still to learn: the slots the executor does not own (VS-IVS01 from `h5_surface`, the
-  company family) need their own withheld bodies for a left-out asset.
+  untouched.
+  Done (engine, the commit after 17202e14): `h3-asset contain-slot MEASUREMENT SYMBOL DATE CUTOFF
+  MESSAGE DEST` commits and verifies the slot (VS-P01 for ETHA: all 16 roles WITHHELD,
+  PROVIDER_INPUT_MISSING). Every owner the executor runs for an asset has such a slot (42 for SPY,
+  42 of AAPL's 47). The other five are the company family, which h5-company computes from the
+  day's company capture and which does not depend on the asset's option, bar or tape inputs, so a
+  left-out asset keeps them. VS-IVS01 (from `h5_surface`) still needs its withheld export.
+  Next: the driver (which assets are left out, from the plan's per-asset entries; the stages over
+  the present assets; the containment slots into the exports; the more-than-6 hold).
   None of it is in the tape reader's eight source files. Tests need a real day with one asset's
   real input left out (as `h5-field/tests/fault_members.rs` does), and the golden days must be
   unchanged when nothing is missing.
