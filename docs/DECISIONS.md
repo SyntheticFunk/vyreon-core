@@ -117,3 +117,14 @@ Tickers are reused (FB, META), so history is never keyed by ticker. The 64's key
 ## C-018 A rebuild attempt is a new database (owner, 2026-11-10)
 An attempt fills a fresh database beside the current one; readers switch when the owner accepts it.
 Tape caches are copied. There is no database yet: the first attempt is simply the first one.
+
+## C-019 Core is the authoritative database; the engine is a stateless worker (owner, 2026-11-10)
+Revises C-012 and E15's ownership note. Core owns the whole database: every table, the migrations,
+the partitioning, and the only write path. The engine owns the science and nothing that lasts. The
+boundary is a versioned **publish contract**: a day's bundle (bodies, receipts, streams, digests, the
+build and its slot inventory) that the engine produces and core checks and writes with its own code
+(digests, exact inventory, all-or-nothing publish, readback). No engine process holds write
+credentials. The ordered pass is an engine job that reads history and publishes its day through the
+same contract; for the first build it reads with a read-only database role, later through core's
+reader API. The engine's `db/schema.sql` and `vyreon-store` become the starting point of core's
+schema and publish code and are retired from the engine once the worker path is proven.

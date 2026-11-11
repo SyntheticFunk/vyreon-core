@@ -18,7 +18,7 @@ the tape caches, and the API that vyreon-reporter (later vyreon-web) reads.
   │  Postgres 16 (CloudNativePG, DO volume)         engine Jobs, one per claim:   │
   │  vyreon-core (Rust): worker API · publish  ◄──  download from Intrinio,       │
   │   · scheduler · budget · reader API        HTTP compute, publish through core,│
-  │  engine-image Jobs: publisher, ordered pass     delete, exit                  │
+  │   · publish (the only writer)                   delete, exit                  │
   │  KEDA (starts Jobs from the claimable count)                                  │
   └───────────────┬──────────────────────────────────────────────────────────────┘
                   │ S3 API: the perishable archive (database backups later, C-013)
@@ -35,9 +35,9 @@ the tape caches, and the API that vyreon-reporter (later vyreon-web) reads.
 - **Only what is needed is stored** (C-004): the measurements, the perishable and volatile inputs
   Intrinio will not serve again, and the tape caches (C-010). Everything else is downloaded again.
 - **The job table in Postgres is the source of truth for work.** Kubernetes only runs containers.
-- **Core is generic; engine code runs only from the engine's image** (C-012): workers, the publisher
-  and the ordered pass are all the same image at the same build, so core never has to be rebuilt for
-  an engine version and cannot drift from it.
+- **Core is the authoritative database; the engine is a stateless worker** (C-019). Core owns every
+  table, the migrations and the only write path. The engine owns the science and keeps nothing. They
+  meet at a versioned publish contract (the day's bundle), so core is not rebuilt per engine version.
 - **Every day is a pure function of (T, the provider's data, the declared windows)** whatever block
   or machine computes it (C-001); the block-start test proves it.
 
@@ -127,17 +127,18 @@ Notes:
 - **vyreon-core**, one Rust service (C-007; axum + tokio-postgres). It contains no engine code:
   - **worker API** (private network, per-worker token): claim a block, heartbeat, budget lease, read
     tape caches, publish a day, report usage, finish or fail;
-  - **receiving:** takes each day's bundle (the engine's export directories as one compressed
-    stream) onto the core node's disk and queues a publish job for it;
+  - **publish (the only writer):** takes each day's bundle (the publish contract: bodies, receipts,
+    streams, digests, the build and its slot inventory), checks digests and the exact inventory,
+    writes it all-or-nothing and reads it back. Core's code, started from the engine's `vyreon-store`
+    and `publish_revision` (MAP §4);
   - **scheduler:** turns a request ("days 2025-03-03 to 2026-11-10") into block jobs; decides what is
     claimable; expires dead leases; pauses the queue on a failed check; **admits a build** (an engine
     build may claim work only after its golden days and block-start test passed on the cluster);
   - **budget:** the account's Intrinio window (§6);
   - **reader API** (after the first database, C-009) and **notices** (Discord, channel only).
-- **Engine-image jobs on the core node** (the only pods with database credentials, C-012):
-  - **publisher:** the engine's own `stage → verify → publish → readback` on a received bundle, so the
-    atomic, inventory-checked publish is unchanged (MAP §4);
-  - **ordered pass:** the engine's derive, in date order behind the published days, one at a time.
+- **The ordered pass** is an engine job (the engine's derive), one at a time, in date order behind the
+  published days. It reads history with a read-only database role for the first build (through the
+  reader API later) and publishes its day through the same contract as every worker.
 - **Health checks** include the engine's frozen trading calendar: a notice well before its last
   session, since daily runs stop when it runs out.
 - **KEDA:** one ScaledJob per job type reads "claimable jobs of this type" from Postgres and starts
@@ -168,7 +169,7 @@ The perishable archive now; the database backups later (C-013). Nothing else. Wo
    day-local derived sensors, sends the day's bundle to core with its stage timings and request
    counts (E13), and continues while the next date's inputs download. An asset with a missing input
    is published as a stated absence with its reason; the day goes on (E11).
-3. The publisher stages, verifies, publishes and reads back each day; core updates coverage and runs
+3. Core checks, publishes and reads back each day, updates coverage and runs
    the checks. A failed check pauses the queue and posts to Discord.
 4. On a crash or eviction the lease expires; the block is reclaimed and resumes at the first
    unpublished date (one cold start lost).
@@ -232,7 +233,7 @@ doing today's capture until the cluster has matched it for several sessions.
 | E7 | Provider ticker per date (FB → META), challenge registry from history | after the first build |
 | E8 | Absences with causes (`NOT_LISTED`, `BEFORE_PROVIDER_START`) | after the first build |
 | E9 | FIELD over a changing membership: stated absence until its rulings (C-005); the constants tied to 64 (pair counts, group positions, minimum cross-sections) follow the day's member list | after the first build |
-| E15 | Monthly partitioning of the store (C-014a): `measurement`, `measurement_stream`, `reader_scalar` and `unusual_score` are keyed by revision only, so each gains the represented date in its key and the engine's inserts supply it. The store's schema stays the engine's (`db/schema.sql`, applied by the publisher's build); core's own tables (universe, work, budget, coverage, tape cache) live in a separate `core` schema with core's migrations | engineering; before the first build |
+| E15 | Monthly partitioning of the store (C-014a): `measurement`, `measurement_stream`, `reader_scalar` and `unusual_score` are keyed by revision only, so each gains the represented date in its key and the engine's inserts supply it. The schema is core's (C-019), started from the engine's `db/schema.sql`; the engine's bundle carries the date | core; in milestone 1 |
 | E14 | The stored format slimmed (each body is stored twice; M0 streams are 65% of the store) | before a larger universe |
 
 **Proof for E1–E5, E7′, E10–E13:** the golden days through the worker path equal `engine-v1` except the
@@ -283,7 +284,7 @@ days need E6–E8 and are independent of the newer ones; the ordered pass is re-
 sensors (§2.1); the day-local group published with the worker's day, the history group by the ordered
 pass, measurement ids unchanged (one profile or two is settled when E10 starts); workers publish by
 sending the day's bundle to core over HTTP; stable Vyreon asset keys; a rebuild attempt is a new
-database; the publisher and ordered pass as engine-image jobs; backups later.
+database; core as the only writer behind a publish contract (C-019); backups later.
 
 **Open, decided when their phase starts:** the order of N assets against the first build is now
 settled by the ticker-history check (§8) unless the owner wants it otherwise; E4's exact rules and
