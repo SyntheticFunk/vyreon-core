@@ -413,6 +413,12 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
 - `unusual_score` is untested with real rows: the droplet has none yet (one derived day).
 - Publish memory, measured on the full day: the core process peaks at ~0.7 GB and its database
   backend at ~0.6 GB. Not yet bounded; A7 runs one publish at a time (a day takes ~18 s).
+- **First major deliverable (owner, 2026-11-11):** two cluster nodes, each computing a golden
+  day from an empty disk (adjacent days 2025-12-10 and 2025-12-11, tape jobs before, the ordered
+  pass after, compared with the droplet's published days). No cold-start rehearsal on the droplet
+  first (a cold day already ran there on `engine-v1`, 2026-11-09) and no plain-droplet stage. Order:
+  finish B3's whole-day proof, E4, cluster setup (free until nodes exist; the spend goes to the
+  owner before anything is created), the run. E11's narrowing alongside.
 - **Decided by the owner, 2026-11-11 (C-032):** E4 goes ahead (values must not depend on the
   disk); E11 is to withhold only the sensors that read the missing input and their dependants,
   not the whole asset (a change to what was built and proven today); a day in two publishes is
