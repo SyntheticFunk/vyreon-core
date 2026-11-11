@@ -91,8 +91,18 @@ Each change is proven on the golden days: values equal `engine-v1` except what i
    reader scalars in the bundle, its identity check before bundling), publish, finish or fail with
    the log; stage timings and request counts with every day (E13).
 7. B7: the container image, build identity baked in, disk guard by env, no git at runtime (E5).
-Also: `list_sessions all` (the whole calendar with open and close times, for core); an inventory
-document per build for `vyreon-core build register`; the evidence file for `build admit`.
+Also: an inventory document per build for `vyreon-core build register`; the evidence file for
+`build admit`.
+
+Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `worker` off
+`engine-v1`; the main checkout is untouched). Engine tests there need
+`VYREON_FIXTURES=/home/diggz/vyreon-engine/workspace/fixtures` (the fixtures are untracked).
+- Done (8b0f183b): the readers' window lengths are `day_inputs`' declared windows, resolved at
+  compile time (B1, first part; no value changes); `list_sessions all` prints the whole calendar
+  with opens and closes (it equals core's loaded copy: 2,261 sessions, same digest).
+- Next in B1: the plan checks every declared window (today only the option history and close-quote
+  windows; the daily, PATH, FIELD and intraday windows are found missing ~75 min into the day), then
+  a missing input withholding its assets instead of the day (E11).
 Proof: golden days through the worker path against a core on the droplet or laptop; the block-start
 test; a bundle published through core reads back identical.
 
