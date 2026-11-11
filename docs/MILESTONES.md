@@ -39,8 +39,16 @@ Done:
 - A4, first part: engine builds and their slot inventories; a revision needs a registered build.
   The other core tables land with the steps that use them (C-022).
 
-Now: A5, the universe for the 64 from Intrinio's ticker history (tables shaped by the real
-responses, frozen as fixtures). Then A6, publish.
+- A5: the universe for the 64 (C-023), from real Intrinio responses. `vyreon-core universe on
+  FREE_REPORT_64 2022-06-08` lists the 64 with META as FB and IBIT, ETHA not listed; from 2024-07-23
+  nothing changes, as the plan assumed. New fact: IBIT was a Defiance ETF's ticker 2022-09-08 to
+  2023-05-01 (matters for the backfill, not the first build).
+
+Now: A6, publish: the bundle format, the checks ported from the engine's store, and the exit test
+on a real droplet day.
+
+Owner (2026-11-10): spend for the cluster and first build is approved; be mindful of costs. Each
+resource is still stated with its cost before it is created, and pools sit at zero when idle.
 
 ## Open
 - Before the first build (ARCHITECTURE §8 step 0): E4's rules; stated absences on historical dates

@@ -164,3 +164,25 @@ coverage with publish (A6; it may be a view over `measurement`), work, budget an
 the worker API (A7), API keys with the reader API (A8). Reason: tables designed ahead of their code
 are guesses, and an applied migration is never edited. Engine builds and inventories are in now
 because publish needs them next.
+
+## C-023 The universe follows the provider's records (2026-11-10)
+Read from the real responses for the 64 (fetched 2026-11-11 UTC, frozen in
+`crates/core-db/tests/fixtures/intrinio-universe`). Corrections to what we assumed:
+- An Intrinio security id is **not** stable across a rename. A security record is one id with one
+  ticker: Meta is `sec_gQ8B8y` (FB, to 2022-06-08, merged into `sec_XO82JO`) and `sec_XO82JO` (META),
+  both dated from 2012. FIGI and composite FIGI are shared by the two. So a member is keyed by its
+  Vyreon asset key and today's security id, and its ticker on a date comes from the chain of records.
+- **IBIT was another security's ticker** (a Defiance ETF, 2022-09-08 to 2023-05-01), as META was the
+  Roundhill ETF's to 2022-01-28. Both fall inside the option history: a request by ticker for those
+  dates returns the other fund. It does not touch the first build (from 2025-03); the backfill must
+  treat the member as not listed there (E7, E8).
+- The history listings are incomplete: empty for DBA, SLV and UUP, undated for EEM's earlier CFEM
+  records, and GOOGL's `previous_tickers` names GOOG with no chain record. The security record's own
+  first price date is then the evidence.
+Tables (migration 0004): `core.security` (every provider record: members, their earlier tickers, the
+other users of their tickers; listing dates are columns, not a table), `core.member`,
+`core.ticker_span` (derived, a date range per ticker, overlap excluded by constraint),
+`core.source_coverage`, and `core.members_on(profile, date)`. Membership windows (`from`, `to`) are
+left until members vary (E6). Core does not call Intrinio yet: `vyreon-core universe load` reads
+saved responses; the fetch joins the budget work (A7).
+
