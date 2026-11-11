@@ -52,8 +52,10 @@ binding `INTRINIO-CI-DAILY-BAR-1@1`; values must be identical, checked on the go
 
 ## C-009 The reader API follows telemetry-backend's shape (owner, 2026-11-10)
 Core stores the final measurements with their provenance and serves them to vyreon-reporter (and
-later vyreon-web) by API. The prototype `/home/diggz/telemetry-backend` (Financial Telemetry V1) sets
-the shape: sessions (latest, by date), an asset's latest and its history (cursor-paginated, bounded),
+later vyreon-web) by API. The prototype `/home/diggz/telemetry-backend` (Financial Telemetry V1) is a
+guide to the shape, not a 1:1 template: it stores far less (24 assets x 15 scalars a day; core keeps
+every measurement, ~4,679 slots a day, with coordinates, state, reason, unit and quality). Taken from
+it: sessions (latest, by date), an asset's latest and its history (cursor-paginated, bounded),
 a report context (a session with the previous one), ingest/admin status, `/health` and `/ready`;
 hashed API keys with scopes; an ETag from the canonical revision's digest; corrections kept, one
 canonical revision per day; the roster and versions in tables, not constants; checksummed migrations
