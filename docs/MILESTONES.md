@@ -298,6 +298,25 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   None of it is in the tape reader's eight source files. Tests need a real day with one asset's
   real input left out (as `h5-field/tests/fault_members.rs` does), and the golden days must be
   unchanged when nothing is missing.
+- B3 mapped, not started (engine `worker`, 2026-11-11; an agent's read, unverified where marked).
+  The derived layer is `vyreon-cli/src/derive/{mod,archive}.rs` (I/O) over `h5-derived` (science); it
+  writes straight to Postgres as its own profile `VYREON-DLM-PROFILE-2.0.0` (1,826 slots) and the
+  worker path calls none of it. What the 18 read from Postgres today, each of which has a file in the
+  run's exports: T's VS-O02/VS-P01/VS-IVS01 bodies (`load_with`), the surface digest from the
+  VS-IVS01 receipt (`surface_file`), M0-GAMMA's stream (`gamma_stream`; the export's is not gzipped),
+  FIELD-DEP01 for BETA (`spy_pairs`), the 8-K ledger over all published days (`load_events`; T's own
+  CDD-EVENTS01 carries it, equality unverified), the object lists (`expected_slot`). To change in
+  the science crate: `event_records` returns EVENT-WINDOW and IV-CRUSH together (split);
+  `greek_records` takes IV30 from the DLM-IV30 record (read VS-IVS01's `iv30`); the graph's parents
+  follow. **Body identity changes:** every derived body hashes the list of published revision ids
+  (`History::digest`) into `result_id` and names the base revision id in `parents[]`; a worker knows
+  neither, so the 18's bodies and result ids will differ from `engine-v1` while their roles must
+  not. Two things to settle before coding: (1) one profile or two (core takes a bundle only when
+  its slots are exactly the build's inventory for that profile, so either the 18 join the base
+  profile or the derived profile is split in two); (2) the technical seven run over every bar on
+  disk, so their values depend on where the bars start: that is E4's fixed bar origin, an owner
+  ruling. Also found: the ex-date scan reads 260 sessions of close-quote files but retention keeps
+  200, and a missing file reads as "no ex-date" silently (unverified whether it has moved a value).
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
   derived sensors into the day), E11 (decided, C-029), E4 (owner decisions
   first).
