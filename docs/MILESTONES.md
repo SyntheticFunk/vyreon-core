@@ -183,10 +183,24 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   (`vyreon-worker:36b2def2`, 1.5 GB): no git inside, every library resolves, the record's code
   identity is the one compiled into h3-asset, and the worker reaches its claim call. Its values
   against the droplet's binaries belong to the golden run.
-- An alternative for B5 that does not wait for B2, for whoever picks it up: a worker that did not
-  derive a cache could accept it on core's digest and its recorded daily-bar identity instead of
-  re-checking the local daily bar. That is a change to the cache's validity rule, so it is recorded
-  as a decision before it is coded.
+- B5, the day-block side, done (engine 454e35d2 and the commit after): a cache is packed as the
+  capture's facts and derivation (AAPL 2025-12-10: under 64 KB, the same bytes every time) and
+  unpacked only after it reads as a day would read it. `vyreon-worker run day-block` first fetches
+  from core every cache its archive lacks for the tape history, then the fill captures what core
+  does not hold, as before. The reader's identity is unchanged from `engine-v1`, so caches derived
+  by the droplet are valid for this build. Against a running core: a tape job stored AAPL's real
+  cache once (a second put is not new, another session's is refused, the session is not done with
+  63 members missing) and an empty archive got it back byte for byte.
+  Two rules that make a cache current on every worker, both outside the reader's sources:
+  a daily bar first captured after its day (UTC) is settled and keeps its attempt name (no
+  superseding re-capture; also 128 fewer requests a day in a historical build); and the bar of each
+  cached session before the 380-session window is captured too (ranged).
+  **A value question for E4:** the droplet derived its oldest tape sessions with no daily bar
+  (official volume unavailable); a tape worker always has the bar, so those sessions' volume
+  reconciliation gate will run where `engine-v1` withheld. It is declared with E4.
+  Not done: the tape entrypoint (`vyreon-worker run tape`: the session's bars and round-lot month,
+  the raw tapes, each member's cache put, the session marked done; members not listed on the
+  session), and a build that changes the reader's eight source files recomputes every tape.
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
   derived sensors into the day), B5, E11 (decided, C-029), E4 (owner decisions
   first), the 429 audit (E3).
