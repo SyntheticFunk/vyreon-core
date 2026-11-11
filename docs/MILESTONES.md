@@ -74,6 +74,28 @@ Owner (2026-11-10): tracks A and B are both completed before any new DigitalOcea
 evaluate together. Spend is approved in principle (be mindful of costs), but nothing is created until
 that evaluation. Track B's golden proofs use the droplet we already pay for.
 
+## Track B work list (engine branch off `engine-v1`; plan B1–B7, ARCHITECTURE §7)
+Each change is proven on the golden days: values equal `engine-v1` except what is declared.
+1. B1: one declared input-window list for the plan and every reader (E12); a missing input withholds
+   the assets it touches, not the day (E11).
+2. B2: daily bars as one ranged request per asset (E7′, values identical); the determinism rules
+   (E4: 200 option sessions, `last_adjusted` bounded, a fixed bar origin, one tape-history start),
+   each value change declared. E4's exact rules are step 0 and need the owner where values move.
+3. B3: the 18 day-local derived sensors computed in the day (E10); the OCC ex-date published as a
+   base value; the ordered pass reads only the database, with parent revision ids from core.
+4. B4: the budget drawn from core's leases; the five unmetered call sites behind the same gate;
+   429 retried (E3).
+5. B5: tape caches read from and written to core; a tape entrypoint (E2). The engine defines the
+   cache's packing and `method_version`.
+6. B6: `vyreon-worker`: claim, heartbeat, compute, bundle each day with `core-contract` (the day's
+   reader scalars in the bundle, its identity check before bundling), publish, finish or fail with
+   the log; stage timings and request counts with every day (E13).
+7. B7: the container image, build identity baked in, disk guard by env, no git at runtime (E5).
+Also: `list_sessions all` (the whole calendar with open and close times, for core); an inventory
+document per build for `vyreon-core build register`; the evidence file for `build admit`.
+Proof: golden days through the worker path against a core on the droplet or laptop; the block-start
+test; a bundle published through core reads back identical.
+
 ## Open
 - Before the first build (ARCHITECTURE §8 step 0): E4's rules; stated absences on historical dates
   and expected coverage.
@@ -81,14 +103,8 @@ that evaluation. Track B's golden proofs use the droplet we already pay for.
 - `unusual_score` is untested with real rows: the droplet has none yet (one derived day).
 - Publish memory, measured on the full day: the core process peaks at ~0.7 GB and its database
   backend at ~0.6 GB. Not yet bounded; A7 runs one publish at a time (a day takes ~18 s).
-- For track B: the worker's bundle carries the day's reader scalars (C-024); derived bodies record
-  parent revision ids, which the ordered pass must read from core.
 - **Owner decision, with track B:** how Reporter gets each coordinate's state, reason, unit and
   quality (C-026). Proposed: the engine adds its coordinates projection to the day's bundle.
-- For track B: the engine's `list_sessions` cannot print its whole calendar (core's copy was
-  assembled from its `before` and `session` outputs); add an `all` mode with open and close times.
 - Not built in A7, on purpose: core's own Intrinio fetch for the universe (no caller until the daily
   chain), and Kubernetes manifests with KEDA's query on `core.claimable_job` (milestone 3).
-- For track B: the tape cache's packing and `method_version` are the engine's to define (the test
-  used a tar of the four cache files).
 
