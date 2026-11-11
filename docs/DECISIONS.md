@@ -80,3 +80,22 @@ families DLM-CHAIN, -GREEKS, -GAMMA and the expected move, which read T's option
 and VWAP cache) move into the worker's layer (engine change E10). The ordered derived pass then reads
 only the database. Rejected: staging those inputs in Spaces until the ordered pass reaches the day (a
 second, unreliable hand-off). Recomputing one of these families later re-downloads the day.
+
+## C-012 Core is generic; engine code runs only from the engine's image (owner, 2026-11-10)
+Workers, the publisher (stage, verify, publish, readback) and the ordered pass are the same engine
+image at the same build. Core holds no engine code, so it is not rebuilt per engine version and
+cannot drift from the workers; a rebuild attempt with a new engine is a new image. The publisher and
+ordered pass run on the core node and are the only pods with database credentials.
+
+## C-013 Database backups come after a database worth keeping (owner, 2026-11-10)
+No base backups or WAL archiving during the first builds: a lost build is rebuilt. Backups to Spaces
+and a restore drill are set up when a database is accepted. The perishable archive is unaffected.
+
+## C-014 Robustness built in from the start (owner, 2026-11-10)
+(a) Measurement tables partitioned by month (PostgreSQL declarative partitioning). (b) A build is
+admitted to the queue only after its golden days and block-start test pass on the cluster. (c) A
+missing input withholds the assets it touches, not the day (engine E11). (d) One declared list of
+input windows for the plan and the readers (E12). (e) Per-stage timings and request counts with
+every day (E13). (f) A health check on the frozen calendar's last session. Left out on purpose: a
+high-availability database, a message queue, several regions, several core services, stored
+intermediates.
