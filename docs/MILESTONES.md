@@ -336,6 +336,16 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   inventory, graph; (3) `vyreon-cli`: inputs from the run's exports, the 18 computed per asset, an
   export set, the second bundle, a DayRun stage, E11's withheld assets; (4) core: contract 3 and
   the supersede rule; (5) the ordered pass and the ex-date as a base value. Proof on the droplet.
+  Step 2 done (engine 7a3e603b): `DAY_DERIVED_PROFILE` (1,105 slots) and `HISTORY_DERIVED_PROFILE`
+  (721) beside the old derived profile, which the old derive still writes; the worker's inventory
+  lists base + these two. Step 3 next, as `vyreon-cli/src/derive/local.rs`, copying the day-local
+  branches of `derive_day` (mod.rs 611-837) over file inputs: a one-day `Store` from the run's
+  `exports/<OBJ>--<MID>/body.json` (roles filtered as `PARENT_ROLES`, `body_sha256` = digest of the
+  file, `population_root_sha256`), the surface digest from the VS-IVS01 export's receipt, the
+  M0-GAMMA export's plain `events/` (`gamma::read_central` reads gzip: add a plain reader),
+  FIELD-DEP01's body for `spy_pairs`, CDD-EVENTS01's body for the events, `iv_today` = VS-IVS01's
+  supported `iv30`. The laptop's frozen exports hold only VS-O02/O06/P01/L01/V02 and two M0 owners,
+  so a laptop test can cover the chain sensors for DBA and VGK at most; the proof is the droplet's.
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
   derived sensors into the day), E11 (decided, C-029), E4 (owner decisions
   first).
