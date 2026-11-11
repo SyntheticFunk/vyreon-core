@@ -16,5 +16,6 @@ sha2.workspace = true
 tokio-postgres.workspace = true
 
 [dev-dependencies]
+test-support = { path = "../test-support" }
 tar.workspace = true
 tokio.workspace = true

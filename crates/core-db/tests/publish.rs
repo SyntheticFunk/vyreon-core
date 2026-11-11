@@ -4,9 +4,8 @@
 //!
 //! `a_full_day_from_the_engines_store_publishes_whole` is the exit test of the publish step: it
 //! runs when `VYREON_CORE_EXIT_DIR` names a directory written by `vyreon-core engine-store export`.
-mod common;
-use common::Scratch;
-use common::slice::{BASE, DERIVED, SLICE, bundle, inventories, parts, temp};
+use test_support::Scratch;
+use test_support::slice::{BASE, DERIVED, SLICE, bundle, inventories, parts, temp};
 use core_contract::{Header, Item, Scalars, SlotFiles, read_bundle, sha256_hex};
 use core_db::publish::{Error, Published, publish_file};
 use core_db::{build, migrate};

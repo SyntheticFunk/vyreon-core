@@ -1,6 +1,6 @@
 [workspace]
 resolver = "3"
-members = ["crates/core-contract", "crates/core-db", "crates/vyreon-core"]
+members = ["crates/core-contract", "crates/core-db", "crates/test-support", "crates/vyreon-core"]
 
 [workspace.package]
 edition = "2024"

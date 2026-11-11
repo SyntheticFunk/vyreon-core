@@ -1,18 +1,16 @@
 //! The request budget, and tape caches with a real one (`fixtures/tape-cache-AAPL-2025-12-10.tar.gz`:
 //! AAPL's reduced tape of 2025-12-10 from the droplet, packed as its four files). Run with
 //! `cargo test -- --ignored`.
-mod common;
-use common::Scratch;
-use common::slice::inventories;
+use test_support::Scratch;
+use test_support::slice::inventories;
 use core_db::budget::{self, Budget, Grant};
 use core_db::tape::{self, Cache};
 use core_db::work::{self, Kind, LeaseError};
 use core_db::{build, migrate, universe};
 use serde_json::{Value, json};
-use std::path::PathBuf;
 use tokio_postgres::Client;
 
-const TAPE: &[u8] = include_bytes!("fixtures/tape-cache-AAPL-2025-12-10.tar.gz");
+const TAPE: &[u8] = test_support::TAPE_AAPL;
 
 async fn migrated(test: &str) -> (Scratch, Client) {
     let scratch = Scratch::new(test).await;
@@ -76,8 +74,8 @@ async fn the_budget_never_commits_more_than_its_ceiling() {
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn a_tape_cache_is_written_once_and_a_tape_job_needs_every_listed_member() {
     let (scratch, mut client) = migrated("tape").await;
-    let fixtures = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
-    let calendar: Value = serde_json::from_str(include_str!("fixtures/engine-v1-sessions.json")).unwrap();
+    let fixtures = test_support::fixtures();
+    let calendar: Value = serde_json::from_str(test_support::CALENDAR).unwrap();
     work::load_calendar(&mut client, &calendar).await.unwrap();
     let doc = universe::read_responses(&fixtures.join("engine-v1-PROFILE.json"), &fixtures.join("intrinio-universe")).unwrap();
     universe::store(&mut client, &doc).await.unwrap();

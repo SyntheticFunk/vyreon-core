@@ -1,6 +1,6 @@
-//! What the database tests share: a fresh database per test on the disposable server named by
-//! `VYREON_CORE_TEST_PG` (a role that may create databases).
-#![allow(dead_code)]
+//! What the tests of every crate share: a fresh database per test on the disposable server named
+//! by `VYREON_CORE_TEST_PG` (a role that may create databases), and the frozen real data under
+//! `fixtures/` (each file's origin is stated where it is used).
 use tokio_postgres::{Client, Config, NoTls};
 
 pub mod slice;
@@ -41,3 +41,14 @@ impl Scratch {
         self.admin.batch_execute(&format!("DROP DATABASE {} WITH (FORCE)", self.name)).await.unwrap();
     }
 }
+
+/// The directory of frozen real data.
+pub fn fixtures() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures")
+}
+
+/// The engine's trading sessions at engine-v1 (its `list_sessions`, read on the droplet 2026-11-11).
+pub const CALENDAR: &str = include_str!("../fixtures/engine-v1-sessions.json");
+
+/// AAPL's reduced tape of 2025-12-10 from the droplet, packed as its four files.
+pub const TAPE_AAPL: &[u8] = include_bytes!("../fixtures/tape-cache-AAPL-2025-12-10.tar.gz");

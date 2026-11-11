@@ -2,8 +2,7 @@
 //! string to a disposable server whose role may create databases; every test creates its own
 //! database and drops it. Run with `cargo test -- --ignored`.
 use core_db::migrate::{self, Error, Migration};
-mod common;
-use common::Scratch;
+use test_support::Scratch;
 use tokio_postgres::Client;
 
 fn m(version: i32, name: &str, sql: &str) -> Migration {

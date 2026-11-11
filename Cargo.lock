@@ -109,6 +109,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tar",
+ "test-support",
  "tokio",
  "tokio-postgres",
 ]
@@ -643,6 +644,17 @@ checksum = "3f6221d9a6003c78398e3b239969f352578258df48c8eb051caadae0015bc840"
 dependencies = [
  "filetime",
  "libc",
+]
+
+[[package]]
+name = "test-support"
+version = "0.1.0"
+dependencies = [
+ "core-contract",
+ "flate2",
+ "serde_json",
+ "tokio",
+ "tokio-postgres",
 ]
 
 [[package]]

@@ -167,7 +167,7 @@ because publish needs them next.
 
 ## C-023 The universe follows the provider's records (2026-11-10)
 Read from the real responses for the 64 (fetched 2026-11-11 UTC, frozen in
-`crates/core-db/tests/fixtures/intrinio-universe`). Corrections to what we assumed:
+`crates/test-support/fixtures/intrinio-universe`). Corrections to what we assumed:
 - An Intrinio security id is **not** stable across a rename. A security record is one id with one
   ticker: Meta is `sec_gQ8B8y` (FB, to 2022-06-08, merged into `sec_XO82JO`) and `sec_XO82JO` (META),
   both dated from 2012. FIGI and composite FIGI are shared by the two. So a member is keyed by its

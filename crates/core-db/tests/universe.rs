@@ -1,14 +1,10 @@
 //! The universe for the 64 from real Intrinio responses (`fixtures/intrinio-universe`, fetched
 //! 2026-11-11) and the engine's profile at engine-v1. Run with `cargo test -- --ignored`.
-mod common;
-use common::Scratch;
+use test_support::Scratch;
 use core_db::{migrate, universe};
-use std::path::PathBuf;
 use tokio_postgres::Client;
 
-fn fixtures() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
-}
+use test_support::fixtures;
 
 fn document() -> serde_json::Value {
     universe::read_responses(&fixtures().join("engine-v1-PROFILE.json"), &fixtures().join("intrinio-universe")).unwrap()

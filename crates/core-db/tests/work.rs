@@ -1,9 +1,8 @@
 //! The job queue on real sessions (the engine's calendar at engine-v1, `fixtures/engine-v1-sessions.json`),
 //! the real builds of the droplet's 2025-12-10 and, for the ordered pass, that day's slice
 //! published. Run with `cargo test -- --ignored`.
-mod common;
-use common::Scratch;
-use common::slice::{BASE, DERIVED, bundle, inventories, parts};
+use test_support::Scratch;
+use test_support::slice::{BASE, DERIVED, bundle, inventories, parts};
 use core_db::publish::publish_for_lease;
 use core_db::work::{self, Claim, Kind, LeaseError};
 use core_db::{build, migrate};
@@ -18,7 +17,7 @@ async fn ready(test: &str) -> (Scratch, Client, String, String) {
     let scratch = Scratch::new(test).await;
     let mut client = scratch.client().await;
     migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
-    let calendar: Value = serde_json::from_str(include_str!("fixtures/engine-v1-sessions.json")).unwrap();
+    let calendar: Value = serde_json::from_str(test_support::CALENDAR).unwrap();
     assert_eq!(work::load_calendar(&mut client, &calendar).await.unwrap(), 2261);
     let mut builds = Vec::new();
     for inventory in inventories() {

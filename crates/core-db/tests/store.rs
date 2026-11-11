@@ -3,14 +3,13 @@
 //! sensors across the base and derived revisions, exported 2026-11-10). The slice's revisions get
 //! core's own ids; publishing is a plain state change here, the publish path has its own tests.
 //! Run with `cargo test -- --ignored`.
-mod common;
-use common::Scratch;
+use test_support::Scratch;
 use core_db::migrate;
 use std::collections::HashMap;
 use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, Error};
 
-const SLICE: &str = include_str!("fixtures/droplet-2025-12-10-aapl.json");
+use test_support::slice::SLICE;
 
 async fn migrated(test: &str) -> (Scratch, Client) {
     let scratch = Scratch::new(test).await;
