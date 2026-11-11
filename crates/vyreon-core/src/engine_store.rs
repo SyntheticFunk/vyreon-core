@@ -52,7 +52,8 @@ pub async fn export_day(store: &Client, date: &str, dir: &Path) -> Result<Vec<St
                         encode(sha256(convert_to(m.receipt::text, 'UTF8')), 'hex'), s.root_sha256
                  FROM vyreon.measurement m
                  JOIN vyreon.expected_slot e ON e.profile_revision = $2 AND e.measurement_id = m.measurement_id AND e.object_id = m.object_id
-                 LEFT JOIN vyreon.measurement_stream s USING (revision_id, measurement_id, object_id)
+                 LEFT JOIN vyreon.measurement_stream s
+                      ON s.revision_id = m.revision_id AND s.measurement_id = m.measurement_id AND s.object_id = m.object_id
                  WHERE m.revision_id = $1 ORDER BY e.slot_ordinal",
                 &[&revision, &profile],
             )
@@ -95,7 +96,8 @@ pub async fn export_day(store: &Client, date: &str, dir: &Path) -> Result<Vec<St
                 "SELECT m.body_text, m.receipt::text, s.root_bytes, s.events_gzip
                  FROM vyreon.measurement m
                  JOIN vyreon.expected_slot e ON e.profile_revision = $2 AND e.measurement_id = m.measurement_id AND e.object_id = m.object_id
-                 LEFT JOIN vyreon.measurement_stream s USING (revision_id, measurement_id, object_id)
+                 LEFT JOIN vyreon.measurement_stream s
+                      ON s.revision_id = m.revision_id AND s.measurement_id = m.measurement_id AND s.object_id = m.object_id
                  WHERE m.revision_id = $1 ORDER BY e.slot_ordinal",
                 params,
             )
