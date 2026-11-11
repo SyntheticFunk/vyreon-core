@@ -42,9 +42,12 @@ for i in vyreon-core:<tag> vyreon-worker:<tag>; do
 done
 
 # $ the cluster with its core pool; then let it pull from the registry
-doctl kubernetes cluster create vyreon --region nyc3 \
+doctl kubernetes cluster create vyreon --region nyc1 --version 1.36.5-do.3 \
   --node-pool "name=core;size=s-4vcpu-8gb-amd;count=1;label=vyreon=core"
-doctl registry kubernetes-manifest | kubectl apply -f -   # then add the pull secret to the vyreon namespace's default service account
+# the registry's read-only pull secret, for every pod of the namespace (after 00-namespace.yaml):
+doctl registry docker-config --read-only > pull-config.json
+kubectl -n vyreon create secret generic regcred --type=kubernetes.io/dockerconfigjson --from-file=.dockerconfigjson=pull-config.json
+kubectl -n vyreon patch serviceaccount default -p '{"imagePullSecrets":[{"name":"regcred"}]}'
 
 # the operator and the database (the volume is $)
 kubectl apply --server-side -f \

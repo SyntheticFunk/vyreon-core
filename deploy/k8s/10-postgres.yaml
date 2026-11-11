@@ -15,5 +15,10 @@ spec:
     initdb:
       database: vyreon
       owner: vyreon
+      # the migrations grant to these group roles and create them only where they can; the
+      # database's owner cannot create roles, so the superuser makes them at bootstrap
+      postInitSQL:
+        - CREATE ROLE vyreon_reader NOLOGIN
+        - CREATE ROLE vyreon_ordered_pass NOLOGIN
   storage:
     size: 60Gi

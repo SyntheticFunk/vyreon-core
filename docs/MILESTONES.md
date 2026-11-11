@@ -530,12 +530,21 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   through the DigitalOcean connector; the worker pool is deleted after every run; the owner is
   asked before the cluster or the registry is deleted. A ledger of what is created, when, and
   what it costs is kept here as it happens.
-- **Blocked on access, nothing created (2026-11-11 ~21:05 UTC):** the DigitalOcean connector can
-  read (sizes, prices, the empty lists of clusters and registries) but its token is refused on
-  creating a registry and a cluster (403, "not authorized"). The owner either widens the
-  connector's token (Kubernetes and container registry, write) or runs the three paid commands of
-  `deploy/k8s/README.md` himself; everything else I can do. Chosen version: Kubernetes
-  `1.36.5-do.3` (KEDA 2.21 is tested to 1.36), region nyc3. Spend so far: $0.
+- **The two-node run, ledger (UTC, 2026-11-11).** The connector's token could not create
+  anything (403); the owner put a full-access token in `do-full-token.txt` (git-ignored, mode 600,
+  read by the scratch script `cluster/do.sh`, never printed).
+  21:06 registry `vyreon` (Basic, nyc3, $5 a month). 21:06 cluster `vyreon` (nyc1: nyc3 had no
+  capacity for the core size; Kubernetes 1.36.5-do.3; id `5f56e6e0-1c74-4dc9-bfdb-962ee55ebff3`)
+  with pool `core`, 1 x `s-4vcpu-8gb-amd` ($0.083 an hour), running 21:12. Both images pushed.
+  CloudNativePG 1.30.1, the database (PostgreSQL 16.15, 60 GB volume), core deployed. Found on the
+  way: core's migration cannot create its group roles as the database's owner, so the cluster
+  manifest now makes them at bootstrap (`postInitSQL`); the pull secret for the registry is a
+  step the README lacked. Universe, calendar, build `89e13c3e+ede98f764f0d` registered and
+  admitted for this trial, jobs scheduled (2 tape, 2 day blocks of one day, 2 ordered pass).
+  Core's Intrinio budget set to 1,500 a minute (the droplet's capture shares the account).
+  21:19 pool `day`, 2 x `s-8vcpu-16gb-amd` ($0.167 an hour each; id
+  `58d217bf-4c48-499a-854a-786e9734197c`), ready 21:21. 21:21 the two tape jobs started.
+  **To delete after the run: pool `day` (always); the cluster and registry on the owner's word.**
 - **Images ready on the laptop (2026-11-11):** `vyreon-core:6e15a27` (142 MB; a later docs-only
   commit does not change it) and `vyreon-worker:89e13c3e` (1.51 GB), whose own build identity is
   `89e13c3e+ede98f764f0d` (clean) with an inventory of 2,853 + 1,105 + 721 slots (saved in the
