@@ -177,6 +177,7 @@ async fn a_refused_bundle_pauses_the_queue_and_a_failing_worker_sends_its_log() 
     let mut admin = s.scratch.client().await;
     work::schedule(&mut admin, Kind::DayBlock, PROFILE, &s.base_build, "2025-12-10", "2025-12-11", 1).await.unwrap();
     let day: Value = s.claim("day-block", &s.base_build, "day-1").await.json().await.unwrap();
+    assert!(day["tape_history_from"].is_null(), "no tape job is scheduled: the engine keeps its own setting");
     let token = day["lease_token"].as_str().unwrap();
 
     // a body changed on the way: refused, nothing stored, and no more work is handed out
