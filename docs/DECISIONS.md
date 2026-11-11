@@ -363,3 +363,11 @@ ARCHITECTURE left "one profile or two" to when E10 starts. Two.
 - **A day in two publishes is accepted** (C-031): nothing reads the database live; the product is
   a weekly publication.
 - **Pushing:** both repositories may be pushed whenever there is something to push.
+
+## C-033 E4: `last_adjusted` scans the 200-session quote window (2026-11-11)
+The marker depended on how many daily sessions a disk held. Measured on the droplet's real chains
+(MILESTONES, E4): the overlay's frozen rule drops rows only in the days after an adjustment
+(hundreds of rows at 3 sessions, none at 25 or more), so a 200-session scan gives the populations
+an unbounded one does. The owner had agreed to a wider design (splits from the provider's list at
+any age); it is not built, because the measurement shows it would change nothing. If a stale
+pre-adjustment row with open interest ever survives 200 sessions, the cure is that design.

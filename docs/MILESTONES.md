@@ -432,8 +432,19 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   provider's split list at any age (one request per asset), the owner-confirmed table at any age,
   and the detections that need quote files (new roots, strike shifts) within the 200-session quote
   window; what that drops is a non-split adjustment older than 200 sessions that is not in the
-  table. Not yet measured: how many contracts the frozen rule actually removes for an old
-  adjustment.
+  table. **Measured (droplet, real chains of 2025-12-10 and 2026-11-10, every asset carrying the
+  marker):** rows holding open interest whose EOD quote is stamped at or before the adjustment
+  date, the most the frozen rule could drop. Adjustments 3 sessions old (five sector funds,
+  2025-12-05): 465 to 1,137 rows each, 0.2 to 2.1 million contracts of stale open interest.
+  Every older one (BABA at 125 sessions, AVGO/MSTR/NVDA at 337 to 378, all of them again 230
+  sessions later, ETHA at 25): **0 rows**. The rule only acts in the days after an adjustment, so
+  any bound of a few weeks or more gives the same populations. **So the simple rule is enough:**
+  scan the 200-session close-quote window, where detection has its files; no split list, no extra
+  request. The owner had agreed to the split-list route before this measurement; the simpler one
+  is taken because the data shows the extra source buys nothing (C-033). What changes against
+  `engine-v1`: the header of NVDA's, AVGO's and MSTR's quote files loses its `last_adjusted=`
+  marker once the split is over 200 sessions back, so their source digests differ; no row does on
+  the measured days.
   (3) *Bar origin:* the technical seven read every daily capture on disk through T
   (`derive/local.rs`, `ArchiveCache::load_bars`); a worker holds 380. Needs bars from a fixed
   origin (2020-01-02 or the listing) as one ranged request per asset (C-008), read apart from the
