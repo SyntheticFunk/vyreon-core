@@ -302,3 +302,27 @@ async fn a_full_day_from_the_engines_store_publishes_whole() {
     }
     scratch.drop().await;
 }
+
+/// C-031: a based revision may say it reads its own day only. Core keeps that with the revision;
+/// a republished base of the same day still supersedes it (it was computed from the old base),
+/// and the flag means nothing without a base. That a later day's day-local revision survives an
+/// earlier day's republish needs two real days; the multi-day block proof covers it.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_day_local_revision_is_kept_as_one_and_falls_with_its_own_days_base() {
+    let (scratch, mut client) = ready("daylocal").await;
+    let (header, scalars, files) = parts(BASE);
+    let mut alone = header.clone();
+    alone.day_local = true;
+    let refused = publish(&mut client, &bundle("daylocal-alone", &alone, &scalars, &files)).await.unwrap_err();
+    assert!(matches!(&refused, Error::Refused(m) if m.contains("day_local without base_profile_revision")), "{refused}");
+    publish(&mut client, &bundle("daylocal-base", &header, &scalars, &files)).await.unwrap();
+    let (mut dh, ds, df) = parts(DERIVED);
+    dh.day_local = true;
+    let derived = publish(&mut client, &bundle("daylocal-derived", &dh, &ds, &df)).await.unwrap();
+    assert_eq!(count(&client, &format!("SELECT count(*) FROM vyreon.day_revision WHERE day_local AND revision_id = {}", derived.revision_id)).await, 1);
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE day_local").await, 1);
+    let again = publish(&mut client, &bundle("daylocal-base2", &header, &scalars, &files)).await.unwrap();
+    assert_eq!(again.superseded, 2, "the old base and its day's day-local revision");
+    scratch.drop().await;
+}
