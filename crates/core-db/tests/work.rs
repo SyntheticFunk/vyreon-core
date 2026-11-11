@@ -4,7 +4,7 @@
 mod common;
 use common::Scratch;
 use common::slice::{BASE, DERIVED, bundle, inventories, parts};
-use core_db::publish::publish_file;
+use core_db::publish::publish_for_lease;
 use core_db::work::{self, Claim, Kind, LeaseError};
 use core_db::{build, migrate};
 use serde_json::{Value, json};
@@ -39,6 +39,10 @@ async fn done(client: &mut Client, claim: &Claim, session: &str) -> Result<(), L
     work::session_done(&tx, &held, session).await?;
     tx.commit().await.unwrap();
     Ok(())
+}
+
+async fn count(client: &Client, sql: &str) -> i64 {
+    client.query_one(sql, &[]).await.unwrap().get(0)
 }
 
 async fn ordered(client: &mut Client, build: &str) -> Option<Claim> {
@@ -180,23 +184,28 @@ async fn the_ordered_pass_follows_the_published_days_one_at_a_time() {
     done(&mut client, &block, "2025-12-09").await.unwrap();
     assert_eq!(ordered(&mut client, &d).await, None, "the 10th's base day is not published");
 
-    // the worker publishes the 10th (the real slice): the ordered pass may take that day, and only it
+    // the worker publishes the 10th (the real slice) under its lease, which moves its block on;
+    // the ordered pass may then take that day, and only it
     let (header, scalars, files) = parts(BASE);
     let path = bundle("ordered-base", &header, &scalars, &files);
-    let base = publish_file(&mut client, &path).await.unwrap();
-    std::fs::remove_file(&path).unwrap();
-    done(&mut client, &block, "2025-12-10").await.unwrap();
+    let base = publish_for_lease(&mut client, &path, &block.token).await.unwrap();
+    // the same day again is not the block's next day any more
+    assert!(matches!(publish_for_lease(&mut client, &path, &block.token).await, Err(LeaseError::Refused(m)) if m.contains("expects 2025-12-11")));
+    assert_eq!(publish_for_lease(&mut client, &path, "not-a-token").await, Err(LeaseError::Gone));
     let tenth = ordered(&mut client, &d).await.unwrap();
     assert_eq!(tenth.sessions, ["2025-12-10"]);
     assert_eq!(ordered(&mut client, &d).await, None, "one at a time, and the 11th is not published");
+    // a lease publishes only its own job's profile and build
+    assert!(matches!(publish_for_lease(&mut client, &path, &tenth.token).await, Err(LeaseError::Refused(m)) if m.contains("from build")));
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision").await, 1, "the refused bundles left nothing");
 
     // it publishes its revision on the base it read, and is done
     let (mut dh, ds, df) = parts(DERIVED);
     dh.base_revision = Some(base.revision_id);
     let path = bundle("ordered-derived", &dh, &ds, &df);
-    publish_file(&mut client, &path).await.unwrap();
+    publish_for_lease(&mut client, &path, &tenth.token).await.unwrap();
     std::fs::remove_file(&path).unwrap();
-    done(&mut client, &tenth, "2025-12-10").await.unwrap();
     work::finish(&mut client, &tenth.token).await.unwrap();
     assert_eq!(ordered(&mut client, &d).await, None, "the 11th still waits for its base day");
     assert_eq!(work::status(&client).await.unwrap()["claimable"], json!({}));
