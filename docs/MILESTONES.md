@@ -104,9 +104,18 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   views read, per asset from its first session where the reader does (B1/E12). The droplet's archive
   agrees with the rule (SPY 380 sessions from 2024-06-06, ETHA 349 from its listing). Its
   real-archive test (`plan_verdicts`, ignored by default) runs with the golden proofs on the droplet.
-- Next in B1: a missing input withholds the assets it touches instead of the day (E11). This adds
-  absence reasons and touches FIELD (which needs every member), so its design comes to the owner
-  with the cases before code.
+- E11 (a missing input withholds its assets, not the day) is studied, not started. Facts (engine
+  `worker` branch): the plan's per-asset entries already name the assets; a faulted task's slots are
+  already published as complete withheld bodies in each family's schema (`Faulted`, reason
+  `ENGINE_FAULT`; D-117 added the provider-limited `EMPTY_DELIVERED_POPULATION` the same way); h5-field
+  already treats an absent member as missing cells (owners needing all 64 withhold, the others
+  compute while 51 are eligible). What stands in the way: six stages read every asset's inputs before
+  any task runs and stop the day on the first error (surfaces at T and T−5, intent A's history rows,
+  intent B's views and sources, the trade guard, VS-IVS01's exports, the FIELD driver's missing-view
+  refusal), and there is no reason code for an absent provider input. Carry, macro and company stay
+  whole-day inputs. Design questions are with the owner (Open).
+- Next without waiting: B6's contract side (the engine vendors its crates, so `core-contract` is
+  copied in byte for byte and `tar` vendored), then B5, B4, B2.
 
 ## Open
 - Before the first build (ARCHITECTURE §8 step 0): E4's rules; stated absences on historical dates
@@ -115,6 +124,10 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
 - `unusual_score` is untested with real rows: the droplet has none yet (one derived day).
 - Publish memory, measured on the full day: the core process peaks at ~0.7 GB and its database
   backend at ~0.6 GB. Not yet bounded; A7 runs one publish at a time (a day takes ~18 s).
+- **Owner decisions for E11:** (1) a new provider-limited slot reason for an absent input (proposed
+  `PROVIDER_INPUT_MISSING`, not counted in the 10% engine-fault hold); (2) FIELD on such a day follows
+  h5-field's existing rules for a missing member; (3) how many assets may be withheld before the day
+  is held for a retry instead (proposed: more than 6 of 64, the same tenth as the fault hold).
 - **Owner decision, with track B:** how Reporter gets each coordinate's state, reason, unit and
   quality (C-026). Proposed: the engine adds its coordinates projection to the day's bundle.
 - Not built in A7, on purpose: core's own Intrinio fetch for the universe (no caller until the daily
