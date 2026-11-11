@@ -183,8 +183,8 @@ async fn the_ordered_pass_follows_the_published_days_one_at_a_time() {
     done(&mut client, &block, "2025-12-09").await.unwrap();
     assert_eq!(ordered(&mut client, &d).await, None, "the 10th's base day is not published");
 
-    // the worker publishes the 10th (the real slice) under its lease, which moves its block on;
-    // the ordered pass may then take that day, and only it
+    // the worker publishes the 10th (the real slice) under its lease and says the day is done,
+    // which moves its block on; the ordered pass may then take that day, and only it
     let (header, scalars, files) = parts(BASE);
     let path = bundle("ordered-base", &header, &scalars, &files);
     let base = publish_for_lease(&mut client, &path, &block.token).await.unwrap();
@@ -192,6 +192,9 @@ async fn the_ordered_pass_follows_the_published_days_one_at_a_time() {
     let again = publish_for_lease(&mut client, &path, &block.token).await.unwrap();
     assert_eq!((again.already_published, again.revision_id, again.slots), (true, base.revision_id, 4));
     assert!(!base.already_published);
+    // the block's day is done when its worker says so, and not before its base is published
+    assert!(matches!(work::day_done(&mut client, &block.token, "2025-12-11").await, Err(LeaseError::Refused(m)) if m.contains("has not published 2025-12-11")));
+    work::day_done(&mut client, &block.token, "2025-12-10").await.unwrap();
     // but another day's bundle, or this day with another body, is not the block's next day
     let (mut other, scalars_again, mut changed) = parts(BASE);
     other.represented_date = "2025-12-09".into();

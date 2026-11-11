@@ -149,6 +149,8 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
     let (header, scalars, files) = parts(BASE);
     let (status, published) = s.publish(token, &bundle("api-base", &header, &scalars, &files)).await;
     assert_eq!((status, published["slots"].as_i64(), published["streams"].as_i64()), (StatusCode::OK, Some(4), Some(2)), "{published}");
+    assert_eq!(s.post("/lease/finish", token, json!({})).await.0, StatusCode::UNPROCESSABLE_ENTITY, "the worker has not said the day is done");
+    assert_eq!(s.post("/days/2025-12-10/done", token, json!({})).await.0, StatusCode::OK);
     assert_eq!(s.post("/lease/finish", token, json!({})).await.0, StatusCode::OK);
 
     // the ordered pass: the day's history sensors, on the base it read
