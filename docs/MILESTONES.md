@@ -380,6 +380,22 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   `vyreon-worker run ordered-pass` under an ordered-pass lease; core's `vyreon.*` views must match
   the queries it makes (`accepted_measurement`, `reader_scalar`, `unusual_score`). The body's
   history digest then lists core's revision ids.
+  **Step 5's computation done and proven on one day (engine 6ee28e14, 2026-11-11):**
+  `derive::ordered` and `vyreon-worker ordered-day <date> <out>` (connection from
+  `VYREON_CORE_PG_RO[_FILE]`, one read-only repeatable-read snapshot). Against a scratch core
+  holding the droplet's exported base day 2025-12-10 and the day-local revision: 721 slots in 10 s
+  (debug build, 0.6 GB); every role value of all 12 sensors equals the droplet's published derived
+  day; 686 bodies have the same role order too, and 35 DLM-UNUSUALNESS bodies list the same roles
+  in another order (the old derive read the base bodies in whatever order Postgres returned them;
+  the pass reads them by measurement id). Bundled and published through core as revision 3 on base
+  1: 636 reader scalars, and with the day-local 5,528 that is the droplet's 6,164. The bundle now
+  carries the unusualness scores (none on a first day, as on the droplet). DLM-IV-CRUSH keeps the
+  old derive's coupling (withheld with the event window when the day's chain, spot or surface is).
+  **Not proven: any history.** 2025-12-10 is the first published day, so every window was empty;
+  the droplet has no second derived day to compare with. A real check needs several days through
+  the worker path (the multi-day block proof) against the old derive run on the same days.
+  **Left in B3:** `vyreon-worker run ordered-pass` under core's lease (claim, bundle naming the base
+  revision, publish, finish); the base load bounded to its windows (it loads every published day).
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
   derived sensors into the day), E11 (decided, C-029), E4 (owner decisions
   first).
