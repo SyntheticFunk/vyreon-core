@@ -1,0 +1,1 @@
+{"fetched_at":"2026-11-11T01:53:03Z","source":"https://api-v2.intrinio.com","layout":{"security/<TICKER>.json":"/securities/{ticker}","history-by-identifier/<security id>.json":"/securities/history-by-identifier/{id}","history-by-ticker/<TICKER>.json":"/securities/history-by-ticker/{ticker}"}}
