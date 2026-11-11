@@ -503,7 +503,18 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   before it); the longer window cures that as well. On the golden days the markers of NVDA, AVGO,
   MSTR and BABA go (older than 21 sessions), the sector funds' stay; headers are rewritten by the
   fill, and a run with filling off will refuse the stale headers.
-  (c) *Bar origin: not started.* `derive/local.rs` reads `ArchiveCache::load_bars` (every daily
+  (c') **Bar origin built, untested on real data (engine, 2026-11-11):** the fill captures every
+  session before the 379-session daily window as well, from the calendar's first session
+  (2020-01-02) or the asset's own, as ranged months (`fill.rs`, the `earlier` sessions handed to
+  `plan_symbol`; B2's range capture and links). About 54 requests an asset at a block's start for
+  a 2025 day (~3,500), and a per-session directory for each of ~1,100 older sessions an asset:
+  the time `link_range` takes over that many is unmeasured. The technical seven will differ from
+  `engine-v1` (longer history).
+  **All three defaults are built. Next: one run on the droplet with filling on** (the 2025-12-10
+  home copy lacks 92 sessions of chains and quote files and the bars before 2024-06), after the
+  02:00 UTC capture, to measure the added requests and time and to see the day through; then the
+  same day computed as the second day of a two-day block must equal it.
+  (c) *Bar origin, as first written:* `derive/local.rs` reads `ArchiveCache::load_bars` (every daily
   capture through T; a missing session restarts the series). To build: one ranged request per
   asset from 2020-01-02 (B2's `daily_range_chain` and `link_range` already fetch and verify ranged
   bars), kept as a range of its own that the technical records read, not per-session captures.
