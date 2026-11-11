@@ -47,8 +47,9 @@ Done:
 Now: A6, publish: the bundle format, the checks ported from the engine's store, and the exit test
 on a real droplet day.
 
-Owner (2026-11-10): spend for the cluster and first build is approved; be mindful of costs. Each
-resource is still stated with its cost before it is created, and pools sit at zero when idle.
+Owner (2026-11-10): tracks A and B are both completed before any new DigitalOcean spend, then we
+evaluate together. Spend is approved in principle (be mindful of costs), but nothing is created until
+that evaluation. Track B's golden proofs use the droplet we already pay for.
 
 ## Open
 - Before the first build (ARCHITECTURE §8 step 0): E4's rules; stated absences on historical dates
