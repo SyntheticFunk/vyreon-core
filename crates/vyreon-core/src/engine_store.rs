@@ -82,6 +82,7 @@ pub async fn export_day(store: &Client, date: &str, dir: &Path) -> Result<Vec<St
             base_profile_revision: base_profile,
             base_revision: None,
             report: None,
+            day_local: false,
             slots,
         };
         let all = Scalars {

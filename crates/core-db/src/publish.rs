@@ -180,9 +180,9 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
     let base = bind_base(&tx, &header).await?;
     let revision: i64 = tx
         .query_one(
-            "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, base_revision, report)
-             VALUES ($1::text::date, $2, $3, $4, $5::text::timestamptz, $6, $7::text::jsonb) RETURNING revision_id",
-            &[&date, &header.profile_id, &header.profile_revision, &header.engine_build, &header.snapshot_cutoff, &base, &report],
+            "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, base_revision, report, day_local)
+             VALUES ($1::text::date, $2, $3, $4, $5::text::timestamptz, $6, $7::text::jsonb, $8) RETURNING revision_id",
+            &[&date, &header.profile_id, &header.profile_revision, &header.engine_build, &header.snapshot_cutoff, &base, &report, &header.day_local],
         )
         .await
         .map_err(db)?
@@ -342,6 +342,7 @@ async fn check_header(tx: &Transaction<'_>, header: &Header) -> Result<HashSet<(
 async fn bind_base(tx: &Transaction<'_>, header: &Header) -> Result<Option<i64>, Error> {
     let Some(base_profile) = &header.base_profile_revision else {
         return match header.base_revision {
+            None if header.day_local => refuse("day_local without base_profile_revision"),
             None => Ok(None),
             Some(_) => refuse("base_revision without base_profile_revision"),
         };
@@ -558,11 +559,13 @@ async fn promote(tx: &Transaction<'_>, revision: i64, header: &Header, base: Opt
         .await
         .map_err(db)?;
     if base.is_none() {
-        // this day is in the history windows of every later computed day
+        // this day is in the history windows of every later day's revisions that read history;
+        // the day's own based revisions were all computed from the base this one replaces
         superseded += tx
             .execute(
                 "UPDATE vyreon.day_revision SET state = 'SUPERSEDED'
-                 WHERE represented_date >= $1::text::date AND state = 'PUBLISHED' AND base_revision IS NOT NULL AND base_revision <> $2",
+                 WHERE represented_date >= $1::text::date AND state = 'PUBLISHED' AND base_revision IS NOT NULL AND base_revision <> $2
+                   AND (represented_date = $1::text::date OR NOT day_local)",
                 &[&date, &revision],
             )
             .await

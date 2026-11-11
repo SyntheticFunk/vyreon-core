@@ -59,6 +59,11 @@ pub struct Header {
     /// Core's id of the base revision the bodies were computed from, when the engine knows it;
     /// the bundle is refused if that is no longer the day's published base.
     pub base_revision: Option<i64>,
+    /// For a revision computed from the day's base: true when it reads that day only (C-031). A
+    /// base republished on an earlier day then leaves it standing; a based revision that reads
+    /// history (the default) is superseded and derived again.
+    #[serde(default)]
+    pub day_local: bool,
     /// What the run that computed the day measured of itself: stage timings, request counts by
     /// category. A JSON object of the engine's choosing; core stores it with the revision.
     #[serde(default)]

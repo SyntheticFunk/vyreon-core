@@ -58,6 +58,7 @@ pub fn parts(revision: i64) -> (Header, Scalars, Vec<SlotFiles>) {
         base_profile_revision: (revision == DERIVED).then(|| text(&s["day_revision"][0]["profile_revision"])),
         base_revision: None,
         report: None,
+        day_local: false,
         slots,
     };
     let reader_scalar = of("reader_scalar")
