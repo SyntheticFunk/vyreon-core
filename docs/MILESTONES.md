@@ -229,9 +229,15 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   paths), so the proof mounted the copy at the home's own path in a private mount namespace; the
   real home was never visible to the run. Left on the droplet for further proofs: the checkout
   `/root/vyreon-engine-worker` and `/root/worker-proof` (binaries, the 57 GB home copy).
+- E3 audited (2026-11-11), no code needed: of the seven request sites, replay listing, the JSON
+  provider calls, company and carry retry a 429 themselves with backoff; the capture engine's
+  transport and the macro capture fail the chain, and the fill retries the step after 60 s and
+  300 s (three tries of 30 s for macro). A retry inside the capture engine's transport would send
+  requests its account ledger does not record as attempts, so it stays at the step. With the gate
+  holding all workers under core's ceiling, a 429 is the exception this handles.
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
   derived sensors into the day), B5, E11 (decided, C-029), E4 (owner decisions
-  first), the 429 audit (E3).
+  first).
 
 ## Open
 - Before the first build (ARCHITECTURE §8 step 0): E4's rules; stated absences on historical dates
