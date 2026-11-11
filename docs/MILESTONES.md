@@ -262,6 +262,9 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   4. **The plan** (`vyreon-cli/src/plan.rs`): per-asset blocking entries already name the assets
      (`Entry.assets`, lines 204-574); the day stops at day.rs 270 on any refusal. Per-asset absences
      must become withholding instead, up to the limit; `carry`, `macro` and `company` stay day-wide.
+  Step 1 is done (engine 17202e14): the reason exists and all the families' containment bodies
+  build and validate with it (their own tests now run over it); nothing produces it yet. Steps 2
+  to 4 remain.
   None of it is in the tape reader's eight source files. Tests need a real day with one asset's
   real input left out (as `h5-field/tests/fault_members.rs` does), and the golden days must be
   unchanged when nothing is missing.
