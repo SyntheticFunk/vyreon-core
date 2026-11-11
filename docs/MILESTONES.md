@@ -213,6 +213,22 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   attempts, which a ranged-bar worker does not have), so the first build recomputes the tape
   history as planned; a build that changes the reader's eight source files recomputes every tape;
   a member core lists on a session that the engine's security record does not is refused at done.
+- **The golden day through the worker, proven on the droplet 2026-11-11** (engine f4dad345, clean
+  build `f4dad345+175685379b31`): `vyreon-worker run day-block` claimed 2025-12-10 from core (on the
+  laptop, through an SSH tunnel), computed it on a copy of the droplet's home and published it:
+  2,853 slots, 2,529 coordinate views, the run report, job done, 155 minutes (history nodes 37 min,
+  the day's assets 54 min). Compared slot by slot with the day the droplet published
+  (`71f3fe5d`): every slot state, version and event stream is equal, **no numeric value differs
+  anywhere**, 1,573 bodies are byte-identical, and the other 1,280 differ only in the run's cutoff
+  clock, the calendar digest (the frozen calendar grew to 2020–2028 in `engine-v1`, after that day
+  was published) and the provenance digests the golden comparison already names.
+  What this run did not exercise: ranged bars and core's tape caches inside a whole day (the copy
+  already held the droplet's single-day bars and its caches; a ranged-bar day needs the tape
+  history recomputed first), a block of more than one day, and the container image's binaries.
+  A copied home is refused by the input plan at another path (its documents name absolute
+  paths), so the proof mounted the copy at the home's own path in a private mount namespace; the
+  real home was never visible to the run. Left on the droplet for further proofs: the checkout
+  `/root/vyreon-engine-worker` and `/root/worker-proof` (binaries, the 57 GB home copy).
 - Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
   derived sensors into the day), B5, E11 (decided, C-029), E4 (owner decisions
   first), the 429 audit (E3).
