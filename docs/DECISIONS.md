@@ -23,8 +23,10 @@ The standard Postgres operator for Kubernetes: data on a DigitalOcean volume, co
 replaced at an upgrade we schedule. DigitalOcean managed Postgres stays the fallback (more cost).
 
 ## C-004 Kept data: Intrinio is the store; Spaces holds the perishables (owner, 2026-11-10)
-Only what Intrinio will not serve again is kept (option prints, ACT01 pulls, company captures), plus
-the outputs. Bucket `vyreon-data` (nyc3) receives the droplet's nightly archive
+Data from Intrinio is treated as always obtainable from Intrinio. Only what it will not serve again,
+or serves differently later (volatile: option prints, ACT01 pulls, company captures), is kept, plus
+the outputs. No raw or intermediate copies of re-downloadable data (ARCHITECTURE D1 declined: we
+cannot afford to store it). Bucket `vyreon-data` (nyc3) receives the droplet's nightly archive
 (`deploy/droplet/archive-perishables.sh`; copy, never sync). Pre-launch losses are tolerated:
 integrity is verifiable only from launch day.
 
@@ -42,3 +44,17 @@ path that will actually run, leaving the droplet to its daily capture.
 It reuses the engine's crates (sensor registry, coordinates, store logic) as pinned git dependencies
 and the engine API's stack (axum, tokio-postgres), so the store's types and checks are shared, not
 re-implemented. Rust is the default; Python only where necessary (owner, 2026-11-10).
+
+## C-008 Daily bars as one ranged request per asset (owner, 2026-11-10; ARCHITECTURE D7)
+Wherever the provider allows, a window is fetched as one ranged request per asset instead of one per
+bar: daily bars alone go from ~48.6k requests per cold block to ~64. It changes the engine's frozen
+binding `INTRINIO-CI-DAILY-BAR-1@1`; values must be identical, checked on the golden days.
+
+## C-009 The reader API follows telemetry-backend's shape (owner, 2026-11-10)
+Core stores the final measurements with their provenance and serves them to vyreon-reporter (and
+later vyreon-web) by API. The prototype `/home/diggz/telemetry-backend` (Financial Telemetry V1) sets
+the shape: sessions (latest, by date), an asset's latest and its history (cursor-paginated, bounded),
+a report context (a session with the previous one), ingest/admin status, `/health` and `/ready`;
+hashed API keys with scopes; an ETag from the canonical revision's digest; corrections kept, one
+canonical revision per day; the roster and versions in tables, not constants; checksummed migrations
+under an advisory lock. The engine's own v1 routes (`vyreon-api`) are not ported: nothing uses them.

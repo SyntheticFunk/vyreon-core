@@ -298,7 +298,7 @@ report per sensor (≥80% target, misses diagnosed), the current droplet retired
 
 Proposals with a recommendation; each is evaluated when its phase starts (owner, 2026-11-10).
 
-- **D1 Object storage for compact intermediates** (tape caches, per-day derive inputs) beside the
+- **D1 — declined by the owner (C-004): Object storage for compact intermediates** (tape caches, per-day derive inputs) beside the
   prints. Recommend yes: it makes stage B and derived recomputes cheap and EVC01 possible on
   disposable machines; it is D-160's planned next step.
 - **D2 Identity:** stable Vyreon asset keys mapped to Intrinio ids in core (recommend) vs
@@ -316,7 +316,7 @@ Proposals with a recommendation; each is evaluated when its phase starts (owner,
 - **D6 Determinism rules (E4):** 200 option sessions everywhere; a fixed DLM-TECHNICAL origin (e.g.
   the asset's first session or the database start minus 379 sessions); these change some values
   against the golden days (declared).
-- **D7 Daily bars as one ranged request per asset** (−48k requests per cold block; binding change).
+- **D7 — decided (C-008): Daily bars as one ranged request per asset** (−48k requests per cold block; binding change).
 - **D8 FIELD rulings (E9):** deferred by the owner (2026-11-10) until the backfill is complete;
   FIELD is a stated absence on days without the full 64 until then (phase 7b).
 - **D9 Core language — decided (C-007):** Rust (shares the engine's crates and types).
