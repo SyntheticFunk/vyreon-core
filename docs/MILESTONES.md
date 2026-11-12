@@ -492,6 +492,12 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
      provider-limited absences). Dates may shift to what the universe and provider hold.
      Functional checks only: no rule is tuned on these dates. (c) The build's first tranche,
      the newest two weeks on two nodes, checked before scaling to eight.
+     Node type measured here too (owner, 2026-11-12): one day each on the regular shared plans
+     `s-2vcpu-4gb`, `s-4vcpu-8gb`, `s-8vcpu-16gb` ($0.018 per vCPU-hour) against the AMD 8 vCPU
+     in use ($0.021); choose by cost per published day. Needed first: the worker's real peak
+     memory (sampled on the 2025-12-11 run) and the Intrinio requests by category (which could
+     be asked as date ranges). The account's limit is 15 droplets, a count: smaller nodes mean
+     less total CPU unless the limit is raised.
   3. The newest-first build to lookback depth (sized first: every sensor's lookback, what
      Reporter reads, and whether any of the 12 history derived sensors carries unbounded state).
   4. Reporter and web.
