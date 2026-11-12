@@ -505,8 +505,10 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   history export leaves `history-fault.json`, day T binds it, the sensors reading that history
   are withheld by the executor); engine 3441a441 (one object's failure in the day-local derive
   withholds its records, ENGINE_FAULT); core C-035 (a day out of attempts is set aside, its
-  block goes on, three failed days pause the queue; tested). Not adding handlers for failures
-  never met (surface preparation, company, FIELD: their inputs are checked by the plan).
+  block goes on, three failed days pause the queue; tested). Predictable failures get handlers
+  too (owner: the overfit caution is about rules tuned on the census dates, not robustness):
+  still to do are surface preparation, company, FIELD and the ordered pass, one asset's failure
+  withholding its own slots.
   **Next: narrow E11.** Today a missing `daily_window`, `consolidated` or `option_history`
   leaves the whole asset out; instead bind an absence record on the roles that read the input
   (as the history fault does), with PROVIDER_INPUT_MISSING as the slot's reason, so only those
