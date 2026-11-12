@@ -544,6 +544,17 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   Core's Intrinio budget set to 1,500 a minute (the droplet's capture shares the account).
   21:19 pool `day`, 2 x `s-8vcpu-16gb-amd` ($0.167 an hour each; id
   `58d217bf-4c48-499a-854a-786e9734197c`), ready 21:21. 21:21 the two tape jobs started.
+  21:21 to 21:28 both tape jobs done (one session a node, 7 min, 64 caches each stored in core).
+  21:28 the two day blocks started, one a node, each from an empty disk: claim, tape-history
+  start from the claim, tape caches from core, download. By 00:01 and 00:21 each had filled
+  everything but the tapes (2 h 32 min and 2 h 53 min from cold with E4's windows: 224 option
+  sessions and quote files, bars from 2020; 38 GB; about 19,000 and 24,000 requests).
+  **00:41 stopped: a bug.** Both fills then began capturing tapes from 2023-05-24 (64 and 100
+  sessions done; all 640 would have taken about two days): the fill is a process of its own and
+  was not given the tape-history start the worker took from its claim (my change of 2026-11-11
+  replaced an environment variable with an in-process setting). Fixed with a test (engine
+  14c7846a); the image is rebuilt and the two days start again from empty disks. Cost of the
+  mistake: about 3.3 hours of the worker pool, $1.10, and ~51,000 Intrinio requests.
   **To delete after the run: pool `day` (always); the cluster and registry on the owner's word.**
 - **Images ready on the laptop (2026-11-11):** `vyreon-core:6e15a27` (142 MB; a later docs-only
   commit does not change it) and `vyreon-worker:89e13c3e` (1.51 GB), whose own build identity is
