@@ -227,8 +227,8 @@ lines; digests, text, JSONB, receipts, versions, states, scalar values).
 - **A lease is a token.** The claim (made with the workers' shared token, of which core holds only
   the SHA-256) returns a random lease token; every other call carries it; core keeps its digest. A
   lease not renewed for `VYREON_CORE_LEASE_SECONDS` (300) expires and the job resumes at its first
-  session not done. Three failed attempts leave a job FAILED and pause the queue; so does a refused
-  bundle. Nothing is claimed while paused; a running worker learns of it at its heartbeat.
+  session not done. Three failed attempts leave a job FAILED and pause the queue (amended for day
+  blocks by C-035); so does a refused bundle. Nothing is claimed while paused; a running worker learns of it at its heartbeat.
 - **A worker's bundle must be its job's next day**, for its profile and build, and the day is
   published and the job moved on in one transaction. One bundle is published at a time.
 - **The budget is a reservation, not a rate estimate.** A worker draws a lease of up to 600 requests
@@ -399,3 +399,15 @@ this because its disk held 131 chains, all after the listing.
   E11's narrowing after the build. An asset whose options are not listed at T itself is the E11
   case (its option sensors withheld, input missing).
 - Tested on ETHA's real captures of 2025-04-09 to 04-14 (fixture `etha-first-chain`).
+
+## C-035 A day that fails for the last time is set aside; the build goes on (2026-11-12)
+
+A day block out of attempts used to stay FAILED whole and pause the queue, so one bad date stopped
+every node. Now the job keeps only the day it stopped on (FAILED, with its leases and logs), the
+days before it become a DONE job, the days after it a new QUEUED block, and a notice is posted.
+The queue pauses when `FAILED_DAYS_PAUSE` (3) day jobs stand FAILED: several at once look like the
+engine, not the day, and each failed day has already cost three attempts of node time. Three is a
+plain declared default, not tuned. Tape and ordered-pass jobs still pause the queue on their last
+failure, because later work waits on them. `queue retry-failed` puts the set-aside days back.
+Reason: the owner's rule that a stopped day never holds up other dates (2026-11-12), with the
+engine's sensor-level withholding as the first line (a fault withholds its sensors, not the day).
