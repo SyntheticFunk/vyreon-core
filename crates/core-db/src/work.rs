@@ -179,8 +179,9 @@ pub const FAILED_DAYS_PAUSE: i64 = 3;
 
 /// A job whose attempt ended without finishing: queued again, or FAILED. A day block out of
 /// attempts keeps only the day it stopped on: the days before it are done, the days after it
-/// become a new queued block, and the queue pauses only at `FAILED_DAYS_PAUSE` failed days. Any
-/// other kind out of attempts pauses the queue at once (later work waits on it).
+/// become a new queued block, and the queue pauses only at `FAILED_DAYS_PAUSE` failed days. An
+/// ordered pass out of attempts stays FAILED without a pause; a tape job pauses the queue at once
+/// (the day blocks wait on it).
 async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<bool, String> {
     let again: bool = db_client
         .query_one(
@@ -195,8 +196,14 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
     if again {
         return Ok(true);
     }
-    let day_block: bool = db_client.query_one("SELECT kind = 'DAY_BLOCK' FROM core.job WHERE job_id = $1", &[&job]).await.map_err(db)?.get(0);
-    if !day_block {
+    let kind: String = db_client.query_one("SELECT kind FROM core.job WHERE job_id = $1", &[&job]).await.map_err(db)?.get(0);
+    if kind == "ORDERED_PASS" {
+        // the later days' passes wait on this one by themselves (`core.claimable_job`); the day
+        // blocks do not read it, and a pass is seconds to run again once its cause is fixed
+        notice::post(db_client, &format!("Ordered pass failed for the last time (job {job}): {why}. Later passes wait for it; the day blocks go on.")).await?;
+        return Ok(false);
+    }
+    if kind != "DAY_BLOCK" {
         pause(db_client, &format!("job {job} failed for the last time: {why}")).await?;
         return Ok(false);
     }
