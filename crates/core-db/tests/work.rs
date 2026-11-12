@@ -114,7 +114,7 @@ async fn work_is_scheduled_over_sessions_and_claimed_in_order() {
 
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
-async fn a_lost_workers_block_resumes_and_a_job_out_of_attempts_pauses_the_queue() {
+async fn a_lost_workers_block_resumes_and_a_failed_day_is_set_aside() {
     let (scratch, mut client, b, _) = ready("leases").await;
     admit(&client, &b).await;
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-12", 30).await.unwrap();
@@ -133,13 +133,22 @@ async fn a_lost_workers_block_resumes_and_a_job_out_of_attempts_pauses_the_queue
     assert!(work::fail(&mut client, &second.token, "surfaces", "surface fit did not converge for XLB", "…the day's log…").await.unwrap());
     let third = work::claim(&mut client, Kind::DayBlock, &b, "w3", HOUR).await.unwrap().unwrap();
     assert_eq!((third.job_id, third.attempt), (first.job_id, 3));
-    // the third failure is the last: the job stays failed and the queue stops
+    // the third failure is the last: the 11th is set aside, the 10th's job is done, the 12th is
+    // queued as a block of its own, and the queue goes on (C-035)
     assert!(!work::fail(&mut client, &third.token, "intent B", "worker ran out of disk", "log").await.unwrap());
-    let status = work::status(&client).await.unwrap();
-    assert_eq!(status["paused"], true);
-    assert_eq!(status["pause_reason"], format!("job {} failed for the last time: intent B: worker ran out of disk", first.job_id));
-    assert_eq!(status["claimable"], json!({}));
-    assert_eq!(work::claim(&mut client, Kind::DayBlock, &b, "w4", HOUR).await.unwrap(), None, "the other block is not claimed while paused");
+    assert_eq!(work::status(&client).await.unwrap()["paused"], false);
+    type Job = (String, String, String, i64);
+    let jobs: Vec<Job> = client
+        .query("SELECT first_session::text, last_session::text, state, job_id FROM core.job WHERE first_session < '2025-12-15' ORDER BY first_session", &[])
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| (r.get(0), r.get(1), r.get(2), r.get(3)))
+        .collect();
+    let range = |j: &Job| (j.0.clone(), j.1.clone(), j.2.clone());
+    let own = |d: &str, state: &str| (d.to_owned(), d.to_owned(), state.to_owned());
+    assert_eq!(jobs.iter().map(range).collect::<Vec<_>>(), [own("2025-12-10", "DONE"), own("2025-12-11", "FAILED"), own("2025-12-12", "QUEUED")]);
+    assert_eq!(jobs[1].3, first.job_id, "the failed day keeps the job and its leases");
     type Ended = (String, Option<String>, Option<String>, Option<String>);
     let kept: Vec<Ended> = client
         .query("SELECT outcome, failed_stage, failure, failure_log FROM core.lease ORDER BY lease_id", &[])
@@ -150,18 +159,29 @@ async fn a_lost_workers_block_resumes_and_a_job_out_of_attempts_pauses_the_queue
         .collect();
     assert_eq!(kept[0], ("EXPIRED".to_owned(), None, Some("the lease was not renewed".to_owned()), None));
     assert_eq!(kept[1], ("FAILED".to_owned(), Some("surfaces".to_owned()), Some("surface fit did not converge for XLB".to_owned()), Some("…the day's log…".to_owned())));
+    let rest = work::claim(&mut client, Kind::DayBlock, &b, "w4", HOUR).await.unwrap().unwrap();
+    assert_eq!((rest.sessions.clone(), rest.attempt), (vec!["2025-12-12".to_owned()], 1));
 
-    // once someone has looked: the first reason is reported, and the failed job starts afresh
-    work::pause(&client, "a later reason").await.unwrap();
-    assert!(work::resume(&client).await.unwrap().unwrap().contains("failed for the last time"));
-    assert_eq!(work::retry_failed(&client).await.unwrap(), 1);
-    let fourth = work::claim(&mut client, Kind::DayBlock, &b, "w4", HOUR).await.unwrap().unwrap();
-    assert_eq!((fourth.job_id, fourth.attempt, fourth.sessions.len()), (first.job_id, 1, 2));
-    // a lease that expires on the last attempt also fails the job and pauses the queue
-    client.execute("UPDATE core.job SET max_attempts = 1 WHERE job_id = $1", &[&fourth.job_id]).await.unwrap();
-    expire(&client, &fourth).await;
+    // a lease that expires on the last attempt sets its day aside too; the third failed day
+    // stops the queue
+    client.execute("UPDATE core.job SET max_attempts = 1 WHERE state <> 'FAILED'", &[]).await.unwrap();
+    expire(&client, &rest).await;
     assert_eq!(work::sweep(&client).await.unwrap(), 1);
-    assert_eq!(work::status(&client).await.unwrap()["paused"], true);
+    assert_eq!(work::status(&client).await.unwrap()["paused"], false);
+    let other = work::claim(&mut client, Kind::DayBlock, &b, "w5", HOUR).await.unwrap().unwrap();
+    assert_eq!(other.sessions, ["2025-12-15", "2025-12-16"]);
+    assert!(!work::fail(&mut client, &other.token, "plan", "an input is missing", "log").await.unwrap());
+    let status = work::status(&client).await.unwrap();
+    assert_eq!(status["paused"], true);
+    assert_eq!(status["pause_reason"], format!("3 days stand failed; the last, job {} (2025-12-15): plan: an input is missing", other.job_id));
+    assert_eq!(work::claim(&mut client, Kind::DayBlock, &b, "w6", HOUR).await.unwrap(), None, "the 16th is queued but nothing is claimed while paused");
+
+    // once someone has looked: the first reason is reported, and the failed days start afresh
+    work::pause(&client, "a later reason").await.unwrap();
+    assert!(work::resume(&client).await.unwrap().unwrap().contains("3 days stand failed"));
+    assert_eq!(work::retry_failed(&client).await.unwrap(), 3);
+    let again = work::claim(&mut client, Kind::DayBlock, &b, "w6", HOUR).await.unwrap().unwrap();
+    assert_eq!((again.job_id, again.attempt, again.sessions.clone()), (first.job_id, 1, vec!["2025-12-11".to_owned()]));
     // a withdrawn build's jobs are not claimable either
     work::resume(&client).await.unwrap();
     build::withdraw(&client, &b, "a wrong number on 2025-12-10").await.unwrap();
