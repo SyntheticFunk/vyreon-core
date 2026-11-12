@@ -501,6 +501,18 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   3. The newest-first build to lookback depth (sized first: every sensor's lookback, what
      Reporter reads, and whether any of the 12 history derived sensors carries unbounded state).
   4. Reporter and web.
+- **Step 2 progress (2026-11-12), none yet run on a real day:** engine 0c4e7c18 (a failed
+  history export leaves `history-fault.json`, day T binds it, the sensors reading that history
+  are withheld by the executor); engine 3441a441 (one object's failure in the day-local derive
+  withholds its records, ENGINE_FAULT); core C-035 (a day out of attempts is set aside, its
+  block goes on, three failed days pause the queue; tested). Not adding handlers for failures
+  never met (surface preparation, company, FIELD: their inputs are checked by the plan).
+  **Next: narrow E11.** Today a missing `daily_window`, `consolidated` or `option_history`
+  leaves the whole asset out; instead bind an absence record on the roles that read the input
+  (as the history fault does), with PROVIDER_INPUT_MISSING as the slot's reason, so only those
+  sensors and their dependants are withheld. An asset with no option or daily capture at T
+  stays out whole (nothing of it is computable); an empty chain is already sensor-level
+  (EMPTY_DELIVERED_POPULATION). Then the cap of 6 goes.
 - **Droplet (2026-11-12):** the daily capture is working (each morning run ends with nothing
   missing); its two red alerts were false. The evening run now leaves the newest session to the
   morning run (engine `deploy/droplet/capture-recent.sh`, deployed; the old copy is kept beside
