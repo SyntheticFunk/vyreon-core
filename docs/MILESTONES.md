@@ -469,6 +469,8 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   Reason: both are errors the build is bound to meet, and one faulty sensor must not cost whole
   days. This replaces "E11's narrowing waits for the build" below; the rest of that entry stands
   (no rules tuned on the golden dates).
+  Computing a single sensor instead of the whole day waits until the build hits a real snag
+  that needs it (owner, same day).
 - **Priority (owner, 2026-11-11): the database before general rules.** Rules tuned on the few
   golden dates have overfitted for weeks; the built database is where they are judged, and a
   recompute is cheap. So E4 is cut to what a distributed build needs (the same day gives the same
