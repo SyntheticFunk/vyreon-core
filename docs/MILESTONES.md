@@ -559,6 +559,15 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   registered and admitted), the first attempt's four jobs cancelled in the database by hand (core
   had no cancel command; `vyreon-core queue cancel <job>...` now exists, in the next core image), day blocks 7 and 8 claimed, one a node; the fill process shows
   `VYREON_TAPE_HISTORY_FROM=2025-12-10` in its environment. The stored tape caches are reused.
+  04:51 second attempt failed: day 2025-12-10 stopped an hour into compute because ETHA's
+  open-interest history view did not build (`export-h4-oij01-history` exit 2; cause not yet known:
+  the failure report lacked the tool's error and the node deleted the work directory). Both days
+  ran as one Job with `backoffLimit: 0`, so the failure killed the healthy 2025-12-11 pod too.
+  Lost: about 5 hours of two nodes ($1.70) and ~46,000 requests.
+  06:14 third attempt, one node, 2025-12-10 only: image `vyreon-worker:30303e39` (build
+  `30303e39+bc11e5e0c619`; a failed export's error and the executor logs now go to core with the
+  failure), one Job per day, and a failed pod is held for inspection so its download survives.
+  Pool `day` is at 1 node meanwhile. Jobs 7-10 cancelled; 11-12 day blocks, 13-14 ordered pass.
   **To delete after the run: pool `day` (always); the cluster and registry on the owner's word.**
 - **Images ready on the laptop (2026-11-11):** `vyreon-core:6e15a27` (142 MB; a later docs-only
   commit does not change it) and `vyreon-worker:89e13c3e` (1.51 GB), whose own build identity is
