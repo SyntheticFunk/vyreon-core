@@ -407,7 +407,9 @@ every node. Now the job keeps only the day it stopped on (FAILED, with its lease
 days before it become a DONE job, the days after it a new QUEUED block, and a notice is posted.
 The queue pauses when `FAILED_DAYS_PAUSE` (3) day jobs stand FAILED: several at once look like the
 engine, not the day, and each failed day has already cost three attempts of node time. Three is a
-plain declared default, not tuned. Tape and ordered-pass jobs still pause the queue on their last
-failure, because later work waits on them. `queue retry-failed` puts the set-aside days back.
+plain declared default, not tuned. A tape job still pauses the queue on its last failure, because
+the day blocks wait on it. An ordered pass out of attempts stays FAILED without a pause: later
+passes wait for it by the claim rule, the day blocks do not read it, and a pass takes seconds to
+run again once its cause is fixed. `queue retry-failed` puts the set-aside days back.
 Reason: the owner's rule that a stopped day never holds up other dates (2026-11-12), with the
 engine's sensor-level withholding as the first line (a fault withholds its sensors, not the day).
