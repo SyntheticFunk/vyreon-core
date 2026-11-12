@@ -615,6 +615,12 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   **13:59 2025-12-10 published from the cluster** (revisions 1-2: 2,853 + 1,105 slots, 320
   streams, 724 MB of events; no faults). Compute 157 min on the 8 vCPU node: history nodes 70,
   exports 4, day T 66, FIELD/bundles/publish 17. 14:01 2025-12-11 started in the same pod.
+  **17:14 the 2025-12-11 run was lost, 3 h 13 min in (my error):** it ran inside the pod held
+  after the 09:14 failure, whose 8-hour hold then ended and took the worker with it. Core expired
+  the lease and re-queued job 20; a fresh Job (`day-block-c`, image `vyreon-worker:0ca127ea`)
+  claimed it 17:32 and downloads from empty. Rule: never run work inside a held pod.
+  **17:32 ordered pass on the cluster: 2025-12-10 published** (revision 3, 721 slots all
+  DELIVERED, 636 reader scalars; job 21, under a minute, database only). Job 22 waits for the day.
 - **Cluster day against the droplet's (2025-12-10, engine-v1 captured 2026-11-07):** same 2,853
   slots, all DELIVERED on both. 478 bodies byte-identical; nearly all the rest differ only in
   capture identity (retrieval times, capture and population digests). By design (E4): SAI-ACT01,
