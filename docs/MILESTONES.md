@@ -495,6 +495,13 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   3. The newest-first build to lookback depth (sized first: every sensor's lookback, what
      Reporter reads, and whether any of the 12 history derived sensors carries unbounded state).
   4. Reporter and web.
+- **Droplet (2026-11-12):** the daily capture is working (each morning run ends with nothing
+  missing); its two red alerts were false. The evening run now leaves the newest session to the
+  morning run (engine `deploy/droplet/capture-recent.sh`, deployed; the old copy is kept beside
+  it), and the dead runner's state from the superseded three-day build is marked stopped. The
+  capture uses about 13 CPU-minutes and 1 GB a day; disk is what it needs (141 GB on the root
+  disk, 28 GB database volume). **After step 2 (owner): move the capture to a small droplet
+  (2 vCPU with a volume) or the cluster's core node, then delete the 8 vCPU droplet.**
 - **Build scope for the MVP (owner, 2026-11-12):** build newest-first, backwards from today, and
   pause when the population satisfies the sensors' lookbacks (the longest known are 200 to 223
   sessions; the exact depth is sized from what Reporter reads). Then move to Reporter and web
