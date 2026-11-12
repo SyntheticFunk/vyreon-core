@@ -238,6 +238,16 @@ async fn the_ordered_pass_follows_the_published_days_one_at_a_time() {
     std::fs::remove_file(&path).unwrap();
     assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision").await, 1, "the refused bundles left nothing");
 
+    // a pass out of attempts stays failed without stopping the queue: the day block goes on,
+    // and no pass is handed out behind the failed one until it is retried
+    client.execute("UPDATE core.job SET max_attempts = 1 WHERE job_id = $1", &[&tenth.job_id]).await.unwrap();
+    assert!(!work::fail(&mut client, &tenth.token, "ordered pass", "VS-O02 absent", "log").await.unwrap());
+    assert_eq!(work::status(&client).await.unwrap()["paused"], false);
+    assert_eq!(ordered(&mut client, &d).await, None);
+    assert!(work::heartbeat(&mut client, &block.token, HOUR).await.is_ok());
+    assert_eq!(work::retry_failed(&client).await.unwrap(), 1);
+    let tenth = ordered(&mut client, &d).await.unwrap();
+
     // it publishes its revision on the base it read, and is done
     let (mut dh, ds, df) = parts(DERIVED);
     dh.base_revision = Some(base.revision_id);
@@ -247,6 +257,7 @@ async fn the_ordered_pass_follows_the_published_days_one_at_a_time() {
     work::finish(&mut client, &tenth.token).await.unwrap();
     assert_eq!(ordered(&mut client, &d).await, None, "the 11th still waits for its base day");
     assert_eq!(work::status(&client).await.unwrap()["claimable"], json!({}));
+
     scratch.drop().await;
 }
 
