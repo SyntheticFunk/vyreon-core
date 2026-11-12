@@ -173,7 +173,14 @@ pub async fn sweep(db_client: &impl GenericClient) -> Result<u64, String> {
     Ok(expired.len() as u64)
 }
 
-/// A job whose attempt ended without finishing: queued again, or FAILED with the queue paused.
+/// How many day jobs may stand FAILED before the queue stops: one bad day is set aside and the
+/// rest of the build goes on; several at once look like the engine, not the day (C-035).
+pub const FAILED_DAYS_PAUSE: i64 = 3;
+
+/// A job whose attempt ended without finishing: queued again, or FAILED. A day block out of
+/// attempts keeps only the day it stopped on: the days before it are done, the days after it
+/// become a new queued block, and the queue pauses only at `FAILED_DAYS_PAUSE` failed days. Any
+/// other kind out of attempts pauses the queue at once (later work waits on it).
 async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<bool, String> {
     let again: bool = db_client
         .query_one(
@@ -185,10 +192,49 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         .await
         .map_err(db)?
         .get(0);
-    if !again {
-        pause(db_client, &format!("job {job} failed for the last time: {why}")).await?;
+    if again {
+        return Ok(true);
     }
-    Ok(again)
+    let day_block: bool = db_client.query_one("SELECT kind = 'DAY_BLOCK' FROM core.job WHERE job_id = $1", &[&job]).await.map_err(db)?.get(0);
+    if !day_block {
+        pause(db_client, &format!("job {job} failed for the last time: {why}")).await?;
+        return Ok(false);
+    }
+    // the days before the failed one: a finished job of their own
+    db_client
+        .execute(
+            "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, state, attempts, max_attempts, finished_at)
+             SELECT kind, profile_id, engine_build, first_session,
+                    (SELECT max(session) FROM core.session WHERE session < j.next_session), NULL, scope, 'DONE', attempts, max_attempts, now()
+             FROM core.job j WHERE job_id = $1 AND next_session > first_session",
+            &[&job],
+        )
+        .await
+        .map_err(db)?;
+    // the days after it: queued afresh
+    let rest = db_client
+        .execute(
+            "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, max_attempts)
+             SELECT kind, profile_id, engine_build, n.session, last_session, n.session, scope, max_attempts
+             FROM core.job j, LATERAL (SELECT min(session) AS session FROM core.session WHERE session > j.next_session) n
+             WHERE job_id = $1 AND next_session < last_session",
+            &[&job],
+        )
+        .await
+        .map_err(db)?;
+    let day: String = db_client
+        .query_one("UPDATE core.job SET first_session = next_session, last_session = next_session WHERE job_id = $1 RETURNING next_session::text", &[&job])
+        .await
+        .map_err(db)?
+        .get(0);
+    let failed: i64 = db_client.query_one("SELECT count(*) FROM core.job WHERE kind = 'DAY_BLOCK' AND state = 'FAILED'", &[]).await.map_err(db)?.get(0);
+    if failed >= FAILED_DAYS_PAUSE {
+        pause(db_client, &format!("{failed} days stand failed; the last, job {job} ({day}): {why}")).await?;
+    } else {
+        let after = if rest == 1 { "; the rest of its block is queued again" } else { "" };
+        notice::post(db_client, &format!("Day {day} failed for the last time and is set aside (job {job}): {why}{after}. The build goes on.")).await?;
+    }
+    Ok(false)
 }
 
 /// Claims the earliest claimable job of `kind` for the worker's own build, if there is one.
