@@ -568,6 +568,11 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   `30303e39+bc11e5e0c619`; a failed export's error and the executor logs now go to core with the
   failure), one Job per day, and a failed pod is held for inspection so its download survives.
   Pool `day` is at 1 node meanwhile. Jobs 7-10 cancelled; 11-12 day blocks, 13-14 ordered pass.
+  Cause found from the third attempt's download: ETHA's chain is empty until 2025-04-11 and the
+  223-session option window now reaches before it (C-034; engine 60692393 starts an asset's option
+  history at its first chain with contracts). 09:14 the old worker was stopped after its download
+  (178 min) and build `c4e58917+5b4540e07af0` started in the same pod on the same download
+  (jobs 15-16 day blocks, 17-18 ordered pass; image `vyreon-worker:c4e58917` is in the registry).
   **To delete after the run: pool `day` (always); the cluster and registry on the owner's word.**
 - **Images ready on the laptop (2026-11-11):** `vyreon-core:6e15a27` (142 MB; a later docs-only
   commit does not change it) and `vyreon-worker:89e13c3e` (1.51 GB), whose own build identity is
