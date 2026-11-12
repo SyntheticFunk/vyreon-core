@@ -9,7 +9,7 @@
 //!   vyreon-core build withdraw <build> <reason>       stop them claiming
 //!   vyreon-core calendar load <sessions.json>         store the engine's trading sessions
 //!   vyreon-core schedule <tape|day-block|ordered-pass> <profile> <build> <first> <last> [block sessions]
-//!   vyreon-core queue [pause <reason> | resume | retry-failed]   the queue at a glance, or change it
+//!   vyreon-core queue [pause <reason> | resume | retry-failed | cancel <job>...]   the queue at a glance, or change it
 //!   vyreon-core months <first> <last>                 create the store's monthly partitions for a date range
 //!   vyreon-core publish <bundle>...                   check, write, read back and publish day bundles, in order
 //!   vyreon-core api-key create <holder> <read[,admin]>   make a reader API key (printed once; only its digest is kept)
@@ -75,13 +75,17 @@ async fn schedule(kind: &str, profile: &str, engine_build: &str, first: &str, la
 }
 
 async fn queue(change: &[&str]) -> Result<(), String> {
-    let client = connect().await?;
+    let mut client = connect().await?;
     match change {
         [] => {}
         ["pause", reason] => work::pause(&client, reason).await?,
         ["resume"] => println!("was paused for: {}", work::resume(&client).await?.as_deref().unwrap_or("(it was not paused)")),
         ["retry-failed"] => println!("{} failed jobs queued again", work::retry_failed(&client).await?),
-        _ => return Err("queue [pause <reason> | resume | retry-failed]".into()),
+        ["cancel", jobs @ ..] if !jobs.is_empty() => {
+            let jobs: Vec<i64> = jobs.iter().map(|j| j.parse().map_err(|_| format!("job id: {j}"))).collect::<Result<_, _>>()?;
+            println!("{} jobs cancelled", work::cancel(&mut client, &jobs).await?)
+        }
+        _ => return Err("queue [pause <reason> | resume | retry-failed | cancel <job>...]".into()),
     }
     work::sweep(&client).await?;
     println!("{}", serde_json::to_string_pretty(&work::status(&client).await?).map_err(|e| e.to_string())?);

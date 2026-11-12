@@ -441,6 +441,28 @@ pub async fn retry_failed(db_client: &impl GenericClient) -> Result<u64, String>
     db_client.execute("UPDATE core.job SET state = 'QUEUED', attempts = 0, finished_at = NULL WHERE state = 'FAILED'", &[]).await.map_err(db)
 }
 
+/// Withdraws jobs that are not finished: each becomes CANCELLED and any live lease on it ends, so
+/// its worker is refused at its next heartbeat or publish. Finished jobs are left as they are.
+/// Returns how many jobs were cancelled.
+pub async fn cancel(client: &mut Client, jobs: &[i64]) -> Result<u64, String> {
+    let tx = client.transaction().await.map_err(db)?;
+    let cancelled = tx
+        .execute(
+            "UPDATE core.job SET state = 'CANCELLED', finished_at = now() WHERE job_id = ANY($1) AND state IN ('QUEUED', 'LEASED', 'FAILED')",
+            &[&jobs],
+        )
+        .await
+        .map_err(db)?;
+    tx.execute(
+        "UPDATE core.lease SET ended_at = now(), outcome = 'CANCELLED', failure = 'the job was cancelled' WHERE job_id = ANY($1) AND ended_at IS NULL",
+        &[&jobs],
+    )
+    .await
+    .map_err(db)?;
+    tx.commit().await.map_err(db)?;
+    Ok(cancelled)
+}
+
 /// The queue at a glance: jobs by kind and state, what is claimable, and the pause.
 pub async fn status(db_client: &impl GenericClient) -> Result<Value, String> {
     let row = db_client
