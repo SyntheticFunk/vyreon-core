@@ -461,6 +461,14 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   per-session captures.
   (4) *Tape-history start:* `VYREON_TAPE_HISTORY_FROM` (an environment variable, default
   2023-05-24); to come from core's claim.
+- **Order changed (owner, 2026-11-12): two things before the database build**, once the cluster
+  is confirmed working (the two-day run and its ordered pass). (1) The system handles N assets:
+  listings, delistings and a changing universe, not a fixed 64. (2) A faulty or insufficient
+  input withholds only the sensors that read it and their dependants, never the whole day (E11
+  narrowed, extended to faulted history nodes; the ETHA stops of 2026-11-12 are the case).
+  Reason: both are errors the build is bound to meet, and one faulty sensor must not cost whole
+  days. This replaces "E11's narrowing waits for the build" below; the rest of that entry stands
+  (no rules tuned on the golden dates).
 - **Priority (owner, 2026-11-11): the database before general rules.** Rules tuned on the few
   golden dates have overfitted for weeks; the built database is where they are judged, and a
   recompute is cheap. So E4 is cut to what a distributed build needs (the same day gives the same
