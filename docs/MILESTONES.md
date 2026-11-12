@@ -555,6 +555,10 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   replaced an environment variable with an in-process setting). Fixed with a test (engine
   14c7846a); the image is rebuilt and the two days start again from empty disks. Cost of the
   mistake: about 3.3 hours of the worker pool, $1.10, and ~51,000 Intrinio requests.
+  00:51 second attempt started: image `vyreon-worker:14c7846a` (build `14c7846a+feb08e5250de`,
+  registered and admitted), the first attempt's four jobs cancelled in the database by hand (core
+  has no cancel command: to add), day blocks 7 and 8 claimed, one a node; the fill process shows
+  `VYREON_TAPE_HISTORY_FROM=2025-12-10` in its environment. The stored tape caches are reused.
   **To delete after the run: pool `day` (always); the cluster and registry on the owner's word.**
 - **Images ready on the laptop (2026-11-11):** `vyreon-core:6e15a27` (142 MB; a later docs-only
   commit does not change it) and `vyreon-worker:89e13c3e` (1.51 GB), whose own build identity is
