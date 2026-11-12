@@ -461,6 +461,12 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   per-session captures.
   (4) *Tape-history start:* `VYREON_TAPE_HISTORY_FROM` (an environment variable, default
   2023-05-24); to come from core's claim.
+- **Build scope for the MVP (owner, 2026-11-12):** build newest-first, backwards from today, and
+  pause when the population satisfies the sensors' lookbacks (the longest known are 200 to 223
+  sessions; the exact depth is sized from what Reporter reads). Then move to Reporter and web
+  integration: the purpose is weekly reports with accurate information. The full range (back to
+  2022) is wanted eventually, for analysis, after revenue. Open: the cost of re-running the
+  ordered pass when older days are added later (unmeasured until it runs on the cluster).
 - **Order changed (owner, 2026-11-12): two things before the database build**, once the cluster
   is confirmed working (the two-day run and its ordered pass). (1) The system handles N assets:
   listings, delistings and a changing universe, not a fixed 64. (2) A faulty or insufficient
