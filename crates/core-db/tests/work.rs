@@ -253,3 +253,25 @@ async fn workers_claiming_at_once_each_get_a_different_job() {
     assert_eq!(work::status(&client).await.unwrap()["live_leases"], 5);
     scratch.drop().await;
 }
+
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn cancelling_a_job_ends_its_lease_and_takes_it_out_of_the_queue() {
+    let (scratch, mut client, b, _) = ready("cancel").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-08", "2025-12-10", 1).await.unwrap();
+    let held = work::claim(&mut client, Kind::Tape, &b, "w1", HOUR).await.unwrap().unwrap();
+    let queued = count(&client, "SELECT min(job_id) FROM core.job WHERE state = 'QUEUED'").await;
+    assert_eq!(work::cancel(&mut client, &[held.job_id, queued]).await.unwrap(), 2);
+    // the worker holding the cancelled job is refused; the remaining job is still handed out
+    assert!(work::heartbeat(&mut client, &held.token, HOUR).await.is_err());
+    assert_eq!(count(&client, "SELECT count(*) FROM core.lease WHERE outcome = 'CANCELLED'").await, 1);
+    let next = work::claim(&mut client, Kind::Tape, &b, "w2", HOUR).await.unwrap().unwrap();
+    assert!(next.job_id != held.job_id && next.job_id != queued);
+    done(&mut client, &next, "2025-12-10").await.unwrap();
+    work::finish(&mut client, &next.token).await.unwrap();
+    // a finished job stays finished, and nothing is left to claim
+    assert_eq!(work::cancel(&mut client, &[next.job_id]).await.unwrap(), 0);
+    assert!(work::claim(&mut client, Kind::Tape, &b, "w3", HOUR).await.unwrap().is_none());
+    scratch.drop().await;
+}
