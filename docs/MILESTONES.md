@@ -465,7 +465,24 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   $12 spent by 16:00 UTC). After every run the worker pool is deleted; the cluster and registry
   only on the owner's word; stop and ask before exceeding $50.
   1. Finish the two-day trial and its ordered pass (cluster confirmed working).
-  2. N assets (listings, delistings, a changing universe) and sensor-level withholding.
+  2. N assets (listings, delistings, a changing universe) and sensor-level withholding, in full
+     (owner, 2026-11-12: a rebuild deep into the build costs far more than doing it now). Sized
+     from a survey of engine 0ca127ea (estimates, about 2-3 weeks):
+     (1) sensor-level withholding: history nodes faultable, dependants withheld through
+     `vyreon-graph`, the stop-on-first-error points after the executor and in both derive passes
+     become withheld slots, a failed day does not stop its block (3-5 days);
+     (2) per-date absence: not listed, delisted or no chain withholds that asset's slots for the
+     date; the cap of 6 goes; P01/PATH windows respect the listing date (1-2 days);
+     (3) the universe per date from core, not compiled in; the slot inventory per date (3-4 days);
+     (4) renames and delistings by the permanent asset key, the ticker in force on the date
+     (2-3 days); (5) a stated rule for each pooled quantity under changing membership (the
+     surface's financing spread, the unusualness line, the activity route's volume sum), shown to
+     the owner as before/after values on a real day (2-3 days); (6) FIELD stays the core-64
+     cross-section, an absent member a missing cell, minimum 51 (about 1 day). Left out:
+     redefining FIELD for another N (a science change nothing needs yet).
+     Survey also found: no history derived sensor recurses on its own unbounded history
+     (DLM-IV-CRUSH's event search is uncapped; the day-local technical sensors smooth from an
+     asset's first bar: check for the newest-first build).
   2.5. Verify step 2: (a) tests on frozen real slices (ETHA's listing week withholds only ETHA's
      open-interest sensors and their dependants); (b) a cluster trial of four single days, each a
      real case: 2025-12-10 again (regression: nothing withheld, values as this trial's apart from
