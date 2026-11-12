@@ -461,6 +461,23 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   per-session captures.
   (4) *Tape-history start:* `VYREON_TAPE_HISTORY_FROM` (an environment variable, default
   2023-05-24); to come from core's claim.
+- **Path to the MVP (owner, 2026-11-12), spend authorized up to $50 in total** (was $25; about
+  $12 spent by 16:00 UTC). After every run the worker pool is deleted; the cluster and registry
+  only on the owner's word; stop and ask before exceeding $50.
+  1. Finish the two-day trial and its ordered pass (cluster confirmed working).
+  2. N assets (listings, delistings, a changing universe) and sensor-level withholding.
+  2.5. Verify step 2: (a) tests on frozen real slices (ETHA's listing week withholds only ETHA's
+     open-interest sensors and their dependants); (b) a cluster trial of four single days, each a
+     real case: 2025-12-10 again (regression: nothing withheld, values as this trial's apart from
+     provider revisions), ETHA's option listing day 2025-04-11 (only its open-interest sensors
+     withheld, the day publishes), a day before ETHA existed (before 2024-07-23; fewer assets),
+     a day around the FB to META rename (June 2022; also before the tapes start, so
+     provider-limited absences). Dates may shift to what the universe and provider hold.
+     Functional checks only: no rule is tuned on these dates. (c) The build's first tranche,
+     the newest two weeks on two nodes, checked before scaling to eight.
+  3. The newest-first build to lookback depth (sized first: every sensor's lookback, what
+     Reporter reads, and whether any of the 12 history derived sensors carries unbounded state).
+  4. Reporter and web.
 - **Build scope for the MVP (owner, 2026-11-12):** build newest-first, backwards from today, and
   pause when the population satisfies the sensors' lookbacks (the longest known are 200 to 223
   sessions; the exact depth is sized from what Reporter reads). Then move to Reporter and web
@@ -542,7 +559,7 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   asset from 2020-01-02 (B2's `daily_range_chain` and `link_range` already fetch and verify ranged
   bars), kept as a range of its own that the technical records read, not per-session captures.
   Engine `worker` is at the tape-history commit, pushed.
-- **Spend authorized (owner, 2026-11-11 ~15:00 Alberta time): the two-node run, up to $25.** Created
+- **Spend authorized (owner, 2026-11-11 ~15:00 Alberta time): the two-node run, up to $25; raised to $50 on 2026-11-12 (see Path to the MVP).** Created
   through the DigitalOcean connector; the worker pool is deleted after every run; the owner is
   asked before the cluster or the registry is deleted. A ledger of what is created, when, and
   what it costs is kept here as it happens.
