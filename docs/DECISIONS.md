@@ -379,3 +379,16 @@ The marker depended on how many daily sessions a disk held. Two findings, same d
   L must outlast the stale rows: ETHA's were gone 5 sessions after its adjustment, the sector
   funds' were still there at 6 and are unmeasured until 200. L is chosen when that is measured
   (about 20 provider requests); until then nothing is built.
+
+## C-034 An asset's option history starts at its first chain with contracts (2026-11-12)
+The two-node run's second attempt stopped on ETHA: Intrinio's EOD chain is empty for ETHA until
+2025-04-11, and the 223-session option window (E4) now reaches back to 2025-01-22, so 31 empty
+chains fell inside the 200-session endpoint history and the open-interest history could not be
+built. Engine-v1 never met this: its disk held 131 chains, all after the listing.
+- **Rule (engine 60692393):** walking back from T, an empty chain with no chain with contracts
+  before it in the window ends the history, with the terminal the engine already uses for "no
+  capture before this" (`CAPTURED_HISTORY_START`, reason NO_PRIOR_HISTORY). No new state.
+- **Not covered:** an empty chain with contracts before it (a provider gap inside the history)
+  is left as it was; that belongs with E11's narrowing after the build. An asset whose options
+  are not listed at T itself is the E11 case (its option sensors withheld, input missing).
+- Tested on ETHA's real captures of 2025-04-09 to 04-14 (fixture `etha-first-chain`).
