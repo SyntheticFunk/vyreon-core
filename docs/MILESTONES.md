@@ -579,6 +579,17 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   not the cause. Engine 0ca127ea starts the history at the first chain with open interest (C-034
   amended); build `0ca127ea+4f186724913b` started 11:22 in the same pod, inputs reused at once
   (jobs 19-20 day blocks, 21-22 ordered pass; jobs 15-18 cancelled).
+  **13:59 2025-12-10 published from the cluster** (revisions 1-2: 2,853 + 1,105 slots, 320
+  streams, 724 MB of events; no faults). Compute 157 min on the 8 vCPU node: history nodes 70,
+  exports 4, day T 66, FIELD/bundles/publish 17. 14:01 2025-12-11 started in the same pod.
+- **Cluster day against the droplet's (2025-12-10, engine-v1 captured 2026-11-07):** same 2,853
+  slots, all DELIVERED on both. 478 bodies byte-identical; nearly all the rest differ only in
+  capture identity (retrieval times, capture and population digests). By design (E4): SAI-ACT01,
+  SAI-ACT01-INTRADAY and INT-ACT-TV15 now have their cohort on 59 assets, VS-O04 and VS-OIJ01
+  carry the longer history on 57. Numbers differ in 15 slots: CDD-CAPVAL01 on 11 companies
+  (Intrinio's market cap for the date moved about 0.3% between the two captures) and VS-O02 /
+  VS-O04 / VS-OIJ01 on BABA and VS-O02 on MSTR (a few open-interest grid cells; **cause not yet
+  checked**, a provider revision between captures is the guess).
   **To delete after the run: pool `day` (always); the cluster and registry on the owner's word.**
 - **Images ready on the laptop (2026-11-11):** `vyreon-core:6e15a27` (142 MB; a later docs-only
   commit does not change it) and `vyreon-worker:89e13c3e` (1.51 GB), whose own build identity is
