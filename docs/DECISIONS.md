@@ -380,15 +380,22 @@ The marker depended on how many daily sessions a disk held. Two findings, same d
   funds' were still there at 6 and are unmeasured until 200. L is chosen when that is measured
   (about 20 provider requests); until then nothing is built.
 
-## C-034 An asset's option history starts at its first chain with contracts (2026-11-12)
-The two-node run's second attempt stopped on ETHA: Intrinio's EOD chain is empty for ETHA until
-2025-04-11, and the 223-session option window (E4) now reaches back to 2025-01-22, so 31 empty
-chains fell inside the 200-session endpoint history and the open-interest history could not be
-built. Engine-v1 never met this: its disk held 131 chains, all after the listing.
-- **Rule (engine 60692393):** walking back from T, an empty chain with no chain with contracts
-  before it in the window ends the history, with the terminal the engine already uses for "no
-  capture before this" (`CAPTURED_HISTORY_START`, reason NO_PRIOR_HISTORY). No new state.
-- **Not covered:** an empty chain with contracts before it (a provider gap inside the history)
-  is left as it was; that belongs with E11's narrowing after the build. An asset whose options
-  are not listed at T itself is the E11 case (its option sensors withheld, input missing).
+## C-034 An asset's option history starts at its first chain with open interest (2026-11-12)
+The two-node run stopped twice on ETHA's open-interest history. Intrinio's EOD chain is empty for
+ETHA until 2025-04-11, and that first chain has 168 contracts, every one with zero open interest
+(open interest is the prior session's settled count, so a listing session has none). The engine's
+open-interest node faults on a chain with no open interest, and a faulted history node stops the
+day's export. The 223-session option window (E4) reaches back to 2025-01-22; engine-v1 never met
+this because its disk held 131 chains, all after the listing.
+- **Rule (engine 60692393, 2fccd1ba):** walking back from T, a chain that is empty or reports no
+  open interest, with no chain with contracts before it in the window, ends the history, with the
+  terminal the engine already uses for "no capture before this" (`CAPTURED_HISTORY_START`, reason
+  NO_PRIOR_HISTORY). No new state. All four endpoint histories share the one start.
+- **Correction:** the first version of this rule (empty chains only) was written on a wrong
+  diagnosis; the failure log of the next attempt showed the zero-open-interest chain was the cause.
+  The empty chains are still excluded, since a session before the listing is not history.
+- **Not covered:** an empty or zero-open-interest chain with contracts before it (a gap inside
+  the history) still stops the day; so does any other faulted history node. That belongs with
+  E11's narrowing after the build. An asset whose options are not listed at T itself is the E11
+  case (its option sensors withheld, input missing).
 - Tested on ETHA's real captures of 2025-04-09 to 04-14 (fixture `etha-first-chain`).

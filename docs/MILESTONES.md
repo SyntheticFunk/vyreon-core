@@ -573,6 +573,12 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   history at its first chain with contracts). 09:14 the old worker was stopped after its download
   (178 min) and build `c4e58917+5b4540e07af0` started in the same pod on the same download
   (jobs 15-16 day blocks, 17-18 ordered pass; image `vyreon-worker:c4e58917` is in the registry).
+  11:21 that build failed at the same step, and its log showed the real cause: ETHA's first chain
+  (2025-04-11) has 168 contracts and no open interest, and the open-interest history node faults
+  on it (the only fault among 11,701 history rows; history stage 70 min). The empty chains were
+  not the cause. Engine 0ca127ea starts the history at the first chain with open interest (C-034
+  amended); build `0ca127ea+4f186724913b` started 11:22 in the same pod, inputs reused at once
+  (jobs 19-20 day blocks, 21-22 ordered pass; jobs 15-18 cancelled).
   **To delete after the run: pool `day` (always); the cluster and registry on the owner's word.**
 - **Images ready on the laptop (2026-11-11):** `vyreon-core:6e15a27` (142 MB; a later docs-only
   commit does not change it) and `vyreon-worker:89e13c3e` (1.51 GB), whose own build identity is
