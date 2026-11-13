@@ -530,7 +530,27 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   eligible). Every other measured value is identical. Found on the way: on the droplet's store
   path DLM-UNUSUALNESS lists its roles in the database's row order (34 assets' bodies differ in
   order only between two runs); the ordered pass already sorts, the store path now does too
-  (uncommitted, with the surface-preparation handler, until both run on the test bed).
+  (engine `worker`, local commits from 07ac5ba3, not pushed).
+  **Surface preparation (07ac5ba3, c814a338), first cut, to be reworked:** with EWY's preparation
+  forced to fail on T and XLE's on T-5 the day published (all 4,679 slots); EWY and XLE have every
+  slot withheld (ENGINE_FAULT, derived DEPENDENCY_WITHHELD) and the other 62 assets' 4,527 slots
+  are identical to the clean run. But leaving an asset out drops its whole history from the FIELD
+  panels: FIELD-RMT01, FIELD-DIM01 and FIELD-SUB01 came out wholly withheld (NO_PRIOR_HISTORY) and
+  FIELD-SYNC01 almost wholly (INCOMPATIBLE_COMMON_SUPPORT). The same happens today when an asset
+  lacks a provider input (E11). Rework: the surface writes a fault record for the asset, day T
+  binds it as the history handler does, and only the sensors that read the surface are withheld.
+  **Codex audit (2026-11-13, gpt-6-astra, read-only; report in
+  `~/claude-artifacts/audits/2026-11-13-codex-failure-handlers.md`):** 17 findings. Fixed locally:
+  SPY's closes no longer feed other assets when SPY's archive disagrees with its published close
+  (d67059b8); the tenth-of-slots hold counts the final inventory and a republish stages left-out
+  assets (b00f0f58); a failed history export's fault record governs (ca4ee6c6). Also local: a
+  company whose capture cannot be read withholds its five sensors CONTROL_FAILED, proven on the
+  2025-12-10 capture with one JPM page corrupted, other 80 results identical (39b7dd40); a FIELD
+  member without its view is absent, not a stopped day (cba6700e). Open from the audit:
+  containment in the store-path and ordered derives; surface output and export paths;
+  narrowing the derive and history handlers; the gamma profile counts an unresolved contract
+  gamma as zero (owner's call, count running); VS-O02's body embeds a digest that includes
+  execution time, so bytes are not reproducible run to run.
   **Next: narrow E11.** Today a missing `daily_window`, `consolidated` or `option_history`
   leaves the whole asset out; instead bind an absence record on the roles that read the input
   (as the history fault does), with PROVIDER_INPUT_MISSING as the slot's reason, so only those
