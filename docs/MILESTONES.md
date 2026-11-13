@@ -464,7 +464,7 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
 - **Path to the MVP (owner, 2026-11-12), spend authorized up to $50 in total** (was $25; about
   $12 spent by 16:00 UTC). After every run the worker pool is deleted; the cluster and registry
   only on the owner's word; stop and ask before exceeding $50.
-  1. Finish the two-day trial and its ordered pass (cluster confirmed working).
+  1. Done 2026-11-13: the two-day trial and its ordered pass (cluster confirmed working).
   2. N assets (listings, delistings, a changing universe) and sensor-level withholding, in full
      (owner, 2026-11-12: a rebuild deep into the build costs far more than doing it now). Sized
      from a survey of engine 0ca127ea (estimates, about 2-3 weeks):
@@ -664,7 +664,15 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   the lease and re-queued job 20; a fresh Job (`day-block-c`, image `vyreon-worker:0ca127ea`)
   claimed it 17:32 and downloads from empty. Rule: never run work inside a held pod.
   **17:32 ordered pass on the cluster: 2025-12-10 published** (revision 3, 721 slots all
-  DELIVERED, 636 reader scalars; job 21, under a minute, database only). Job 22 waits for the day.
+  DELIVERED, 636 reader scalars; job 21, under a minute, database only).
+  **2026-11-13 00:28 2025-12-11 published from the cluster** (revisions 4-5: 2,853 + 1,105 slots,
+  320 streams, 741 MB of events; no faults), and its ordered pass (job 22, revision 6, 721 slots,
+  824 reader scalars). **The two-day trial is complete; step 1 is done.** From an empty disk the
+  day took 6 h 57 min: download 217 min, then 199 min of compute (surfaces 51, history nodes 67,
+  exports 3, day T 62, export index 3, FIELD 10, bundles/derive/publish 3). Engine memory
+  (cgroup `anon`, sampled each minute through the compute) peaked at 1.24 GB; the 10Gi request
+  can drop to about 3Gi. Intrinio requests 26,795: captures 23,646, company 2,563, api_json 292,
+  carry 256, macro 38. Jobs cleared and worker pool `day` deleted 00:35; the core node stays.
 - **Cluster day against the droplet's (2025-12-10, engine-v1 captured 2026-11-07):** same 2,853
   slots, all DELIVERED on both. 478 bodies byte-identical; nearly all the rest differ only in
   capture identity (retrieval times, capture and population digests). By design (E4): SAI-ACT01,
