@@ -501,7 +501,7 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   3. The newest-first build to lookback depth (sized first: every sensor's lookback, what
      Reporter reads, and whether any of the 12 history derived sensors carries unbounded state).
   4. Reporter and web.
-- **Step 2 progress (2026-11-12), none yet run on a real day:** engine 0c4e7c18 (a failed
+- **Step 2 progress (2026-11-12):** engine 0c4e7c18 (a failed
   history export leaves `history-fault.json`, day T binds it, the sensors reading that history
   are withheld by the executor); engine 3441a441 (one object's failure in the day-local derive
   withholds its records, ENGINE_FAULT); core C-035 (a day out of attempts is set aside, its
@@ -509,6 +509,21 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   too (owner: the overfit caution is about rules tuned on the census dates, not robustness):
   still to do are surface preparation, company, FIELD and the ordered pass, one asset's failure
   withholding its own slots.
+  **Test bed on the droplet (2026-11-13):** `/opt/vyreon-test` holds the e8aad4e0 binaries (with
+  the production runpaths for the pinned SQLite and MKL, which cost three failed attempts), a
+  scratch store `vyreon_test`, and `run-day.sh`. 2025-12-10 ran clean there in 130 min and was
+  compared with the cluster's (image 0ca127ea, before these changes): all 4,679 slots present on
+  both; numbers differ only in CDD-CAPVAL01 on 11 companies (provider market cap between
+  captures) and BABA's DLM-OI-CENTROID at 1e-15; the SAI-ACT01 family (59 assets) differs because
+  the test bed starts tape history at 2025-12-10 (VS-P01 for 2025-12-03 fails, SAI-ACT01 is
+  withheld PARENT_ENGINE_FAULT, the day goes on). **3441a441 proven:** `vyreon-worker
+  derive-local` on the day's exports gives 1,104 of 1,105 slots with the cluster's roles (the
+  other is BABA above); with the M0-GAMMA stream of COIN removed and XLE's corrupted, the other
+  1,070 bodies are byte-identical and those two assets' 35 records carry ENGINE_FAULT on every
+  measured role, listed in the faults file. A corrupt base parent body still stops the derive
+  (the base day itself is broken). **0c4e7c18:** when every history export failed (my library
+  mistake) 256 fault files were written and the day was held at the 10% threshold; a day with
+  one export failing (EWY, VS-O02 history) is running.
   **Next: narrow E11.** Today a missing `daily_window`, `consolidated` or `option_history`
   leaves the whole asset out; instead bind an absence record on the roles that read the input
   (as the history fault does), with PROVIDER_INPUT_MISSING as the slot's reason, so only those
