@@ -522,8 +522,15 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   1,070 bodies are byte-identical and those two assets' 35 records carry ENGINE_FAULT on every
   measured role, listed in the faults file. A corrupt base parent body still stops the derive
   (the base day itself is broken). **0c4e7c18:** when every history export failed (my library
-  mistake) 256 fault files were written and the day was held at the 10% threshold; a day with
-  one export failing (EWY, VS-O02 history) is running.
+  mistake) 256 fault files were written and the day was held at the 10% threshold. **0c4e7c18
+  proven:** with one export forced to fail (EWY, VS-O02 history) the day published in 140 min, all
+  4,679 slots present; against the clean run only EWY and the field differ: VS-O02 ENGINE_FAULT,
+  VS-O03/VS-O04/VS-OIJ01/SAI-G01 PARENT_ENGINE_FAULT, 13 EWY derived records with the dependent
+  roles DEPENDENCY_WITHHELD, and EWY's cell withheld in FIELD-OPTBR01 and FIELD-SUP01 (63 of 64
+  eligible). Every other measured value is identical. Found on the way: on the droplet's store
+  path DLM-UNUSUALNESS lists its roles in the database's row order (34 assets' bodies differ in
+  order only between two runs); the ordered pass already sorts, the store path now does too
+  (uncommitted, with the surface-preparation handler, until both run on the test bed).
   **Next: narrow E11.** Today a missing `daily_window`, `consolidated` or `option_history`
   leaves the whole asset out; instead bind an absence record on the roles that read the input
   (as the history fault does), with PROVIDER_INPUT_MISSING as the slot's reason, so only those
