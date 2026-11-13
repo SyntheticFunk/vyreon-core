@@ -539,6 +539,21 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   FIELD-SYNC01 almost wholly (INCOMPATIBLE_COMMON_SUPPORT). The same happens today when an asset
   lacks a provider input (E11). Rework: the surface writes a fault record for the asset, day T
   binds it as the history handler does, and only the sensors that read the surface are withheld.
+  **Reworked (7c590678, pushed), proven 2026-11-13 on 2025-12-10:** same two injected failures;
+  the day published all 4,679 slots. EWY: VS-IVS01, VS-V03-CURRENT and M0-ANALYTICS are
+  ENGINE_FAULT, their dependants PARENT_ENGINE_FAULT, eight derived records DEPENDENCY_WITHHELD
+  (18 slots); its price, tape and chain sensors are identical to the clean run. XLE (T-5): four
+  slots that read the earlier surface. The other 62 assets' slots are identical; FIELD keeps all
+  its sensors, M0-FIELD-ANALYTICS has one withheld cell (63 of 64). The first pass of this run
+  stopped on the executor's disk reserve (a fifth of the disk; the test bed held four kept runs);
+  the reserve share is now settable for a test bed (VYREON_DISK_RESERVE_PERCENT, 50918ca9).
+  **Store-path derive (650995bc, local, test running):** one object's failure in `derive_day`
+  withholds that object's derived records (ENGINE_FAULT) and the day goes on; unreadable SPY bars
+  cost only SPY. Left as stops: the ordered pass (it reads only published rows; a failure there
+  has no inputs to drop, containing it needs a stub record shape) and the day-local loads of the
+  run's own exports.
+  **Gamma zero count (2025-12-10, 62 assets):** 6,400,863 gamma-profile evaluations, none
+  unresolved; the silent zero is a code gap not reached on this day (owner's call to close).
   **Codex audit (2026-11-13, gpt-6-astra, read-only; report in
   `~/claude-artifacts/audits/2026-11-13-codex-failure-handlers.md`):** 17 findings. Fixed locally:
   SPY's closes no longer feed other assets when SPY's archive disagrees with its published close
@@ -547,9 +562,9 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   company whose capture cannot be read withholds its five sensors CONTROL_FAILED, proven on the
   2025-12-10 capture with one JPM page corrupted, other 80 results identical (39b7dd40); a FIELD
   member without its view is absent, not a stopped day (cba6700e). Open from the audit:
-  containment in the store-path and ordered derives; surface output and export paths;
+  containment in the ordered derive; surface output and export paths;
   narrowing the derive and history handlers; the gamma profile counts an unresolved contract
-  gamma as zero (owner's call, count running); VS-O02's body embeds a digest that includes
+  gamma as zero (owner's call, count above); VS-O02's body embeds a digest that includes
   execution time, so bytes are not reproducible run to run.
   **Next: narrow E11.** Today a missing `daily_window`, `consolidated` or `option_history`
   leaves the whole asset out; instead bind an absence record on the roles that read the input
