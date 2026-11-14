@@ -688,8 +688,20 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   clean whole-number split, forward or reverse (strikes, counts and premiums mapped exactly);
   other OCC adjustments keep today's restart of the history at the ex-date (D-077). Today a
   split blanks most history-based option readings for up to 200 sessions (XLK three sessions
-  after its 2025-12-05 split: VS-O02 15 readings supported against XLF's 277). Being sized;
-  real test: XLK/XLU on the test archive. Of the other real events: the 2025-01-09 closure is
+  after its 2025-12-05 split: VS-O02 15 readings supported against XLF's 277). Sized by a
+  read-only survey (unverified): the 200-session loss is the history sensors only. VS-O02's OI
+  total needs x n before the ex-date, VS-O04 and VS-OIJ01 need no arithmetic (shares, moneyness
+  grid), VS-L01 really changes at a split (tick size on the new price: XLU 0.33 before, 0.62 to
+  0.70 after, D-079) and keeps its restart. The T against T-5 sensors (O03, gamma and IV change,
+  IVSC) and the ACT01 family are challenged only while the ex-date is in [T-5, T], about six
+  sessions a split. The engine cannot yet tell a clean split from another OCC adjustment
+  (classifier from the bar's split ratio and the quote headers); codes are reused at new
+  strikes, so identity maps by expiry, right and strike x ratio; the ex-date itself stays
+  withheld; translation belongs in the h3-asset wrappers (science files feed method hashes);
+  VS-O04's terminal is how the derived layer learns the ex-date. Reverse splits in the data
+  give non-standard roots (UNG1), so they are not clean. Estimates: history sensors with
+  classifier, plumbing and tests about 4 days; the five-session sensors 2-3 more; ACT01 4-7
+  more. Real test: XLB, XLE, XLK, XLU, XLY all split 2025-12-05 on the test archive. Of the other real events: the 2025-01-09 closure is
   in the calendar with a test; COIN (2021-04-14) and PLTR (2020-09-30) list before option data
   starts; new expiries to check on the build.
   (P4) Verify: tests on frozen slices; on a test droplet the same date under two memberships
