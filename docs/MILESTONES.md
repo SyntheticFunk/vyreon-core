@@ -601,9 +601,11 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   bound absent. Proven on test-1 (GLD tape raw files and TLT's 2025-10-15 daily bar removed):
   0 ENGINE_FAULT, 7 GLD and 45 TLT slots withheld, the other 62 assets identical but 11 FIELD
   records; the AAPL/NVDA day rerun on the same build is identical (4,679 slots).
-  Under test (64718f93, local): an asset missing a daily bar inside the surface's 400-day split
-  lookback has no surface (a split on that bar would go unseen); cost: one missing bar withholds
-  its option sensors for 400 days, to review with the build's coverage numbers.
+  Also pushed (64718f93; proven on test-2 with TLT's 2025-10-15 bar removed: 0 ENGINE_FAULT,
+  51 TLT slots withheld, the other 63 assets identical but 12 FIELD records): an asset missing
+  a daily bar inside the surface's 400-day split lookback has no surface (a split on that bar
+  would go unseen); cost: one missing bar withholds its option sensors for 400 days, to review
+  with the build's coverage numbers.
   Open: the pooled financing spread changes with membership (item 5); one old daily-bar gap
   also removes the member from the intraday panel.
   **Item 5, financing spread measured (2025-12-03 and 2025-12-10; engine 60c459cc, local,
@@ -640,6 +642,13 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   either way: the asset key stays the object id and directory key, every provider request
   takes the date's ticker (about six crates). **Owner, 2026-11-14: route (a)**; the whole
   stock universe is an eventual goal, the 64 stay for a long time and the MVP does not need more.
+  First piece under test (engine 5bfb0132, local): the worker writes each claimed session's
+  members to `<home>/h5-universe/<session>.json`; an asset named without a ticker is carried as
+  not listed and its slots publish as stated absences with the new reason NOT_LISTED, counted
+  by neither hold. Functional test on test-2: 2025-12-10 with ETHA's archive removed and a
+  universe file naming it unlisted (a counterfactual membership over real data; the real
+  pre-listing day is step 2.5's); control on test-1 without the file (517a3d56). Not done: the
+  fill does not yet skip an unlisted asset; renames (item 4).
   **Item 6 measured (2025-12-10 with TLT absent from the field):** the day already treats an
   absent member as missing cells; the cross-section sensors stay supported over 63 (minimum 51:
   FIELD-BR01, DIST01, GRP01, XCONC01, OPTBR01), FIELD-DEP01 withholds TLT's 315 pairs only. The
