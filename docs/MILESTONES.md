@@ -725,6 +725,22 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   Left by decision or for evidence: the four audit items that change published records;
   own-history scoring of contract-unit
   readings across a split; a cash merger's accelerated expirations (no case among the 64).
+  **First proof on a real day (2026-11-14, test-2 `i1`, engine bc4a04b2: D-164 slots and D-161
+  split stage 1; clean 2025-12-10 against `c1`).** Published, exit 0, no ENGINE_FAULT; the new
+  store schema applied and published against. The 59 assets with no split: no slot differs
+  (the comparison ignores digests, ids and cutoffs, which do differ between runs). XLB, XLE,
+  XLK, XLU, XLY: VS-O02, VS-O04, VS-OIJ01 and the unusualness record change; XLK's supported
+  readings go 15 to 277 (O02), 6 to 263 (O04), 11 to 145 (OIJ01), XLF's counts. Values
+  recomputed independently from the post-overlay populations (scripts in the scratchpad,
+  `verify-split/`): the O02 change is ln(total_T / (2 x total_T-5)) exactly for all five (XLK
+  0.0053, against 0.6985 untranslated), all 126 reference entries, HHI, O04's shares, TV and
+  path efficiency, OIJ01's deformation for XLK and XLE and the percentiles match to 2e-16;
+  the ex-date endpoint is withheld PROVIDER_OI_INCOMPLETE; no two cells with open interest
+  merge under the OCC rule in the 134 sessions before the ex-date.
+  **Share-unit scoring (D-169, branch `pass-units`, to merge):** DLM-TECHNICAL's
+  `obv_change_20`, `volume_price_trend_change_20` and the three MACD readings were scored
+  against priors on another split basis (XLU 2025-12-10: OBV z -0.97 as published, -0.32 on
+  one basis); the record now states its recent splits and the scorer translates the priors.
   **Overlay against raw end-of-day figures, measured (2026-11-14; 11,167 asset-sessions, all 64
   symbols, 250 dates of the test archive; stored post-overlay populations against the raw
   pages; scripts and tables in the session scratchpad, `overlay-measure/`):** unchanged on
