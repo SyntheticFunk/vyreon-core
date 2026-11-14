@@ -719,8 +719,11 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   is a missing input that holds the day. (v) P01, PATH and the prior-5 view are not trimmed to
   the listing (only FIELD is), and the P01 executor requires 132 captures. (vi) The rolling
   prune (D-160) assumes days run forward; newest-first it would delete what the next, older,
-  day reads. Smallest changes sized at 3-4 days without (i); (i) is 3-5 days and a decision
-  on how far back the build goes.
+  day reads. Smallest changes sized at 3-4 days without (i); (i) is 3-5 days. **Owner,
+  2026-11-14: the build goes back to the start of option data (2021-09-27)**, so (i) is in the
+  pass: before a source's start its readers are stated absences, the day publishes. Owner's
+  rule for recommendations the same day: existing standards first (match the market's own
+  conventions so the numbers agree), then product intent.
   (P4) Verify: tests on frozen slices; on a test droplet the same date under two memberships
   gives byte-identical per-asset bodies; step 2.5's FB to META day and pre-listing day on the
   cluster (the after-delisting direction rests on the pre-listing path: none of the 64 has
