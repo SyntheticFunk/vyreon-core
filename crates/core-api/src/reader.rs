@@ -16,6 +16,11 @@
 //! Rules a reader can rely on:
 //!   * sessions come from the trading calendar, never from the data; a session without a
 //!     published day is listed as NOT_PUBLISHED, never left out and never filled;
+//!   * a member has measurements only on the sessions it is listed (C-036): in an asset's history,
+//!     a published session on which the asset was not listed (before its first listing, after a
+//!     delisting) has the state NOT_LISTED and no revisions. Who was listed is what core recorded
+//!     when the day was published; a session's revisions (`/v1/sessions/{date}`) carry it as
+//!     `listed_members`. The field object is never NOT_LISTED;
 //!   * one response is read from one snapshot of the database: it never mixes revisions of a day;
 //!   * `detail=full` (the default) carries each measurement's complete body, value-exact; the
 //!     body route returns the engine's bytes, and sha256(bytes) is `body_sha256`;
@@ -32,7 +37,7 @@ use axum::http::{HeaderMap, StatusCode, header};
 use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
-use core_contract::sha256_hex;
+use core_contract::{FIELD_OBJECT, sha256_hex};
 use core_db::{api_key, budget, work};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
@@ -129,7 +134,7 @@ const SESSION_ENTRY: &str = "jsonb_build_object(
                    'revision_id', d.revision_id, 'profile_id', d.profile_id, 'profile_revision', d.profile_revision, 'engine_build', d.engine_build,
                    'published_at', d.published_at, 'snapshot_cutoff', d.snapshot_cutoff, 'base_revision', d.base_revision,
                    'slot_count', (SELECT count(*) FROM vyreon.measurement m WHERE m.revision_id = d.revision_id AND m.represented_date = d.represented_date))
-                   || CASE WHEN $3 THEN jsonb_build_object('slots', (
+                   || CASE WHEN $3 THEN jsonb_build_object('listed_members', to_jsonb(d.listed_members), 'slots', (
                           SELECT jsonb_agg(jsonb_build_object('measurement_id', m.measurement_id, 'object_id', m.object_id, 'slot_state', m.slot_state,
                                                               'body_sha256', m.body_sha256, 'body_bytes', octet_length(m.body_text) + 1,
                                                               'stream_root_sha256', st.root_sha256) ORDER BY e.slot_ordinal)
@@ -258,7 +263,13 @@ async fn read_history(client: &Client, headers: &HeaderMap, object: &str, q: His
         Some(other) => return Err(bad(format!("detail is full, coordinates or headline, not {other}"))),
     };
     let limit = if detail == "headline" { HEADLINE_SESSIONS } else { FULL_SESSIONS };
-    if client.query_opt("SELECT FROM core.expected_slot WHERE object_id = $1 LIMIT 1", &[&object]).await.map_err(db)?.is_none() {
+    // an object of some build's inventory, or a member of some profile
+    if client
+        .query_opt("SELECT FROM core.expected_slot WHERE object_id = $1 UNION ALL SELECT FROM core.member WHERE asset_key = $1 LIMIT 1", &[&object])
+        .await
+        .map_err(db)?
+        .is_none()
+    {
         return Err(not_found(format!("no profile has an object {object}")));
     }
     // one statement, one snapshot: the sessions of the range (cut at the limit) with the object's
@@ -275,7 +286,8 @@ async fn read_history(client: &Client, headers: &HeaderMap, object: &str, q: His
                     CASE WHEN $5 = 'coordinates' THEN m.coordinates::text END,
                     CASE WHEN $5 = 'headline' THEN (SELECT COALESCE(jsonb_object_agg(r.role_id, r.value), '{}'::jsonb)::text FROM vyreon.reader_scalar r
                                            WHERE r.revision_id = m.revision_id AND r.represented_date = m.represented_date
-                                             AND r.object_id = m.object_id AND r.measurement_id = m.measurement_id) END
+                                             AND r.object_id = m.object_id AND r.measurement_id = m.measurement_id) END,
+                    $4::text = $7::text OR $4::text = ANY(d.listed_members)
              FROM range s
              LEFT JOIN vyreon.day_revision d ON d.represented_date = s.session AND d.state = 'PUBLISHED'
              LEFT JOIN vyreon.measurement m ON m.revision_id = d.revision_id AND m.represented_date = d.represented_date AND m.object_id = $4
@@ -285,7 +297,7 @@ async fn read_history(client: &Client, headers: &HeaderMap, object: &str, q: His
              LEFT JOIN vyreon.measurement_stream st ON st.revision_id = m.revision_id AND st.represented_date = m.represented_date
                                                    AND st.measurement_id = m.measurement_id AND st.object_id = m.object_id
              ORDER BY s.session, d.base_revision NULLS FIRST, d.revision_id, e.slot_ordinal",
-            &[from, to, &limit, &object, &detail, &q.measurement],
+            &[from, to, &limit, &object, &detail, &q.measurement, &FIELD_OBJECT],
         )
         .await
         .map_err(db)?;
@@ -302,6 +314,14 @@ async fn read_history(client: &Client, headers: &HeaderMap, object: &str, q: His
         }
         let session = sessions.last_mut().expect("just pushed");
         let Some(revision_id) = row.get::<_, Option<i64>>(2) else { continue };
+        if row.get::<_, Option<bool>>(17) == Some(false) {
+            // published, without the asset: it was not listed that day (C-036)
+            identity.push_str(&format!(" {date}:{revision_id}:not-listed"));
+            if session.state == "NOT_PUBLISHED" {
+                session.state = "NOT_LISTED";
+            }
+            continue;
+        }
         session.state = "PUBLISHED";
         if session.revisions.last().is_none_or(|r| r.revision_id != revision_id) {
             identity.push_str(&format!(" {date}:{revision_id}"));

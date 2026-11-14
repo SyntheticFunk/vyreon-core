@@ -12,6 +12,15 @@
 //!                                                                          or {requests: 0, retry_after_seconds}
 //!   POST /budget/{id}/release        {used: {category: requests}}       -> {counted}
 //!
+//! A claim carries, beside the job: `days`, for each session its members in profile order
+//! (`ordinal, asset_key, security_id, ticker` (null when not listed that session), `group_name,
+//! company`); `tickers`, for each member's asset key every ticker it traded under,
+//! `[{ticker, from, to}]` oldest first, dates inclusive and `to` null while open (a day's history
+//! windows cross ticker changes: Meta is FB to 2022-06-08, META from 2022-06-09); `sources`, each
+//! provider source's first date; `tape_history_from`. A day bundle states the members listed on
+//! its day (`listed_members`, the asset keys with a ticker in `days`), and core refuses one that
+//! differs from its own (C-036).
+//!
 //! Statuses: 401 no or wrong token; 410 the lease is gone (stop working); 422 the call or the
 //! bundle is wrong (a refused bundle also pauses the queue); 5xx core or the database failed.
 use crate::{ApiError, App, bearer, failed, refused};
@@ -80,25 +89,40 @@ async fn claim(State(app): Shared, headers: HeaderMap, Json(request): Json<Claim
     let Some(c) = work::claim(&mut client, kind, &request.engine_build, &request.worker, app.config.lease_seconds).await.map_err(failed)? else {
         return Ok(StatusCode::NO_CONTENT.into_response());
     };
-    // the member manifest: for each session, who is listed and under which ticker
+    // the member manifest: for each session, who is listed and under which ticker; and for each
+    // member every ticker it has traded under, with its dates, since a day's history windows
+    // reach back across ticker changes
     let manifest: String = client
         .query_one(
             "SELECT COALESCE(jsonb_agg(jsonb_build_object('session', s.session, 'members',
                         (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.ordinal) FROM core.members_on($1, s.session) m)) ORDER BY s.session), '[]'::jsonb)::text,
                     (SELECT jsonb_object_agg(source, first_date)::text FROM core.source_coverage),
-                    (SELECT COALESCE(to_jsonb(min(first_session)), 'null'::jsonb)::text FROM core.job WHERE kind = 'TAPE' AND profile_id = $1 AND state <> 'CANCELLED')
+                    (SELECT COALESCE(to_jsonb(min(first_session)), 'null'::jsonb)::text FROM core.job WHERE kind = 'TAPE' AND profile_id = $1 AND state <> 'CANCELLED'),
+                    (SELECT COALESCE(jsonb_object_agg(asset_key, spans), '{}'::jsonb)::text FROM (
+                         SELECT m.asset_key,
+                                jsonb_agg(jsonb_build_object('ticker', t.ticker, 'from', lower(t.during), 'to', upper(t.during) - 1) ORDER BY lower(t.during)) AS spans
+                         FROM core.member m JOIN core.ticker_span t ON t.security_id = m.security_id
+                         WHERE m.profile_id = $1 GROUP BY m.asset_key) x)
              FROM core.session s WHERE s.session = ANY($2::text[]::date[])",
             &[&c.profile_id, &c.sessions],
         )
         .await
-        .map(|r| format!("{{\"days\":{},\"sources\":{},\"tape_history_from\":{}}}", r.get::<_, String>(0), r.get::<_, String>(1), r.get::<_, String>(2)))
+        .map(|r| {
+            format!(
+                "{{\"days\":{},\"sources\":{},\"tape_history_from\":{},\"tickers\":{}}}",
+                r.get::<_, String>(0),
+                r.get::<_, String>(1),
+                r.get::<_, String>(2),
+                r.get::<_, String>(3)
+            )
+        })
         .map_err(|e| failed(e.to_string()))?;
     let manifest: Value = serde_json::from_str(&manifest).map_err(|e| failed(e.to_string()))?;
     ok(json!({
         "job_id": c.job_id, "kind": c.kind, "profile_id": c.profile_id, "engine_build": c.engine_build, "sessions": c.sessions,
         "scope": c.scope.as_deref().map(serde_json::from_str::<Value>).transpose().map_err(|e| failed(e.to_string()))?,
         "attempt": c.attempt, "lease_token": c.token, "expires_at": c.expires_at, "lease_seconds": app.config.lease_seconds,
-        "days": manifest["days"], "sources": manifest["sources"],
+        "days": manifest["days"], "sources": manifest["sources"], "tickers": manifest["tickers"],
         // E4: where this database's tape history starts (its first scheduled tape session), so
         // every worker of a build reads the same history; null while no tape job is scheduled
         "tape_history_from": manifest["tape_history_from"],
