@@ -555,7 +555,7 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   **2026-11-13 evening (engine `worker`, local from 0f35dd6d; pushed to 50918ca9):**
   the store-path derive change leaves a clean day byte-identical (all 4,679 slots; its injected
   fault missed, because the derive finds a surface by digest in any folder of the date; rerun
-  on a test droplet). **E11 narrowed (cfb7e405 and after, under test):** an asset lacking a
+  on a test droplet). **E11 narrowed (cfb7e405 and after):** an asset lacking a
   provider input stays in the day; each view or source that cannot be built is bound as an
   absence record (`input-absent.json`, H4-INPUT-ABSENT@1), the executor withholds its readers
   PROVIDER_INPUT_MISSING and their dependants with them, and declares no T-5 closure from an
@@ -570,12 +570,20 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   again (needs a stub record shape, as the ordered pass does); surface identity reads before
   containment; a company's supplement page; export failures that leave a slot missing; an
   unreadable SPY drops roles from other assets' technical records.
-  **Open finding: 177 slots withheld on the clean 2025-12-10 day.** For 59 of 64 assets VS-P01
-  at T-5 (2025-12-03) is refused ("P01 history scope/clock/count"), so SAI-ACT01,
-  SAI-ACT01-INTRADAY and INT-ACT-TV15 are PARENT_ENGINE_FAULT; the same in the droplet's store
-  (build 71f3fe5d) but not on 2025-12-11 or 12-12. The five that pass are the sector funds that
-  split. Not the cause: download order, option or daily capture clocks, the view's structure.
-  The refusal now names its check (70421410); the next runs' logs will say which.
+  **Proven 2026-11-14 on 2025-12-10 (three test droplets, against the clean baseline; engine
+  pushed to f76dd676):** XLE without its options capture: 43 XLE slots withheld
+  PROVIDER_INPUT_MISSING (derived ones DEPENDENCY_WITHHELD), its price, tape and company
+  sensors and the other 63 assets identical, three FIELD records differ by XLE's cell. MSFT's
+  surface hidden at the derive: its 30 derived records ENGINE_FAULT, everything else identical.
+  GLD without its tape of T and TLT without one daily bar: 7 GLD and 42 TLT slots withheld,
+  the other 62 assets identical; 11 FIELD records differ because FIELD still drops a member
+  whose daily bar is missing (item 6).
+  **The 177 withheld activity slots: cause found (984bd4b8, local, under test).** The ACT01
+  cohort folder of 2025-12-10 was built 2026-11-07 under calendar registry V1.4; the registry
+  became V1.5 on 11-08 and the day reused the folder unchecked, so the executor refused its
+  T-5 P01 view ("another calendar") for 59 assets. Fresh workers have no such folder. Now the
+  plan and the route treat such a view as stale and `act01_auto_source --rebind` restates its
+  digest (same sessions, no provider request); 59 folders rebound on test-1, clean day running.
   **Test machines (owner 2026-11-13: use more, limit 30 droplets, $100 total stands):**
   `vyreon-test-1..3` (8 vCPU, $0.167/h each), no timers, key or webhook; each has the archive
   for 2025-12-10 and a scratch store. Delete when the step's tests are done.
