@@ -590,8 +590,10 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   slots (its folder needs the rebind and a republish; owner's word before touching production).
   **Third Codex audit (2026-11-14, report
   `~/claude-artifacts/audits/2026-11-14-codex-missing-inputs-3.md`):** 10 findings, 3
-  suspicions. Fixed locally (9267752b, 69731ce7, under test on test-2 with AAPL's options of T
-  and NVDA's of T-5 removed): a lacking asset with a cohort no longer stops the pooled feed
+  suspicions. Fixed and pushed (9267752b, 69731ce7; proven on test-2 with AAPL's options of T
+  and NVDA's of T-5 removed: 0 faulted slots, 51 AAPL and 31 NVDA slots withheld
+  PROVIDER_INPUT_MISSING, the other 62 assets identical but three FIELD option records; a gap
+  at T-5 also withholds NVDA's O02/O04/L01/OIJ01 of T through their 200-session history): a lacking asset with a cohort no longer stops the pooled feed
   check; the plan excuses only checks that read the missing captures; the M0 change owners take
   an absent T-5 view's reason; FIELD skips a faulted tape; an interrupted rebind is picked up.
   Open: an engine error on an asset that also lacks an input is labelled a provider absence
