@@ -708,6 +708,19 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   strike rounding for ratios of 3 or more before promising NVDA and AVGO. Of the other real events: the 2025-01-09 closure is
   in the calendar with a test; COIN (2021-04-14) and PLTR (2020-09-30) list before option data
   starts; new expiries to check on the build.
+  **P3 surveyed (2026-11-14, read-only, unverified; each is a way the build would stop):**
+  (i) option snapshots start 2022-05-27 and the quote window is 223 sessions, so every date
+  before about 2023-04 is refused whole (a stale option source is not withholdable); the FB to
+  META day (2022-06) is inside that. (ii) For about 152 sessions after a listing the ACT01 job
+  fails for all assets when one lacks its 147 daily bars through T-5, and the day is refused
+  (ETHA: to about 2025-02-28; IBIT: to about 2024-08). (iii) A tape job scheduled before
+  2023-05-24 makes every worker panic on its claim (an assert on the tape start). (iv) A date
+  before the tapes needs about four runs before it publishes TAPE_UNAVAILABLE; until then it
+  is a missing input that holds the day. (v) P01, PATH and the prior-5 view are not trimmed to
+  the listing (only FIELD is), and the P01 executor requires 132 captures. (vi) The rolling
+  prune (D-160) assumes days run forward; newest-first it would delete what the next, older,
+  day reads. Smallest changes sized at 3-4 days without (i); (i) is 3-5 days and a decision
+  on how far back the build goes.
   (P4) Verify: tests on frozen slices; on a test droplet the same date under two memberships
   gives byte-identical per-asset bodies; step 2.5's FB to META day and pre-listing day on the
   cluster (the after-delisting direction rests on the pre-listing path: none of the 64 has
