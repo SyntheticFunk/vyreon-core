@@ -500,7 +500,9 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
      less total CPU unless the limit is raised.
   3. The newest-first build to lookback depth (sized first: every sensor's lookback, what
      Reporter reads, and whether any of the 12 history derived sensors carries unbounded state).
-  4. Reporter and web.
+  4. Reporter and web (owner, 2026-11-14: Reporter mostly exists and has produced sample
+     reports on incomplete data; this step is pointing it at core's API and the built history,
+     to be sized then).
   5. (owner, 2026-11-14) Generate the reports and judge them, the FIELD sensors above all: a
      campaign on FIELD's numerical stability and generalization (science changes, from the
      built history; no published reference exists for them). FIELD is a large part of the paid
