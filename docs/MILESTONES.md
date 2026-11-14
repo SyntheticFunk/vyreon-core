@@ -701,7 +701,11 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   VS-O04's terminal is how the derived layer learns the ex-date. Reverse splits in the data
   give non-standard roots (UNG1), so they are not clean. Estimates: history sensors with
   classifier, plumbing and tests about 4 days; the five-session sensors 2-3 more; ACT01 4-7
-  more. Real test: XLB, XLE, XLK, XLU, XLY all split 2025-12-05 on the test archive. Of the other real events: the 2025-01-09 closure is
+  more. Real test: XLB, XLE, XLK, XLU, XLY all split 2025-12-05 on the test archive. **Owner,
+  2026-11-14: all three groups now** (history sensors, the five-session sensors, the ACT01
+  family; VS-L01 keeps its restart): about 10-14 days in all. Order: history sensors, then
+  the five-session sensors, then ACT01, each proven on the five real splits; settle OCC's
+  strike rounding for ratios of 3 or more before promising NVDA and AVGO. Of the other real events: the 2025-01-09 closure is
   in the calendar with a test; COIN (2021-04-14) and PLTR (2020-09-30) list before option data
   starts; new expiries to check on the build.
   (P4) Verify: tests on frozen slices; on a test droplet the same date under two memberships
