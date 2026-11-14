@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Test bed: one real day on a scratch droplet under a chosen engine build, compared with a baseline.
+# Settings (environment): TB_KEY (ssh key), TB_ENGINE (engine checkout), TB_OUT (where dumps go).
+# Each droplet has /opt/vyreon-test (bin, run-day.sh, pg, patchelf) and /srv/vyreon-home.
+set -euo pipefail
+: "${TB_KEY:?ssh key}" "${TB_ENGINE:?engine checkout}" "${TB_OUT:?dump directory}"
+ssh_() { ssh -i "$TB_KEY" -o IdentitiesOnly=yes -o ConnectTimeout=20 "root@$1" "${@:2}"; }
+BINS="act01_auto_source capture_source carry_inputs exq01_cohort_capture h2-engine h3-asset h5-company-capture h5-company-science h5-field h5-field-options h5_surface ip01_identity list_sessions replay_capture requote vyreon-api vyreon-day vyreon-days vyreon-inputs vyreon-notify vyreon-store vyreon-worker"
+case "${1:-}" in
+deploy) # tb deploy IP : the checkout's release build (clean tree) onto the droplet; refuses while a day runs
+  ip=$2; rel="$TB_ENGINE/target/x86_64-unknown-linux-gnu/release"
+  [ -z "$(git -C "$TB_ENGINE" status --porcelain)" ] || { echo "engine tree not clean" >&2; exit 1; }
+  [ "$(ssh_ "$ip" 'pgrep -fc "[v]yreon-day|[h]3-asset" || true')" = 0 ] || { echo "a job is running on $ip" >&2; exit 1; }
+  commit=$(git -C "$TB_ENGINE" rev-parse --short=8 HEAD)
+  rec=$(mktemp); "$rel/vyreon-worker" build-record --archive-of "$commit" "$rel" > "$rec"
+  (cd "$rel" && rsync -e "ssh -i $TB_KEY -o IdentitiesOnly=yes" -a $BINS "root@$ip:/opt/vyreon-test/bin/")
+  scp -q -i "$TB_KEY" -o IdentitiesOnly=yes "$rec" "root@$ip:/opt/vyreon-test/bin/build-record.json"; rm -f "$rec"
+  ssh_ "$ip" 'cd /opt/vyreon-test && for b in bin/*; do case $b in *.json) continue;; esac
+    if [ "$b" = bin/h5-field ]; then rp=/opt/vyreon-sqlite/lib:/opt/vyreon-mkl/lib; else rp=/opt/vyreon-sqlite/lib; fi
+    ./patchelf --set-rpath $rp $b; done'
+  echo "deployed $commit to $ip" ;;
+run) # tb run IP DATE NAME : starts the day detached; NAME.done holds its exit code when it ends
+  ip=$2; d=$3; n=$4
+  ssh_ "$ip" "cd /opt/vyreon-test && [ \"\$(pgrep -fc '[v]yreon-day' || true)\" = 0 ] || { echo 'a day is running' >&2; exit 1; }
+    rm -f $n.done; (setsid nohup sh -c 'nice ./run-day.sh $d $n-${d//-/} > $n.log 2>&1; echo \$? > $n.done' > /dev/null 2>&1 < /dev/null &)
+    sleep 45; grep -m1 '^== ' $n.log | cut -c1-160; grep -c 'REFUSED' $n.log || true" ;;
+wait) # tb wait IP NAME : blocks until the day ends, prints its exit code and last stages
+  ip=$2; n=$3
+  ssh_ "$ip" "cd /opt/vyreon-test && while [ ! -f $n.done ]; do sleep 60; done; echo exit \$(cat $n.done); grep '^== ' $n.log | tail -n 3 | cut -c1-160; grep -c ENGINE_FAULT $n.log || true" ;;
+status) ip=$2; n=$3
+  ssh_ "$ip" "cd /opt/vyreon-test && { [ -f $n.done ] && echo exit \$(cat $n.done) || echo running; }; grep '^== ' $n.log | tail -n 2 | cut -c1-160" ;;
+dump) # tb dump IP DATE BUILD NAME : the published day of engine build BUILD (8-char commit) to TB_OUT/NAME
+  ip=$2; d=$3; b=$4; n=$5; mkdir -p "$TB_OUT/$n"
+  ssh_ "$ip" "psql \"\$(tr -d '\n' < /opt/vyreon-test/pg)\" -At -c \"select row_to_json(t) from (select d.profile_revision as profile, m.measurement_id, m.object_id, m.slot_state, m.method_version, m.science_version, m.body_text from vyreon.day_revision d join vyreon.measurement m using (revision_id) where d.represented_date='$d' and d.state='PUBLISHED' and d.engine_build like '$b%' order by 1,2,3) t\" | gzip" > "$TB_OUT/$n/store.jsonl.gz"
+  echo "$(zcat "$TB_OUT/$n/store.jsonl.gz" | wc -l) slots in $TB_OUT/$n" ;;
+compare) # tb compare BASE NAME SYM[,SYM] : slots of the named assets that differ, and every other difference
+  python3 "$(dirname "$0")/compare.py" "$TB_OUT/$2/store.jsonl.gz" "$TB_OUT/$3/store.jsonl.gz" "${4:-}" ;;
+hide) # tb hide IP PATH : moves a capture under /srv/vyreon-home/h5-acq aside, recording where it was
+  ip=$2; p=$3
+  ssh_ "$ip" "mkdir -p /root/removed && src=/srv/vyreon-home/h5-acq/$p && [ -e \$src ] && dst=/root/removed/\$(echo $p | tr / _) && mv \$src \$dst && echo \"\$dst \$src\" >> /root/removed/MOVED && echo hidden $p" ;;
+restore) # tb restore IP : puts every hidden capture back where it was
+  ssh_ "$2" 'f=/root/removed/MOVED; [ -f $f ] || { echo nothing hidden; exit 0; }; while read -r dst src; do [ -e "$dst" ] && mv "$dst" "$src" && echo "restored $src"; done < $f; rm -f $f' ;;
+*) sed -n '2,4p' "$0"; grep -E '^[a-z]+\) #' "$0" | sed 's/) #/:/' ;;
+esac
