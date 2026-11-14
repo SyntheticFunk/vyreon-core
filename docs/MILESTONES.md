@@ -617,7 +617,15 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   (IV60 8.76 to 6.07 without NVDA, yet 0.04 without the top five: its thin-chain fit is
   unstable, D-095, not a spread effect) and DBA (0.03 to 0.13). Rule proposed: the spread is
   pooled over the assets that have a surface that day, stated in the day's record; no change
-  to the estimator. Still to look at: the unusualness line and the activity route's volume sum.
+  to the estimator.
+  The other two pooled quantities are already membership-agnostic. The activity route's feed
+  check is a ratio of sums over the cohorts captured that day (a lacking asset is skipped):
+  0.9855/1.0045 with all 64, 0.9852/1.0041 without AAPL's cohort, against a 0.95 threshold.
+  The unusualness line is the 95th percentile of the scores the universe published in the
+  prior 252 sessions, no line under 500 scores; it can only be measured on a populated store
+  (the build), and its definition text says "all 64 securities" (reword with item 3). Rule
+  proposed for all three: pooled over the assets present on the date, membership stated in
+  the record, estimators unchanged; owner to confirm.
   **Item 6 measured (2025-12-10 with TLT absent from the field):** the day already treats an
   absent member as missing cells; the cross-section sensors stay supported over 63 (minimum 51:
   FIELD-BR01, DIST01, GRP01, XCONC01, OPTBR01), FIELD-DEP01 withholds TLT's 315 pairs only. The
