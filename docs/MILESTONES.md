@@ -501,6 +501,11 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   3. The newest-first build to lookback depth (sized first: every sensor's lookback, what
      Reporter reads, and whether any of the 12 history derived sensors carries unbounded state).
   4. Reporter and web.
+  5. (owner, 2026-11-14) Generate the reports and judge them, the FIELD sensors above all: a
+     campaign on FIELD's numerical stability and generalization (science changes, from the
+     built history; no published reference exists for them). FIELD is a large part of the paid
+     product and must be useful and defensible. Going live needs Intrinio's Startup tier for
+     both free and paid reports: ideally both together, free first if the paid side needs long work.
 - **Step 2 progress (2026-11-12):** engine 0c4e7c18 (a failed
   history export leaves `history-fault.json`, day T binds it, the sensors reading that history
   are withheld by the executor); engine 3441a441 (one object's failure in the day-local derive
