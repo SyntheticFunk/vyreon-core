@@ -4,8 +4,11 @@
 //!
 //! Checked before anything is promoted (started from the engine's `vyreon-store` stage, verify
 //! and `publish_revision`):
-//!   * the build is registered and the bundle's slots are exactly its inventory for the profile:
-//!     none missing, none extra, none twice (the inventory is core's, never the bundle's);
+//!   * the members the bundle states as listed on the day are the ones core's universe lists
+//!     (`core.members_on`, a ticker that day): the worker and core agree on membership (C-036);
+//!   * the build is registered and the bundle's slots are exactly its inventory for the profile,
+//!     narrowed to the field object and the members listed that day: none missing, none extra,
+//!     none twice (the inventory and the universe are core's, never the bundle's);
 //!   * every body and receipt hashes to the digest the bundle states; a body ends with the
 //!     newline the engine writes and is stored without it;
 //!   * a body that commits to an event stream has it, and only such a body: the root hashes to
@@ -13,12 +16,13 @@
 //!   * every reader scalar belongs to a slot of the day and is a finite number;
 //!   * a revision computed from a base is bound to the day's published base;
 //!   * read back from the database: every stored body re-hashes to its digest and equals its
-//!     JSONB, every stream decompresses to its digest, and the slot count is the inventory's.
+//!     JSONB, every stream decompresses to its digest, and the slot count is what the inventory
+//!     expects of the listed members recorded with the revision.
 //!
 //! Then the day's previous published revision of the profile is superseded and the new one
 //! published. Publishing a base revision also supersedes the later days' revisions that were
 //! computed from a base (their history windows read this day); the ordered pass derives them again.
-use core_contract::{Header, Item, Scalar, Scalars, SlotFiles, StreamRoot, read_bundle, sha256_hex};
+use core_contract::{FIELD_OBJECT, Header, Item, LISTED_MEMBERS, Scalar, Scalars, SlotFiles, StreamRoot, read_bundle, sha256_hex};
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use futures_util::TryStreamExt;
 use serde_json::Value;
@@ -183,7 +187,7 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
     };
     // one publish at a time per day and profile
     tx.execute("SELECT pg_advisory_xact_lock(hashtextextended($1 || ' ' || $2, 0))", &[&date, &header.profile_revision]).await.map_err(db)?;
-    let inventory = check_header(&tx, &header).await?;
+    let listed = check_header(&tx, &header).await?;
     if header.report.as_ref().is_some_and(|r| !r.is_object()) {
         return refuse("the report is not a JSON object");
     }
@@ -191,9 +195,10 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
     let base = bind_base(&tx, &header).await?;
     let revision: i64 = tx
         .query_one(
-            "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, base_revision, report, day_local)
-             VALUES ($1::text::date, $2, $3, $4, $5::text::timestamptz, $6, $7::text::jsonb, $8) RETURNING revision_id",
-            &[&date, &header.profile_id, &header.profile_revision, &header.engine_build, &header.snapshot_cutoff, &base, &report, &header.day_local],
+            "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, base_revision, report, day_local,
+                 listed_members)
+             VALUES ($1::text::date, $2, $3, $4, $5::text::timestamptz, $6, $7::text::jsonb, $8, $9) RETURNING revision_id",
+            &[&date, &header.profile_id, &header.profile_revision, &header.engine_build, &header.snapshot_cutoff, &base, &report, &header.day_local, &listed],
         )
         .await
         .map_err(db)?
@@ -240,7 +245,7 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
         return refuse("the bundle holds more than its header lists");
     }
     let (reader_scalars, unusual_scores) = insert_scalars(&tx, revision, date, &scalars).await?;
-    let (streams, stream_bytes) = read_back(&tx, revision, date, inventory.len()).await?;
+    let (streams, stream_bytes) = read_back(&tx, revision, date).await?;
     let superseded = promote(&tx, revision, &header, base).await?;
     // an ordered pass's day is its one bundle; a day block's is every bundle of the day (the base,
     // then what was computed on it: C-031), so its worker says when the day is done (`work::day_done`)
@@ -292,6 +297,14 @@ async fn published_before(tx: &Transaction<'_>, header: &Header, lease: &work::H
     Ok(row.filter(|r| r.get::<_, i64>(1) == n && r.get::<_, i64>(2) == n).map(|r| r.get(0)))
 }
 
+/// How many slots a stored revision is expected to hold: its build's inventory rows for the field
+/// object and for the members recorded as listed with it ($1 the revision, $2 the field object).
+/// Read from the revision, never from today's universe, so a stored day is never judged again
+/// when the universe is reloaded.
+pub const EXPECTED_COUNT: &str = "SELECT count(*) FROM vyreon.day_revision d
+     JOIN core.expected_slot e ON e.engine_build = d.engine_build AND e.profile_revision = d.profile_revision
+     WHERE d.revision_id = $1 AND (e.object_id = $2 OR e.object_id = ANY(d.listed_members))";
+
 fn prefixed(name: &str, e: Error) -> Error {
     match e {
         Error::Refused(m) => Error::Refused(format!("{name}: {m}")),
@@ -299,11 +312,20 @@ fn prefixed(name: &str, e: Error) -> Error {
     }
 }
 
-/// The build, its inventory for the profile against the bundle's slots, and the month's partitions.
-async fn check_header(tx: &Transaction<'_>, header: &Header) -> Result<HashSet<(String, String)>, Error> {
-    let (build, profile) = (&header.engine_build, &header.profile_revision);
-    if !core_contract::is_date(&header.represented_date) {
-        return refuse(format!("represented_date {} is not a date written YYYY-MM-DD", header.represented_date));
+/// Asset keys a and not b, sorted, or "none".
+fn only_in(a: &HashSet<&str>, b: &HashSet<&str>) -> String {
+    let mut keys: Vec<&str> = a.difference(b).copied().collect();
+    keys.sort_unstable();
+    if keys.is_empty() { "none".to_owned() } else { keys.join(" ") }
+}
+
+/// The build; the members listed on the day, core's and the bundle's; the inventory, narrowed to
+/// the field and those members, against the bundle's slots; and the month's partitions. Returns
+/// the listed members in profile order, which the revision records.
+async fn check_header(tx: &Transaction<'_>, header: &Header) -> Result<Vec<String>, Error> {
+    let (build, profile, date) = (&header.engine_build, &header.profile_revision, header.represented_date.as_str());
+    if !core_contract::is_date(date) {
+        return refuse(format!("represented_date {date} is not a date written YYYY-MM-DD"));
     }
     if tx.query_opt("SELECT FROM core.engine_build WHERE engine_build = $1", &[build]).await.map_err(db)?.is_none() {
         return refuse(format!("engine build {build} is not registered"));
@@ -318,6 +340,35 @@ async fn check_header(tx: &Transaction<'_>, header: &Header) -> Result<HashSet<(
     if inventory.is_empty() {
         return refuse(format!("engine build {build} has no slot inventory for profile {profile}"));
     }
+
+    // who is listed on the day: core's universe decides, and the worker must have computed with
+    // the same members
+    let members = tx
+        .query("SELECT asset_key, ticker IS NOT NULL FROM core.members_on($1, $2::text::date)", &[&header.profile_id, &date])
+        .await
+        .map_err(db)?;
+    if members.is_empty() {
+        return Err(Error::Failed(format!("core holds no members of profile {}: its universe is not loaded", header.profile_id)));
+    }
+    let listed: Vec<String> = members.iter().filter(|r| r.get::<_, bool>(1)).map(|r| r.get(0)).collect();
+    let Some(stated) = &header.listed_members else {
+        return refuse(format!("the bundle does not state the members listed on {date} ({LISTED_MEMBERS})"));
+    };
+    let mut stated_set = HashSet::new();
+    if let Some(twice) = stated.iter().find(|key| !stated_set.insert(key.as_str())) {
+        return refuse(format!("{LISTED_MEMBERS} names {twice} twice"));
+    }
+    let listed_set: HashSet<&str> = listed.iter().map(String::as_str).collect();
+    if stated_set != listed_set {
+        return refuse(format!(
+            "the worker and core disagree about the members listed on {date}: listed only by the bundle: {}; only by core: {}",
+            only_in(&stated_set, &listed_set),
+            only_in(&listed_set, &stated_set)
+        ));
+    }
+    let expected: HashSet<(String, String)> =
+        inventory.iter().filter(|(_, object)| object == FIELD_OBJECT || listed_set.contains(object.as_str())).cloned().collect();
+
     let mut sent = HashSet::new();
     for slot in &header.slots {
         if !sent.insert((slot.measurement_id.clone(), slot.object_id.clone())) {
@@ -330,26 +381,30 @@ async fn check_header(tx: &Transaction<'_>, header: &Header) -> Result<HashSet<(
         names.truncate(5);
         names.join(", ")
     };
-    let (missing, extra): (Vec<_>, Vec<_>) = (inventory.difference(&sent).collect(), sent.difference(&inventory).collect());
-    if !missing.is_empty() || !extra.is_empty() {
+    let missing: Vec<_> = expected.difference(&sent).collect();
+    let (unlisted, extra): (Vec<_>, Vec<_>) = sent.difference(&expected).partition(|slot| inventory.contains(*slot));
+    if !missing.is_empty() || !unlisted.is_empty() || !extra.is_empty() {
         let mut parts = Vec::new();
         if !missing.is_empty() {
             parts.push(format!("{} missing ({})", missing.len(), examples(missing)));
         }
+        if !unlisted.is_empty() {
+            parts.push(format!("{} for objects not listed on {date} ({})", unlisted.len(), examples(unlisted)));
+        }
         if !extra.is_empty() {
             parts.push(format!("{} not in the inventory ({})", extra.len(), examples(extra)));
         }
-        return refuse(format!("the slots are not the inventory of {build} for {profile}: {}", parts.join("; ")));
+        return refuse(format!("the slots are not the inventory of {build} for {profile} on {date}: {}", parts.join("; ")));
     }
     let month: Option<bool> = tx
-        .query_one("SELECT to_regclass('vyreon.measurement' || to_char($1::text::date, '\"_y\"YYYY\"m\"MM')) IS NOT NULL", &[&header.represented_date])
+        .query_one("SELECT to_regclass('vyreon.measurement' || to_char($1::text::date, '\"_y\"YYYY\"m\"MM')) IS NOT NULL", &[&date])
         .await
         .map_err(db)?
         .get(0);
     if month != Some(true) {
-        return Err(Error::Failed(format!("no partitions for the month of {}: vyreon.ensure_months creates them when work is scheduled", header.represented_date)));
+        return Err(Error::Failed(format!("no partitions for the month of {date}: vyreon.ensure_months creates them when work is scheduled")));
     }
-    Ok(inventory)
+    Ok(listed)
 }
 
 /// The day's published base revision, for a bundle computed from one. The share lock holds it
@@ -497,11 +552,14 @@ async fn insert_scalars(tx: &Transaction<'_>, revision: i64, date: &str, scalars
     Ok((reader, unusual))
 }
 
-/// Reads the staged revision back from the database and checks it as a reader would find it.
+/// Reads the staged revision back from the database and checks it as a reader would find it,
+/// against what its recorded listed members make the inventory expect.
 /// Returns (streams, their uncompressed bytes).
-async fn read_back(tx: &Transaction<'_>, revision: i64, date: &str, expected: usize) -> Result<(u64, u64), Error> {
+async fn read_back(tx: &Transaction<'_>, revision: i64, date: &str) -> Result<(u64, u64), Error> {
     let broken = |what: String| Error::Failed(format!("readback: {what}"));
     let params: [&(dyn ToSql + Sync); 2] = [&revision, &date];
+    let expected: i64 = tx.query_one(EXPECTED_COUNT, &[&revision, &FIELD_OBJECT]).await.map_err(db)?.get(0);
+    let expected = expected as usize;
     let mut committed: HashMap<(String, String), String> = HashMap::new();
     let mut slots = 0usize;
     {
