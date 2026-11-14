@@ -736,6 +736,12 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   assets; 2026-05-06: 49). Outside corporate actions 136 of 10,380 sessions differ by more
   than 1% (maximum 53%). So D-168 stands: before 2022-05-27 open interest and volume are
   coverage absences, not raw figures (no wrong numbers; settled on this evidence).
+  **Owner, 2026-11-14: the database starts when the option snapshots start (2022-05-27,
+  checked against the provider: no snapshot on 2022-05-26 or 2022-03-15).** This replaces the
+  same day's choice of 2021-09-27. The build's oldest fully published date is about
+  2022-06-06; the FB to META rename stays inside it. D-168's handling of earlier sessions
+  stays in the code (a date before the snapshots publishes coverage absences instead of
+  being refused) but those dates are not built, and the January 2022 cluster day is dropped.
   Known consequence: method identities of M0-ANALYTICS, M0-GAMMA, M0-GAMMA-CHANGE and
   M0-IV-PROFILE change on every day (D-167).
   Real days running, 2025-12-10 clean, each against baseline `c1`: test-2 `i1` on bc4a04b2
@@ -747,7 +753,7 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   Then: a clean day on `pass` itself; the membership-and-gap day; merge `pass` to `worker`
   and `pass-core` to core's main together; rebuild the images; the cluster days of step 2.5
   (2025-12-10, 2025-04-11, a day before 2024-07-23, a block over 2022-06-01..06-17 for the
-  rename, a day in January 2022 for coverage, a day after a 10-for-1 split).
+  rename, a day after a 10-for-1 split).
   Tools: `tools/testbed/tb`. Design notes kept in the session scratchpad: split stages 2 and
   3, the OCC rules, the market-event rules.
   **Published rules the pass follows (owner 2026-11-14: matching the standard is the ultimate
