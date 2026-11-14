@@ -578,12 +578,26 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   GLD without its tape of T and TLT without one daily bar: 7 GLD and 42 TLT slots withheld,
   the other 62 assets identical; 11 FIELD records differ because FIELD still drops a member
   whose daily bar is missing (item 6).
-  **The 177 withheld activity slots: cause found (984bd4b8, local, under test).** The ACT01
+  **The 177 withheld activity slots: cause found and fixed (984bd4b8, pushed).** The ACT01
   cohort folder of 2025-12-10 was built 2026-11-07 under calendar registry V1.4; the registry
   became V1.5 on 11-08 and the day reused the folder unchecked, so the executor refused its
   T-5 P01 view ("another calendar") for 59 assets. Fresh workers have no such folder. Now the
   plan and the route treat such a view as stale and `act01_auto_source --rebind` restates its
-  digest (same sessions, no provider request); 59 folders rebound on test-1, clean day running.
+  digest (same sessions, no provider request). Proven on test-1: 59 folders rebound, the clean
+  day publishes with 0 faulted slots; SAI-ACT01, SAI-ACT01-INTRADAY and INT-ACT-TV15 compute for
+  those 59 assets and DLM-UNUSUALNESS (58 slots) scores them; the other 4,444 slots are
+  identical to the baseline. The production store's 2025-12-10 still carries the 177 withheld
+  slots (its folder needs the rebind and a republish; owner's word before touching production).
+  **Third Codex audit (2026-11-14, report
+  `~/claude-artifacts/audits/2026-11-14-codex-missing-inputs-3.md`):** 10 findings, 3
+  suspicions. Fixed locally (9267752b, 69731ce7, under test on test-2 with AAPL's options of T
+  and NVDA's of T-5 removed): a lacking asset with a cohort no longer stops the pooled feed
+  check; the plan excuses only checks that read the missing captures; the M0 change owners take
+  an absent T-5 view's reason; FIELD skips a faulted tape; an interrupted rebind is picked up.
+  Open: an engine error on an asset that also lacks an input is labelled a provider absence
+  (no typed cause); a tape with a manifest but no raw files; the surface's split history skips
+  a daily bar it cannot find; the pooled financing spread changes with membership (item 5);
+  one old daily-bar gap also removes the member from the intraday panel.
   **Item 6 measured (2025-12-10 with TLT absent from the field):** the day already treats an
   absent member as missing cells; the cross-section sensors stay supported over 63 (minimum 51:
   FIELD-BR01, DIST01, GRP01, XCONC01, OPTBR01), FIELD-DEP01 withholds TLT's 315 pairs only. The
