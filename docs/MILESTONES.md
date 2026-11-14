@@ -663,6 +663,16 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   SUB01 (29 of 29), SYNC01 (22 of 24). IBIT (listed 2024-01) and ETHA (2024-07) are members, so
   on the historical build these four publish nothing before about mid-2025. Owner's call:
   leave it (stated absences) or define them over the members present.
+  **FIELD panel length (2026-11-14, engine 25057c87, local):** the shortest member set every
+  member's panel length (2025-12-10: 348 sessions for all 64, not the 376 requested, because
+  ETHA listed 2024-07-23), so by the code a new listing would empty the field for every asset
+  until it built history, and a member with one capture made the panel builder fail (not run
+  on a real post-listing day). Now each member contributes the sessions it holds, its earlier
+  cells missing (h5-field keys cells by session); a member with a gap can be given its run
+  after the gap (not built yet). Measured on 2025-12-10 from the clean run's views: the panel
+  goes from 22,272 to 24,036 rows and all 13 FIELD records are identical leaf for leaf (no
+  sensor reads past 348 sessions). Owner, same day: FIELD's stability and generalization are a
+  campaign after the database is built; before it only structural changes like this one.
   **Test machines (owner 2026-11-13: use more, limit 30 droplets, $100 total stands):**
   `vyreon-test-1..3` (8 vCPU, $0.167/h each), no timers, key or webhook; each has the archive
   for 2025-12-10 and a scratch store. Delete when the step's tests are done.
