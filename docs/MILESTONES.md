@@ -708,33 +708,38 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   strike rounding for ratios of 3 or more before promising NVDA and AVGO. Of the other real events: the 2025-01-09 closure is
   in the calendar with a test; COIN (2021-04-14) and PLTR (2020-09-30) list before option data
   starts; new expiries to check on the build.
-  **State of the pass, 2026-11-14 19:50 UTC (the session's handoff note).** Built by parallel
-  agents on branches of the engine (`/home/diggz/wt/<track>` worktrees; all pushed) and merged
-  on the integration branch `pass` (2c36aefc; nothing is on `worker` or core's main yet):
-  slots from the session's listed members (D-164, replaces the NOT_LISTED bodies); the
-  clean-split classifier and history across a split for VS-O02/O04/OIJ01 (D-161); the T
-  against T-5 sensors across a split (D-163, strike mapping by the OCC rule in
-  `h3-asset/src/occ_split.rs`); members and tickers (D-165: equity requests under the asset
-  key, option requests under the root in force, corrected after the provider evidence); the
-  audit leftovers (seven fixed; left for a decision: a derive-fault rebuild repeating the
-  failure, unreadable SPY dropping roles, pooled membership in receipts, VS-O02's digest
-  including run time). Built, not merged: split stage 3, the ACT01 family across a split
-  (`pass-splits3`, D-162; its capture needs the provider, so it is tested on the cluster, not
-  the test droplets); core's side (`pass-core`: publish check against the listed set, the set
-  recorded per revision, migration 0013, NOT_LISTED sessions in the reader, dated `tickers`
-  in the claim, C-036). Being built: P3, the six build-stoppers on earlier dates
-  (`pass-p3`, D-166); the rename readers (`pass-roots`, D-167: readers that require the option
-  root to equal the symbol, FB and META as one series, the rename date not an adjustment).
+  **State of the pass, 2026-11-14 21:40 UTC (the session's handoff note).** Built by parallel
+  agents on engine branches (worktrees under `/home/diggz/wt/`, all pushed); nothing is on
+  `worker` or core's main yet. Two candidates:
+  `pass` (3836cfe6), for the test droplets: D-164 slots from the session's listed members;
+  D-165 members and tickers (equity requests under the asset key, option requests under the
+  root in force); D-161 and D-163 split stages 1 and 2; D-166 earlier dates (source starts
+  from the claim, listing-aware windows, PROVIDER_COVERAGE_START, newest-first pruning);
+  D-167 rename readers (the rename date not an adjustment, its zero open interest withheld);
+  D-168 sessions before the snapshot start publish with every option reading a coverage
+  absence, open interest and volume included (the overlay decides their basis); audit fixes.
+  `pass-s3i` (bcfee4ac), for the cluster: all of `pass` plus D-162, the ACT01 family across a
+  clean split and across the rename (its capture needs the provider).
+  Core's side is on `pass-core` (publish check against the listed set, the set recorded per
+  revision, migration 0013, NOT_LISTED sessions in the reader, dated `tickers` in the claim).
+  Left by decision or for evidence: the four audit items that change published records;
+  whether raw end-of-day open interest and volume may publish before 2022-05-27 (measure how
+  often the overlay changes them on the archive first); own-history scoring of contract-unit
+  readings across a split; a cash merger's accelerated expirations (no case among the 64).
+  Known consequence: method identities of M0-ANALYTICS, M0-GAMMA, M0-GAMMA-CHANGE and
+  M0-IV-PROFILE change on every day (D-167).
   Real days running, 2025-12-10 clean, each against baseline `c1`: test-2 `i1` on bc4a04b2
-  (slots and split stage 1), test-1 `j1` on 2c36aefc (the full merge). Expected: every asset
-  byte-identical but XLB, XLE, XLK, XLU, XLY, whose VS-O02/O04/OIJ01 (and on j1 VS-O03,
-  M0-GAMMA-CHANGE, M0-IV-CHANGE, INT-IVSC01, VS-V03-MATCHED-NATIVE) go from withheld to
-  supported, with the records citing them. Then: the membership-and-gap day (one member
-  unlisted, one daily bar removed); merge core with the engine; the cluster days of step 2.5.
-  Tools: `tools/testbed/tb`. Design notes kept outside the repo, in the session scratchpad:
-  split stages 2 and 3, the OCC rules, the market-event rules. Control day (ETHA's archive
-  removed, old build): published, the other 63 identical but 12 FIELD records; ETHA's own
-  slots were labelled ENGINE_FAULT there, moot under D-164 for an unlisted asset.
+  (slots and split stage 1), test-1 `j1` on 2c36aefc (plus tickers, audit fixes, split stage
+  2). Expected: every asset byte-identical but XLB, XLE, XLK, XLU, XLY, whose VS-O02/O04/OIJ01
+  (and on j1 VS-O03, M0-GAMMA-CHANGE, M0-IV-CHANGE, INT-IVSC01, VS-V03-MATCHED-NATIVE) go from
+  withheld to supported, with the records citing them. A Codex audit of `pass` is running
+  (brief and findings in the session scratchpad, `audit/brief-4.md`, `audit/findings-4.md`).
+  Then: a clean day on `pass` itself; the membership-and-gap day; merge `pass` to `worker`
+  and `pass-core` to core's main together; rebuild the images; the cluster days of step 2.5
+  (2025-12-10, 2025-04-11, a day before 2024-07-23, a block over 2022-06-01..06-17 for the
+  rename, a day in January 2022 for coverage, a day after a 10-for-1 split).
+  Tools: `tools/testbed/tb`. Design notes kept in the session scratchpad: split stages 2 and
+  3, the OCC rules, the market-event rules.
   **Published rules the pass follows (owner 2026-11-14: matching the standard is the ultimate
   priority; an owner decision is the last resort).** Forward split: OCC By-Laws Art. VI
   s.11A(d)(i),(h): contracts x n, same symbol, 100-share deliverable, strike / n to the nearest
