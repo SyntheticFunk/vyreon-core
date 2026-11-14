@@ -19,14 +19,23 @@
 //! engine checks them against its bodies and receipts, whose shapes are its own), its coordinates
 //! view (the engine's projection of its own body; core cannot recompute it), and the header's
 //! `report` (the run's stage timings and request counts). What core
-//! checks: every digest, the stream commitments, and the slot list against the inventory
-//! registered for the build.
+//! checks: every digest, the stream commitments, the stated listed members against core's own
+//! universe, and the slot list against the inventory registered for the build, narrowed to the
+//! field and the members listed that day.
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{self, Read, Write};
 
 pub const CONTRACT: &str = "VYREON-DAY-BUNDLE@2";
+
+/// The cross-asset object. Every other object of an inventory is a member's asset key, and a
+/// member has slots only on the sessions it is listed (C-036).
+pub const FIELD_OBJECT: &str = "FIELD.CORE64";
+
+/// The header field that states the session's listed members. Its name is this constant and the
+/// `rename` on `Header::listed_members` (they must agree: a test checks it).
+pub const LISTED_MEMBERS: &str = "listed_members";
 
 /// Whether `text` is a calendar date written `YYYY-MM-DD`. Dates cross the contract in this form
 /// only: PostgreSQL would also read words such as "yesterday" as dates.
@@ -68,6 +77,13 @@ pub struct Header {
     /// category. A JSON object of the engine's choosing; core stores it with the revision.
     #[serde(default)]
     pub report: Option<serde_json::Value>,
+    /// The members listed on the day, as asset keys in profile order: the worker's view of the
+    /// universe it computed with (C-036). Core refuses a bundle whose set differs from its own
+    /// (`core.members_on`, members with a ticker that day) and expects slots for those members and
+    /// the field only. Optional in the format so an older bundle still reads; core refuses one
+    /// without it.
+    #[serde(default, rename = "listed_members", skip_serializing_if = "Option::is_none")]
+    pub listed_members: Option<Vec<String>>,
     pub slots: Vec<Slot>,
 }
 
@@ -262,5 +278,38 @@ pub fn read_bundle<R: Read>(input: R, visit: &mut dyn FnMut(Item) -> io::Result<
     match next(&mut held)? {
         None => Ok(()),
         Some((name, _)) => Err(invalid(format!("unexpected entry {name} after the last slot"))),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The engine's own bundle of 2025-12-10 (contract 2, written before the listed set existed).
+    const ENGINE_BUNDLE_AAPL: &[u8] = include_bytes!("../../test-support/fixtures/engine-bundle-2025-12-10-aapl.tar.gz");
+
+    fn engine_header() -> Header {
+        let mut header = None;
+        read_bundle(ENGINE_BUNDLE_AAPL, &mut |item| {
+            if let Item::Header(h) = item {
+                header = Some(*h);
+            }
+            Ok(())
+        })
+        .unwrap();
+        header.unwrap()
+    }
+
+    #[test]
+    fn the_listed_set_travels_under_its_one_name() {
+        // a header written before the field still reads, without a listed set
+        let mut header = engine_header();
+        assert_eq!(header.listed_members, None);
+        assert!(serde_json::to_value(&header).unwrap().get(LISTED_MEMBERS).is_none());
+        // the field's name in the JSON is the constant
+        header.listed_members = Some(vec!["AAPL".into()]);
+        let text = serde_json::to_value(&header).unwrap();
+        assert_eq!(text[LISTED_MEMBERS], serde_json::json!(["AAPL"]));
+        assert_eq!(serde_json::from_value::<Header>(text).unwrap(), header);
     }
 }

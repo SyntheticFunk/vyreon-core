@@ -1,5 +1,6 @@
 //! The real slice of 2025-12-10 (AAPL, six sensors, base and derived revisions, from the droplet's
-//! store) as publishable bundles, with the six rows of the real inventory that cover it.
+//! store) as publishable bundles, with the six rows of the real inventory that cover it. Each
+//! bundle states the 64 members as listed that day, so publishing one needs the universe loaded.
 use core_contract::{BundleWriter, CONTRACT, Header, Scalar, Scalars, Slot, SlotFiles, sha256_hex};
 use flate2::read::GzDecoder;
 use serde_json::{Value, json};
@@ -12,6 +13,16 @@ pub const DERIVED: i64 = 2;
 
 pub fn slice() -> Value {
     serde_json::from_str(SLICE).unwrap()
+}
+
+/// The engine's profile at engine-v1 (`fixtures/engine-v1-PROFILE.json`).
+pub const PROFILE_FILE: &str = include_str!("../fixtures/engine-v1-PROFILE.json");
+
+/// The profile's 64 members in order. All 64 were listed on 2025-12-10 (the droplet published
+/// every one of them that day; the latest first listing among them is ETHA's, 2024-07-23).
+pub fn listed_2025_12_10() -> Vec<String> {
+    let profile: Value = serde_json::from_str(PROFILE_FILE).unwrap();
+    profile["ordered_security_ids"].as_array().unwrap().iter().map(|k| k.as_str().unwrap().to_owned()).collect()
 }
 
 /// A bytea as PostgreSQL prints it in JSON (`\x` and hex).
@@ -59,6 +70,7 @@ pub fn parts(revision: i64) -> (Header, Scalars, Vec<SlotFiles>) {
         base_revision: None,
         report: None,
         day_local: false,
+        listed_members: Some(listed_2025_12_10()),
         slots,
     };
     let reader_scalar = of("reader_scalar")
@@ -81,6 +93,34 @@ pub fn bundle(name: &str, header: &Header, scalars: &Scalars, files: &[SlotFiles
     }
     writer.finish().unwrap();
     path
+}
+
+/// The profile's members in order, less `keys`.
+pub fn members_except(keys: &[&str]) -> Vec<String> {
+    listed_2025_12_10().into_iter().filter(|k| !keys.contains(&k.as_str())).collect()
+}
+
+/// A session on which ETHA was not listed (its first session is 2024-07-23) and IBIT was (from
+/// 2024-01-11).
+pub const ETHA_UNLISTED: &str = "2024-07-01";
+
+/// The base build's inventory rows of the slice's four base sensors for ETHA as well as AAPL: the
+/// real rows of the engine's inventory, which lays each base sensor out over the 64 in profile
+/// order, so a sensor's ETHA row (member 33) sits 15 ordinals before its AAPL row (member 48).
+pub fn base_inventory_with_etha() -> Value {
+    let mut inventory = inventories().remove(0);
+    let slots = inventory["slots"].as_array_mut().unwrap();
+    let etha: Vec<Value> = slots
+        .iter()
+        .map(|row| {
+            let mut row = row.clone();
+            row["object_id"] = json!("ETHA");
+            row["slot_ordinal"] = json!(row["slot_ordinal"].as_i64().unwrap() - 15);
+            row
+        })
+        .collect();
+    slots.extend(etha);
+    inventory
 }
 
 /// Each of the slice's builds with the real inventory rows of the profile it published.
