@@ -723,9 +723,19 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   Core's side is on `pass-core` (publish check against the listed set, the set recorded per
   revision, migration 0013, NOT_LISTED sessions in the reader, dated `tickers` in the claim).
   Left by decision or for evidence: the four audit items that change published records;
-  whether raw end-of-day open interest and volume may publish before 2022-05-27 (measure how
-  often the overlay changes them on the archive first); own-history scoring of contract-unit
+  own-history scoring of contract-unit
   readings across a split; a cash merger's accelerated expirations (no case among the 64).
+  **Overlay against raw end-of-day figures, measured (2026-11-14; 11,167 asset-sessions, all 64
+  symbols, 250 dates of the test archive; stored post-overlay populations against the raw
+  pages; scripts and tables in the session scratchpad, `overlay-measure/`):** unchanged on
+  96.4% of sessions for total open interest and 98.5% for volume, but large where it differs
+  and not detectable without the snapshot. After a split the provider keeps the old contracts
+  with frozen open interest (raw +35% to +49% on the five ETFs for every session after
+  2025-12-05; ETHA +134% to +220% after its 2026-10-06 adjustment); on a dozen provider-fault
+  dates the end-of-day figure is low or missing for many assets at once (2025-10-20: 59
+  assets; 2026-05-06: 49). Outside corporate actions 136 of 10,380 sessions differ by more
+  than 1% (maximum 53%). So D-168 stands: before 2022-05-27 open interest and volume are
+  coverage absences, not raw figures (no wrong numbers; settled on this evidence).
   Known consequence: method identities of M0-ANALYTICS, M0-GAMMA, M0-GAMMA-CHANGE and
   M0-IV-PROFILE change on every day (D-167).
   Real days running, 2025-12-10 clean, each against baseline `c1`: test-2 `i1` on bc4a04b2
