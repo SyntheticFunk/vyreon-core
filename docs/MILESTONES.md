@@ -552,6 +552,33 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   cost only SPY. Left as stops: the ordered pass (it reads only published rows; a failure there
   has no inputs to drop, containing it needs a stub record shape) and the day-local loads of the
   run's own exports.
+  **2026-11-13 evening (engine `worker`, local from 0f35dd6d; pushed to 50918ca9):**
+  the store-path derive change leaves a clean day byte-identical (all 4,679 slots; its injected
+  fault missed, because the derive finds a surface by digest in any folder of the date; rerun
+  on a test droplet). **E11 narrowed (cfb7e405 and after, under test):** an asset lacking a
+  provider input stays in the day; each view or source that cannot be built is bound as an
+  absence record (`input-absent.json`, H4-INPUT-ABSENT@1), the executor withholds its readers
+  PROVIDER_INPUT_MISSING and their dependants with them, and declares no T-5 closure from an
+  absent view; the cap of 6 is gone. A view that cannot be built for a whole asset leaves a
+  fault record instead of stopping the day. **Holds:** engine faults only count toward D-103's
+  tenth (also in both derives); a separate tenth of slots lacking a provider input holds the
+  day for a retry (owner 2026-11-13, to be reviewed on the build's days;
+  `VYREON_MISSING_HOLD_THRESHOLD`). **Second Codex audit** (report
+  `~/claude-artifacts/audits/2026-11-13-codex-failure-handlers-2.md`): 10 findings; fixed the
+  hold's counting and coverage, view-building failures, stale surface fault markers at T, the
+  made-up gamma parent. Open: the derive's fault rebuild repeats computations that can fail
+  again (needs a stub record shape, as the ordered pass does); surface identity reads before
+  containment; a company's supplement page; export failures that leave a slot missing; an
+  unreadable SPY drops roles from other assets' technical records.
+  **Open finding: 177 slots withheld on the clean 2025-12-10 day.** For 59 of 64 assets VS-P01
+  at T-5 (2025-12-03) is refused ("P01 history scope/clock/count"), so SAI-ACT01,
+  SAI-ACT01-INTRADAY and INT-ACT-TV15 are PARENT_ENGINE_FAULT; the same in the droplet's store
+  (build 71f3fe5d) but not on 2025-12-11 or 12-12. The five that pass are the sector funds that
+  split. Not the cause: download order, option or daily capture clocks, the view's structure.
+  The refusal now names its check (70421410); the next runs' logs will say which.
+  **Test machines (owner 2026-11-13: use more, limit 30 droplets, $100 total stands):**
+  `vyreon-test-1..3` (8 vCPU, $0.167/h each), no timers, key or webhook; each has the archive
+  for 2025-12-10 and a scratch store. Delete when the step's tests are done.
   **Gamma zero count (2025-12-10, 62 assets):** 6,400,863 gamma-profile evaluations, none
   unresolved; the silent zero is a code gap not reached on this day (owner's call to close).
   **Codex audit (2026-11-13, gpt-6-astra, read-only; report in
