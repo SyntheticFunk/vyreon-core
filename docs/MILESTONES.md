@@ -584,6 +584,13 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   T-5 P01 view ("another calendar") for 59 assets. Fresh workers have no such folder. Now the
   plan and the route treat such a view as stale and `act01_auto_source --rebind` restates its
   digest (same sessions, no provider request); 59 folders rebound on test-1, clean day running.
+  **Item 6 measured (2025-12-10 with TLT absent from the field):** the day already treats an
+  absent member as missing cells; the cross-section sensors stay supported over 63 (minimum 51:
+  FIELD-BR01, DIST01, GRP01, XCONC01, OPTBR01), FIELD-DEP01 withholds TLT's 315 pairs only. The
+  whole-matrix sensors need all 64 and withhold entirely: FIELD-RMT01 (5 of 5), DIM01 (4 of 4),
+  SUB01 (29 of 29), SYNC01 (22 of 24). IBIT (listed 2024-01) and ETHA (2024-07) are members, so
+  on the historical build these four publish nothing before about mid-2025. Owner's call:
+  leave it (stated absences) or define them over the members present.
   **Test machines (owner 2026-11-13: use more, limit 30 droplets, $100 total stands):**
   `vyreon-test-1..3` (8 vCPU, $0.167/h each), no timers, key or webhook; each has the archive
   for 2025-12-10 and a scratch store. Delete when the step's tests are done.
