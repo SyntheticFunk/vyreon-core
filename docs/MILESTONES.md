@@ -722,6 +722,15 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   comparing quote width across a split; the tick rules ($0.01 below $3.00, $0.05 above for
   penny classes) make it structurally different, so VS-L01 keeps its restart as our own rule.
   Split stage 1 is built (branch pass-splits, D-161), stages 2 and 3 are being built.
+  **Provider evidence on the rename (Intrinio, 2026-11-14, read-only requests):** daily bars
+  for identifier FB over 2022-06-06..10 return nothing, from today's FB (a ProShares ETF);
+  for identifier META they return every session including those before 2022-06-09: equity
+  history is served under the current ticker. The option EOD chain is keyed by the ticker in
+  force: FB220617C00195000 on 2022-06-06 (open interest 11,323), an empty chain for META that
+  day, META220617C00195000 from 2022-06-09, where the provider reports open interest 0 on
+  the renamed contracts. Rule: equity-level requests use the asset's current ticker (the
+  asset key), option-level requests the ticker in force; open-interest readings touching the
+  rename date behave like an ex-date.
   **P3 surveyed (2026-11-14, read-only, unverified; each is a way the build would stop):**
   (i) option snapshots start 2022-05-27 and the quote window is 223 sessions, so every date
   before about 2023-04 is refused whole (a stale option source is not withholdable); the FB to
