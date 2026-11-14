@@ -684,6 +684,14 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   (P3) With it: a newly listed asset's short windows are a stated absence of their own,
   outside both holds; provider start dates per source from the claim (check what exists
   first); the "all 64" wording. 2-3 days.
+  (P5, owner 2026-11-14: support splits properly, in the pass) Carry option history across a
+  clean whole-number split, forward or reverse (strikes, counts and premiums mapped exactly);
+  other OCC adjustments keep today's restart of the history at the ex-date (D-077). Today a
+  split blanks most history-based option readings for up to 200 sessions (XLK three sessions
+  after its 2025-12-05 split: VS-O02 15 readings supported against XLF's 277). Being sized;
+  real test: XLK/XLU on the test archive. Of the other real events: the 2025-01-09 closure is
+  in the calendar with a test; COIN (2021-04-14) and PLTR (2020-09-30) list before option data
+  starts; new expiries to check on the build.
   (P4) Verify: tests on frozen slices; on a test droplet the same date under two memberships
   gives byte-identical per-asset bodies; step 2.5's FB to META day and pre-listing day on the
   cluster (the after-delisting direction rests on the pre-listing path: none of the 64 has
