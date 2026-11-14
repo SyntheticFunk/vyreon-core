@@ -413,3 +413,30 @@ passes wait for it by the claim rule, the day blocks do not read it, and a pass 
 run again once its cause is fixed. `queue retry-failed` puts the set-aside days back.
 Reason: the owner's rule that a stopped day never holds up other dates (2026-11-12), with the
 engine's sensor-level withholding as the first line (a fault withholds its sensors, not the day).
+
+## C-036 A member has slots only on the sessions it is listed (owner, 2026-11-14)
+Nothing stored may depend on which assets are in the universe. An asset not listed on a session
+(before its first listing, after a delisting) has no slots that session; the field object
+`FIELD.CORE64` has them every session.
+- **Core's universe decides who is listed**: `core.members_on(profile, day)` with a ticker. A day
+  bundle states its listed set in the header (`listed_members`, asset keys in profile order; one
+  constant, `core_contract::LISTED_MEMBERS`, names the field). A bundle without it, or whose set
+  differs from core's, is refused: the worker and core disagree about membership, and neither
+  copy is silently preferred. The expected slots are the build's inventory rows of the field and of
+  the listed members; the inventory itself stays one template per build.
+- **The set is recorded with the revision** (`vyreon.day_revision.listed_members`, migration 0013).
+  What a stored day was expected to hold (the readback's count, the reader) comes from that record,
+  never from today's universe, so loading the universe again never re-judges a stored day. Days
+  published before it record every object of their inventory, which is what was expected of them.
+- **The reader:** in an asset's history a published session on which the asset was not listed is
+  `NOT_LISTED`, with no revisions: not a 404, not `NOT_PUBLISHED`. `/v1/sessions/{date}` gives each
+  revision's `listed_members`. Other shapes are unchanged.
+- **The claim** adds `tickers`: each member's every ticker span `{ticker, from, to}` (inclusive,
+  `to` null while open), since a day's history windows cross ticker changes (Meta: FB to
+  2022-06-08, META from 2022-06-09). `days` is unchanged.
+- `vyreon-core engine-store export` states the inventory's objects as listed: the engine's store
+  published a fixed member list on every day. Its own `expected_slot` joins read that store and are
+  unaffected.
+- Tests send the slice's real AAPL bodies of 2025-12-10 under 2024-07-01 (ETHA not listed, IBIT
+  listed); core's checks never read a body's date. The field object's path has no database test:
+  no frozen slice holds a field body.
