@@ -648,7 +648,14 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   by neither hold. Functional test on test-2: 2025-12-10 with ETHA's archive removed and a
   universe file naming it unlisted (a counterfactual membership over real data; the real
   pre-listing day is step 2.5's); control on test-1 without the file (517a3d56). Not done: the
-  fill does not yet skip an unlisted asset; renames (item 4).
+  fill does not yet skip an unlisted asset; renames (item 4). Design for the fill (not built):
+  the planner and the fill take the session's listed assets (`Planner.symbols` and
+  `Fill.symbols` are read in about 26 loops, each given T), so the plan is whole without the
+  unlisted asset, nothing is fetched for it, and the day then adds it as not listed. Neither
+  struct can be cloned per session (the planner's listing cache), so each loop takes a
+  `listed(T)` list. It needs the provider, so its real test is step 2.5's pre-listing day.
+  Among the 64 the cases are pre-listing (COIN 2021-04, IBIT 2024-01, ETHA 2024-07; check the
+  rest against core's universe) and the FB to META rename; none is delisted.
   **Item 6 measured (2025-12-10 with TLT absent from the field):** the day already treats an
   absent member as missing cells; the cross-section sensors stay supported over 63 (minimum 51:
   FIELD-BR01, DIST01, GRP01, XCONC01, OPTBR01), FIELD-DEP01 withholds TLT's 315 pairs only. The
