@@ -596,10 +596,16 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   at T-5 also withholds NVDA's O02/O04/L01/OIJ01 of T through their 200-session history): a lacking asset with a cohort no longer stops the pooled feed
   check; the plan excuses only checks that read the missing captures; the M0 change owners take
   an absent T-5 view's reason; FIELD skips a faulted tape; an interrupted rebind is picked up.
-  Open: an engine error on an asset that also lacks an input is labelled a provider absence
-  (no typed cause); a tape with a manifest but no raw files; the surface's split history skips
-  a daily bar it cannot find; the pooled financing spread changes with membership (item 5);
-  one old daily-bar gap also removes the member from the intraday panel.
+  Also fixed and pushed (517a3d56): a lacking asset's failure counts as its absence only where
+  the failing piece reads the missing input, and a tape with a manifest but no raw files is
+  bound absent. Proven on test-1 (GLD tape raw files and TLT's 2025-10-15 daily bar removed):
+  0 ENGINE_FAULT, 7 GLD and 45 TLT slots withheld, the other 62 assets identical but 11 FIELD
+  records; the AAPL/NVDA day rerun on the same build is identical (4,679 slots).
+  Under test (64718f93, local): an asset missing a daily bar inside the surface's 400-day split
+  lookback has no surface (a split on that bar would go unseen); cost: one missing bar withholds
+  its option sensors for 400 days, to review with the build's coverage numbers.
+  Open: the pooled financing spread changes with membership (item 5); one old daily-bar gap
+  also removes the member from the intraday panel.
   **Item 6 measured (2025-12-10 with TLT absent from the field):** the day already treats an
   absent member as missing cells; the cross-section sensors stay supported over 63 (minimum 51:
   FIELD-BR01, DIST01, GRP01, XCONC01, OPTBR01), FIELD-DEP01 withholds TLT's 315 pairs only. The
