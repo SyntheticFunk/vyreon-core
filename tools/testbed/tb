@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Test bed: one real day on a scratch droplet under a chosen engine build, compared with a baseline.
-# Settings (environment): TB_KEY (ssh key), TB_ENGINE (engine checkout), TB_OUT (where dumps go).
+# Settings (environment): TB_KEY (ssh key), TB_ENGINE (engine checkout), TB_OUT (where dumps go),
+# TB_TARGET (the checkout's cargo target directory when it is not <checkout>/target).
 # Each droplet has /opt/vyreon-test (bin, run-day.sh, pg, patchelf) and /srv/vyreon-home.
 set -euo pipefail
 : "${TB_KEY:?ssh key}" "${TB_ENGINE:?engine checkout}" "${TB_OUT:?dump directory}"
@@ -8,7 +9,7 @@ ssh_() { ssh -i "$TB_KEY" -o IdentitiesOnly=yes -o ConnectTimeout=20 "root@$1" "
 BINS="act01_auto_source capture_source carry_inputs exq01_cohort_capture h2-engine h3-asset h5-company-capture h5-company-science h5-field h5-field-options h5_surface ip01_identity list_sessions replay_capture requote vyreon-api vyreon-day vyreon-days vyreon-inputs vyreon-notify vyreon-store vyreon-worker"
 case "${1:-}" in
 deploy) # tb deploy IP : the checkout's release build (clean tree) onto the droplet; refuses while a day runs
-  ip=$2; rel="$TB_ENGINE/target/x86_64-unknown-linux-gnu/release"
+  ip=$2; rel="${TB_TARGET:-$TB_ENGINE/target}/x86_64-unknown-linux-gnu/release"
   [ -z "$(git -C "$TB_ENGINE" status --porcelain)" ] || { echo "engine tree not clean" >&2; exit 1; }
   [ "$(ssh_ "$ip" 'pgrep -fc "[v]yreon-day|[h]3-asset" || true')" = 0 ] || { echo "a job is running on $ip" >&2; exit 1; }
   commit=$(git -C "$TB_ENGINE" rev-parse --short=8 HEAD)
@@ -18,6 +19,9 @@ deploy) # tb deploy IP : the checkout's release build (clean tree) onto the drop
   ssh_ "$ip" 'cd /opt/vyreon-test && for b in bin/*; do case $b in *.json) continue;; esac
     if [ "$b" = bin/h5-field ]; then rp=/opt/vyreon-sqlite/lib:/opt/vyreon-mkl/lib; else rp=/opt/vyreon-sqlite/lib; fi
     ./patchelf --set-rpath $rp $b; done'
+  # the engine store's schema (idempotent) as this build has it
+  scp -q -i "$TB_KEY" -o IdentitiesOnly=yes "$TB_ENGINE/db/schema.sql" "root@$ip:/opt/vyreon-test/schema.sql"
+  ssh_ "$ip" 'psql "$(tr -d "\n" < /opt/vyreon-test/pg)" -q -v ON_ERROR_STOP=1 -f /opt/vyreon-test/schema.sql > /opt/vyreon-test/schema.log 2>&1 && echo "schema applied" || { tail -n 5 /opt/vyreon-test/schema.log; exit 1; }'
   echo "deployed $commit to $ip" ;;
 run) # tb run IP DATE NAME : starts the day detached; NAME.done holds its exit code when it ends
   ip=$2; d=$3; n=$4
