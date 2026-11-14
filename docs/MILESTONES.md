@@ -626,6 +626,19 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   (the build), and its definition text says "all 64 securities" (reword with item 3). Rule
   proposed for all three: pooled over the assets present on the date, membership stated in
   the record, estimators unchanged; owner to confirm.
+  **Item 3 surveyed (2026-11-14, engine 60c459cc; a survey, its claims unverified):** the 64
+  are `specifications/science/PROFILE.json` plus hand copies in `vyreon-sensors`, `h5-field`,
+  `h5-company`, `vyreon-cli/acq.rs` and `h3-replay`; the slot inventory is the compiled sensor
+  table times those lists, seeded per `profile_revision` (a constant) into both stores, and
+  core refuses a bundle whose slots differ. Core's claim already carries each date's members
+  (ticker NULL when not listed); the engine reads the claim only for the tape start. Two
+  routes: (a) keep the 64 slots and the profile revision, take the date's members from the
+  claim, and publish a not-listed asset's slots as stated absences with their own reason,
+  outside the missing-input hold (small: the E11 path does the withholding); (b) an inventory
+  per date (schema, core's publish check, slot functions, bundle, API counts, the profile
+  string checks in the h3 result bodies: much deeper). Renames (item 4) are the deep part
+  either way: the asset key stays the object id and directory key, every provider request
+  takes the date's ticker (about six crates). Owner to choose (a) or (b).
   **Item 6 measured (2025-12-10 with TLT absent from the field):** the day already treats an
   absent member as missing cells; the cross-section sensors stay supported over 63 (minimum 51:
   FIELD-BR01, DIST01, GRP01, XCONC01, OPTBR01), FIELD-DEP01 withholds TLT's 315 pairs only. The
