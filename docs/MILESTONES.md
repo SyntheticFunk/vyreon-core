@@ -663,6 +663,42 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   `listed(T)` list. It needs the provider, so its real test is step 2.5's pre-listing day.
   Among the 64 the cases are pre-listing (COIN 2021-04, IBIT 2024-01, ETHA 2024-07; check the
   rest against core's universe) and the FB to META rename; none is delisted.
+  **The universe pass (plan, 2026-11-14; owner: one pass that makes the system robust to what
+  can happen to the 64: a ticker change above all, a delisting by design; scale to thousands
+  and a general FIELD stay deferred; items 3 and 4 done together).** Sized by a read-only
+  survey (claims unverified except where noted). Principle: nothing stored depends on which
+  assets are in the universe.
+  (P0) The profile revision string is frozen as a label of the research profile, never bumped
+  for membership (it is inside 45 body types, receipts and, through parents, derived ids; a
+  rename would start a parallel series and republish every date). A decision record, no code.
+  (P1) The member record through the engine: the session's members with the ticker in force
+  (`h5-universe/<session>.json`, exists) read by the planner's and the fill's loops; archive
+  folders and object ids stay on the asset key, every provider request takes the date's
+  ticker (daily, tape, options root, surface inputs, security record, company capture: META
+  is a company). 4-6 days.
+  (P2) Slots from the date's members: an unlisted asset has no slots (replaces the NOT_LISTED
+  bodies of 5bfb0132); sensor-table functions take the listed members; derive passes iterate
+  the objects present; both stores check a date against template x listed members, with the
+  listed set recorded per published revision so stored days are never re-judged (core's
+  `member` has no validity dates); the APIs say "not listed" instead of NOT_PUBLISHED. 4-6 days.
+  (P3) With it: a newly listed asset's short windows are a stated absence of their own,
+  outside both holds; provider start dates per source from the claim (check what exists
+  first); the "all 64" wording. 2-3 days.
+  (P4) Verify: tests on frozen slices; on a test droplet the same date under two memberships
+  gives byte-identical per-asset bodies; step 2.5's FB to META day and pre-listing day on the
+  cluster (the after-delisting direction rests on the pre-listing path: none of the 64 has
+  delisted). Riskiest: the cross-date validators and retained-history reuse tied to the
+  profile constant and `PROFILE.json`'s hash; membership not time-versioned in core; the
+  listed set agreeing between the claim, core's publish check and the ordered pass.
+  Not in the pass: FIELD's fixed roster (in its bodies; the campaign), a membership edit
+  still being an engine build (`PROFILE.json` is in every task's code identity).
+  **Real events register (to check as the build reaches them; dates from memory, verify):**
+  splits with option adjustment (NVDA 2024-06, AVGO 2024-07, MSTR 2024-08, WMT 2024-02, TSLA
+  2022-08, GOOGL and AMZN mid-2022, SMH 2023, XLK/XLU 2025-12), UNG's reverse split 2024-01,
+  the unscheduled closure of 2025-01-09 against the frozen calendar, daily expiries from
+  2022. Proposed for step 2.5: one real split day through the option sensors and the closure.
+  Operations risk: one capture machine collects the perishable sources (about 7 days'
+  retention at the provider).
   **Item 6 measured (2025-12-10 with TLT absent from the field):** the day already treats an
   absent member as missing cells; the cross-section sensors stay supported over 63 (minimum 51:
   FIELD-BR01, DIST01, GRP01, XCONC01, OPTBR01), FIELD-DEP01 withholds TLT's 315 pairs only. The
