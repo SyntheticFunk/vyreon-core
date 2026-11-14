@@ -708,6 +708,20 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   strike rounding for ratios of 3 or more before promising NVDA and AVGO. Of the other real events: the 2025-01-09 closure is
   in the calendar with a test; COIN (2021-04-14) and PLTR (2020-09-30) list before option data
   starts; new expiries to check on the build.
+  **Published rules the pass follows (owner 2026-11-14: matching the standard is the ultimate
+  priority; an owner decision is the last resort).** Forward split: OCC By-Laws Art. VI
+  s.11A(d)(i),(h): contracts x n, same symbol, 100-share deliverable, strike / n to the nearest
+  cent, ties up (checked against the strike tables of ten OCC memos). Ticker change: OCC memo
+  #50536, FB/1FB/2FB become META/1META/2META at the open of 2022-06-09, "strike prices and
+  all other option terms will not change". Reverse split: new symbol, reduced deliverable
+  (UNG1, #53931): not a clean split. Special dividend: strikes reduced by the amount, symbol
+  unchanged (s.11A(c),(e)). Cash merger or liquidation: cash deliverable, expirations
+  accelerated (Rule 807). 2025-01-09: exchanges closed, a non-session (the calendar agrees).
+  Vendor practice (OptionMetrics): history stored as traded with a permanent security id and
+  an adjustment factor alongside, which is the asset-key design. No authority was found on
+  comparing quote width across a split; the tick rules ($0.01 below $3.00, $0.05 above for
+  penny classes) make it structurally different, so VS-L01 keeps its restart as our own rule.
+  Split stage 1 is built (branch pass-splits, D-161), stages 2 and 3 are being built.
   **P3 surveyed (2026-11-14, read-only, unverified; each is a way the build would stop):**
   (i) option snapshots start 2022-05-27 and the quote window is 223 sessions, so every date
   before about 2023-04 is refused whole (a stale option source is not withholdable); the FB to
