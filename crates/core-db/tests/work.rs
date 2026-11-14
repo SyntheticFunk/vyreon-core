@@ -5,7 +5,7 @@ use test_support::Scratch;
 use test_support::slice::{BASE, DERIVED, bundle, inventories, parts};
 use core_db::publish::publish_for_lease;
 use core_db::work::{self, Claim, Kind, LeaseError};
-use core_db::{build, migrate};
+use core_db::{build, migrate, universe};
 use serde_json::{Value, json};
 use tokio_postgres::Client;
 
@@ -19,6 +19,10 @@ async fn ready(test: &str) -> (Scratch, Client, String, String) {
     migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
     let calendar: Value = serde_json::from_str(test_support::CALENDAR).unwrap();
     assert_eq!(work::load_calendar(&mut client, &calendar).await.unwrap(), 2261);
+    // a published day is checked against the universe's members listed that day
+    let fixtures = test_support::fixtures();
+    let doc = universe::read_responses(&fixtures.join("engine-v1-PROFILE.json"), &fixtures.join("intrinio-universe")).unwrap();
+    universe::store(&mut client, &doc).await.unwrap();
     let mut builds = Vec::new();
     for inventory in inventories() {
         builds.push(build::register(&mut client, &inventory).await.unwrap().engine_build);

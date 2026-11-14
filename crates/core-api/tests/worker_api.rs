@@ -133,6 +133,17 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
     assert_eq!((day["days"][0]["session"].as_str(), members.len()), (Some("2025-12-10"), 64));
     assert_eq!(day["tape_history_from"], "2025-12-10", "the first scheduled tape session");
     assert_eq!(members.iter().find(|m| m["asset_key"] == "META").unwrap()["ticker"], "META");
+    // and, since history windows cross ticker changes, every ticker each member has traded under
+    let tickers = day["tickers"].as_object().unwrap();
+    assert_eq!(tickers.len(), 64);
+    assert_eq!(
+        day["tickers"]["META"],
+        json!([{"ticker": "FB", "from": "2012-05-18", "to": "2022-06-08"}, {"ticker": "META", "from": "2022-06-09", "to": null}])
+    );
+    assert_eq!(day["tickers"]["ETHA"], json!([{"ticker": "ETHA", "from": "2024-07-23", "to": null}]));
+    // the bundle states the day's listed members: the asset keys with a ticker that day
+    let listed: Vec<&str> = members.iter().filter(|m| m["ticker"].is_string()).map(|m| m["asset_key"].as_str().unwrap()).collect();
+    assert_eq!(listed, test_support::slice::members_except(&[]));
     let tar_bytes = s.http.get(format!("{caches}?method_version=engine-v1")).bearer_auth(token).send().await.unwrap().bytes().await.unwrap();
     let mut archive = tar::Archive::new(&tar_bytes[..]);
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
