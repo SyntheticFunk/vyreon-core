@@ -737,7 +737,17 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   path efficiency, OIJ01's deformation for XLK and XLE and the percentiles match to 2e-16;
   the ex-date endpoint is withheld PROVIDER_OI_INCOMPLETE; no two cells with open interest
   merge under the OCC rule in the 134 sessions before the ex-date.
-  **Share-unit scoring (D-169, branch `pass-units`, to merge):** DLM-TECHNICAL's
+  Second real day (test-1 `j1`, engine 2c36aefc: plus D-165, D-163 and audit fixes): published,
+  no ENGINE_FAULT; the 59 other assets unchanged in value; the five split assets differ in 7
+  slots: VS-O03 44 of 44 readings supported (was 42 with 2 challenged), VS-V03-MATCHED-NATIVE
+  6 of 6 (was 0), VS-L01 unchanged (its restart), the ACT01 family unchanged (NONE; stage 3
+  is not in this build). Values being recomputed independently.
+  The full candidate `pass-s3i` cannot run on a test droplet: its plan asks for the five split
+  assets' translated cohorts, whose capture needs the provider (refused, as designed). The
+  droplet candidate is `pass` (e93ea140: everything but D-162, with the two scoring fixes);
+  running on it: test-2 `l1`, clean 2025-12-10; test-1 `u1`, the membership-and-gap day (ETHA
+  named unlisted by a universe file, its archive present; TLT's 2025-10-15 bar hidden).
+  **Share-unit scoring (D-169, merged into both candidates):** DLM-TECHNICAL's
   `obv_change_20`, `volume_price_trend_change_20` and the three MACD readings were scored
   against priors on another split basis (XLU 2025-12-10: OBV z -0.97 as published, -0.32 on
   one basis); the record now states its recent splits and the scorer translates the priors.
