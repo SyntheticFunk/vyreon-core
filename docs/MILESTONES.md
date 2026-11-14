@@ -606,6 +606,18 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   its option sensors for 400 days, to review with the build's coverage numbers.
   Open: the pooled financing spread changes with membership (item 5); one old daily-bar gap
   also removes the member from the intraday panel.
+  **Item 5, financing spread measured (2025-12-03 and 2025-12-10; engine 60c459cc, local,
+  records each asset's rows of the pool in the surface's `day.json`):** the spread (92.3 and
+  88.2 bp) is pooled from 12 and 16 of the 64 assets (45 and 60 expiry rows); NVDA, AMD, QQQ,
+  TSLA, SPY and IWM carry about three quarters of the weight, all listed long before the option
+  data starts; IBIT and ETHA contribute nothing. Removing one asset changes it for 7 and 5
+  assets only, at most +6.7 bp (QQQ) and +2.8 bp (NVDA). Other assets' values under a shifted
+  spread (2025-12-10 surface recomputed): without NVDA (+2.8 bp) the median change of
+  IV30/60/90 is 0.0008 vol points, without the top five (-11.5 bp) 0.003; the largest are EMB
+  (IV60 8.76 to 6.07 without NVDA, yet 0.04 without the top five: its thin-chain fit is
+  unstable, D-095, not a spread effect) and DBA (0.03 to 0.13). Rule proposed: the spread is
+  pooled over the assets that have a surface that day, stated in the day's record; no change
+  to the estimator. Still to look at: the unusualness line and the activity route's volume sum.
   **Item 6 measured (2025-12-10 with TLT absent from the field):** the day already treats an
   absent member as missing cells; the cross-section sensors stay supported over 63 (minimum 51:
   FIELD-BR01, DIST01, GRP01, XCONC01, OPTBR01), FIELD-DEP01 withholds TLT's 315 pairs only. The
