@@ -109,6 +109,9 @@ golden days check it.
 ## C-016 Workers publish over HTTP (owner, 2026-11-10)
 A worker sends each finished day to core as one compressed bundle; the publisher job checks and writes
 it. Workers hold no database or storage credentials and there is no shared storage between them.
+*Amended 2026-11-15 (audit 2026-11-14, core.md 17):* each worker pod mounts only the keys of the
+`vyreon-worker` Secret it reads; tape and day-block pods mounted the whole Secret, the ordered
+pass's database login included (C-020's one exception). Manifest edited, not applied.
 
 ## C-017 Stable Vyreon asset keys (owner, 2026-11-10; ARCHITECTURE D2)
 Each asset has a permanent key; core maps it to the Intrinio security id and the dated tickers.
