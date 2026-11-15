@@ -65,8 +65,10 @@ The engine computes; core schedules, stores and serves. The measurements are the
   loop is `tools/audit/` (README: audit, triage, cut line, fix, real day, audit again). Findings are
   claims to verify; Codex does no code work.
 - One status document, `docs/MILESTONES.md`, kept short: mutable current state. Git is the
-  history, so it is never rewritten: no rebase or force-push of a pushed branch (merge instead), and
-  the commit before a prune of the status document is tagged (`milestones-<date>`). Commit each landed step
+  history, so merge by default. Where a rebase or other clean-up of pushed history is really needed, first
+  preserve the record (the old commits' hashes and subjects in a file under `docs/`, and a tag on the
+  old tip), then do it. The commit before a prune of the status document is tagged
+  (`milestones-<date>`). Commit each landed step
   with a short summary; separate commits for code, tests, docs and deploy.
 - Report delivered capability, not documents or test counts. Times for the owner in Mountain Time.
 
