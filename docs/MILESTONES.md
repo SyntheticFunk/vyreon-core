@@ -61,6 +61,15 @@ Working practice: at most three agents at once on the laptop; an audit after eve
   P03/PD01/W21/PATH (read, not run: IBIT from 2024-01-11, ETHA from 2024-07-23); V03 moving to
   the next monthly when a non-holiday third Friday is missing (D-029 says withhold on a tenor
   switch?).
+- **Audit of batch 3 triaged 19:55 UTC** (`~/claude-artifacts/audits/2026-11-15-fix-round-c/triage/`,
+  `SUMMARY.md`): nothing needs a rebuild; one above the line in kind (stale EOD volume under
+  conflicting duplicate rows, never seen); the monthly rule made exact to the OCC By-Laws; and one
+  with real data: a newly listed asset (IBIT to about 2024-08, ETHA to about 2025-03) faults in
+  five price sensors instead of stating a short history. **Fix batch 4 started 19:57 UTC:**
+  `pass-fx4-a` (`/home/diggz/wt/fx4-a`, D-216..219), `pass-fx4-b` (`/home/diggz/wt/fx4-b`,
+  D-220..224), core on `pass-core-fix` (trailer bound, `--vouch` parsing). Open design choice
+  (core): a leased day-local bundle can rebind to a base replaced by hand between a worker's two
+  bundles; until decided, pause the queue before a hand publish of a base.
 - 2c: 2025-12-10 runs on both test droplets under e9cce438 since 16:52 UTC (`r2` on 137.184.61.134,
   `m4` on 192.241.147.166, after `act01_auto_source --rebind`, 59 cohorts each); due about 19:25 UTC.
 - To check on a droplet before the final-candidate day: whether captured dividend adjustment records
