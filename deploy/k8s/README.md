@@ -130,7 +130,9 @@ Deleting the cluster deletes the database: export what is to be kept first.
   ScaledJob per job kind with the `postgresql` trigger counting `core.claimable_job`, so workers
   start when work is queued. To check when it is added: the trigger's Secret must sit in KEDA's
   own namespace by default, and KEDA's page on the PostgreSQL scaler shows it only under a
-  ScaledObject.
+  ScaledObject. A ScaledJob starts one Kubernetes Job per unit of work; keep each of those Jobs at
+  one pod, or use the per-index retry limit of `30-workers.yaml`: never a Job-wide `backoffLimit`
+  over several pods, which terminates the healthy pods when one fails (C-040).
 - **Node autoscaling to zero:** DigitalOcean's autoscaler page says a pool can scale to zero; its
   `doctl` reference says it cannot. Until that is settled on the live API, the worker pool is
   created for a run and deleted after it.

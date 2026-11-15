@@ -504,3 +504,17 @@ pass. Now a pass waits while any unfinished block of its profile stands at or be
 from being queued without one; the migration first makes DONE the jobs a lost `finish` left that
 way. An ordinary day: the pass of T starts after the block's `day_done` of T instead of possibly
 after its base alone.
+
+## C-040 One worker pod's failure never stops the others (2026-11-15)
+Audit 2026-11-14 (core.md) 8. Each worker Job of `deploy/k8s/30-workers.yaml` ran several pods
+under `backoffLimit: 0`: one pod exiting unsuccessfully failed the whole Job, and Kubernetes then
+terminates its running pods ("Job termination and cleanup", kubernetes.io/docs/concepts/workloads/
+controllers/job). It happened on 2026-11-12, and it defeats C-035 (a failed date is set aside, the
+build goes on). Now every worker Job is `completionMode: Indexed` with `backoffLimitPerIndex: 1`
+(Kubernetes "Backoff limit per index", GA in 1.33; the cluster runs 1.36): a failed pod is
+replaced once and its index then given up, the other pods run on, and the Job is marked failed
+only when all of them have finished. No Job-wide `backoffLimit` and no `maxFailedIndexes`, since
+either, once exceeded, terminates the running pods. The job a failed pod held returns to core's
+queue as before (its `fail`, or its lease expiring); the replacement pod claims whatever is
+claimable. The KEDA ScaledJob for the build, not yet written, must keep this property (README).
+Edited as files only; nothing was applied.
