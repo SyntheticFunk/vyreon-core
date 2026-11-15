@@ -563,3 +563,22 @@ either, once exceeded, terminates the running pods. The job a failed pod held re
 queue as before (its `fail`, or its lease expiring); the replacement pod claims whatever is
 claimable. The KEDA ScaledJob for the build, not yet written, must keep this property (README).
 Edited as files only; nothing was applied.
+
+## C-042 By hand, core takes a based revision only if it can check its base, or on the operator's word (2026-11-15)
+Audit 2026-11-15 (fix round A, core.md) 1 and 9. Amends C-024 and C-037.
+- **`vyreon-core publish` has no lease**, so C-037's check (a day the bundle read was published
+  after the lease was granted) cannot run, and `bind_base` bound a bundle naming no `base_revision`
+  to whatever base is published now. A history revision of T computed before an earlier day was
+  replaced, or a revision computed on a replaced base, was published as it stood: a wrong number.
+  Workers cannot reach this path. Now, by hand: a revision computed from a base that reads history
+  is refused (the ordered pass publishes those), and one that reads its day only must name the
+  base revision it read. A base needs neither.
+- **`publish --vouch` is the operator's word** that the bundles were computed from what is
+  published now; core then takes them as before and checks nothing more. One flag covers both
+  refusals, not the history one alone as the audit proposed: `engine-store export` writes derived
+  bundles that cannot name core's base revision (the store's ids are not core's), so a rule with
+  no way round it would end publishing an exported day (C-024's exit test).
+- **A bundle's gzip stream is read to its end**, where its CRC-32 and length are checked.
+  `bundle.json` and `scalars.json` (the reader scalars `detail=headline` serves) carry no digest,
+  and the reader stopped at the tar's end, before the trailer. A mismatch refuses the bundle
+  before anything is committed (C-024: nothing is written until the reader reaches the end).
