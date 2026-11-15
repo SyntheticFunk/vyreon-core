@@ -30,7 +30,7 @@ Working practice: at most three agents at once on the laptop; an audit after eve
 
 **Now (2026-11-15 17:20 UTC; newest state, kept here):**
 - 2b: the three follow-ups are finished (D-199 to D-207; D-202 and D-208 unused) and merged into
-  `pass-fx2-all` (db15396f, worktree `/home/diggz/wt/fx2-all`, pushed). Full suite 17:35 UTC:
+  `pass-fx2-all` (db15396f, worktree `/home/diggz/wt/fx2-all`, pushed). Full suite 17:20 UTC:
   1,140 passed, 11 failed, all known (8 `option_field`, `a_t5_closure`, the two tape-cache fixture
   tests); the h2-engine and h2-q01 failures of the last run did not recur. **2b is done.** Its audit
   (three change scopes: style, receipt, small) is queued behind the first batch, reports in
