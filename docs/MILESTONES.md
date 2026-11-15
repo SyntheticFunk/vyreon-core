@@ -128,6 +128,13 @@ Working practice: at most three agents at once on the laptop; an audit after eve
   D-236..240: the interval coverage start, company guards). Core's C-042 rule corrected (pause,
   wait for leased day blocks, publish, resume). Left as design choices: a corrected official daily
   volume between two workers' tape captures; a missing macro capture's containment; overlay 3, 5, 6, 7.
+- **Fix batch 6 written and merged 21:53 UTC** into `pass-fx6-all` (worktree
+  `/home/diggz/wt/fx6-all`, 5afdde54, pushed): adjusted roots never dropped as frozen and counted
+  in the exposure cover (DLM-GREEK-EXPOSURE@2.2.0, overlay rules D-170c), the option-interval
+  coverage start (D-236: PROVIDER_COVERAGE_START while T-5 < 2022-12-08), company guards, P01's
+  factor terminal. Release build, suite and its audit (two scopes,
+  `~/claude-artifacts/audits/2026-11-15-fix-round-e/`) running. Owner to say: D-236 withholds the
+  whole ACT01 family on 2022-12-08..12-14, including readings that need only T's intervals.
 - 2c: 2025-12-10 runs on both test droplets under e9cce438 since 16:52 UTC (`r2` on 137.184.61.134,
   `m4` on 192.241.147.166, after `act01_auto_source --rebind`, 59 cohorts each); due about 19:25 UTC.
 - To check on a droplet before the final-candidate day: whether captured dividend adjustment records
