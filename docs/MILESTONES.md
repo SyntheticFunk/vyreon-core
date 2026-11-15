@@ -708,6 +708,19 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   strike rounding for ratios of 3 or more before promising NVDA and AVGO. Of the other real events: the 2025-01-09 closure is
   in the calendar with a test; COIN (2021-04-14) and PLTR (2020-09-30) list before option data
   starts; new expiries to check on the build.
+  **After the WSL crash, 2026-11-15 16:45 UTC (newest; resume from here).** The session died
+  at 08:16 UTC when the WSL disk filled: every engine worktree under `/home/diggz/wt` had its
+  own cargo target (646 GB). Deleted with the owner's word: every `wt/target-*` except
+  `target-fx-all`, the worker checkout's target, old session scratch (889 GB used -> 184 GB).
+  Rule from now: worktrees share one `CARGO_TARGET_DIR`, and a merged worktree is removed.
+  Nothing committed was lost. `pass-fx-all` e9cce438 is deployed on both test droplets (build
+  `e9cce438+29f01f9ec6a9`); the key-free marker rewrite worked there (12,864 quote files
+  requoted), then 2025-12-10 was refused on both (runs `r1`, `m3`): 58-59 ACT01 cohorts bind
+  a superseded T-5 attempt (`act01_auto_source --rebind`). Droplets idle since 08:42 UTC.
+  The three follow-up agents were killed: `pass-fx2-small` has items 1 and 2 of nine
+  committed (e6974e68, b4966f55); `fx2-style` (31 files) and `fx2-receipt` (36 files) hold
+  uncommitted edits in their worktrees, not yet compiled or reviewed. Next: finish and merge
+  fx2, the rebind and the clean day on both droplets, then the list in the note below.
   **Fix round, 2026-11-15 08:45 UTC (newer than the note below).** All seven engine fix
   tracks reported, are pushed (`pass-fx-{derived,overlay,tape,surface,company,field,orch}`,
   D-171 to D-198) and are merged, in that order, into `pass-fx-all` (worktree
