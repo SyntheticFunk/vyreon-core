@@ -43,6 +43,14 @@ Working practice: at most three agents at once on the laptop; an audit after eve
   zero rates (D-183 against the Treasury's description), and which below-line items go in before
   the build. No fix started until the owner has seen it. A read-only archive scan on test-2
   (`data-scans.md`, same directory) settles the frequencies several fixes depend on.
+- **Fix batch 3 started 19:05 UTC** (the above-line findings that need no owner ruling, and the
+  cheap ones from the follow-up audit; summary in the triage directory): `pass-fx3-a`
+  (`/home/diggz/wt/fx3-a`, D-209..214: surface split reader, American-only fit, macro damage,
+  duplicate-row volume, V03 holiday rule, negative OI), `pass-fx3-b` (`/home/diggz/wt/fx3-b`,
+  D-215..220: company and EVC01 split readers, FIELD panel, D-203 in production, company SHARES
+  and conflicted quarter), core `pass-core-fix` (C-042: hand publish). Held for the owner: Greek
+  exposure totals, Treasury zero curve, the below-line pull-ins. Follow-up audit (2b) triaged:
+  nothing above the line. Archive scan done (`data-scans.md`): no latent condition occurs in it.
 - 2c: 2025-12-10 runs on both test droplets under e9cce438 since 16:52 UTC (`r2` on 137.184.61.134,
   `m4` on 192.241.147.166, after `act01_auto_source --rebind`, 59 cohorts each); due about 19:25 UTC.
 - To check on a droplet before the final-candidate day: whether captured dividend adjustment records
