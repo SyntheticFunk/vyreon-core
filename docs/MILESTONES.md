@@ -136,6 +136,13 @@ Working practice: at most three agents at once on the laptop; an audit after eve
   test passes on a scratch Postgres; reference suite 6 passed, 105 skipped (no captures here). Its audit (two scopes,
   `~/claude-artifacts/audits/2026-11-15-fix-round-e/`) is back and being triaged. Owner to say: D-236 withholds the
   whole ACT01 family on 2022-12-08..12-14, including readings that need only T's intervals.
+- **Audit of batch 6 triaged 22:20 UTC** (`.../2026-11-15-fix-round-e/triage/SUMMARY.md`): none
+  of the auditor's findings above the line; a few listed for after the build. The verifier found
+  one that is: the provider's option-interval `trade_count` is null until 2024-11-25 and present
+  from 2024-11-26 (bisected by MCP on one SPY contract), so ACT01's count readings would publish
+  a SUPPORTED 0 and ZERO_DENOMINATOR on about 2022-12-15..2024-11-25. **Fix 7 started 22:22 UTC:**
+  `pass-fx7-counts` (`/home/diggz/wt/fx7-counts`, D-237). After it: one audit, then the
+  final-candidate days; further edge refinements are listed, not fixed (C-041).
 - 2c: 2025-12-10 runs on both test droplets under e9cce438 since 16:52 UTC (`r2` on 137.184.61.134,
   `m4` on 192.241.147.166, after `act01_auto_source --rebind`, 59 cohorts each); due about 19:25 UTC.
 - To check on a droplet before the final-candidate day: whether captured dividend adjustment records
