@@ -754,6 +754,18 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   droplet candidate is `pass` (e93ea140: everything but D-162, with the two scoring fixes);
   running on it: test-2 `l1`, clean 2025-12-10; test-1 `u1`, the membership-and-gap day (ETHA
   named unlisted by a universe file, its archive present; TLT's 2025-10-15 bar hidden).
+  Third real day (test-2 `l1`, engine e93ea140: the droplet candidate after two audits and both
+  scoring fixes): published, 0 faulted slots of 2,853, 0 derived faults. The 59 other assets
+  differ only in M0-ANALYTICS, M0-GAMMA, M0-GAMMA-CHANGE and M0-IV-PROFILE, one non-numeric
+  leaf each and no numeric difference (the method identities D-167 changed, as predicted);
+  the five split assets differ from `j1` in those four plus the technical record, which now
+  states `recent_splits` 2025-12-05:0.5 (absent for SPY). The cohort-capture check faulted
+  nothing on this archive. The split-basis scores themselves cannot be seen on a one-day
+  store (INSUFFICIENT_HISTORY): they need a built history.
+  Audits 6 and 7 (reports in `~/claude-artifacts/audits/`) followed; audit 6's eight fixes are
+  merged in both candidates (`pass` dfa98a75), audit 7's are being built as one rule (D-170:
+  a prior session is comparable in contract units only when every session between has
+  positive evidence of no adjustment).
   **Share-unit scoring (D-169, merged into both candidates):** DLM-TECHNICAL's
   `obv_change_20`, `volume_price_trend_change_20` and the three MACD readings were scored
   against priors on another split basis (XLU 2025-12-10: OBV z -0.97 as published, -0.32 on
