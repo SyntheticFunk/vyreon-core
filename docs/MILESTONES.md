@@ -772,7 +772,9 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   method break, the owner's call). Mislabels: an engine state published as a provider absence
   (orchestration 3, 4, 5; field 4, 6; daily 9); candlestick NONE with support under nine
   bars (daily 7). The technical indicators match their standards (Wilder, Appel, Bollinger,
-  Lane and the rest); Ichimoku's spans are one session off the common platform, and moving
+  Lane and the rest); Ichimoku's spans stay displaced 26 bars: platforms split (26: TA-Lib,
+  MetaTrader, thinkorswim, StockCharts; 25: TradingView, pandas-ta, the Japanese inclusive
+  count), no single standard, and TA-Lib is the engine's referee, so no change; and moving
   averages reseed at the archive's start: the build needs about 200 bars before its first
   date. The engine's own `vyreon-api` is unused (core C-009): delete it rather than fix it.
   For the FIELD campaign: the all-64 sensors are withheld from the build's start until
