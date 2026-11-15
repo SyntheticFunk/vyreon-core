@@ -747,6 +747,15 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   withheld if rare; the Treasury-yield convention is fixed now; share counts are computed
   from reported shares and the splits known by the date. The whole fix round stays in this
   session for a continuous engineering log.
+  The q = 0 default measured (all 64 assets x 361 sessions; scripts and tables in the
+  scratchpad `zero-yield/`): the one-year book has no identified expiry on 35 of 23,104
+  asset-sessions (0.15%): UUP 18, EMB 4, LQD 4, DBA 3, the five split ETFs on 2025-12-05,
+  ETHA 2026-10-06; 0.06% of contracts priced at q = 0. On UUP 2025-12-03 the 30-day implied
+  volatility is 0.0521 at q = 0, 0.0546 with the q its 408-day expiry identified, 0.0451
+  with the q identified a week later. Rare, so by the owner's rule it is withheld: the
+  surface track first lets the book borrow from an identified expiry beyond a year (D-107
+  s.8; the book could not), then withholds the asset's surface when no expiry identifies the
+  carry. Also seen: UUP's projected December distribution 1.3171 against 0.9269 paid.
   **Verified subsystem findings, to fix before the build** (triage files give file:line and
   the smallest fix): stops a day: the ordered derive aborts for all 64 on one object's error
   (daily 8, likely on ETHA after 2026-10-06 through an exact-equality check, daily 13); one
