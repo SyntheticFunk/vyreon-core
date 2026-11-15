@@ -101,7 +101,7 @@ Working practice: at most three agents at once on the laptop; an audit after eve
   equals QuantLib to 2e-13 on four 2026-11 curves; +0.1 to +0.7 bp at 1Y to 3Y; D-183 amended:
   the 1-year yield is a par yield). No 2022-2024 curve is in any archive: measure on the first
   cluster day there (`python -m refcheck.options.zero_curve <H.15 csv>`).
-- **Fix batch 5 written and merged 21:35 UTC** into `pass-fx5-all` (worktree
+- **Fix batch 5 written and merged 20:50 UTC** into `pass-fx5-all` (worktree
   `/home/diggz/wt/fx5-all`, 497c1608, pushed): the zero curve (D-225), the seven pull-ins (D-231
   and amendments), the ledger and SQL defects of the real day and the exposure cover roles
   (D-228, D-170 and D-173 amended); batch 4 is under it. Release build then full suite running;
