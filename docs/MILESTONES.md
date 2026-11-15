@@ -158,7 +158,7 @@ Working practice: at most three agents at once on the laptop; an audit after eve
   fix 7's audit (`.../2026-11-15-fix-round-f/counts.md`): SAI-ACT01-INTRADAY's four copies of
   SAI-ACT01 scalars score once (DLM-UNUSUALNESS@1.5.0; 232 copies on 2025-12-10), a summary array
   with no supported cell is withheld (also EMB's untraded cohort: ZERO_DENOMINATOR), the reference
-  checkers follow D-237. Build and suite running. **From here: no more fix batches before the
+  checkers follow D-237. Suite 23:00 UTC: 1,198 passed, 10 failed (known); release build done. **From here: no more fix batches before the
   real days; new findings are listed here unless above the cut line with data behind them.**
   Next: deploy `pass-fx8` to the droplets when `m5` ends (about 00:40 UTC) and test-1 has disk.
 - 2c: 2025-12-10 runs on both test droplets under e9cce438 since 16:52 UTC (`r2` on 137.184.61.134,
