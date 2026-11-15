@@ -44,6 +44,12 @@ pub const LISTED_MEMBERS: &str = "listed_members";
 /// orders of magnitude above the typical entry.
 pub const MAX_ENTRY_BYTES: u64 = 256 << 20;
 
+/// The most uncompressed bytes that may follow a bundle's last entry before the gzip stream ends.
+/// The reader drains them to reach the gzip trailer (C-042) and refuses a bundle with more: an
+/// unbounded tail would be decompressed in full while a publish waits. The engine's writer leaves
+/// the tar's two end blocks (1,024 bytes); a tar padded to a 10 KiB record leaves under 10 KiB.
+pub const MAX_TRAILING_BYTES: u64 = 1 << 20;
+
 /// Whether `text` is a calendar date written `YYYY-MM-DD`. Dates cross the contract in this form
 /// only: PostgreSQL would also read words such as "yesterday" as dates.
 pub fn is_date(text: &str) -> bool {
@@ -289,8 +295,14 @@ pub fn read_bundle<R: Read>(input: R, visit: &mut dyn FnMut(Item) -> io::Result<
         return Err(invalid(format!("unexpected entry {name} after the last slot")));
     }
     // the gzip stream is read to its end, where its CRC and length are checked: bundle.json and
-    // scalars.json carry no digest of their own, and the tar ends before the trailer
-    io::copy(&mut archive.into_inner(), &mut io::sink()).map_err(|e| invalid(format!("the gzip stream after the last entry: {e}")))?;
+    // scalars.json carry no digest of their own, and the tar ends before the trailer (C-042).
+    // What follows the last entry is the tar's end blocks and its padding; the read is bounded,
+    // so a bundle cannot make its reader decompress an endless tail
+    let mut tail = archive.into_inner().take(MAX_TRAILING_BYTES + 1);
+    let trailing = io::copy(&mut tail, &mut io::sink()).map_err(|e| invalid(format!("the gzip stream after the last entry: {e}")))?;
+    if trailing > MAX_TRAILING_BYTES {
+        return Err(invalid(format!("more than {MAX_TRAILING_BYTES} bytes uncompressed follow the last entry; the bundle is refused unread to its end")));
+    }
     Ok(())
 }
 

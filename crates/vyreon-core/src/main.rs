@@ -117,6 +117,22 @@ async fn months(first: &str, last: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// The bundles and whether they are vouched for, from what follows `publish`. The whole command
+/// line is read before anything is published: `--vouch` counts wherever it stands, and any other
+/// word that starts with `--` is refused, not taken as a bundle after the ones before it were
+/// published (a file so named is written `./--name`).
+fn publish_args<'a>(rest: &[&'a str]) -> Result<(Vec<&'a str>, bool), String> {
+    if let Some(flag) = rest.iter().find(|a| a.starts_with("--") && **a != "--vouch") {
+        return Err(format!("publish: unknown option {flag}; nothing was published (publish [--vouch] <bundle>...)"));
+    }
+    let bundles: Vec<&str> = rest.iter().copied().filter(|a| *a != "--vouch").collect();
+    if bundles.is_empty() {
+        return Err("publish: no bundle named; nothing was published (publish [--vouch] <bundle>...)".to_string());
+    }
+    let vouched = bundles.len() != rest.len();
+    Ok((bundles, vouched))
+}
+
 async fn publish_bundles(bundles: &[&str], vouched: bool) -> Result<(), String> {
     let mut client = connect().await?;
     for bundle in bundles {
@@ -250,8 +266,10 @@ async fn main() -> ExitCode {
         },
         ["serve"] => serve().await,
         ["months", first, last] => months(first, last).await,
-        ["publish", "--vouch", ref bundles @ ..] if !bundles.is_empty() => publish_bundles(bundles, true).await,
-        ["publish", ref bundles @ ..] if !bundles.is_empty() && bundles[0] != "--vouch" => publish_bundles(bundles, false).await,
+        ["publish", ref rest @ ..] => match publish_args(rest) {
+            Ok((bundles, vouched)) => publish_bundles(&bundles, vouched).await,
+            Err(e) => Err(e),
+        },
         ["engine-store", "export", date, dir] => engine_store_export(date, dir).await,
         _ => Err("unknown command; the commands are listed at the top of crates/vyreon-core/src/main.rs".to_string()),
     };
