@@ -35,11 +35,19 @@ async fn the_budget_never_commits_more_than_its_ceiling() {
     // three workers starting cold take all of it; the fourth waits for the first lease to age out
     let (first, n) = granted(budget::draw(&mut client, budget, "w1", 5000).await.unwrap());
     assert_eq!(n, 600, "no lease is larger than the maximum");
+    let span: f64 = client
+        .query_one("SELECT EXTRACT(EPOCH FROM valid_until - granted_at)::float8 FROM core.budget_lease WHERE budget_lease_id = $1", &[&first])
+        .await
+        .unwrap()
+        .get(0);
+    assert!((span - 35.0).abs() < 0.01, "{span}");
     let (second, _) = granted(budget::draw(&mut client, budget, "w2", 600).await.unwrap());
     granted(budget::draw(&mut client, budget, "w3", 600).await.unwrap());
     assert_eq!(budget::committed(&client).await.unwrap(), 1800);
     match budget::draw(&mut client, budget, "w4", 100).await.unwrap() {
-        Grant::Wait { seconds } => assert!((80.0..=90.0).contains(&seconds), "a 30 s lease counts for 90 s: {seconds}"),
+        // audit 2026-11-14, core.md 14: core's end of a lease is taken from the clock and allows
+        // for the answer's way to the worker, which starts its 30 s on receipt
+        Grant::Wait { seconds } => assert!((85.0..=95.0).contains(&seconds), "a 30 s lease counts for 30 + 5 + 60 s: {seconds}"),
         other => panic!("{other:?}"),
     }
     // a worker that used less gives the rest back at once

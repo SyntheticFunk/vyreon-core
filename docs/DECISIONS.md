@@ -261,6 +261,12 @@ lines; digests, text, JSONB, receipts, versions, states, scalar values).
   the overrun holds back the next grants until it ages out; the release still answers with an
   error naming the overrun. It was counted at the grant: 900 reported on 600 granted left 300
   requests outside the ceiling.
+  *Amended 2026-11-15 (audit 2026-11-14, core.md 14):* core counts a lease from the clock when it
+  is granted (not the transaction's start, which precedes the wait for the budget's lock) to 5 s
+  after the validity the worker is told (`budget::TRANSIT_SECONDS`, a plain allowance for the
+  answer's way back, not measured): the worker starts its 30 s on receipt, so core's window must
+  not end before the worker's. A lease now counts for at most 95 s, not 90 s; sustained
+  throughput with every lease held to its end is about 1,140 a minute instead of 1,200.
 - **Tape caches are opaque and written once**: stored as the worker packed them; the same bytes
   again are accepted, other bytes refused. A session without a tape is a stated absence. A tape job
   is done only when every member listed on the session has one or the other.

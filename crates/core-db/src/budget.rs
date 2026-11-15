@@ -29,6 +29,13 @@ impl Default for Budget {
     }
 }
 
+/// Seconds core counts a lease beyond the validity it tells the worker: the worker starts its
+/// `valid_seconds` when the answer reaches it, after core has recorded the grant, so core's end of
+/// the lease must not come before the worker's. A plain allowance for the answer's way back (on
+/// the cluster's own network, well under a second), not a measured one; an answer later than this
+/// could still let requests fall outside core's count.
+pub const TRANSIT_SECONDS: f64 = 5.0;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Grant {
     Granted { budget_lease_id: i64, requests: i32, valid_seconds: f64 },
@@ -57,10 +64,13 @@ pub async fn draw(client: &mut Client, budget: Budget, worker: &str, requests: i
         return Ok(Grant::Wait { seconds: frees_in.unwrap_or(1.0).max(0.1) });
     }
     let granted = requests.min(free).min(budget.max_lease);
+    // the clock, not the transaction's start (which is before the lock was had), plus the answer's
+    // way to the worker
     let id: i64 = tx
         .query_one(
-            "INSERT INTO core.budget_lease (worker, granted, valid_until) VALUES ($1, $2, now() + make_interval(secs => $3)) RETURNING budget_lease_id",
-            &[&worker, &granted, &budget.lease_seconds],
+            "INSERT INTO core.budget_lease (worker, granted, granted_at, valid_until)
+             VALUES ($1, $2, clock_timestamp(), clock_timestamp() + make_interval(secs => $3)) RETURNING budget_lease_id",
+            &[&worker, &granted, &(budget.lease_seconds + TRANSIT_SECONDS)],
         )
         .await
         .map_err(db)?
