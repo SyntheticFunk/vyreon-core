@@ -752,7 +752,16 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   date. The engine's own `vyreon-api` is unused (core C-009): delete it rather than fix it.
   For the FIELD campaign: the all-64 sensors are withheld from the build's start until
   about 2024-10 to 2025-07 because IBIT and ETHA list in 2024: about half the build.
-  The triage of core and of the tape family, and the company audit, were still running.
+  Core and tape (triage in `triage/core-tape.md`). Build-blockers: a tape capture withheld
+  whole has an empty source digest that the four temporal results refuse, an engine fault for
+  320 of 2,853 slots on every session before the tapes (2022-05-27 to 2023-05-23): over the
+  fault hold, about 250 days held (tape 5); in core, a job whose `finish` is lost is requeued
+  with no next session and every later claim of its kind panics (core 6), the ordered pass
+  becomes claimable while its block is still on T and fails for good after three attempts
+  (core 7), a base republish supersedes later history revisions without requeueing their
+  jobs (core 10, with 1 and 2), and the worker Job's `backoffLimit: 0` kills sibling pods
+  (core 8). Wrong number: EVC01 pools raw share volumes across splits (tape 11).
+  The company audit was still running.
   Real days running, 2025-12-10 clean, each against baseline `c1`: test-2 `i1` on bc4a04b2
   (slots and split stage 1), test-1 `j1` on 2c36aefc (plus tickers, audit fixes, split stage
   2). Expected: every asset byte-identical but XLB, XLE, XLK, XLU, XLY, whose VS-O02/O04/OIJ01
