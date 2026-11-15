@@ -76,13 +76,20 @@ Working practice: at most three agents at once on the laptop; an audit after eve
   pull-ins go in (tape-cache upload retry; macro 429; one asset's inventory aborting every ACT01
   job; a missing bar withholding ~750 sessions of surface; META's ACT01 family 2022-06-06..15;
   m0 1 and m0 4). **Fix batch 5:** `pass-fx5-curve` (`/home/diggz/wt/fx5-curve`, D-225..227)
-  started 20:30; the Greek support and the pull-ins start as agent slots free (three at once).
+  started 20:22; `pass-fx5-pull` (`/home/diggz/wt/fx5-pull`, D-231..238, the seven pull-ins) and
+  `pass-fx5-greek` (`/home/diggz/wt/fx5-greek`) started 20:35 to 20:45, all from `pass-fx4-all`
+  (abf1ae22: batch 4 merged, pushed; its suite and audit still to run with batch 5's).
 - Core `pass-core-fix` (C-042 with its two follow-ups): all 40 database tests pass on PostgreSQL
   16 (20:28 UTC); pushed.
 - **Real day `r2` (test-1, e9cce438) finished 19:53 UTC, exit 0, no faults.** Against `p1`
   (pre-fix): 4,679 slots, no state change; D-183 verified by hand from the bodies. Report:
   `~/claude-artifacts/audits/2026-11-15-fix-round-a/day-r2-vs-p1.md` (8 explained, 11 to check,
-  4 unexplained). Unexplained, being root-caused (`day-r2-unexplained.md`): DLM-EVENT-WINDOW's
+  4 unexplained). **Both unexplained items are defects of the new build, root-caused 20:40 UTC**
+  (`day-r2-unexplained.md`): the ledger rule of audit 9 (30c68c20, `frozen_by_adjustment`) drops
+  six live contracts expiring 2025-07-18 (a wrong number: BABA -5,725 of 2,667,522, MSTR -1,838
+  of 2,614,287; the only wrong drops in 367 sessions of the 11 ledger assets); an SQL alias bug
+  (f79c7af2, `load_events`) loses the earnings anchor on the store path. Both being fixed on
+  `pass-fx5-greek` with the Greek support roles (D-228..230). Originally listed as: DLM-EVENT-WINDOW's
   earnings_date reason on BABA and TSM (NO_UPCOMING_EARNINGS_DATE became DEPENDENCY_WITHHELD,
   against D-173); VS-O02/O04/OIJ01 on BABA and MSTR, history session 2025-07-18 only (OI total
   -0.215% and -0.070%, undeclared). M0 values were not compared (not in the dumps).
