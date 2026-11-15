@@ -782,6 +782,27 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   dividends too. The new planner run read-only over test-1's real archive (64 assets, 201
   sessions of quote files) flags no marker but the hidden TLT bar's: the unknown verdict does
   not fire on this ordinary data. Running: test-2 `p1` (clean, dfa98a75), test-1 `g3`.
+  **Frozen open interest after an adjustment (audit 9, a baseline defect; measured on test-1's
+  archive, scripts in /root/verify3 there).** The overlay dropped a dead listing holding open
+  interest only while the adjustment lay within 21 sessions; after that the old contracts the
+  provider keeps listing were counted on top of the moved positions. On 2026-04-27 to 06-11
+  the frozen rows carry 7-8% of XLE's open interest, 5-11% of XLK's, 8-9% of XLU's, 4-5% of
+  XLB's, 10-12% of XLY's and 6-12% of EWJ's (the provider zeroed them on 2026-06-12); EWJ is
+  already wrong in the archive's stored populations, its 2025-12-16 chain being absent. Fixed
+  by a per-asset adjustment ledger (owner: each asset its own event tracker):
+  `crates/vyreon-cli/src/adjustments.rs`, from core's file `h5-universe/adjustments.json`
+  (schema VYREON-ADJUSTMENTS@1, the claim can send it), the daily bars' split ratios, the
+  confirmed adjusted-roots table and the detector; entries count for 39 months (the longest
+  listing period); the header names every adjustment; a frozen listing whose OCC image is
+  listed is dropped, and under an unknown or undated adjustment its open interest is unknown
+  (PROVIDER_OI_INCOMPLETE above 1%). Re-run on the raw pages of all 64 assets on 14 dates:
+  exactly the frozen rows drop. QQQ carries strikes 0.22 off the lattice on every date: an
+  adjustment nobody recorded, a candidate ledger entry. Other consumers of adjustment dates
+  are not yet on the ledger (`split_history`, the walks, D-161's verdict users).
+  The 9 GB test blow-up was test-only (two test files parsed the 1.2 GB slot fixture once
+  per test); tests now run under a memory cap.
+  Ten subsystem audits of the whole engine and core are running (owner 2026-11-14: audit
+  every independent system); reports in `~/claude-artifacts/audits/2026-11-14-baseline/`.
   **Share-unit scoring (D-169, merged into both candidates):** DLM-TECHNICAL's
   `obv_change_20`, `volume_price_trend_change_20` and the three MACD readings were scored
   against priors on another split basis (XLU 2025-12-10: OBV z -0.97 as published, -0.32 on
