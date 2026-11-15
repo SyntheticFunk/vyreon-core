@@ -761,7 +761,16 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   (core 7), a base republish supersedes later history revisions without requeueing their
   jobs (core 10, with 1 and 2), and the worker Job's `backoffLimit: 0` kills sibling pods
   (core 8). Wrong number: EVC01 pools raw share volumes across splits (tape 11).
-  The company audit was still running.
+  Company and macro (`triage/company.md`, provider format checked by read-only requests): a
+  look-ahead: `adjusted_shares_outstanding` is adjusted for splits up to today, so a build
+  now publishes NVDA at 24.7B shares for every 2023 session (2.47B then); the same for AVGO,
+  MSTR, WMT, TSLA, GOOGL and AMZN before their splits. The float ratio divides post-split
+  float by pre-split reported shares (AMZN 17.5, NVDA 9.7: withheld INVALID_REQUIRED_INPUT
+  for about a year after each split). A company capture that crosses midnight UTC exits
+  fatally, and one company's exhausted retries stop the day's company phase. The provider
+  returns no expected earnings for past windows: withheld from 2022-05-27 to about 2025-09.
+  Fundamentals (as originally reported, filtered by filing instant), daily metrics, dividends
+  and macro dating are point-in-time correct for a 2023 session.
   Real days running, 2025-12-10 clean, each against baseline `c1`: test-2 `i1` on bc4a04b2
   (slots and split stage 1), test-1 `j1` on 2c36aefc (plus tickers, audit fixes, split stage
   2). Expected: every asset byte-identical but XLB, XLE, XLK, XLU, XLY, whose VS-O02/O04/OIJ01
