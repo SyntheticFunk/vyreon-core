@@ -132,8 +132,9 @@ Working practice: at most three agents at once on the laptop; an audit after eve
   `/home/diggz/wt/fx6-all`, 5afdde54, pushed): adjusted roots never dropped as frozen and counted
   in the exposure cover (DLM-GREEK-EXPOSURE@2.2.0, overlay rules D-170c), the option-interval
   coverage start (D-236: PROVIDER_COVERAGE_START while T-5 < 2022-12-08), company guards, P01's
-  factor terminal. Release build, suite and its audit (two scopes,
-  `~/claude-artifacts/audits/2026-11-15-fix-round-e/`) running. Owner to say: D-236 withholds the
+  factor terminal. Suite 22:05 UTC: 1,190 passed, 10 failed (known); release build done; store-reader
+  test passes on a scratch Postgres; reference suite 6 passed, 105 skipped (no captures here). Its audit (two scopes,
+  `~/claude-artifacts/audits/2026-11-15-fix-round-e/`) is back and being triaged. Owner to say: D-236 withholds the
   whole ACT01 family on 2022-12-08..12-14, including readings that need only T's intervals.
 - 2c: 2025-12-10 runs on both test droplets under e9cce438 since 16:52 UTC (`r2` on 137.184.61.134,
   `m4` on 192.241.147.166, after `act01_auto_source --rebind`, 59 cohorts each); due about 19:25 UTC.
