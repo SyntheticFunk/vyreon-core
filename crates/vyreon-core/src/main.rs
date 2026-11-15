@@ -11,7 +11,11 @@
 //!   vyreon-core schedule <tape|day-block|ordered-pass> <profile> <build> <first> <last> [block sessions]
 //!   vyreon-core queue [pause <reason> | resume | retry-failed | cancel <job>...]   the queue at a glance, or change it
 //!   vyreon-core months <first> <last>                 create the store's monthly partitions for a date range
-//!   vyreon-core publish <bundle>...                   check, write, read back and publish day bundles, in order
+//!   vyreon-core publish [--vouch] <bundle>...         check, write, read back and publish day bundles, in order.
+//!                                                     A revision computed from a base must name the base revision
+//!                                                     it read and read its day only; --vouch is the operator's word
+//!                                                     that the bundles were computed from what is published now
+//!                                                     (C-042: a bundle that names no base revision, or reads history)
 //!   vyreon-core api-key create <holder> <read[,admin]>   make a reader API key (printed once; only its digest is kept)
 //!   vyreon-core api-key revoke <holder>
 //!   vyreon-core serve                                 the HTTP service (the worker and reader APIs). Settings:
@@ -113,10 +117,12 @@ async fn months(first: &str, last: &str) -> Result<(), String> {
     Ok(())
 }
 
-async fn publish_bundles(bundles: &[&str]) -> Result<(), String> {
+async fn publish_bundles(bundles: &[&str], vouched: bool) -> Result<(), String> {
     let mut client = connect().await?;
     for bundle in bundles {
-        let p = publish::publish_file(&mut client, Path::new(bundle)).await.map_err(|e| format!("{bundle}: {e}"))?;
+        let path = Path::new(bundle);
+        let p = if vouched { publish::publish_file_vouched(&mut client, path).await } else { publish::publish_file(&mut client, path).await };
+        let p = p.map_err(|e| format!("{bundle}: {e}"))?;
         if p.already_published {
             println!("{} {} was already published as revision {}", p.represented_date, p.profile_revision, p.revision_id);
             continue;
@@ -244,7 +250,8 @@ async fn main() -> ExitCode {
         },
         ["serve"] => serve().await,
         ["months", first, last] => months(first, last).await,
-        ["publish", ref bundles @ ..] if !bundles.is_empty() => publish_bundles(bundles).await,
+        ["publish", "--vouch", ref bundles @ ..] if !bundles.is_empty() => publish_bundles(bundles, true).await,
+        ["publish", ref bundles @ ..] if !bundles.is_empty() && bundles[0] != "--vouch" => publish_bundles(bundles, false).await,
         ["engine-store", "export", date, dir] => engine_store_export(date, dir).await,
         _ => Err("unknown command; the commands are listed at the top of crates/vyreon-core/src/main.rs".to_string()),
     };

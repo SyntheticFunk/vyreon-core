@@ -285,10 +285,13 @@ pub fn read_bundle<R: Read>(input: R, visit: &mut dyn FnMut(Item) -> io::Result<
         };
         visit(Item::Slot(SlotFiles { body, receipt, coordinates, stream }))?;
     }
-    match next(&mut held)? {
-        None => Ok(()),
-        Some((name, _)) => Err(invalid(format!("unexpected entry {name} after the last slot"))),
+    if let Some((name, _)) = next(&mut held)? {
+        return Err(invalid(format!("unexpected entry {name} after the last slot")));
     }
+    // the gzip stream is read to its end, where its CRC and length are checked: bundle.json and
+    // scalars.json carry no digest of their own, and the tar ends before the trailer
+    io::copy(&mut archive.into_inner(), &mut io::sink()).map_err(|e| invalid(format!("the gzip stream after the last entry: {e}")))?;
+    Ok(())
 }
 
 #[cfg(test)]

@@ -94,15 +94,31 @@ fn stream_reference(body: &Value) -> Option<&str> {
     (root.len() == 64 && root.bytes().all(|b| b.is_ascii_hexdigit()) && root.bytes().any(|b| b != b'0')).then_some(root)
 }
 
-/// Publishes the bundle file at `path`.
+/// Who sends a bundle: a worker under its lease, or a hand without one.
+#[derive(Clone, Copy)]
+enum By<'a> {
+    Lease(&'a str),
+    Hand { vouched: bool },
+}
+
+/// Publishes the bundle file at `path` by hand, without a lease. With no lease core cannot tell
+/// what a revision computed from a base read (C-042): one that reads history is refused (a day it
+/// read may have been replaced since; the ordered pass publishes those), and one that reads its
+/// day only must name the base revision it was computed from.
 pub async fn publish_file(client: &mut Client, path: &Path) -> Result<Published, Error> {
-    publish(client, path, None).await
+    publish(client, path, By::Hand { vouched: false }).await
+}
+
+/// The same, with the hand's word that the bundle was computed from what is published now: its
+/// day's base and, if it reads history, every earlier day (C-042). Core does not check it.
+pub async fn publish_file_vouched(client: &mut Client, path: &Path) -> Result<Published, Error> {
+    publish(client, path, By::Hand { vouched: true }).await
 }
 
 /// Publishes the bundle a worker sends under its lease: the day must be its job's next session,
 /// for the job's profile and build. The day is published and the job moved on in one transaction.
 pub async fn publish_for_lease(client: &mut Client, path: &Path, token: &str) -> Result<Published, LeaseError> {
-    publish(client, path, Some(token)).await.map_err(|e| match e {
+    publish(client, path, By::Lease(token)).await.map_err(|e| match e {
         Error::Refused(m) if m == GONE => LeaseError::Gone,
         Error::Refused(m) => LeaseError::Refused(m),
         Error::Failed(m) => LeaseError::Failed(m),
@@ -111,7 +127,7 @@ pub async fn publish_for_lease(client: &mut Client, path: &Path, token: &str) ->
 
 const GONE: &str = "no live lease has this token";
 
-async fn publish(client: &mut Client, path: &Path, token: Option<&str>) -> Result<Published, Error> {
+async fn publish(client: &mut Client, path: &Path, by: By<'_>) -> Result<Published, Error> {
     let file = std::fs::File::open(path).map_err(|e| Error::Failed(format!("{}: {e}", path.display())))?;
     // the bundle is read on a blocking thread, one slot ahead of the database; its end is sent as
     // `None` once the whole bundle has been read, so a channel closed without it (the reader
@@ -122,7 +138,7 @@ async fn publish(client: &mut Client, path: &Path, token: Option<&str>) -> Resul
         read_bundle(std::io::BufReader::new(file), &mut |item| sender.blocking_send(Some(item)).map_err(stopped))?;
         sender.blocking_send(None).map_err(stopped)
     });
-    let result = publish_items(client, &mut items, token).await;
+    let result = publish_items(client, &mut items, by).await;
     drop(items);
     match reader.await {
         // a bundle that cannot be read is refused, whatever the publish made of its beginning
@@ -132,7 +148,7 @@ async fn publish(client: &mut Client, path: &Path, token: Option<&str>) -> Resul
     }
 }
 
-async fn publish_items(client: &mut Client, items: &mut Receiver<Option<Item>>, token: Option<&str>) -> Result<Published, Error> {
+async fn publish_items(client: &mut Client, items: &mut Receiver<Option<Item>>, by: By<'_>) -> Result<Published, Error> {
     let Some(Some(Item::Header(header))) = items.recv().await else { return refuse("the bundle has no header") };
     let Some(Some(Item::Scalars(scalars))) = items.recv().await else { return refuse("the bundle has no scalars") };
     let tx = client.transaction().await.map_err(db)?;
@@ -140,9 +156,26 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Option<Item>>, 
     // read its day, and an ordered pass is claimed under the same lock (`work::PUBLISH_LOCK`)
     tx.execute(work::PUBLISH_LOCK, &[]).await.map_err(db)?;
     let date = header.represented_date.as_str();
-    let lease = match token {
-        None => None,
-        Some(token) => {
+    let lease = match by {
+        // no lease says what the bundle read, so the checks a lease allows cannot be made (C-042)
+        By::Hand { vouched } => {
+            if header.base_profile_revision.is_some() && !vouched {
+                if !header.day_local {
+                    return refuse(
+                        "a revision that reads history is published by the ordered pass: by hand, core cannot tell whether a day it read \
+                         has been replaced since (`vyreon-core publish --vouch` states that none has)",
+                    );
+                }
+                if header.base_revision.is_none() {
+                    return refuse(
+                        "published by hand, a revision computed from a base names the base revision it read (base_revision), \
+                         or `vyreon-core publish --vouch` states that it is the day's published one",
+                    );
+                }
+            }
+            None
+        }
+        By::Lease(token) => {
             let lease = match work::held(&tx, token).await {
                 Ok(lease) => lease,
                 Err(LeaseError::Gone) => return refuse(GONE),
