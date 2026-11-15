@@ -15,10 +15,11 @@ The one living status document. History is in git; decisions in `docs/DECISIONS.
       of whatever the days made us change*
    d. triage of the audits to the owner; fixes above the cut line (C-041), each batch with its real
       day; *audit*
-   e. `pass-s3i` rebased; engine to `worker` and core to `main` together; images rebuilt; *audit of
+   e. `pass-s3i` brought up to date by a merge (not a rebase: its commits are pushed and cited by
+      hash in the decisions and audits); engine to `worker` and core to `main` together; images rebuilt; *audit of
       the merged branches (the gate into 2.5)*
-   f. housekeeping: this file pruned to state and next steps, the old one archived first
-      (`docs/archive/MILESTONES-<date>.md`, never edited after).
+   f. housekeeping: this file pruned to state and next steps; the commit before the prune is
+      tagged (`milestones-<date>`) so the old one is one command away. Git is the history.
 3. **(2.5) Cluster verification:** 2025-12-10; 2025-04-11 (ETHA's option listing); a day before
    2024-07-23; a block over the FB to META rename (June 2022); a day after a 10-for-1 split. Then the
    newest two weeks on two nodes. New spend: the owner first.
