@@ -582,3 +582,14 @@ Audit 2026-11-15 (fix round A, core.md) 1 and 9. Amends C-024 and C-037.
   `bundle.json` and `scalars.json` (the reader scalars `detail=headline` serves) carry no digest,
   and the reader stopped at the tar's end, before the trailer. A mismatch refuses the bundle
   before anything is committed (C-024: nothing is written until the reader reaches the end).
+
+Note, 2026-11-15 (fix round C, corepublish.md). Two small corrections: the drain to the gzip
+trailer is bounded at 1 MiB of uncompressed tail (`MAX_TRAILING_BYTES`; the engine's writer leaves
+1,024 bytes) and a bundle with more is refused, since an unbounded tail was decompressed in full
+while a publish waited; and `publish` reads its whole command line first, so `--vouch` counts
+wherever it stands and a bad line publishes nothing. One thing is open and not changed here: a
+worker's day-local bundle names no `base_revision`, so on the leased path it binds to whatever
+base is published now, and a base of the same date published by hand between the worker's base and
+its day-local bundle would leave values derived from the old base stored on the new one (the day
+block's lease is not ended, as an ordered pass's is). Until that is decided, the operating rule:
+during a build, `vyreon-core queue pause` before any hand publish of a base, and resume after.
