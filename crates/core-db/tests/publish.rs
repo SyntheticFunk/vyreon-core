@@ -47,6 +47,11 @@ fn raw_bundle_and(name: &str, header: &Header, scalars: &Scalars, files: &[SlotF
     path
 }
 
+/// The engine's trading calendar: a day is published only on one of its sessions.
+async fn calendar(client: &mut Client) {
+    core_db::work::load_calendar(client, &serde_json::from_str(test_support::CALENDAR).unwrap()).await.unwrap();
+}
+
 /// The universe of the 64 from the frozen Intrinio responses.
 fn universe_document() -> Value {
     universe::read_responses(&fixtures().join("engine-v1-PROFILE.json"), &fixtures().join("intrinio-universe")).unwrap()
@@ -56,6 +61,7 @@ async fn ready(test: &str) -> (Scratch, Client) {
     let scratch = Scratch::new(test).await;
     let mut client = scratch.client().await;
     migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
+    calendar(&mut client).await;
     universe::store(&mut client, &universe_document()).await.unwrap();
     for inventory in inventories() {
         assert!(build::register(&mut client, &inventory).await.unwrap().new);
@@ -204,6 +210,8 @@ async fn a_wrong_bundle_is_refused_and_leaves_nothing() {
     case("listed_twice", "listed_members names AAPL twice", &|h, _, _| h.listed_members.as_mut().unwrap().push("AAPL".into()));
     case("bad_date", "date", &|h, _, _| h.represented_date = "2025-13-45".into());
     case("a_word_for_a_date", "is not a date written YYYY-MM-DD", &|h, _, _| h.represented_date = "yesterday".into());
+    // a Saturday (audit 2026-11-14, core.md 12: it used to publish where no reader looks)
+    case("not_a_session", "2025-12-13 is not a trading session of the calendar", &|h, _, _| h.represented_date = "2025-12-13".into());
     for (name, h, s, f, expect) in cases {
         let refused = publish(&mut client, &raw_bundle(name, &h, &s, &f)).await.unwrap_err();
         assert!(matches!(&refused, Error::Refused(m) if m.contains(expect)), "{name}: {refused}");
@@ -274,6 +282,7 @@ async fn a_full_day_from_the_engines_store_publishes_whole() {
     let scratch = Scratch::new("exit").await;
     let mut client = scratch.client().await;
     migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
+    calendar(&mut client).await;
     universe::store(&mut client, &universe_document()).await.unwrap();
     let mut exports: Vec<PathBuf> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).filter(|p| p.to_string_lossy().ends_with(".export.json")).collect();
     exports.sort();
@@ -414,6 +423,7 @@ async fn a_member_not_listed_on_the_day_has_no_slots_and_the_day_keeps_who_was_l
     let scratch = Scratch::new("listed").await;
     let mut client = scratch.client().await;
     migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
+    calendar(&mut client).await;
     universe::store(&mut client, &universe_document()).await.unwrap();
     build::register(&mut client, &base_inventory_with_etha()).await.unwrap();
     client.query_one("SELECT vyreon.ensure_months('2024-07-01', '2024-07-31')", &[]).await.unwrap();

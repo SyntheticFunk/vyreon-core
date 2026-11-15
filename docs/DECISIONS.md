@@ -213,6 +213,11 @@ unusualness scores, and each slot's body, receipt and event stream as the engine
 - **The supersession rules are the engine's** (`publish_revision`): the day's previous revision of
   the profile, and, on a base publish, every later day's revision computed from a base.
 - **An inventory is written once.** Registering a build again is accepted only with the same rows.
+- *Added 2026-11-15 (audit 2026-11-14, core.md 12):* **a day is published only on a session of the
+  calendar core holds** (C-025); any other date is refused, and with no calendar loaded the publish
+  fails. A lease's day was always its job's session, but `vyreon-core publish` took a Saturday,
+  which the history never lists and whose `/v1/sessions/{date}` is a 404. Loading the calendar
+  therefore comes before publishing by hand as well.
 - Left for the recompute work (milestone 5): copy-forward revisions (`carried_from_revision`,
   `republish_scope`).
 

@@ -4,6 +4,7 @@
 //!
 //! Checked before anything is promoted (started from the engine's `vyreon-store` stage, verify
 //! and `publish_revision`):
+//!   * the day is a session of the calendar core holds;
 //!   * the members the bundle states as listed on the day are the ones core's universe lists
 //!     (`core.members_on`, a ticker that day): the worker and core agree on membership (C-036);
 //!   * the build is registered and the bundle's slots are exactly its inventory for the profile,
@@ -357,6 +358,17 @@ async fn check_header(tx: &Transaction<'_>, header: &Header) -> Result<Vec<Strin
     let (build, profile, date) = (&header.engine_build, &header.profile_revision, header.represented_date.as_str());
     if !core_contract::is_date(date) {
         return refuse(format!("represented_date {date} is not a date written YYYY-MM-DD"));
+    }
+    // a day is a session of the calendar: a day published on any other date would be stored where
+    // no reader looks (the history lists sessions only)
+    let row = tx
+        .query_one("SELECT EXISTS (SELECT FROM core.session WHERE session = $1::text::date), EXISTS (SELECT FROM core.session)", &[&date])
+        .await
+        .map_err(db)?;
+    match (row.get::<_, bool>(0), row.get::<_, bool>(1)) {
+        (true, _) => {}
+        (false, true) => return refuse(format!("{date} is not a trading session of the calendar")),
+        (false, false) => return Err(Error::Failed("core holds no trading calendar: `vyreon-core calendar load` first".into())),
     }
     if tx.query_opt("SELECT FROM core.engine_build WHERE engine_build = $1", &[build]).await.map_err(db)?.is_none() {
         return refuse(format!("engine build {build} is not registered"));
