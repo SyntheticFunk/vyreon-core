@@ -244,9 +244,17 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
     Ok(false)
 }
 
+/// Taken by every publish before any row lock, and by the claim of an ordered pass: a pass is then
+/// claimed either before a publish (which stops it if it reads that day) or after it (and reads
+/// what it published), never in between (`publish`).
+pub const PUBLISH_LOCK: &str = "SELECT pg_advisory_xact_lock(hashtextextended('vyreon publish', 0))";
+
 /// Claims the earliest claimable job of `kind` for the worker's own build, if there is one.
 pub async fn claim(client: &mut Client, kind: Kind, build: &str, worker: &str, lease_seconds: f64) -> Result<Option<Claim>, String> {
     let tx = client.transaction().await.map_err(db)?;
+    if kind == Kind::OrderedPass {
+        tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
+    }
     sweep(&tx).await?;
     let Some(job) = tx
         .query_opt(
@@ -269,8 +277,8 @@ pub async fn claim(client: &mut Client, kind: Kind, build: &str, worker: &str, l
     let lease = tx
         .query_one(
             "WITH t AS (SELECT replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '') AS token)
-             INSERT INTO core.lease (job_id, worker, token_sha256, expires_at)
-             SELECT $1, $2, encode(sha256(convert_to(token, 'UTF8')), 'hex'), now() + make_interval(secs => $3) FROM t
+             INSERT INTO core.lease (job_id, worker, token_sha256, granted_at, expires_at)
+             SELECT $1, $2, encode(sha256(convert_to(token, 'UTF8')), 'hex'), clock_timestamp(), now() + make_interval(secs => $3) FROM t
              RETURNING (SELECT token FROM t), to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')",
             &[&job_id, &worker, &lease_seconds],
         )

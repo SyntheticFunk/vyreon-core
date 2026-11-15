@@ -455,3 +455,72 @@ async fn a_member_not_listed_on_the_day_has_no_slots_and_the_day_keeps_who_was_l
     assert_eq!(recorded(&client, published.revision_id).await, (members_except(&["ETHA"]), 4));
     scratch.drop().await;
 }
+
+/// One of the slice's derived sensors as a profile of its own under a build of its own (the rows,
+/// bodies, receipts and scalars are the slice's; only the build and profile names are made here):
+/// C-031 splits the derived sensors into a day-local profile (DLM-MAX-PAIN is one) and a history
+/// profile (DLM-IV30 is one).
+async fn derived_profile(client: &mut Client, measurement: &str, name: &str, day_local: bool) -> (Header, Scalars, Vec<SlotFiles>) {
+    let (mut h, mut s, mut f) = parts(DERIVED);
+    let mut inventory = inventories().remove(1);
+    let profile = format!("{}-{name}", h.profile_revision);
+    inventory["engine_build"] = json!(format!("{}-{name}", h.engine_build));
+    inventory["slots"].as_array_mut().unwrap().retain(|row| row["measurement_id"] == measurement);
+    for row in inventory["slots"].as_array_mut().unwrap() {
+        row["profile_revision"] = json!(profile);
+    }
+    build::register(client, &inventory).await.unwrap();
+    let keep: Vec<bool> = h.slots.iter().map(|slot| slot.measurement_id == measurement).collect();
+    let mut i = 0;
+    h.slots.retain(|_| (keep[i], i += 1).0);
+    let mut i = 0;
+    f.retain(|_| (keep[i], i += 1).0);
+    s.reader_scalar.retain(|x| x.measurement_id == measurement);
+    (h.engine_build, h.profile_revision, h.day_local) = (inventory["engine_build"].as_str().unwrap().to_owned(), profile, day_local);
+    (h, s, f)
+}
+
+/// Audit 2026-11-14 (core.md) 2: a day-local revision published again takes down the revisions
+/// that read history on its day (unusualness reads every reader value of the day) and on every
+/// later day, as a base does; a history revision published again takes down the later days' ones.
+/// Day-local revisions of other days and every base stay. Published here by hand, without jobs,
+/// so nothing derives them again and a notice says so.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_replaced_day_local_or_history_revision_takes_down_what_read_it() {
+    let (scratch, mut client) = ready("cascade").await;
+    let day_local = derived_profile(&mut client, "DLM-MAX-PAIN", "DAY-LOCAL", true).await;
+    let history = derived_profile(&mut client, "DLM-IV30", "HISTORY", false).await;
+    let days = ["2025-12-10", "2025-12-11"];
+    let send = async |client: &mut Client, (h, s, f): &(Header, Scalars, Vec<SlotFiles>), day: &str| {
+        let mut h = h.clone();
+        h.represented_date = day.into();
+        publish(client, &bundle(&format!("cascade-{}-{day}", h.profile_revision), &h, s, f)).await.unwrap()
+    };
+    let base = parts(BASE);
+    let mut ids = Vec::new();
+    for day in days {
+        for profile in [&base, &day_local, &history] {
+            ids.push(send(&mut client, profile, day).await.revision_id);
+        }
+    }
+    let published = async |client: &Client| -> Vec<i64> {
+        client.query("SELECT revision_id FROM vyreon.day_revision WHERE state = 'PUBLISHED' ORDER BY 1", &[]).await.unwrap().iter().map(|r| r.get(0)).collect()
+    };
+    assert_eq!(published(&client).await, ids);
+    // [base 10th, day-local 10th, history 10th, base 11th, day-local 11th, history 11th]
+    let again = send(&mut client, &day_local, days[0]).await;
+    assert_eq!(again.superseded, 3, "the old day-local revision, and the history revisions of the 10th and the 11th");
+    assert_eq!(published(&client).await, [ids[0], ids[3], ids[4], again.revision_id]);
+    let said: String = client.query_one("SELECT message FROM core.notice ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    assert!(said.contains("no job derives these again, schedule them: 2025-12-10, 2025-12-11"), "{said}");
+
+    // the history derived again in order; then the 10th's history alone again takes the 11th's down
+    let tenth = send(&mut client, &history, days[0]).await;
+    let eleventh = send(&mut client, &history, days[1]).await;
+    assert_eq!((tenth.superseded, eleventh.superseded), (0, 0));
+    let tenth_again = send(&mut client, &history, days[0]).await;
+    assert_eq!(tenth_again.superseded, 2, "the 10th's own previous history revision and the 11th's");
+    assert_eq!(published(&client).await, [ids[0], ids[3], ids[4], again.revision_id, tenth_again.revision_id]);
+    scratch.drop().await;
+}

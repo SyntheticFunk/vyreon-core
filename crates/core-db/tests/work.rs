@@ -3,7 +3,7 @@
 //! published. Run with `cargo test -- --ignored`.
 use test_support::Scratch;
 use test_support::slice::{BASE, DERIVED, bundle, inventories, parts};
-use core_db::publish::publish_for_lease;
+use core_db::publish::{publish_file, publish_for_lease};
 use core_db::work::{self, Claim, Kind, LeaseError};
 use core_db::{build, migrate, universe};
 use serde_json::{Value, json};
@@ -262,6 +262,99 @@ async fn the_ordered_pass_follows_the_published_days_one_at_a_time() {
     assert_eq!(ordered(&mut client, &d).await, None, "the 11th still waits for its base day");
     assert_eq!(work::status(&client).await.unwrap()["claimable"], json!({}));
 
+    scratch.drop().await;
+}
+
+async fn notices(client: &Client) -> Vec<String> {
+    client.query("SELECT message FROM core.notice ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect()
+}
+
+async fn pass_jobs(client: &Client) -> Vec<(String, String, i32)> {
+    client
+        .query("SELECT first_session::text, state, attempts FROM core.job WHERE kind = 'ORDERED_PASS' ORDER BY first_session", &[])
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| (r.get(0), r.get(1), r.get(2)))
+        .collect()
+}
+
+/// The derived revision of `day` computed from `base`, sent under a lease.
+async fn derive(client: &mut Client, day: &str, base: i64, token: &str) -> Result<i64, LeaseError> {
+    let (mut h, s, f) = parts(DERIVED);
+    (h.represented_date, h.base_revision) = (day.into(), Some(base));
+    let path = bundle(&format!("derive-{day}-{base}"), &h, &s, &f);
+    let published = publish_for_lease(client, &path, token).await;
+    std::fs::remove_file(&path).unwrap();
+    published.map(|p| p.revision_id)
+}
+
+/// Audit 2026-11-14 (core.md) 1, 2 and 10: a day published again supersedes what read it, and the
+/// ordered pass derives that again instead of leaving it DONE with nothing published; a pass
+/// running on an affected day is stopped, and a pass whose lease predates a publish of a day it
+/// reads is refused. The slice's real bodies of 2025-12-10 are sent under the 11th as well: core's
+/// checks never read a body's date.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_day_published_again_takes_down_what_read_it_and_the_pass_derives_it_again() {
+    let (scratch, mut client, b, d) = ready("rederive").await;
+    admit(&client, &b).await;
+    admit(&client, &d).await;
+    let days = ["2025-12-10", "2025-12-11"];
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[0], days[1], 30).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, days[0], days[1], 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    let mut bases = Vec::new();
+    for day in days {
+        let (mut h, s, f) = parts(BASE);
+        h.represented_date = day.into();
+        let path = bundle(&format!("rederive-base-{day}"), &h, &s, &f);
+        bases.push(publish_for_lease(&mut client, &path, &block.token).await.unwrap().revision_id);
+        std::fs::remove_file(&path).unwrap();
+        work::day_done(&mut client, &block.token, day).await.unwrap();
+    }
+    work::finish(&mut client, &block.token).await.unwrap();
+    for (day, base) in days.iter().zip(&bases) {
+        let pass = ordered(&mut client, &d).await.unwrap();
+        assert_eq!(pass.sessions, [*day]);
+        derive(&mut client, day, *base, &pass.token).await.unwrap();
+        work::finish(&mut client, &pass.token).await.unwrap();
+    }
+    let done = |state: &str, attempts: i32| days.iter().map(|d| (d.to_string(), state.to_owned(), attempts)).collect::<Vec<_>>();
+    assert_eq!(pass_jobs(&client).await, done("DONE", 1));
+
+    // the 10th's base is published again: the 10th's derived revision was computed from the old
+    // base and the 11th's read the 10th, so both fall, and both passes are queued again
+    let (h, s, f) = parts(BASE);
+    let again = publish_file(&mut client, &bundle("rederive-again", &h, &s, &f)).await.unwrap();
+    assert_eq!(again.superseded, 3, "the old base, the 10th's derived revision and the 11th's");
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE state = 'PUBLISHED' AND base_revision IS NOT NULL").await, 0);
+    assert_eq!(pass_jobs(&client).await, done("QUEUED", 0));
+    let said = notices(&client).await;
+    assert!(said.last().unwrap().contains("the ordered pass derives 2 days again, 2025-12-10 to 2025-12-11"), "{said:?}");
+
+    // the 10th first, the 11th behind it; the base changes again while the 10th's pass runs: the
+    // pass is stopped (its lease is gone) and what it computed on the old base is not taken
+    let tenth = ordered(&mut client, &d).await.unwrap();
+    assert_eq!((tenth.sessions.as_slice(), ordered(&mut client, &d).await), (&["2025-12-10".to_owned()][..], None));
+    let third = publish_file(&mut client, &bundle("rederive-third", &h, &s, &f)).await.unwrap();
+    assert_eq!(derive(&mut client, days[0], again.revision_id, &tenth.token).await, Err(LeaseError::Gone));
+    assert_eq!(count(&client, &format!("SELECT count(*) FROM core.lease WHERE job_id = {} AND outcome = 'CANCELLED'", tenth.job_id)).await, 1);
+    assert_eq!(pass_jobs(&client).await, done("QUEUED", 0), "the stopped attempt is not counted against the pass");
+
+    // and if a publish of a day it reads came after its lease was granted without stopping it, the
+    // pass is refused all the same (made here by moving the grant back)
+    let tenth = ordered(&mut client, &d).await.unwrap();
+    client.execute("UPDATE core.lease SET granted_at = granted_at - interval '1 hour' WHERE job_id = $1 AND ended_at IS NULL", &[&tenth.job_id]).await.unwrap();
+    let refused = derive(&mut client, days[0], third.revision_id, &tenth.token).await.unwrap_err();
+    assert!(matches!(&refused, LeaseError::Refused(m) if m.contains(&format!("revision {} of 2025-12-10 was published after job {}", third.revision_id, tenth.job_id))), "{refused}");
+    client.execute("UPDATE core.lease SET granted_at = clock_timestamp() WHERE job_id = $1 AND ended_at IS NULL", &[&tenth.job_id]).await.unwrap();
+    derive(&mut client, days[0], third.revision_id, &tenth.token).await.unwrap();
+    work::finish(&mut client, &tenth.token).await.unwrap();
+    let eleventh = ordered(&mut client, &d).await.unwrap();
+    derive(&mut client, days[1], bases[1], &eleventh.token).await.unwrap();
+    work::finish(&mut client, &eleventh.token).await.unwrap();
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE state = 'PUBLISHED'").await, 4, "two bases and their two derived revisions");
     scratch.drop().await;
 }
 

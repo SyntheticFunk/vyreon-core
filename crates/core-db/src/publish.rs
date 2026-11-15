@@ -20,8 +20,10 @@
 //!     expects of the listed members recorded with the revision.
 //!
 //! Then the day's previous published revision of the profile is superseded and the new one
-//! published. Publishing a base revision also supersedes the later days' revisions that were
-//! computed from a base (their history windows read this day); the ordered pass derives them again.
+//! published, with what read what it replaces (`promote`): the day's own revisions computed from a
+//! replaced base or reading replaced day-local values, and every later day's revisions that read
+//! history. The ordered pass derives those again: its jobs are queued again in the same
+//! transaction, and a pass running on an affected day is stopped.
 use core_contract::{FIELD_OBJECT, Header, Item, LISTED_MEMBERS, Scalar, Scalars, SlotFiles, StreamRoot, read_bundle, sha256_hex};
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use futures_util::TryStreamExt;
@@ -129,6 +131,9 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
     let Some(Item::Header(header)) = items.recv().await else { return refuse("the bundle has no header") };
     let Some(Item::Scalars(scalars)) = items.recv().await else { return refuse("the bundle has no scalars") };
     let tx = client.transaction().await.map_err(db)?;
+    // one publish at a time, taken before any row lock: a publish supersedes and queues again what
+    // read its day, and an ordered pass is claimed under the same lock (`work::PUBLISH_LOCK`)
+    tx.execute(work::PUBLISH_LOCK, &[]).await.map_err(db)?;
     let date = header.represented_date.as_str();
     let lease = match token {
         None => None,
@@ -182,11 +187,30 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
             if lease.kind == "ORDERED_PASS" && (!based || header.day_local) {
                 return refuse("the ordered pass publishes only a revision computed from the day's base that reads history");
             }
+            if lease.kind == "ORDERED_PASS" {
+                // the pass read the days up to its own after its lease was granted: a day of them
+                // published since may have changed under it (a publish normally stops such a pass
+                // first, ending its lease; this is the check that it did)
+                let changed: Option<(String, i64)> = tx
+                    .query_opt(
+                        "SELECT d.represented_date::text, d.revision_id FROM vyreon.day_revision d, core.lease l
+                         WHERE l.lease_id = $1 AND d.represented_date <= $2::text::date AND d.published_at > l.granted_at
+                         ORDER BY d.published_at DESC LIMIT 1",
+                        &[&lease.lease_id, &date],
+                    )
+                    .await
+                    .map_err(db)?
+                    .map(|r| (r.get(0), r.get(1)));
+                if let Some((day, revision)) = changed {
+                    return refuse(format!(
+                        "revision {revision} of {day} was published after job {}'s lease was granted: the pass may have read what it replaced",
+                        lease.job_id
+                    ));
+                }
+            }
             Some(lease)
         }
     };
-    // one publish at a time per day and profile
-    tx.execute("SELECT pg_advisory_xact_lock(hashtextextended($1 || ' ' || $2, 0))", &[&date, &header.profile_revision]).await.map_err(db)?;
     let listed = check_header(&tx, &header).await?;
     if header.report.as_ref().is_some_and(|r| !r.is_object()) {
         return refuse("the report is not a JSON object");
@@ -246,7 +270,7 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
     }
     let (reader_scalars, unusual_scores) = insert_scalars(&tx, revision, date, &scalars).await?;
     let (streams, stream_bytes) = read_back(&tx, revision, date).await?;
-    let superseded = promote(&tx, revision, &header, base).await?;
+    let superseded = promote(&tx, revision, &header, base, lease.as_ref()).await?;
     // an ordered pass's day is its one bundle; a day block's is every bundle of the day (the base,
     // then what was computed on it: C-031), so its worker says when the day is done (`work::day_done`)
     if let Some(lease) = lease.as_ref().filter(|l| l.kind != "DAY_BLOCK") {
@@ -621,7 +645,18 @@ async fn read_back(tx: &Transaction<'_>, revision: i64, date: &str) -> Result<(u
 }
 
 /// Supersedes what the new revision replaces and publishes it. Returns how many it superseded.
-async fn promote(tx: &Transaction<'_>, revision: i64, header: &Header, base: Option<i64>) -> Result<u64, Error> {
+///
+/// Replaced: the day's previous revision of the profile. Then everything that read what this one
+/// replaces or adds to (C-031, ARCHITECTURE 5.3), whichever kind of revision this is:
+///   * on the day itself, a new base replaces the base every based revision of the day was
+///     computed from; a new day-local revision feeds the day's revisions that read history
+///     (DLM-UNUSUALNESS reads every reader value of the day); a new history revision feeds no
+///     other revision of its day;
+///   * on every later day, each revision that reads history read this day (its windows, or its
+///     own earlier values).
+/// What falls is derived again, not left to vanish: `rederive` queues its ordered-pass jobs again
+/// and stops a pass running on an affected day, in this transaction.
+async fn promote(tx: &Transaction<'_>, revision: i64, header: &Header, base: Option<i64>, lease: Option<&work::Held>) -> Result<u64, Error> {
     let date = header.represented_date.as_str();
     let mut superseded = tx
         .execute(
@@ -631,19 +666,119 @@ async fn promote(tx: &Transaction<'_>, revision: i64, header: &Header, base: Opt
         )
         .await
         .map_err(db)?;
-    if base.is_none() {
-        // this day is in the history windows of every later day's revisions that read history;
-        // the day's own based revisions were all computed from the base this one replaces
-        superseded += tx
-            .execute(
+    let same_day = match (base, header.day_local) {
+        (None, _) => "base_revision IS NOT NULL",
+        (Some(_), true) => "base_revision IS NOT NULL AND NOT day_local",
+        (Some(_), false) => "false",
+    };
+    let fallen = tx
+        .query(
+            &format!(
                 "UPDATE vyreon.day_revision SET state = 'SUPERSEDED'
-                 WHERE represented_date >= $1::text::date AND state = 'PUBLISHED' AND base_revision IS NOT NULL AND base_revision <> $2
-                   AND (represented_date = $1::text::date OR NOT day_local)",
-                &[&date, &revision],
-            )
-            .await
-            .map_err(db)?;
-    }
-    tx.execute("UPDATE vyreon.day_revision SET state = 'PUBLISHED', published_at = now() WHERE revision_id = $1", &[&revision]).await.map_err(db)?;
+                 WHERE state = 'PUBLISHED' AND base_revision IS NOT NULL AND revision_id <> $2
+                   AND ((represented_date > $1::text::date AND NOT day_local) OR (represented_date = $1::text::date AND {same_day}))
+                 RETURNING represented_date::text, profile_id, engine_build, day_local"
+            ),
+            &[&date, &revision],
+        )
+        .await
+        .map_err(db)?;
+    superseded += fallen.len() as u64;
+    let fallen: Vec<Fallen> = fallen.iter().map(|r| Fallen { day: r.get(0), profile_id: r.get(1), engine_build: r.get(2), day_local: r.get(3) }).collect();
+    rederive(tx, header, same_day != "false", &fallen, lease).await?;
+    // the clock, not the transaction's start: an ordered pass compares it with when its lease was
+    // granted, and both are taken under the publish lock
+    tx.execute("UPDATE vyreon.day_revision SET state = 'PUBLISHED', published_at = clock_timestamp() WHERE revision_id = $1", &[&revision])
+        .await
+        .map_err(db)?;
     Ok(superseded)
+}
+
+/// A revision a publish superseded because it read what the publish replaced.
+struct Fallen {
+    day: String,
+    profile_id: String,
+    engine_build: String,
+    day_local: bool,
+}
+
+/// The ordered pass derives again what fell (ARCHITECTURE 5.2): a pass running on an affected day
+/// is stopped (its lease ends and the worker is told the lease is gone) and queued again; the
+/// finished pass of each day whose history revision fell is queued again with fresh attempts.
+/// A day-local revision that fell with its day's base is the day block's to publish again on the
+/// new base. What no job will derive again is said in a notice, never left silent.
+async fn rederive(tx: &Transaction<'_>, header: &Header, same_day: bool, fallen: &[Fallen], lease: Option<&work::Held>) -> Result<(), Error> {
+    let date = header.represented_date.as_str();
+    let stopped: Vec<String> = tx
+        .query(
+            "WITH stopped AS (
+                 UPDATE core.lease l SET ended_at = now(), outcome = 'CANCELLED', failure = 'a day it reads was published again: it is derived again'
+                 FROM core.job j
+                 WHERE l.job_id = j.job_id AND l.ended_at IS NULL AND j.kind = 'ORDERED_PASS'
+                   AND (j.first_session > $1::text::date OR ($2 AND j.first_session = $1::text::date))
+                 RETURNING j.job_id)
+             UPDATE core.job SET state = 'QUEUED', next_session = first_session, attempts = GREATEST(attempts - 1, 0), finished_at = NULL
+             WHERE job_id IN (SELECT job_id FROM stopped) AND state = 'LEASED'
+             RETURNING first_session::text",
+            &[&date, &same_day],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let history: Vec<&Fallen> = fallen.iter().filter(|f| !f.day_local).collect();
+    let days: Vec<&str> = history.iter().map(|f| f.day.as_str()).collect();
+    let profiles: Vec<&str> = history.iter().map(|f| f.profile_id.as_str()).collect();
+    let builds: Vec<&str> = history.iter().map(|f| f.engine_build.as_str()).collect();
+    const FALLEN: &str = "fallen AS (SELECT * FROM unnest($1::text[]::date[], $2::text[], $3::text[]) AS f(day, profile_id, engine_build))";
+    const UNFINISHED: &str = "SELECT FROM core.job u WHERE u.kind = 'ORDERED_PASS' AND u.profile_id = f.profile_id AND u.first_session = f.day
+                                  AND u.state IN ('QUEUED', 'LEASED', 'FAILED')";
+    let requeued: Vec<String> = tx
+        .query(
+            &format!(
+                "WITH {FALLEN},
+                 redo AS (SELECT DISTINCT ON (f.day, f.profile_id, f.engine_build) j.job_id
+                          FROM fallen f JOIN core.job j ON j.kind = 'ORDERED_PASS' AND j.state = 'DONE' AND j.profile_id = f.profile_id
+                                                       AND j.engine_build = f.engine_build AND j.first_session = f.day
+                          WHERE NOT EXISTS ({UNFINISHED})
+                          ORDER BY f.day, f.profile_id, f.engine_build, j.job_id DESC)
+                 UPDATE core.job SET state = 'QUEUED', next_session = first_session, attempts = 0, finished_at = NULL
+                 WHERE job_id IN (SELECT job_id FROM redo)
+                 RETURNING first_session::text"
+            ),
+            &[&days, &profiles, &builds],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let mut orphans: Vec<String> = tx
+        .query(&format!("WITH {FALLEN} SELECT DISTINCT f.day::text FROM fallen f WHERE NOT EXISTS ({UNFINISHED}) ORDER BY 1"), &[&days, &profiles, &builds])
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    // a day block publishes its day's day-local revision again on the base it is publishing
+    if lease.is_none_or(|l| l.kind != "DAY_BLOCK") {
+        orphans.extend(fallen.iter().filter(|f| f.day_local).map(|f| format!("{} (day-local)", f.day)));
+    }
+    if stopped.is_empty() && requeued.is_empty() && orphans.is_empty() {
+        return Ok(());
+    }
+    let mut rerun: Vec<&String> = stopped.iter().chain(&requeued).collect();
+    rerun.sort();
+    rerun.dedup();
+    let mut text = format!("{} of {date} published: {} revisions that read it are superseded", header.profile_revision, fallen.len());
+    if let (Some(first), Some(last)) = (rerun.first(), rerun.last()) {
+        text.push_str(&format!("; the ordered pass derives {} days again, {first} to {last}", rerun.len()));
+    }
+    if !orphans.is_empty() {
+        let shown = orphans.iter().take(10).cloned().collect::<Vec<_>>().join(", ");
+        let more = if orphans.len() > 10 { format!(" and {} more", orphans.len() - 10) } else { String::new() };
+        text.push_str(&format!("; no job derives these again, schedule them: {shown}{more}"));
+    }
+    crate::notice::post(tx, &text).await.map_err(Error::Failed)
 }

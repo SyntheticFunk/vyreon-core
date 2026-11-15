@@ -440,3 +440,31 @@ Nothing stored may depend on which assets are in the universe. An asset not list
 - Tests send the slice's real AAPL bodies of 2025-12-10 under 2024-07-01 (ETHA not listed, IBIT
   listed); core's checks never read a body's date. The field object's path has no database test:
   no frozen slice holds a field body.
+
+## C-037 What a publish replaces takes down everything that read it, and the pass derives it again (2026-11-15)
+Audit 2026-11-14 (core.md) 1, 2 and 10. Amends C-024's supersession rule and C-031.
+- **Whatever kind of revision is published on day D**, every revision that read what it replaces
+  or adds to is superseded in the same transaction: on later days every revision that reads
+  history (its windows, or its own earlier values); on D itself, after a base every revision
+  computed from the old base (as before), after a day-local revision the revisions of D that read
+  history (DLM-UNUSUALNESS reads every reader value of the day). A history revision takes down
+  only later days. Before, only a base cascaded, so a replaced day-local or history revision left
+  dependants published on its old values.
+- **What falls is derived again, not left to vanish.** In the same transaction the finished
+  ordered-pass job of each day whose history revision fell is queued again with fresh attempts,
+  and a pass running on an affected day is stopped: its lease ends (`CANCELLED`, the worker is
+  told the lease is gone at its next call) and its job is queued again without counting that
+  attempt. Before, the jobs stayed DONE while their measurements were gone. A revision no job will
+  derive again (published by hand, or a day-local revision taken down by a base published outside
+  its day block) is named in a notice. The notice is posted only when a pass is queued again or
+  something is left with no job, so an ordinary day posts nothing new.
+- **A pass is refused if a day it reads was published after its lease was granted** (any revision
+  dated on or before its day): it may have read what was replaced. Publishes and ordered-pass
+  claims take one advisory lock (`work::PUBLISH_LOCK`, taken before any row lock), and the grant
+  and `published_at` are taken from the clock (`clock_timestamp()`), not the transaction's start,
+  so the comparison follows the lock's order. With the stop above this refusal should never fire;
+  it is the check that the stop happened. The lock replaces the per-day-and-profile one: C-025
+  already published one bundle at a time; now that holds across processes too.
+- **An ordinary day changes nothing:** a day block's base and day-local revision of D find no
+  published revision that reads history on D or later (the pass waits for the block, C-038), so
+  nothing is superseded beyond the day's own previous revision and no notice is posted.
