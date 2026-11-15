@@ -70,6 +70,22 @@ Working practice: at most three agents at once on the laptop; an audit after eve
   D-220..224), core on `pass-core-fix` (trailer bound, `--vouch` parsing). Open design choice
   (core): a leased day-local bundle can rebind to a base replaced by hand between a worker's two
   bundles; until decided, pause the queue before a hand publish of a base.
+- **Owner rulings, 2026-11-15 20:25 UTC:** (1) Greek exposure totals: publish the unsolved
+  count and the solved open-interest share as support now, no gate; a tolerance later from build
+  evidence. (2) Treasury: bootstrap a zero curve before the build. (3) All seven below-line
+  pull-ins go in (tape-cache upload retry; macro 429; one asset's inventory aborting every ACT01
+  job; a missing bar withholding ~750 sessions of surface; META's ACT01 family 2022-06-06..15;
+  m0 1 and m0 4). **Fix batch 5:** `pass-fx5-curve` (`/home/diggz/wt/fx5-curve`, D-225..227)
+  started 20:30; the Greek support and the pull-ins start as agent slots free (three at once).
+- Core `pass-core-fix` (C-042 with its two follow-ups): all 40 database tests pass on PostgreSQL
+  16 (20:28 UTC); pushed.
+- **Real day `r2` (test-1, e9cce438) finished 19:53 UTC, exit 0, no faults.** Against `p1`
+  (pre-fix): 4,679 slots, no state change; D-183 verified by hand from the bodies. Report:
+  `~/claude-artifacts/audits/2026-11-15-fix-round-a/day-r2-vs-p1.md` (8 explained, 11 to check,
+  4 unexplained). Unexplained, being root-caused (`day-r2-unexplained.md`): DLM-EVENT-WINDOW's
+  earnings_date reason on BABA and TSM (NO_UPCOMING_EARNINGS_DATE became DEPENDENCY_WITHHELD,
+  against D-173); VS-O02/O04/OIJ01 on BABA and MSTR, history session 2025-07-18 only (OI total
+  -0.215% and -0.070%, undeclared). M0 values were not compared (not in the dumps).
 - 2c: 2025-12-10 runs on both test droplets under e9cce438 since 16:52 UTC (`r2` on 137.184.61.134,
   `m4` on 192.241.147.166, after `act01_auto_source --rebind`, 59 cohorts each); due about 19:25 UTC.
 - To check on a droplet before the final-candidate day: whether captured dividend adjustment records
