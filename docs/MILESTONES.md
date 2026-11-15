@@ -153,6 +153,14 @@ Working practice: at most three agents at once on the laptop; an audit after eve
   reference suite's ACT01 checkers still apply D-037 without the guard; core has no
   `source_coverage` rows for `option_intervals` and `option_interval_trade_counts` (compiled
   dates apply).
+- **Final candidate: `pass-fx8` (worktree `/home/diggz/wt/fx8`, 99d79488, pushed 22:49 UTC)** =
+  `pass-fx7-all` (suite 22:40 UTC: 1,195 passed, 10 failed, known) plus the three findings of
+  fix 7's audit (`.../2026-11-15-fix-round-f/counts.md`): SAI-ACT01-INTRADAY's four copies of
+  SAI-ACT01 scalars score once (DLM-UNUSUALNESS@1.5.0; 232 copies on 2025-12-10), a summary array
+  with no supported cell is withheld (also EMB's untraded cohort: ZERO_DENOMINATOR), the reference
+  checkers follow D-237. Build and suite running. **From here: no more fix batches before the
+  real days; new findings are listed here unless above the cut line with data behind them.**
+  Next: deploy `pass-fx8` to the droplets when `m5` ends (about 00:40 UTC) and test-1 has disk.
 - 2c: 2025-12-10 runs on both test droplets under e9cce438 since 16:52 UTC (`r2` on 137.184.61.134,
   `m4` on 192.241.147.166, after `act01_auto_source --rebind`, 59 cohorts each); due about 19:25 UTC.
 - To check on a droplet before the final-candidate day: whether captured dividend adjustment records
