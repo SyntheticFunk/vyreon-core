@@ -5,14 +5,20 @@ The one living status document. History is in git; decisions in `docs/DECISIONS.
 
 ## Steps to the MVP (the list shown to the owner on a status request; keep it current)
 1. **Two-day cluster trial.** Done 2026-11-13.
-2. **Engine ready for the build.** In progress. To close it:
+2. **Engine ready for the build.** In progress. To close it (a Codex audit after each of a to e,
+   and one more on the merged whole before 2.5: repeated passes are the method, owner 2026-11-15):
    a. the seven fix tracks merged into `pass-fx-all` (done 2026-11-15); core's fixes on `pass-core-fix` (pushed);
-   b. the follow-ups `pass-fx2-{receipt,style,small}` finished and merged, full suite;
+      *audit of the merged round*
+   b. the follow-ups `pass-fx2-{receipt,style,small}` finished and merged, full suite; *audit*
    c. real days on the merged round: clean 2025-12-10 on both droplets, then on the final candidate a
-      clean day, a membership day and an early date; the AAPL tape-cache fixture regenerated;
-   d. Codex audit of the round, triage to the owner, fixes above the cut line (C-041);
-   e. `pass-s3i` rebased; engine to `worker` and core to `main` together; images rebuilt;
-   f. housekeeping: this file pruned to state and next steps.
+      clean day, a membership day and an early date; the AAPL tape-cache fixture regenerated; *audit
+      of whatever the days made us change*
+   d. triage of the audits to the owner; fixes above the cut line (C-041), each batch with its real
+      day; *audit*
+   e. `pass-s3i` rebased; engine to `worker` and core to `main` together; images rebuilt; *audit of
+      the merged branches (the gate into 2.5)*
+   f. housekeeping: this file pruned to state and next steps, the old one archived first
+      (`docs/archive/MILESTONES-<date>.md`, never edited after).
 3. **(2.5) Cluster verification:** 2025-12-10; 2025-04-11 (ETHA's option listing); a day before
    2024-07-23; a block over the FB to META rename (June 2022); a day after a 10-for-1 split. Then the
    newest two weeks on two nodes. New spend: the owner first.
