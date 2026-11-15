@@ -731,6 +731,18 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   `pass-s3i` to `worker` and `pass-core` to core's main together; rebuild the images; step 2.5
   on the cluster (2025-12-10; 2025-04-11; a day before 2024-07-23; a block over
   2022-06-01..06-17 for the rename; a day after a 10-for-1 split); the build from 2022-05-27.
+  **Fix round started 2026-11-15 06:55 UTC (owner: fix everything now).** First wave, engine
+  worktrees under `/home/diggz/wt/` branched from `pass` d028637a: `pass-fx-derived` (daily
+  findings; decisions D-171..174), `pass-fx-overlay` (overlay and option-sensor findings, the
+  run-time fields out of hashed identities, a key-free marker rewrite in `vyreon-inputs
+  terms`; D-175..178), `pass-fx-tape` (tape findings: the pre-tape build-blocker first, EVC01
+  across splits; D-179..182); core: `/home/diggz/wt/fx-core`, branch `pass-core-fix`
+  (C-037 on). A measurement of how often no expiry identifies the carry (the q = 0 default)
+  runs on the droplets. Second wave, not yet started: surface and pricing with the M0
+  findings (the Treasury-yield convention fixed by the standard; exercise style), day
+  orchestration and the executor (including a retried `finish`), FIELD's structural
+  findings, company (share counts from reported shares and the splits known by the date;
+  the midnight cutoff; retries). Common brief: session scratchpad `audit/base/fix-common.md`.
   **Verified subsystem findings, to fix before the build** (triage files give file:line and
   the smallest fix): stops a day: the ordered derive aborts for all 64 on one object's error
   (daily 8, likely on ETHA after 2026-10-06 through an exact-equality check, daily 13); one
