@@ -370,6 +370,57 @@ mod tests {
         assert!(refused.to_string().contains("the gzip stream after the last entry"), "{refused}");
     }
 
+    /// The engine's real bundle with `zeros` more zero bytes after the tar's end, inside the one
+    /// gzip member (what a tar padded to a larger record looks like; the entries are untouched).
+    fn engine_bundle_with_a_longer_tail(zeros: usize) -> Vec<u8> {
+        let mut tar = Vec::new();
+        GzDecoder::new(ENGINE_BUNDLE_AAPL).read_to_end(&mut tar).unwrap();
+        tar.resize(tar.len() + zeros, 0);
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        gz.write_all(&tar).unwrap();
+        gz.finish().unwrap()
+    }
+
+    /// Audit 2026-11-15 (fix round C, corepublish.md) 2: the drain that reaches the gzip trailer
+    /// is bounded. The tail after the last entry used to be decompressed whatever its length
+    /// while a publish waited. A tail within `MAX_TRAILING_BYTES` reads as before and its CRC is
+    /// still checked; a longer one is refused without being read to its end, after every slot
+    /// has been handed over (nothing is committed until the reader returns, C-024).
+    #[test]
+    fn a_bundle_with_more_than_the_allowed_tail_after_its_last_entry_is_refused() {
+        let slots = engine_header().slots.len();
+        let count = |bundle: &[u8]| {
+            let mut seen = 0;
+            let read = read_bundle(bundle, &mut |item| {
+                seen += matches!(item, Item::Slot(_)) as usize;
+                Ok(())
+            });
+            (seen, read)
+        };
+        let mut within = engine_bundle_with_a_longer_tail(MAX_TRAILING_BYTES as usize / 2);
+        let (seen, read) = count(&within);
+        read.unwrap();
+        assert_eq!(seen, slots);
+        let crc = within.len() - 8;
+        within[crc] ^= 1;
+        let (_, read) = count(&within);
+        assert!(read.unwrap_err().to_string().contains("the gzip stream after the last entry"));
+
+        // a tail of 64 times the limit: refused, and not read to its end first (the reader
+        // stopped with compressed input still unread, which an unbounded drain would have taken)
+        let beyond = engine_bundle_with_a_longer_tail(64 * MAX_TRAILING_BYTES as usize);
+        let mut input = beyond.as_slice();
+        let mut seen = 0;
+        let refused = read_bundle(&mut input, &mut |item| {
+            seen += matches!(item, Item::Slot(_)) as usize;
+            Ok(())
+        })
+        .unwrap_err();
+        assert!(refused.to_string().contains(&format!("more than {MAX_TRAILING_BYTES} bytes uncompressed follow the last entry")), "{refused}");
+        assert_eq!(seen, slots);
+        assert!(input.len() > beyond.len() - ENGINE_BUNDLE_AAPL.len() - input.len(), "{} of {} bytes left unread", input.len(), beyond.len());
+    }
+
     #[test]
     fn the_listed_set_travels_under_its_one_name() {
         // a header written before the field still reads, without a listed set

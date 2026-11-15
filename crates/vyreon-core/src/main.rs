@@ -281,3 +281,24 @@ async fn main() -> ExitCode {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::publish_args;
+
+    /// Fix round C (corepublish.md, noticed by the verifier): `publish a --vouch b` published `a`
+    /// unvouched and then failed opening a file named `--vouch`. The command line is now read
+    /// whole first: the flag counts wherever it stands, and a bad line names no bundle to publish.
+    #[test]
+    fn the_publish_command_line_is_read_whole_before_anything_is_published() {
+        assert_eq!(publish_args(&["a", "b"]), Ok((vec!["a", "b"], false)));
+        assert_eq!(publish_args(&["--vouch", "a", "b"]), Ok((vec!["a", "b"], true)));
+        assert_eq!(publish_args(&["a", "--vouch", "b"]), Ok((vec!["a", "b"], true)));
+        assert_eq!(publish_args(&["a", "b", "--vouch"]), Ok((vec!["a", "b"], true)));
+        assert_eq!(publish_args(&["./--vouch"]), Ok((vec!["./--vouch"], false)));
+        for bad in [&[][..], &["--vouch"], &["a", "--vuoch", "b"], &["a", "--vouch=yes"]] {
+            let refused = publish_args(bad).unwrap_err();
+            assert!(refused.contains("nothing was published"), "{refused}");
+        }
+    }
+}
