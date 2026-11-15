@@ -77,10 +77,10 @@ pub fn spawn_sweeper(app: Arc<App>) -> tokio::task::JoinHandle<()> {
         let mut tick = tokio::time::interval(std::time::Duration::from_secs(30));
         loop {
             tick.tick().await;
-            if let Ok(mut client) = app.pool.get().await {
-                if let Err(e) = core_db::work::sweep(&mut client).await {
-                    eprintln!("vyreon-core: lease sweep: {e}");
-                }
+            if let Ok(mut client) = app.pool.get().await
+                && let Err(e) = core_db::work::sweep(&mut client).await
+            {
+                eprintln!("vyreon-core: lease sweep: {e}");
             }
         }
     })

@@ -680,6 +680,7 @@ async fn read_back(tx: &Transaction<'_>, revision: i64, date: &str) -> Result<(u
 ///     other revision of its day;
 ///   * on every later day, each revision that reads history read this day (its windows, or its
 ///     own earlier values).
+///
 /// What falls is derived again, not left to vanish: `rederive` queues its ordered-pass jobs again
 /// and stops a pass running on an affected day, in this transaction.
 async fn promote(tx: &Transaction<'_>, revision: i64, header: &Header, base: Option<i64>, lease: Option<&work::Held>) -> Result<u64, Error> {
