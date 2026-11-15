@@ -353,3 +353,34 @@ async fn an_asset_not_listed_on_a_session_reads_as_not_listed() {
     assert_eq!(published["listed_members"], json!(members_except(&["ETHA"])));
     scratch.drop().await;
 }
+
+/// Audit 2026-11-14 (core.md) 16: a session added to the calendar inside a range already read
+/// changes the history's ETag, so a reader holding the old answer is not told 304 and keeps a
+/// response missing the session. The calendar is the engine's, first loaded without the 9th and
+/// the 11th of December 2025, then whole.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_session_added_to_the_calendar_changes_the_historys_etag() {
+    let scratch = Scratch::new("etag_calendar").await;
+    let mut client = scratch.client().await;
+    migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
+    let mut calendar: Value = serde_json::from_str(CALENDAR).unwrap();
+    calendar["sessions"].as_array_mut().unwrap().retain(|d| d != "2025-12-09" && d != "2025-12-11");
+    work::load_calendar(&mut client, &calendar).await.unwrap();
+    let doc = universe::read_responses(&fixtures().join("engine-v1-PROFILE.json"), &fixtures().join("intrinio-universe")).unwrap();
+    universe::store(&mut client, &doc).await.unwrap();
+    let reader = api_key::create(&client, "reporter", &["read".to_owned()]).await.unwrap();
+    let url = serve(&scratch).await;
+    let http = Http::new();
+    let path = format!("{url}/assets/AAPL/history?from=2025-12-09&to=2025-12-11");
+    let first = http.get(&path).bearer_auth(&reader).send().await.unwrap();
+    let etag = first.headers()["etag"].to_str().unwrap().to_owned();
+    assert_eq!(first.json::<Value>().await.unwrap()["sessions"].as_array().unwrap().len(), 1);
+    work::load_calendar(&mut client, &serde_json::from_str(CALENDAR).unwrap()).await.unwrap();
+    let again = http.get(&path).bearer_auth(&reader).header("if-none-match", &etag).send().await.unwrap();
+    assert_eq!(again.status(), StatusCode::OK);
+    assert_ne!(again.headers()["etag"].to_str().unwrap(), etag);
+    let dates: Vec<Value> = again.json::<Value>().await.unwrap()["sessions"].as_array().unwrap().iter().map(|s| s["date"].clone()).collect();
+    assert_eq!(dates, [json!("2025-12-09"), json!("2025-12-10"), json!("2025-12-11")]);
+    scratch.drop().await;
+}

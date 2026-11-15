@@ -276,6 +276,10 @@ history pages at 20 sessions, headline at 260. No Parquet yet (no reader has ask
   words such as "yesterday" as dates, which a test caught on the session route.
 - The service reads through its one database pool; a separate login in the `vyreon_reader` role
   comes with the deployment.
+- *Amended 2026-11-15 (audit 2026-11-14, core.md 16):* a history's ETag is taken over every session
+  it lists, not only the revisions it serves, so a session added to the calendar inside a range a
+  reader holds changes it (RFC 9110 8.8.1: a strong validator changes with the representation).
+  Every history ETag changes once with this release.
 
 ## C-027 Notices are an outbox; automated admission waits for track B (2026-11-10)
 - A notice is a row written in the same transaction as the event it reports, and the service posts

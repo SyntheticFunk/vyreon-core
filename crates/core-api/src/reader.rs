@@ -310,6 +310,9 @@ async fn read_history(client: &Client, headers: &HeaderMap, object: &str, q: His
             break;
         }
         if sessions.last().is_none_or(|s| s.date != date) {
+            // every session listed is part of what the response says, published or not: a session
+            // added to the calendar inside the range must change the ETag (RFC 9110 8.8.1)
+            identity.push_str(&format!(" {date}"));
             sessions.push(Session { date: date.clone(), state: "NOT_PUBLISHED", revisions: Vec::new() });
         }
         let session = sessions.last_mut().expect("just pushed");
@@ -349,7 +352,8 @@ async fn read_history(client: &Client, headers: &HeaderMap, object: &str, q: His
             scalars: raw(row.get(16))?,
         });
     }
-    // published revisions never change: the ids served, with what was asked, identify the response
+    // published revisions never change: the sessions listed and the ids served, with what was
+    // asked, identify the response
     let etag = format!("\"{}\"", &sha256_hex(format!("{identity} {next:?}").as_bytes())[..32]);
     if headers.get(header::IF_NONE_MATCH).and_then(|v| v.to_str().ok()) == Some(etag.as_str()) {
         return Ok((StatusCode::NOT_MODIFIED, [(header::ETAG, etag)]).into_response());
