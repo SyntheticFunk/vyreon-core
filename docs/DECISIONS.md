@@ -468,3 +468,23 @@ Audit 2026-11-14 (core.md) 1, 2 and 10. Amends C-024's supersession rule and C-0
 - **An ordinary day changes nothing:** a day block's base and day-local revision of D find no
   published revision that reads history on D or later (the pass waits for the block, C-038), so
   nothing is superseded beyond the day's own previous revision and no notice is posted.
+
+## C-038 A job is done when its sessions are; finish, day_done and session_done may arrive twice or late (2026-11-15)
+Audit 2026-11-14 (core.md) 6 and 5. Amends C-025.
+- **A job whose every session is done is DONE when its lease ends**, by expiry or by `fail`,
+  whatever became of its worker's `finish`. Before, a lost `finish` left it QUEUED with no next
+  session: the claim panicked on it, and, being the earliest job of its kind, it stopped every
+  claim of that kind; a day block out of attempts in that state failed a NOT NULL check inside the
+  claim's transaction, so every claim failed. `retry-failed` makes such a FAILED job DONE.
+- **Calls a worker sends once are safe twice or late.** `finish` on a lease whose job is DONE
+  answers with the job, as the first one did; `days/{date}/done` and a tape session's `done` for a
+  session already done answer and change nothing; a publish sent twice was already answered
+  (C-028). A late call on a lease that expired with work left is told the lease is gone (410), and
+  the next claim redoes the day.
+- **The sweep ends each expired lease and moves its job in one transaction of its own** (before:
+  the service's sweeper ended every expired lease in one autocommitted statement and moved the jobs
+  in others, so a restart between them left jobs LEASED under ended leases that nothing recovers).
+  A lease that cannot be ended is reported and does not keep the others from ending. The claim
+  sweeps first, outside its own transaction, and ignores what the sweep could not do (the sweeper
+  reports it every half minute), so one bad job cannot block every claim; the claim also skips a
+  job with no next session rather than read it as one.

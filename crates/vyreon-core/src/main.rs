@@ -87,7 +87,7 @@ async fn queue(change: &[&str]) -> Result<(), String> {
         }
         _ => return Err("queue [pause <reason> | resume | retry-failed | cancel <job>...]".into()),
     }
-    work::sweep(&client).await?;
+    work::sweep(&mut client).await?;
     println!("{}", serde_json::to_string_pretty(&work::status(&client).await?).map_err(|e| e.to_string())?);
     Ok(())
 }

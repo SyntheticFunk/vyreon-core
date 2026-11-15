@@ -156,35 +156,76 @@ pub struct Claim {
     pub expires_at: String,
 }
 
-/// Ends the leases that were not renewed in time. Their jobs go back to the queue, or to FAILED
-/// (pausing the queue) once out of attempts. Returns how many leases expired.
-pub async fn sweep(db_client: &impl GenericClient) -> Result<u64, String> {
-    let expired = db_client
-        .query(
+/// Ends the leases that were not renewed in time. Their jobs go back to the queue, to FAILED
+/// once out of attempts, or to DONE when every session was done. Each lease is ended and its job
+/// moved in one transaction of its own, so a restart between the two cannot leave a job LEASED
+/// under an ended lease, and a lease that cannot be ended does not keep the others from it.
+/// Returns how many leases expired; an error names every lease that could not be ended (the
+/// others are done).
+pub async fn sweep(client: &mut Client) -> Result<u64, String> {
+    let expired: Vec<i64> = client
+        .query("SELECT lease_id FROM core.lease WHERE ended_at IS NULL AND expires_at < now() ORDER BY lease_id", &[])
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let (mut ended, mut errors) = (0, Vec::new());
+    for lease in expired {
+        match expire(client, lease).await {
+            Ok(true) => ended += 1,
+            Ok(false) => {}
+            Err(e) => errors.push(format!("lease {lease}: {e}")),
+        }
+    }
+    if errors.is_empty() { Ok(ended) } else { Err(errors.join("; ")) }
+}
+
+/// Ends one expired lease and moves its job, in one transaction. False when it was renewed or
+/// ended meanwhile.
+async fn expire(client: &mut Client, lease: i64) -> Result<bool, String> {
+    let tx = client.transaction().await.map_err(db)?;
+    let Some(row) = tx
+        .query_opt(
             "UPDATE core.lease SET ended_at = now(), outcome = 'EXPIRED', failure = 'the lease was not renewed'
-             WHERE ended_at IS NULL AND expires_at < now() RETURNING job_id",
-            &[],
+             WHERE lease_id = $1 AND ended_at IS NULL AND expires_at < now() RETURNING job_id",
+            &[&lease],
         )
         .await
-        .map_err(db)?;
-    for row in &expired {
-        requeue(db_client, row.get(0), "its lease expired").await?;
-    }
-    Ok(expired.len() as u64)
+        .map_err(db)?
+    else {
+        return Ok(false);
+    };
+    requeue(&tx, row.get(0), "its lease expired").await?;
+    tx.commit().await.map_err(db)?;
+    Ok(true)
 }
 
 /// How many day jobs may stand FAILED before the queue stops: one bad day is set aside and the
 /// rest of the build goes on; several at once look like the engine, not the day (C-035).
 pub const FAILED_DAYS_PAUSE: i64 = 3;
 
-/// A job whose attempt ended without finishing: queued again, or FAILED. A day block out of
-/// attempts keeps only the day it stopped on: the days before it are done, the days after it
-/// become a new queued block, and the queue pauses only at `FAILED_DAYS_PAUSE` failed days. An
-/// ordered pass out of attempts stays FAILED without a pause; a tape job pauses the queue at once
-/// (the day blocks wait on it).
+/// A job whose attempt ended without finishing: DONE, queued again, or FAILED. A job whose every
+/// session is done is DONE, whatever became of its worker's `finish` (lost, never sent, or sent
+/// after a failure): there is nothing left to claim. A day block out of attempts keeps only the
+/// day it stopped on: the days before it are done, the days after it become a new queued block,
+/// and the queue pauses only at `FAILED_DAYS_PAUSE` failed days. An ordered pass out of attempts
+/// stays FAILED without a pause; a tape job pauses the queue at once (the day blocks wait on it).
+/// Returns true when the job was queued again.
 async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<bool, String> {
-    let again: bool = db_client
-        .query_one(
+    if let Some(done) = db_client
+        .query_opt(
+            &format!("UPDATE core.job SET state = 'DONE', finished_at = now() WHERE job_id = $1 AND state = 'LEASED' AND next_session IS NULL RETURNING {FINISHED}"),
+            &[&job],
+        )
+        .await
+        .map_err(db)?
+    {
+        finished(db_client, &done, "its worker, whose finish never arrived").await?;
+        return Ok(false);
+    }
+    let Some(again) = db_client
+        .query_opt(
             "UPDATE core.job SET state = CASE WHEN attempts < max_attempts THEN 'QUEUED' ELSE 'FAILED' END,
                                  finished_at = CASE WHEN attempts < max_attempts THEN NULL ELSE now() END
              WHERE job_id = $1 AND state = 'LEASED' RETURNING state = 'QUEUED'",
@@ -192,8 +233,11 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         )
         .await
         .map_err(db)?
-        .get(0);
-    if again {
+    else {
+        // not under a lease any more (cancelled, or moved by a publish): nothing to move
+        return Ok(false);
+    };
+    if again.get(0) {
         return Ok(true);
     }
     let kind: String = db_client.query_one("SELECT kind FROM core.job WHERE job_id = $1", &[&job]).await.map_err(db)?.get(0);
@@ -251,16 +295,18 @@ pub const PUBLISH_LOCK: &str = "SELECT pg_advisory_xact_lock(hashtextextended('v
 
 /// Claims the earliest claimable job of `kind` for the worker's own build, if there is one.
 pub async fn claim(client: &mut Client, kind: Kind, build: &str, worker: &str, lease_seconds: f64) -> Result<Option<Claim>, String> {
+    // expired leases end first, each in its own transaction; one that cannot be ended is reported
+    // by the service's sweeper every half minute and does not stop this claim
+    let _ = sweep(client).await;
     let tx = client.transaction().await.map_err(db)?;
     if kind == Kind::OrderedPass {
         tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
     }
-    sweep(&tx).await?;
     let Some(job) = tx
         .query_opt(
             "UPDATE core.job SET state = 'LEASED', attempts = attempts + 1
              WHERE job_id = (SELECT j.job_id FROM core.job j
-                             WHERE j.job_id IN (SELECT job_id FROM core.claimable_job WHERE kind = $1 AND engine_build = $2)
+                             WHERE j.job_id IN (SELECT job_id FROM core.claimable_job WHERE kind = $1 AND engine_build = $2 AND next_session IS NOT NULL)
                              ORDER BY j.first_session, j.job_id LIMIT 1 FOR UPDATE SKIP LOCKED)
                AND state = 'QUEUED'
              RETURNING job_id, profile_id, scope::text, attempts, next_session::text, last_session::text",
@@ -269,11 +315,11 @@ pub async fn claim(client: &mut Client, kind: Kind, build: &str, worker: &str, l
         .await
         .map_err(db)?
     else {
-        tx.commit().await.map_err(db)?; // keeps the sweep
         return Ok(None);
     };
-    let (job_id, profile_id, scope, attempt, next, last): (i64, String, Option<String>, i32, String, String) =
+    let (job_id, profile_id, scope, attempt, next, last): (i64, String, Option<String>, i32, Option<String>, String) =
         (job.get(0), job.get(1), job.get(2), job.get(3), job.get(4), job.get(5));
+    let next = next.ok_or_else(|| format!("job {job_id} has no session left to do"))?;
     let lease = tx
         .query_one(
             "WITH t AS (SELECT replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '') AS token)
@@ -329,6 +375,7 @@ pub struct Held {
     pub kind: String,
     pub profile_id: String,
     pub engine_build: String,
+    pub first_session: String,
     pub next_session: Option<String>,
     pub last_session: String,
 }
@@ -337,7 +384,7 @@ async fn find(db_client: &impl GenericClient, token: &str, lock: &str) -> Result
     let row = db_client
         .query_opt(
             &format!(
-                "SELECT l.lease_id, l.worker, j.job_id, j.kind, j.profile_id, j.engine_build, j.next_session::text, j.last_session::text
+                "SELECT l.lease_id, l.worker, j.job_id, j.kind, j.profile_id, j.engine_build, j.next_session::text, j.last_session::text, j.first_session::text
                  FROM core.lease l JOIN core.job j USING (job_id)
                  WHERE l.token_sha256 = encode(sha256(convert_to($1, 'UTF8')), 'hex') AND l.ended_at IS NULL AND l.expires_at >= now()
                    AND j.state = 'LEASED' {lock}"
@@ -354,6 +401,7 @@ async fn find(db_client: &impl GenericClient, token: &str, lock: &str) -> Result
         kind: row.get(3),
         profile_id: row.get(4),
         engine_build: row.get(5),
+        first_session: row.get(8),
         next_session: row.get(6),
         last_session: row.get(7),
     })
@@ -387,8 +435,13 @@ pub async fn heartbeat(client: &mut Client, token: &str, lease_seconds: f64) -> 
 }
 
 /// Marks the lease's next session done and moves the job to the following one. The sessions of a
-/// job are done strictly in order: `session` must be the job's next.
+/// job are done strictly in order: `session` must be the job's next. A session of the job already
+/// done is accepted and changes nothing: the call was sent again after its answer was lost.
 pub async fn session_done(db_client: &impl GenericClient, lease: &Held, session: &str) -> Result<(), LeaseError> {
+    let already = session >= lease.first_session.as_str() && session <= lease.last_session.as_str() && lease.next_session.as_deref().is_none_or(|next| session < next);
+    if already {
+        return Ok(());
+    }
     if lease.next_session.as_deref() != Some(session) {
         return Err(LeaseError::Refused(format!("job {}'s next session is {}, not {session}", lease.job_id, lease.next_session.as_deref().unwrap_or("none: all are done"))));
     }
@@ -428,34 +481,55 @@ pub async fn day_done(client: &mut Client, token: &str, session: &str) -> Result
     tx.commit().await.map_err(failed)
 }
 
-/// Ends the lease with the job done. Refused while sessions remain.
+/// Ends the lease with the job done. Refused while sessions remain. Sent again, or late (after the
+/// lease expired with every session done, when the sweep has made the job DONE), it is answered
+/// the same way and changes nothing.
 pub async fn finish(client: &mut Client, token: &str) -> Result<i64, LeaseError> {
     let tx = client.transaction().await.map_err(failed)?;
-    let lease = held(&tx, token).await?;
+    let lease = match held(&tx, token).await {
+        Ok(lease) => lease,
+        Err(LeaseError::Gone) => {
+            let done = tx
+                .query_opt(
+                    "SELECT j.job_id FROM core.lease l JOIN core.job j USING (job_id)
+                     WHERE l.token_sha256 = encode(sha256(convert_to($1, 'UTF8')), 'hex') AND j.state = 'DONE'",
+                    &[&token],
+                )
+                .await
+                .map_err(failed)?;
+            return done.map(|r| r.get(0)).ok_or(LeaseError::Gone);
+        }
+        Err(e) => return Err(e),
+    };
     if let Some(next) = &lease.next_session {
         return Err(LeaseError::Refused(format!("job {} is not done: {next} to {} remain", lease.job_id, lease.last_session)));
     }
     tx.execute("UPDATE core.lease SET ended_at = now(), outcome = 'DONE' WHERE lease_id = $1", &[&lease.lease_id]).await.map_err(failed)?;
     let job = tx
-        .query_one(
-            "UPDATE core.job SET state = 'DONE', finished_at = now() WHERE job_id = $1
-             RETURNING first_session::text, last_session::text,
-                       (SELECT count(*) FROM core.job o WHERE o.kind = core.job.kind AND o.job_id <> core.job.job_id AND o.state IN ('QUEUED', 'LEASED', 'FAILED'))",
-            &[&lease.job_id],
-        )
+        .query_one(&format!("UPDATE core.job SET state = 'DONE', finished_at = now() WHERE job_id = $1 RETURNING {FINISHED}"), &[&lease.job_id])
         .await
         .map_err(failed)?;
-    let (first, last, remaining): (String, String, i64) = (job.get(0), job.get(1), job.get(2));
-    // one line per finished day block; for the many small jobs, only when the last one is in
-    if lease.kind == "DAY_BLOCK" {
-        let text = format!("Day block {first} to {last} done by {} ({remaining} blocks to go).", lease.worker);
-        notice::post(&tx, &text).await.map_err(LeaseError::Failed)?;
-    } else if remaining == 0 {
-        let what = if lease.kind == "TAPE" { "tape" } else { "ordered pass" };
-        notice::post(&tx, &format!("Every scheduled {what} job is done (the last: {last}).")).await.map_err(LeaseError::Failed)?;
-    }
+    finished(&tx, &job, &lease.worker).await.map_err(LeaseError::Failed)?;
     tx.commit().await.map_err(failed)?;
     Ok(lease.job_id)
+}
+
+/// What `finished` reads of a job just made DONE.
+const FINISHED: &str = "kind, first_session::text, last_session::text,
+    (SELECT count(*) FROM core.job o WHERE o.kind = core.job.kind AND o.job_id <> core.job.job_id AND o.state IN ('QUEUED', 'LEASED', 'FAILED'))";
+
+/// The notice of a finished job: one line per day block; for the many small jobs, only when the
+/// last one is in.
+async fn finished(db_client: &impl GenericClient, job: &tokio_postgres::Row, by: &str) -> Result<(), String> {
+    let (kind, first, last, remaining): (String, String, String, i64) = (job.get(0), job.get(1), job.get(2), job.get(3));
+    if kind == "DAY_BLOCK" {
+        notice::post(db_client, &format!("Day block {first} to {last} done by {by} ({remaining} blocks to go).")).await
+    } else if remaining == 0 {
+        let what = if kind == "TAPE" { "tape" } else { "ordered pass" };
+        notice::post(db_client, &format!("Every scheduled {what} job is done (the last: {last}).")).await
+    } else {
+        Ok(())
+    }
 }
 
 /// Ends the lease with the worker's account of its failure: the stage, a message and the day's
@@ -497,9 +571,21 @@ pub async fn resume(db_client: &impl GenericClient) -> Result<Option<String>, St
     Ok(was)
 }
 
-/// Puts FAILED jobs back in the queue with their attempts reset (after the cause is fixed).
+/// Puts FAILED jobs back in the queue with their attempts reset (after the cause is fixed). One
+/// whose every session was done is DONE instead: there is nothing left to claim. Returns how many
+/// were queued again.
 pub async fn retry_failed(db_client: &impl GenericClient) -> Result<u64, String> {
-    db_client.execute("UPDATE core.job SET state = 'QUEUED', attempts = 0, finished_at = NULL WHERE state = 'FAILED'", &[]).await.map_err(db)
+    let rows = db_client
+        .query(
+            "UPDATE core.job SET state = CASE WHEN next_session IS NULL THEN 'DONE' ELSE 'QUEUED' END,
+                                 attempts = CASE WHEN next_session IS NULL THEN attempts ELSE 0 END,
+                                 finished_at = CASE WHEN next_session IS NULL THEN finished_at END
+             WHERE state = 'FAILED' RETURNING state = 'QUEUED'",
+            &[],
+        )
+        .await
+        .map_err(db)?;
+    Ok(rows.iter().filter(|r| r.get::<_, bool>(0)).count() as u64)
 }
 
 /// Withdraws jobs that are not finished: each becomes CANCELLED and any live lease on it ends, so
