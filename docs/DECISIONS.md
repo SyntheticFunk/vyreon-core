@@ -592,4 +592,7 @@ worker's day-local bundle names no `base_revision`, so on the leased path it bin
 base is published now, and a base of the same date published by hand between the worker's base and
 its day-local bundle would leave values derived from the old base stored on the new one (the day
 block's lease is not ended, as an ordered pass's is). Until that is decided, the operating rule:
-during a build, `vyreon-core queue pause` before any hand publish of a base, and resume after.
+during a build, `vyreon-core queue pause`, wait until no day block is leased (a pause stops new
+claims, not a lease already held), then publish the base by hand, then resume. (Corrected the same
+day after the audit of this note: pausing alone left a live lease free to publish.) The trailer
+bound counts bytes after the tar's end-of-archive blocks.
