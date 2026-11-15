@@ -4,6 +4,10 @@ An independent reader (Codex, read-only) audits the engine and core by subsystem
 claims, verified before anything is fixed. Owner, 2026-11-13/14: audits on every independent system,
 after every merged batch and before the build; Codex does no code work. Decision C-041.
 
+**When:** without the owner asking. Every landed step or merged batch gets an audit of the scopes it
+touched (a scope file written for the change, if none fits), started in the background while work
+goes on; the whole system is audited before the build and after any change that crosses subsystems.
+
 Everything the loop needs is in this directory, so a new session can run it without the last one.
 
 ## The loop
