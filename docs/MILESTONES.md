@@ -712,7 +712,12 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   at 08:16 UTC when the WSL disk filled: every engine worktree under `/home/diggz/wt` had its
   own cargo target (646 GB). Deleted with the owner's word: every `wt/target-*` except
   `target-fx-all`, the worker checkout's target, old session scratch (889 GB used -> 184 GB).
-  Rule from now: worktrees share one `CARGO_TARGET_DIR`, and a merged worktree is removed.
+  Rule from now: a worktree's cargo target is deleted when its branch is merged (a shared
+  target saves little: each worktree vendors its own dependencies).
+  Owner, 2026-11-15 (C-041): the audit loop is in `tools/audit/`; the exit is no verified
+  finding above the cut line (a wrong number in the database, or only a full rebuild corrects
+  it), not two clean audits; a real day after each merged batch; no need to run at full
+  throttle (usage limits reset).
   Nothing committed was lost. `pass-fx-all` e9cce438 is deployed on both test droplets (build
   `e9cce438+29f01f9ec6a9`); the key-free marker rewrite worked there (12,864 quote files
   requoted), then 2025-12-10 was refused on both (runs `r1`, `m3`): 58-59 ACT01 cohorts bind

@@ -413,3 +413,17 @@ passes wait for it by the claim rule, the day blocks do not read it, and a pass 
 run again once its cause is fixed. `queue retry-failed` puts the set-aside days back.
 Reason: the owner's rule that a stopped day never holds up other dates (2026-11-12), with the
 engine's sensor-level withholding as the first line (a fault withholds its sensors, not the day).
+
+## C-041 The audit loop lives in the repository; the cut line for the build (2026-11-15)
+The Codex audit loop (briefs, scopes, the runner, the fix rules) is in `tools/audit/`, with the
+steps in its README. It had lived in a session's scratch directory and was nearly lost when WSL's
+disk filled on 2026-11-15.
+The engine is ready for the build when an audit of the candidate leaves no verified finding that
+would put a wrong number in the database or that only a full rebuild could correct. Other verified
+findings are listed and fixed after, by a scoped republish. This replaces "two consecutive clean
+audits" (never an owner rule; every round so far has found something, partly in the code the
+round before added). Each merged batch of fixes runs a real day before the next batch starts.
+Order of authority: a published standard, then product intent, then the owner.
+Reason: owner, 2026-11-15; rebuilds and republishes are a planned workload, and the build is the
+correctness experiment.
+(C-036 to C-040 are on `pass-core-fix`, not yet merged here.)

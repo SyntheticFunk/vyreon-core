@@ -60,6 +60,8 @@ The engine computes; core schedules, stores and serves. The measurements are the
   verify zero survivors before restarting.
 - Discord notices go to the channel only, never phone pings.
 - Production code hard-codes no machine paths.
+- Audits: the Codex audit loop is `tools/audit/` (README: audit, triage, cut line, fix, real day,
+  audit again). Findings are claims to verify; Codex does no code work.
 - One status document, `docs/MILESTONES.md`, kept short; git is the history. Commit each landed step
   with a short summary; separate commits for code, tests, docs and deploy.
 - Report delivered capability, not documents or test counts. Times for the owner in Mountain Time.
