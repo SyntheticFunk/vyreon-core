@@ -112,10 +112,14 @@ const GONE: &str = "no live lease has this token";
 
 async fn publish(client: &mut Client, path: &Path, token: Option<&str>) -> Result<Published, Error> {
     let file = std::fs::File::open(path).map_err(|e| Error::Failed(format!("{}: {e}", path.display())))?;
-    // the bundle is read on a blocking thread, one slot ahead of the database
-    let (sender, mut items) = channel::<Item>(1);
+    // the bundle is read on a blocking thread, one slot ahead of the database; its end is sent as
+    // `None` once the whole bundle has been read, so a channel closed without it (the reader
+    // failed, perhaps after the last slot) is never taken for a complete bundle
+    let (sender, mut items) = channel::<Option<Item>>(1);
     let reader = tokio::task::spawn_blocking(move || {
-        read_bundle(std::io::BufReader::new(file), &mut |item| sender.blocking_send(item).map_err(|_| std::io::Error::other("publish stopped")))
+        let stopped = |_| std::io::Error::other("publish stopped");
+        read_bundle(std::io::BufReader::new(file), &mut |item| sender.blocking_send(Some(item)).map_err(stopped))?;
+        sender.blocking_send(None).map_err(stopped)
     });
     let result = publish_items(client, &mut items, token).await;
     drop(items);
@@ -127,9 +131,9 @@ async fn publish(client: &mut Client, path: &Path, token: Option<&str>) -> Resul
     }
 }
 
-async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: Option<&str>) -> Result<Published, Error> {
-    let Some(Item::Header(header)) = items.recv().await else { return refuse("the bundle has no header") };
-    let Some(Item::Scalars(scalars)) = items.recv().await else { return refuse("the bundle has no scalars") };
+async fn publish_items(client: &mut Client, items: &mut Receiver<Option<Item>>, token: Option<&str>) -> Result<Published, Error> {
+    let Some(Some(Item::Header(header))) = items.recv().await else { return refuse("the bundle has no header") };
+    let Some(Some(Item::Scalars(scalars))) = items.recv().await else { return refuse("the bundle has no scalars") };
     let tx = client.transaction().await.map_err(db)?;
     // one publish at a time, taken before any row lock: a publish supersedes and queues again what
     // read its day, and an ordered pass is claimed under the same lock (`work::PUBLISH_LOCK`)
@@ -246,7 +250,7 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
         .map_err(db)?;
     for slot in &header.slots {
         let name = format!("{}/{}", slot.measurement_id, slot.object_id);
-        let Some(Item::Slot(files)) = items.recv().await else { return refuse(format!("{name}: the bundle ends before this slot")) };
+        let Some(Some(Item::Slot(files))) = items.recv().await else { return refuse(format!("{name}: the bundle ends before this slot")) };
         let staged = check_slot(slot, &files).map_err(|e| Error::Refused(format!("{name}: {e}")))?;
         tx.execute(
             &insert_slot,
@@ -265,8 +269,11 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
             .map_err(|e| prefixed(&name, db(e)))?;
         }
     }
-    if items.recv().await.is_some() {
-        return refuse("the bundle holds more than its header lists");
+    // nothing is written unless the reader says the bundle ended where its header says (C-024)
+    match items.recv().await {
+        Some(None) => {}
+        Some(Some(_)) => return refuse("the bundle holds more than its header lists"),
+        None => return refuse("the bundle could not be read to its end"),
     }
     let (reader_scalars, unusual_scores) = insert_scalars(&tx, revision, date, &scalars).await?;
     let (streams, stream_bytes) = read_back(&tx, revision, date).await?;

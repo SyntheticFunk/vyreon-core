@@ -16,6 +16,11 @@ use tokio_postgres::Client;
 
 /// A bundle written entry by entry, without the writer's checks: for bundles that are wrong.
 fn raw_bundle(name: &str, header: &Header, scalars: &Scalars, files: &[SlotFiles]) -> PathBuf {
+    raw_bundle_and(name, header, scalars, files, &[])
+}
+
+/// The same, with entries after the last slot's.
+fn raw_bundle_and(name: &str, header: &Header, scalars: &Scalars, files: &[SlotFiles], after: &[(&str, &[u8])]) -> PathBuf {
     let path = temp(name);
     let mut tar = tar::Builder::new(GzEncoder::new(std::fs::File::create(&path).unwrap(), Compression::default()));
     let mut entry = |path: String, bytes: &[u8]| {
@@ -34,6 +39,9 @@ fn raw_bundle(name: &str, header: &Header, scalars: &Scalars, files: &[SlotFiles
             entry(format!("slots/{i:05}/events/root.json"), root);
             entry(format!("slots/{i:05}/events/events.jsonl"), events);
         }
+    }
+    for (name, bytes) in after {
+        entry(name.to_string(), bytes);
     }
     tar.into_inner().unwrap().finish().unwrap();
     path
@@ -210,6 +218,11 @@ async fn a_wrong_bundle_is_refused_and_leaves_nothing() {
         assert!(matches!(&refused, Error::Refused(m) if m.contains("unreadable bundle")), "{name}: {refused}");
     }
     std::fs::remove_file(temp("whole")).unwrap();
+    // every slot there, then an entry the contract does not have: the reader fails after the last
+    // slot, and nothing is written (audit 2026-11-14, core.md 3: it used to commit, then refuse)
+    let stray = raw_bundle_and("stray", &header, &scalars, &files, &[("stray.json", b"{}")]);
+    let refused = publish(&mut client, &stray).await.unwrap_err();
+    assert!(matches!(&refused, Error::Refused(m) if m.contains("unexpected entry stray.json after the last slot")), "{refused}");
     // a revision computed from a base needs the day's base published
     let (dh, ds, df) = parts(DERIVED);
     let refused = publish(&mut client, &bundle("orphan", &dh, &ds, &df)).await.unwrap_err();

@@ -199,6 +199,10 @@ unusualness scores, and each slot's body, receipt and event stream as the engine
 - **Stage, verify and publish are one transaction.** A staged revision is never visible and a
   refused bundle leaves nothing. The readback is done inside that transaction, on what the
   database returns, before promotion.
+  *Amended 2026-11-15 (audit 2026-11-14, core.md 3):* the transaction commits only after the
+  bundle's reader says it reached the end. A reader that failed after the last slot (an entry the
+  contract does not have, a damaged tail) closed its channel, which was taken for the end: the day
+  was committed, then reported refused and the queue paused.
 - **A day's reader scalars and unusualness scores travel in its bundle.** They are the engine's
   projection of the bodies; core cannot derive them. Today the engine's derive writes the base
   day's scalars afterwards, which a single writer rules out: the worker's bundle carries its own
