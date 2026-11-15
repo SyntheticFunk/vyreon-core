@@ -741,7 +741,14 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   no ENGINE_FAULT; the 59 other assets unchanged in value; the five split assets differ in 7
   slots: VS-O03 44 of 44 readings supported (was 42 with 2 challenged), VS-V03-MATCHED-NATIVE
   6 of 6 (was 0), VS-L01 unchanged (its restart), the ACT01 family unchanged (NONE; stage 3
-  is not in this build). Values being recomputed independently.
+  is not in this build). Values recomputed independently (scratchpad `verify-t5/`), all bit for
+  bit: VS-O03's quantiles from the populations and its changes under the OCC rule (XLE call 94
+  to 47 against T's 47: 0; put 81 to 40.5 against 41: 0.01227; untranslated -0.693 and
+  -0.681); M0-GAMMA-CHANGE's nine scenarios for six assets from the stored gamma shares (no
+  T-5 cells merge; XLE central joint TV 0.124, untranslated 0.950); INT-IVSC01 and
+  VS-V03-MATCHED-NATIVE from the engine's per-contract volatilities; M0-IV-CHANGE on 1,075 of
+  1,079 supported values (four need T-5 rows the stored profile does not keep). Weaker
+  evidence where the inputs are the engine's own stored gamma and volatility values.
   The full candidate `pass-s3i` cannot run on a test droplet: its plan asks for the five split
   assets' translated cohorts, whose capture needs the provider (refused, as designed). The
   droplet candidate is `pass` (e93ea140: everything but D-162, with the two scoring fixes);
