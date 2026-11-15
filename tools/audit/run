@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # One read-only Codex audit of one subsystem. Usage: tools/audit/run SCOPE REPO OUT_DIR [NOTE_FILE]
 #   SCOPE     a file name under tools/audit/scopes (overlay, surface, core, tape, ...) or a path to a scope file
+#             (NAME.md, kept outside OUT_DIR: the report is written to OUT_DIR/NAME.md)
 #   REPO      the checkout to audit (the candidate branch's worktree)
 #   OUT_DIR   where the report goes (OUT_DIR/SCOPE.md); the brief sent and Codex's log are kept beside it
 #   NOTE_FILE optional text appended to the brief (what earlier audits found, which commits claim to fix them)
