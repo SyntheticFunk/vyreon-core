@@ -338,6 +338,26 @@ mod tests {
         assert_eq!(visited, 0);
     }
 
+    /// Audit 2026-11-15 (core.md) 9: the gzip stream is read to its end, so its CRC is checked.
+    /// bundle.json and scalars.json have no digest of their own; the tar ends before the trailer,
+    /// and the reader used to stop there. The engine's real bundle with one bit of its stored
+    /// CRC changed (the eight bytes that end a gzip stream are the CRC-32 and the length).
+    #[test]
+    fn a_bundle_whose_gzip_checksum_does_not_match_is_refused() {
+        let mut slots = 0;
+        read_bundle(ENGINE_BUNDLE_AAPL, &mut |item| {
+            slots += matches!(item, Item::Slot(_)) as usize;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(slots, engine_header().slots.len());
+        let mut damaged = ENGINE_BUNDLE_AAPL.to_vec();
+        let crc = damaged.len() - 8;
+        damaged[crc] ^= 1;
+        let refused = read_bundle(damaged.as_slice(), &mut |_| Ok(())).unwrap_err();
+        assert!(refused.to_string().contains("the gzip stream after the last entry"), "{refused}");
+    }
+
     #[test]
     fn the_listed_set_travels_under_its_one_name() {
         // a header written before the field still reads, without a listed set

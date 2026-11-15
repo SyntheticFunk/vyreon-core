@@ -3,7 +3,7 @@
 use core_api::{App, Config};
 use core_contract::sha256_hex;
 use core_db::budget::Budget;
-use core_db::publish::publish_file;
+use core_db::publish::{publish_file, publish_file_vouched};
 use core_db::{api_key, build, migrate, universe, work};
 use reqwest::{Client as Http, StatusCode};
 use serde_json::{Value, json};
@@ -53,7 +53,8 @@ async fn service(test: &str) -> Service {
     for revision in [BASE, DERIVED] {
         let (header, scalars, files) = parts(revision);
         let path = bundle(&format!("reader-{test}-{revision}"), &header, &scalars, &files);
-        revisions.push(publish_file(&mut client, &path).await.unwrap().revision_id);
+        // the derived bundle names no base revision and reads history: vouched for (C-042)
+        revisions.push(publish_file_vouched(&mut client, &path).await.unwrap().revision_id);
         std::fs::remove_file(&path).unwrap();
     }
     let reader = api_key::create(&client, "reporter", &["read".to_owned()]).await.unwrap();

@@ -7,7 +7,7 @@
 use test_support::{Scratch, fixtures};
 use test_support::slice::{BASE, DERIVED, ETHA_UNLISTED, SLICE, base_inventory_with_etha, bundle, inventories, members_except, parts, temp};
 use core_contract::{FIELD_OBJECT, Header, Item, Scalars, SlotFiles, read_bundle, sha256_hex};
-use core_db::publish::{EXPECTED_COUNT, Error, Published, publish_file};
+use core_db::publish::{EXPECTED_COUNT, Error, Published, publish_file, publish_file_vouched};
 use core_db::{build, migrate, universe};
 use flate2::{Compression, write::GzEncoder};
 use serde_json::{Value, json};
@@ -70,8 +70,10 @@ async fn ready(test: &str) -> (Scratch, Client) {
     (scratch, client)
 }
 
+/// Published by hand and vouched for (C-042): these tests send derived bundles that name no base
+/// revision and read history, straight after the base they were computed from.
 async fn publish(client: &mut Client, path: &Path) -> Result<Published, Error> {
-    let result = publish_file(client, path).await;
+    let result = publish_file_vouched(client, path).await;
     std::fs::remove_file(path).unwrap();
     result
 }
@@ -298,7 +300,8 @@ async fn a_full_day_from_the_engines_store_publishes_whole() {
         for file in export["bundles"].as_array().unwrap() {
             let path = dir.join(file.as_str().unwrap());
             let started = std::time::Instant::now();
-            let published = publish_file(&mut client, &path).await.unwrap();
+            // the export names no base revision (the store's ids are not core's): vouched for
+            let published = publish_file_vouched(&mut client, &path).await.unwrap();
             eprintln!("{published:?} in {:.1} s", started.elapsed().as_secs_f64());
             // the bundle's own account of itself, read independently of the publish
             let (mut header, mut scalars) = (None, None);
@@ -355,6 +358,48 @@ async fn a_day_local_revision_is_kept_as_one_and_falls_with_its_own_days_base() 
     assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE day_local").await, 1);
     let again = publish(&mut client, &bundle("daylocal-base2", &header, &scalars, &files)).await.unwrap();
     assert_eq!(again.superseded, 2, "the old base and its day's day-local revision");
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-15 (core.md) 1, C-042: by hand there is no lease to say what a bundle read. A
+/// revision that reads history is refused (a day it read may have been replaced since), and one
+/// that reads its day only must name the base revision it was computed from; a base needs
+/// neither. The same bundles are taken when the hand vouches for them.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn by_hand_a_based_revision_names_its_base_and_one_that_reads_history_is_refused() {
+    let (scratch, mut client) = ready("byhand").await;
+    let strict = async |client: &mut Client, name: &str, (h, s, f): (&Header, &Scalars, &[SlotFiles])| {
+        let path = bundle(name, h, s, f);
+        let result = publish_file(client, &path).await;
+        std::fs::remove_file(&path).unwrap();
+        result
+    };
+    let (header, scalars, files) = parts(BASE);
+    let base = strict(&mut client, "byhand-base", (&header, &scalars, &files)).await.unwrap();
+
+    // reads history: refused, whether or not it names its base
+    let (dh, ds, df) = parts(DERIVED);
+    assert!(!dh.day_local && dh.base_revision.is_none());
+    let mut named = dh.clone();
+    named.base_revision = Some(base.revision_id);
+    for (name, h) in [("byhand-history", &dh), ("byhand-history-named", &named)] {
+        let refused = strict(&mut client, name, (h, &ds, &df)).await.unwrap_err();
+        assert!(matches!(&refused, Error::Refused(m) if m.contains("reads history is published by the ordered pass")), "{refused}");
+    }
+    // reads its day only: refused until it names the base revision it read
+    let mut local = dh.clone();
+    local.day_local = true;
+    let refused = strict(&mut client, "byhand-local", (&local, &ds, &df)).await.unwrap_err();
+    assert!(matches!(&refused, Error::Refused(m) if m.contains("names the base revision it read")), "{refused}");
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision").await, 1, "a refusal leaves nothing");
+    local.base_revision = Some(base.revision_id);
+    let derived = strict(&mut client, "byhand-local-named", (&local, &ds, &df)).await.unwrap();
+    assert_eq!(states(&client).await.last().unwrap(), &(derived.revision_id, "PUBLISHED".to_owned(), Some(base.revision_id)));
+
+    // vouched for, the bundle that reads history and names no base is taken
+    let vouched = publish(&mut client, &bundle("byhand-vouched", &dh, &ds, &df)).await.unwrap();
+    assert_eq!(states(&client).await.last().unwrap(), &(vouched.revision_id, "PUBLISHED".to_owned(), Some(base.revision_id)));
     scratch.drop().await;
 }
 
