@@ -37,6 +37,12 @@ Working practice: at most three agents at once on the laptop; an audit after eve
   `~/claude-artifacts/audits/2026-11-15-fix-round-b/`; the release build for the droplets is running. `pass-fx-all` stays at e9cce438 while its audit reads it.
 - Audit after 2a: ten Codex repeat audits of `pass-fx-all` and `pass-core-fix` running, reports in
   `~/claude-artifacts/audits/2026-11-15-fix-round-a/`; triage next, then to the owner.
+- **Audit after 2a triaged, 18:30 UTC** (`~/claude-artifacts/audits/2026-11-15-fix-round-a/triage/`,
+  `SUMMARY.md` first): nine distinct findings above the cut line, most small; with the owner:
+  the Greek exposure totals over unresolved contracts (gate or support), Treasury par yields as
+  zero rates (D-183 against the Treasury's description), and which below-line items go in before
+  the build. No fix started until the owner has seen it. A read-only archive scan on test-2
+  (`data-scans.md`, same directory) settles the frequencies several fixes depend on.
 - 2c: 2025-12-10 runs on both test droplets under e9cce438 since 16:52 UTC (`r2` on 137.184.61.134,
   `m4` on 192.241.147.166, after `act01_auto_source --rebind`, 59 cohorts each); due about 19:25 UTC.
 - To check on a droplet before the final-candidate day: whether captured dividend adjustment records
