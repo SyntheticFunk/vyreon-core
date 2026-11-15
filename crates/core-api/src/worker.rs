@@ -177,9 +177,12 @@ async fn publish_day(State(app): Shared, headers: HeaderMap, body: Body) -> Repl
         })),
         Err(e) => {
             if e.0 == StatusCode::UNPROCESSABLE_ENTITY {
-                // a failed check: nothing more is claimed until someone has looked
-                let client: &Client = &client;
-                work::pause(client, &format!("job {} ({}): bundle refused: {}", lease.job_id, lease.worker, e.1)).await.map_err(failed)?;
+                // a failed check: nothing more is claimed until someone has looked; the pause and
+                // its notice are one transaction (C-027's outbox)
+                let client: &mut Client = &mut client;
+                let tx = client.transaction().await.map_err(|e| failed(e.to_string()))?;
+                work::pause(&tx, &format!("job {} ({}): bundle refused: {}", lease.job_id, lease.worker, e.1)).await.map_err(failed)?;
+                tx.commit().await.map_err(|e| failed(e.to_string()))?;
             }
             Err(e)
         }

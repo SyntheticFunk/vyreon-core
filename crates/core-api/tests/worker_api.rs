@@ -204,6 +204,9 @@ async fn a_refused_bundle_pauses_the_queue_and_a_failing_worker_sends_its_log() 
     let status = work::status(&admin).await.unwrap();
     assert_eq!(status["paused"], true);
     assert!(status["pause_reason"].as_str().unwrap().contains("(day-1): bundle refused: unreadable bundle"), "{status}");
+    // the pause and its notice were written together
+    let notice: String = admin.query_one("SELECT message FROM core.notice ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    assert!(notice.starts_with("Queue paused: job ") && notice.contains("bundle refused: unreadable bundle"), "{notice}");
     assert_eq!(s.claim("day-block", &s.base_build, "day-2").await.status(), StatusCode::NO_CONTENT);
     assert_eq!(s.post("/lease/heartbeat", token, json!({})).await.1["paused"], true, "the worker learns of the pause");
     assert_eq!(admin.query_one("SELECT count(*) FROM vyreon.day_revision", &[]).await.unwrap().get::<_, i64>(0), 0);

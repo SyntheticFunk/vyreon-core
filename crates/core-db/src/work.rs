@@ -549,7 +549,10 @@ pub async fn fail(client: &mut Client, token: &str, stage: &str, message: &str, 
     Ok(again)
 }
 
-/// Stops claims until `resume`. The first reason is kept: it is what stopped the queue.
+/// Stops claims until `resume`. The first reason is kept: it is what stopped the queue. Call it in
+/// a transaction: the pause and its notice are one event (C-027), and a restart between two
+/// autocommitted statements would leave the queue paused with no notice (a second `pause` then
+/// changes nothing, so would not repair it).
 pub async fn pause(db_client: &impl GenericClient, reason: &str) -> Result<(), String> {
     let paused = db_client
         .execute("UPDATE core.queue_control SET paused = true, reason = $1, changed_at = now() WHERE NOT paused", &[&reason])
@@ -561,7 +564,8 @@ pub async fn pause(db_client: &impl GenericClient, reason: &str) -> Result<(), S
     Ok(())
 }
 
-/// Lets work be claimed again. Returns the reason the queue was paused for, if it was.
+/// Lets work be claimed again. Returns the reason the queue was paused for, if it was. Call it in
+/// a transaction, as `pause`.
 pub async fn resume(db_client: &impl GenericClient) -> Result<Option<String>, String> {
     let was: Option<String> = db_client.query_one("SELECT reason FROM core.queue_control", &[]).await.map_err(db)?.get(0);
     let resumed = db_client.execute("UPDATE core.queue_control SET paused = false, reason = NULL, changed_at = now() WHERE paused", &[]).await.map_err(db)?;

@@ -279,6 +279,10 @@ history pages at 20 sessions, headline at 260. No Parquet yet (no reader has ask
   engine's knowledge, not core's. Core's part exists: a build claims nothing until
   `vyreon-core build admit <build> <evidence.json>` records what it passed. Track B's harness will
   write that evidence file; admission stays one command by hand for the first build, as planned.
+- *Amended 2026-11-15 (audit 2026-11-14, core.md 18):* the queue's pause and resume are written in
+  one transaction with their notice by every caller (the refused-bundle path and `queue pause` /
+  `resume` used two autocommitted statements, so a restart between them left the queue paused with
+  no notice, and a second pause changed nothing). The lease sweep's own transactions are C-038.
 
 ## C-028 A day sent twice is answered, not refused (2026-11-10)
 A worker whose publish succeeded but whose answer was lost will send the day again. Core answers

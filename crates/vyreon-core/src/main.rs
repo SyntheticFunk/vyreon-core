@@ -78,8 +78,18 @@ async fn queue(change: &[&str]) -> Result<(), String> {
     let mut client = connect().await?;
     match change {
         [] => {}
-        ["pause", reason] => work::pause(&client, reason).await?,
-        ["resume"] => println!("was paused for: {}", work::resume(&client).await?.as_deref().unwrap_or("(it was not paused)")),
+        // the queue's change and its notice are one transaction (C-027's outbox)
+        ["pause", reason] => {
+            let tx = client.transaction().await.map_err(|e| e.to_string())?;
+            work::pause(&tx, reason).await?;
+            tx.commit().await.map_err(|e| e.to_string())?
+        }
+        ["resume"] => {
+            let tx = client.transaction().await.map_err(|e| e.to_string())?;
+            let was = work::resume(&tx).await?;
+            tx.commit().await.map_err(|e| e.to_string())?;
+            println!("was paused for: {}", was.as_deref().unwrap_or("(it was not paused)"))
+        }
         ["retry-failed"] => println!("{} failed jobs queued again", work::retry_failed(&client).await?),
         ["cancel", jobs @ ..] if !jobs.is_empty() => {
             let jobs: Vec<i64> = jobs.iter().map(|j| j.parse().map_err(|_| format!("job id: {j}"))).collect::<Result<_, _>>()?;
