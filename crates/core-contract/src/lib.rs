@@ -37,6 +37,13 @@ pub const FIELD_OBJECT: &str = "FIELD.CORE64";
 /// `rename` on `Header::listed_members` (they must agree: a test checks it).
 pub const LISTED_MEMBERS: &str = "listed_members";
 
+/// The most bytes one entry of a bundle may hold uncompressed. Read before anything is allocated,
+/// so a damaged or hostile bundle cannot make its reader take more memory than this per entry
+/// (the upload limit bounds only the compressed bytes). Unmeasured at its maximum; a measured day
+/// (2025-12-10) holds 320 event streams of 724 MB in all, about 2.3 MB each, so 256 MiB is two
+/// orders of magnitude above the typical entry.
+pub const MAX_ENTRY_BYTES: u64 = 256 << 20;
+
 /// Whether `text` is a calendar date written `YYYY-MM-DD`. Dates cross the contract in this form
 /// only: PostgreSQL would also read words such as "yesterday" as dates.
 pub fn is_date(text: &str) -> bool {
@@ -240,8 +247,11 @@ pub fn read_bundle<R: Read>(input: R, visit: &mut dyn FnMut(Item) -> io::Result<
         let Some(entry) = entries.next() else { return Ok(None) };
         let mut entry = entry?;
         let name = entry.path()?.to_string_lossy().into_owned();
+        if entry.size() > MAX_ENTRY_BYTES {
+            return Err(invalid(format!("{name} is {} bytes uncompressed; an entry is at most {MAX_ENTRY_BYTES}", entry.size())));
+        }
         let mut bytes = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut bytes)?;
+        (&mut entry).take(MAX_ENTRY_BYTES).read_to_end(&mut bytes)?;
         Ok(Some((name, bytes)))
     };
     let mut held: Entry = None;
@@ -298,6 +308,31 @@ mod tests {
         })
         .unwrap();
         header.unwrap()
+    }
+
+    /// Audit 2026-11-14 (core.md) 9: an entry whose header claims more than `MAX_ENTRY_BYTES` is
+    /// refused before anything is allocated for it (the reader used to reserve whatever the
+    /// header claimed). The engine's real header is the entry; only its declared size is wrong.
+    #[test]
+    fn an_entry_larger_than_the_limit_is_refused_before_it_is_read() {
+        let header = serde_json::to_vec(&engine_header()).unwrap();
+        let mut head = tar::Header::new_gnu();
+        head.set_path("bundle.json").unwrap();
+        head.set_size(MAX_ENTRY_BYTES + 1);
+        head.set_mode(0o644);
+        head.set_cksum();
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        gz.write_all(head.as_bytes()).unwrap();
+        gz.write_all(&header).unwrap();
+        let bundle = gz.finish().unwrap();
+        let mut visited = 0;
+        let refused = read_bundle(bundle.as_slice(), &mut |_| {
+            visited += 1;
+            Ok(())
+        })
+        .unwrap_err();
+        assert!(refused.to_string().contains(&format!("bundle.json is {} bytes uncompressed; an entry is at most {MAX_ENTRY_BYTES}", MAX_ENTRY_BYTES + 1)), "{refused}");
+        assert_eq!(visited, 0);
     }
 
     #[test]

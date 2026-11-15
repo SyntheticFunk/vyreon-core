@@ -221,6 +221,14 @@ unusualness scores, and each slot's body, receipt and event stream as the engine
   fails. A lease's day was always its job's session, but `vyreon-core publish` took a Saturday,
   which the history never lists and whose `/v1/sessions/{date}` is a 404. Loading the calendar
   therefore comes before publishing by hand as well.
+- *Added 2026-11-15 (audit 2026-11-14, core.md 9):* **an entry of a bundle is at most 256 MiB
+  uncompressed** (`core_contract::MAX_ENTRY_BYTES`), checked on its tar header before anything is
+  allocated. The upload limit (2 GiB) bounds compressed bytes only, and the reader reserved
+  whatever an entry's header claimed, so one damaged entry could exhaust the core node's memory
+  and stop the service for every worker. The largest real entries are event streams, about 2.3 MB
+  on average on 2025-12-10; the maximum is not measured. Left: the tar library reads GNU long-name
+  and pax entries itself, unbounded; a worker's bundle is authenticated, so this is a fault guard,
+  not a security boundary.
 - Left for the recompute work (milestone 5): copy-forward revisions (`carried_from_revision`,
   `republish_scope`).
 
