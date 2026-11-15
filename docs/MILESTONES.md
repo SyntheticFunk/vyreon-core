@@ -743,6 +743,10 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   orchestration and the executor (including a retried `finish`), FIELD's structural
   findings, company (share counts from reported shares and the splits known by the date;
   the midnight cutoff; retries). Common brief: session scratchpad `audit/base/fix-common.md`.
+  Owner, 2026-11-15: the three recommendations stand: the q = 0 default is measured first and
+  withheld if rare; the Treasury-yield convention is fixed now; share counts are computed
+  from reported shares and the splits known by the date. The whole fix round stays in this
+  session for a continuous engineering log.
   **Verified subsystem findings, to fix before the build** (triage files give file:line and
   the smallest fix): stops a day: the ordered derive aborts for all 64 on one object's error
   (daily 8, likely on ETHA after 2026-10-06 through an exact-equality check, daily 13); one
