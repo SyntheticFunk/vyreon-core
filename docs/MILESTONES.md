@@ -766,6 +766,22 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   merged in both candidates (`pass` dfa98a75), audit 7's are being built as one rule (D-170:
   a prior session is comparable in contract units only when every session between has
   positive evidence of no adjustment).
+  Membership-and-gap day (test-1 `u1`, e93ea140; ETHA named unlisted with its archive present,
+  TLT's 2025-10-15 bar hidden): published, 0 faulted of 2,810 final slots; ETHA has no slots
+  (64 objects, 4,608 slots against 4,679) and the store accepted the 63-member day; TLT's
+  readers withheld PROVIDER_INPUT_MISSING; the other 62 assets identical to `l1`; FIELD's
+  cross-section sensors over 63, FIELD-DEP01 withholding 945 cells, and the four whole-matrix
+  sensors withheld entirely (an unlisted member leaves no complete row), which hides the gap
+  case: a gap-only day `g3` follows on test-1.
+  Audit 8 (fifth pass) and its fixes are merged (`pass` 8c8650ea, `pass-s3i` d080388d): history
+  bodies are evidence only from the D-161 method labels on (VS-O02/O04/OIJ01 relabelled); the
+  adjustment detector says unknown when it could not compare (no previous quote file, a
+  rejected shift: header marker `ex_date_unknown`); the merge check reads the post-overlay
+  population and reaches only the history it covered; the technical record states every
+  back-adjustment (`recent_adjustments`, method 1.8.0) and scores are translated across
+  dividends too. The new planner run read-only over test-1's real archive (64 assets, 201
+  sessions of quote files) flags no marker but the hidden TLT bar's: the unknown verdict does
+  not fire on this ordinary data. Running: test-2 `p1` (clean, dfa98a75), test-1 `g3`.
   **Share-unit scoring (D-169, merged into both candidates):** DLM-TECHNICAL's
   `obv_change_20`, `volume_price_trend_change_20` and the three MACD readings were scored
   against priors on another split basis (XLU 2025-12-10: OBV z -0.97 as published, -0.32 on
