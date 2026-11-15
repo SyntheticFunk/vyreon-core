@@ -51,6 +51,15 @@ Working practice: at most three agents at once on the laptop; an audit after eve
   and conflicted quarter), core `pass-core-fix` (C-042: hand publish). Held for the owner: Greek
   exposure totals, Treasury zero curve, the below-line pull-ins. Follow-up audit (2b) triaged:
   nothing above the line. Archive scan done (`data-scans.md`): no latent condition occurs in it.
+- **Fix batch 3 written, 19:40 UTC:** `pass-fx3-a` (D-209..214) and `pass-fx3-b` (D-215 and
+  amendments) merged into `pass-fx3-all` (worktree `/home/diggz/wt/fx3-all`), no conflicts; full
+  suite then release build running. Core: C-042 on `pass-core-fix` (hand publish needs `--vouch`
+  for a history bundle; gzip read to its end); its database tests NOT run (Docker is down).
+  To do before it merges: the fetched OCC/Cboe citation for D-213 (an agent is looking it up).
+  Left by the agents: style 3 to 7; a newly listed asset (under about 150 sessions) may fault in
+  P03/PD01/W21/PATH (read, not run: IBIT from 2024-01-11, ETHA from 2024-07-23); V03 moving to
+  the next monthly when a non-holiday third Friday is missing (D-029 says withhold on a tenor
+  switch?).
 - 2c: 2025-12-10 runs on both test droplets under e9cce438 since 16:52 UTC (`r2` on 137.184.61.134,
   `m4` on 192.241.147.166, after `act01_auto_source --rebind`, 59 cohorts each); due about 19:25 UTC.
 - To check on a droplet before the final-candidate day: whether captured dividend adjustment records
