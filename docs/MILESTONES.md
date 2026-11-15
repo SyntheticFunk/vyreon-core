@@ -51,7 +51,7 @@ Working practice: at most three agents at once on the laptop; an audit after eve
   and conflicted quarter), core `pass-core-fix` (C-042: hand publish). Held for the owner: Greek
   exposure totals, Treasury zero curve, the below-line pull-ins. Follow-up audit (2b) triaged:
   nothing above the line. Archive scan done (`data-scans.md`): no latent condition occurs in it.
-- **Fix batch 3 written, 19:40 UTC:** `pass-fx3-a` (D-209..214) and `pass-fx3-b` (D-215 and
+- **Fix batch 3 written, 19:20 UTC:** `pass-fx3-a` (D-209..214) and `pass-fx3-b` (D-215 and
   amendments) merged into `pass-fx3-all` (worktree `/home/diggz/wt/fx3-all`), no conflicts; full
   suite then release build running. Core: C-042 on `pass-core-fix` (hand publish needs `--vouch`
   for a history bundle; gzip read to its end); its database tests NOT run (Docker is down).
