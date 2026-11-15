@@ -28,6 +28,18 @@ The one living status document. History is in git; decisions in `docs/DECISIONS.
 6. **(5) Judge the reports; the FIELD campaign; the go-live choice.**
 Working practice: at most three agents at once on the laptop; an audit after every landed step.
 
+**Now (2026-11-15 17:20 UTC; newest state, kept here):**
+- 2b: the three follow-ups are finished (D-199 to D-207; D-202 and D-208 unused) and merged into
+  `pass-fx2-all` (db15396f, worktree `/home/diggz/wt/fx2-all`, pushed); it compiles; the full suite
+  is running (log in the session scratchpad). `pass-fx-all` stays at e9cce438 while its audit reads it.
+- Audit after 2a: ten Codex repeat audits of `pass-fx-all` and `pass-core-fix` running, reports in
+  `~/claude-artifacts/audits/2026-11-15-fix-round-a/`; triage next, then to the owner.
+- 2c: 2025-12-10 runs on both test droplets under e9cce438 since 16:52 UTC (`r2` on 137.184.61.134,
+  `m4` on 192.241.147.166, after `act01_auto_source --rebind`, 59 cohorts each); due about 19:25 UTC.
+- To check on a droplet before the final-candidate day: whether captured dividend adjustment records
+  carry `split_ratio` (D-206: without it every automatic cash root turns pending), and how many
+  root-days state no exercise style at all (D-199: now withheld).
+
 ## Where things stand (2026-11-10)
 - Engine: `engine-v1` tagged (vyreon-engine a046bf54). A fresh 2025-12-10 agrees laptop vs droplet to
   within 1e-11 (2026-11-09). The droplet is authoritative: Postgres, the daily capture, health checks.
