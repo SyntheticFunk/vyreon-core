@@ -256,6 +256,11 @@ lines; digests, text, JSONB, receipts, versions, states, scalar values).
   grant until 60 s after its end, at full size while open and at what was used once released. The
   requests of any rolling minute therefore cannot exceed the ceiling. Sustained throughput is about
   1,200 a minute if every lease is held to its end, more when workers release early.
+  *Amended 2026-11-15 (audit 2026-11-14, core.md 13):* a release reporting more than the lease
+  granted is counted at what it reports (migration 0015 lifts the column's cap at the grant), so
+  the overrun holds back the next grants until it ages out; the release still answers with an
+  error naming the overrun. It was counted at the grant: 900 reported on 600 granted left 300
+  requests outside the ceiling.
 - **Tape caches are opaque and written once**: stored as the worker packed them; the same bytes
   again are accepted, other bytes refused. A session without a tape is a stated absence. A tape job
   is done only when every member listed on the session has one or the other.

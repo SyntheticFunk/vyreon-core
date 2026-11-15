@@ -70,8 +70,8 @@ pub async fn draw(client: &mut Client, budget: Budget, worker: &str, requests: i
 }
 
 /// Releases a lease with what was used, by category (`{"daily": 12, "options": 300}`). The usage
-/// is added to the worker's minute. A lease is released once, by its worker, for no more than it
-/// was granted.
+/// is added to the worker's minute. A lease is released once, by its worker. More than was granted
+/// is counted as reported, and the release then answers with an error saying so.
 pub async fn release(client: &mut Client, budget_lease_id: i64, worker: &str, used: &Value) -> Result<i32, String> {
     let categories = used.as_object().ok_or("usage is a JSON object of category: requests")?;
     let mut total: i64 = 0;
@@ -85,8 +85,9 @@ pub async fn release(client: &mut Client, budget_lease_id: i64, worker: &str, us
         .map_err(db)?
         .ok_or_else(|| format!("{worker} has no open budget lease {budget_lease_id}"))?
         .get(0);
-    // more than granted is recorded as it was reported, and counted in full: the ceiling's margin is for this
-    let counted = total.min(i64::from(granted)) as i32;
+    // more than granted is recorded as it was reported, and counted in full: the ceiling's margin
+    // is for this, and the next grants see it (migration 0015; the column held at most the grant)
+    let counted = total.min(i64::from(i32::MAX)) as i32;
     tx.execute("UPDATE core.budget_lease SET used = $2, released_at = now() WHERE budget_lease_id = $1", &[&budget_lease_id, &counted]).await.map_err(db)?;
     tx.execute(
         "INSERT INTO core.request_usage (minute, worker, category, requests)

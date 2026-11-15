@@ -49,13 +49,16 @@ async fn the_budget_never_commits_more_than_its_ceiling() {
     // a lease is released once, by its own worker
     assert!(budget::release(&mut client, first, "w1", &json!({"daily": 1})).await.is_err());
     assert!(budget::release(&mut client, second, "w1", &json!({"daily": 1})).await.is_err());
-    // a worker that reports more than its lease is counted in full and reported
+    // a worker that reports more than its lease is counted in full and reported (audit 2026-11-14,
+    // core.md 13: it was counted at its grant, so 100 requests went unaccounted): nothing more is
+    // granted until the overrun has aged out
     let over = budget::release(&mut client, second, "w2", &json!({"options": 700})).await.unwrap_err();
     assert!(over.contains("700 requests on a lease of 600"), "{over}");
-    assert_eq!(budget::committed(&client).await.unwrap(), 1800);
+    assert_eq!(budget::committed(&client).await.unwrap(), 1900);
+    assert!(matches!(budget::draw(&mut client, budget, "w5", 1).await.unwrap(), Grant::Wait { .. }));
     // a lease stops counting a minute after its end
     client.execute("UPDATE core.budget_lease SET released_at = released_at - interval '61 seconds', granted_at = granted_at - interval '2 minutes', valid_until = valid_until - interval '2 minutes' WHERE budget_lease_id = $1", &[&first]).await.unwrap();
-    assert_eq!(budget::committed(&client).await.unwrap(), 1650);
+    assert_eq!(budget::committed(&client).await.unwrap(), 1750);
     // what was used is kept by worker and category
     let usage: Vec<(String, String, i64)> = client
         .query("SELECT worker, category, requests FROM core.request_usage ORDER BY 1, 2", &[])
