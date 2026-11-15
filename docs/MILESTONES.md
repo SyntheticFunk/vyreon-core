@@ -93,6 +93,14 @@ Working practice: at most three agents at once on the laptop; an audit after eve
   earnings_date reason on BABA and TSM (NO_UPCOMING_EARNINGS_DATE became DEPENDENCY_WITHHELD,
   against D-173); VS-O02/O04/OIJ01 on BABA and MSTR, history session 2025-07-18 only (OI total
   -0.215% and -0.070%, undeclared). M0 values were not compared (not in the dumps).
+- **Real day `m4` (test-2, e9cce438, ETHA not listed) finished 20:47 UTC, exit 0, no faults,**
+  4,608 slots (ETHA's 71 absent). Against `r2` (test-1, same build, all 64): every per-asset slot
+  of the other 63 assets is equal in every non-identity leaf; only the 12 FIELD slots differ (63
+  members). So the membership day holds on the merged round and the two machines agree.
+- `pass-fx5-curve` done 20:50 UTC (D-225, H5-SURFACE@21: 1Y, 2Y, 3Y bootstrapped as par bonds;
+  equals QuantLib to 2e-13 on four 2026-11 curves; +0.1 to +0.7 bp at 1Y to 3Y; D-183 amended:
+  the 1-year yield is a par yield). No 2022-2024 curve is in any archive: measure on the first
+  cluster day there (`python -m refcheck.options.zero_curve <H.15 csv>`).
 - 2c: 2025-12-10 runs on both test droplets under e9cce438 since 16:52 UTC (`r2` on 137.184.61.134,
   `m4` on 192.241.147.166, after `act01_auto_source --rebind`, 59 cohorts each); due about 19:25 UTC.
 - To check on a droplet before the final-candidate day: whether captured dividend adjustment records
