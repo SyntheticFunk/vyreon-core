@@ -301,13 +301,19 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Option<Item>>, 
 
 /// The published revision of the bundle's day, when the lease's job has already published that
 /// day with this very bundle: an earlier session of the job (or a day block's current one), the
-/// same profile and build, and every
-/// slot's body digest equal. A worker sends a day again when the answer to its first sending was
-/// lost; that is answered, not refused.
+/// same profile and build, the same listed members, each slot once, and every slot's body digest
+/// equal. A worker sends a day again when the answer to its first sending was lost; that is
+/// answered, not refused. Anything else goes on to the full checks.
 async fn published_before(tx: &Transaction<'_>, header: &Header, lease: &work::Held) -> Result<Option<i64>, Error> {
     let date = header.represented_date.as_str();
     let current = lease.kind == "DAY_BLOCK" && lease.next_session.as_deref() == Some(date);
     if !core_contract::is_date(date) || date > lease.last_session.as_str() || (!current && lease.next_session.as_deref().is_some_and(|next| date >= next)) {
+        return Ok(None);
+    }
+    // a slot sent twice would count twice below (audit 2026-11-14, core.md 15)
+    let distinct: HashSet<(&str, &str)> = header.slots.iter().map(|s| (s.measurement_id.as_str(), s.object_id.as_str())).collect();
+    let Some(listed) = &header.listed_members else { return Ok(None) };
+    if distinct.len() != header.slots.len() {
         return Ok(None);
     }
     let slots: Vec<Value> = header.slots.iter().map(|s| serde_json::json!({"measurement_id": s.measurement_id, "object_id": s.object_id, "body_sha256": s.body_sha256})).collect();
@@ -320,8 +326,9 @@ async fn published_before(tx: &Transaction<'_>, header: &Header, lease: &work::H
                          USING (measurement_id, object_id, body_sha256)
                      WHERE m.revision_id = d.revision_id AND m.represented_date = d.represented_date)
              FROM vyreon.day_revision d
-             WHERE d.represented_date = $1::text::date AND d.profile_revision = $2 AND d.engine_build = $3 AND d.state = 'PUBLISHED'",
-            &[&date, &header.profile_revision, &header.engine_build, &Value::Array(slots).to_string()],
+             WHERE d.represented_date = $1::text::date AND d.profile_revision = $2 AND d.engine_build = $3 AND d.state = 'PUBLISHED'
+               AND d.listed_members = $5::text[]",
+            &[&date, &header.profile_revision, &header.engine_build, &Value::Array(slots).to_string(), listed],
         )
         .await
         .map_err(db)?;

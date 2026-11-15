@@ -304,6 +304,11 @@ A worker whose publish succeeded but whose answer was lost will send the day aga
 job, for the same profile and build, with every slot's body digest equal to the published
 revision's. Anything else that is not the job's next day is still refused and pauses the queue. This
 makes the publish call safe to retry, so the worker retries it on a transport failure.
+*Amended 2026-11-15 (audit 2026-11-14, core.md 15):* "the same bundle" also means each slot once
+and the same listed members as the stored revision. The recognition compared counts from a join,
+so one matching slot repeated as many times as the revision has slots was answered "already
+published" without the inventory or listed-members checks (C-024, C-036); such a bundle now goes
+through the full checks.
 
 ## C-029 Owner decisions on E11, coordinates and the security key (2026-11-11)
 - E11: an absent provider input withholds its assets with a new provider-limited reason,

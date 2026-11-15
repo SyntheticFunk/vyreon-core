@@ -218,6 +218,19 @@ async fn the_ordered_pass_follows_the_published_days_one_at_a_time() {
     let again = publish_for_lease(&mut client, &path, &block.token).await.unwrap();
     assert_eq!((again.already_published, again.revision_id, again.slots), (true, base.revision_id, 4));
     assert!(!base.already_published);
+    // but not one that only resembles it (audit 2026-11-14, core.md 15): one slot four times, or
+    // another listed set, goes through the full checks and is refused
+    let (header, scalars, files) = parts(BASE);
+    let mut repeated = header.clone();
+    repeated.slots = vec![header.slots[0].clone(); 4];
+    let repeated = bundle("ordered-repeated", &repeated, &scalars, &vec![files[0].clone(); 4]);
+    assert!(matches!(publish_for_lease(&mut client, &repeated, &block.token).await, Err(LeaseError::Refused(m)) if m.contains("is listed twice")));
+    std::fs::remove_file(&repeated).unwrap();
+    let mut fewer = header.clone();
+    fewer.listed_members.as_mut().unwrap().retain(|k| k != "ETHA");
+    let fewer = bundle("ordered-fewer", &fewer, &scalars, &files);
+    assert!(matches!(publish_for_lease(&mut client, &fewer, &block.token).await, Err(LeaseError::Refused(m)) if m.contains("disagree about the members")));
+    std::fs::remove_file(&fewer).unwrap();
     // the block is still on the 10th until its worker says the day is done (its day-local
     // revision comes after the base): the pass of the 10th waits for that (C-039)
     assert_eq!(ordered(&mut client, &d).await, None, "the block is still on the 10th");
