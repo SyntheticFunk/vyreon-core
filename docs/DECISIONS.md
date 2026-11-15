@@ -243,6 +243,11 @@ lines; digests, text, JSONB, receipts, versions, states, scalar values).
 - **Tape caches are opaque and written once**: stored as the worker packed them; the same bytes
   again are accepted, other bytes refused. A session without a tape is a stated absence. A tape job
   is done only when every member listed on the session has one or the other.
+  *Amended 2026-11-15 (audit 2026-11-14, core.md 11):* under one method version. A session redone
+  under a new method was complete as soon as the old method's rows covered it, so its days could
+  start and read neither caches nor absences of the new method. `tape-caches/{session}/done` takes
+  `method_version`; without it (today's worker sends none) the method of the session's most
+  recently stored cache is the one checked.
 - **Sessions come from the engine's calendar**, loaded as a list; core does not compute trading days.
 - **The claim carries the member manifest**: for each session, each member's key, security id,
   ticker in use (none when not listed), group and company flag, and the provider sources' first

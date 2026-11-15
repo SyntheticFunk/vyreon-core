@@ -6,7 +6,8 @@
 //!   POST /lease/fail                 {stage, message, log}              -> {requeued}
 //!   POST /days                       body: a day bundle                 -> what was published
 //!   PUT  /tape-caches/{session}/{asset}?method_version=V[&absence=WHY]  body: the packed cache -> {new}
-//!   POST /tape-caches/{session}/done                                    the tape job's session is complete
+//!   POST /tape-caches/{session}/done[?method_version=V]                 the tape job's session is complete (under V; without
+//!                                                                          it, under the method of the session's newest cache)
 //!   GET  /tape-caches/{session}?method_version=V                        -> a tar: one entry per asset, and absences.json
 //!   POST /budget                     {requests}                         -> {budget_lease_id, requests, valid_seconds}
 //!                                                                          or {requests: 0, retry_after_seconds}
@@ -225,12 +226,17 @@ async fn tape_put(State(app): Shared, headers: HeaderMap, Path((session, asset))
     ok(json!({"new": tape::put(&client, &asset, &session, &q.method_version, &cache).await.map_err(refused)?}))
 }
 
-async fn tape_done(State(app): Shared, headers: HeaderMap, Path(session): Path<String>) -> Reply {
+#[derive(Deserialize)]
+struct DoneQuery {
+    method_version: Option<String>,
+}
+
+async fn tape_done(State(app): Shared, headers: HeaderMap, Path(session): Path<String>, Query(q): Query<DoneQuery>) -> Reply {
     let mut client = app.db().await?;
     if !core_contract::is_date(&session) {
         return Err(refused(format!("{session} is not a date written YYYY-MM-DD")));
     }
-    tape::session_done(&mut client, bearer(&headers)?, &session).await?;
+    tape::session_done(&mut client, bearer(&headers)?, &session, q.method_version.as_deref()).await?;
     ok(json!({"session": session}))
 }
 

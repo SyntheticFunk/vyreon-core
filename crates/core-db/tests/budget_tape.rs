@@ -97,14 +97,30 @@ async fn a_tape_cache_is_written_once_and_a_tape_job_needs_every_listed_member()
     // a tape job is done only when every member listed on the session has a cache or a stated absence
     work::schedule(&mut client, Kind::Tape, "FREE_REPORT_64", &b, "2025-12-10", "2025-12-10", 1).await.unwrap();
     let claim = work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();
-    let refused = tape::session_done(&mut client, &claim.token, "2025-12-10").await.unwrap_err();
-    assert!(matches!(&refused, LeaseError::Refused(m) if m.starts_with("63 of 64 members have no tape cache for 2025-12-10: SPY QQQ ")), "{refused}");
+    let refused = tape::session_done(&mut client, &claim.token, "2025-12-10", Some(METHOD)).await.unwrap_err();
+    assert!(matches!(&refused, LeaseError::Refused(m) if m.starts_with("63 of 64 members have no tape cache of method engine-v1 for 2025-12-10: SPY QQQ ")), "{refused}");
     for (key, _) in doc["members"].as_array().unwrap().iter().map(|m| (m["asset_key"].as_str().unwrap(), ())).filter(|(k, _)| *k != "AAPL") {
         tape::put(&client, key, "2025-12-10", METHOD, &Cache::Absent("NOT_CAPTURED: only AAPL's tape was fetched for this test".into())).await.unwrap();
     }
     assert!(tape::put(&client, "SPY", "2025-12-10", METHOD, &cache).await.is_err(), "an absence is not overwritten either");
-    tape::session_done(&mut client, &claim.token, "2025-12-10").await.unwrap();
+    tape::session_done(&mut client, &claim.token, "2025-12-10", None).await.unwrap();
     work::finish(&mut client, &claim.token).await.unwrap();
+
+    // the session redone under a new method (audit 2026-11-14, core.md 11): the first method's
+    // caches do not make it complete, whether the worker names the method or not
+    const NEW: &str = "engine-v2";
+    work::schedule(&mut client, Kind::Tape, "FREE_REPORT_64", &b, "2025-12-10", "2025-12-10", 1).await.unwrap();
+    let redo = work::claim(&mut client, Kind::Tape, &b, "tape-2", 3600.0).await.unwrap().unwrap();
+    assert!(tape::put(&client, "AAPL", "2025-12-10", NEW, &cache).await.unwrap());
+    for method in [Some(NEW), None] {
+        let refused = tape::session_done(&mut client, &redo.token, "2025-12-10", method).await.unwrap_err();
+        assert!(matches!(&refused, LeaseError::Refused(m) if m.starts_with("63 of 64 members have no tape cache of method engine-v2")), "{refused}");
+    }
+    for key in doc["members"].as_array().unwrap().iter().map(|m| m["asset_key"].as_str().unwrap()).filter(|k| *k != "AAPL") {
+        tape::put(&client, key, "2025-12-10", NEW, &Cache::Absent("NOT_CAPTURED: only AAPL's tape was fetched for this test".into())).await.unwrap();
+    }
+    tape::session_done(&mut client, &redo.token, "2025-12-10", Some(NEW)).await.unwrap();
+    work::finish(&mut client, &redo.token).await.unwrap();
 
     // a later day reads the session's caches back, byte for byte
     let stored = tape::of_session(&client, "2025-12-10", METHOD).await.unwrap();

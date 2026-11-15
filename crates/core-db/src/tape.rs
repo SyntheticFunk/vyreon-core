@@ -77,15 +77,16 @@ pub async fn of_session(client: &Client, session: &str, method: &str) -> Result<
     Ok(out)
 }
 
-/// The profile's members listed on the session that have no cache or absence for it yet.
-pub async fn missing(db_client: &impl GenericClient, profile: &str, session: &str) -> Result<Vec<String>, String> {
+/// The profile's members listed on the session that have no cache or absence for it yet under the
+/// method version (a cache of another method version is not one of this method's).
+pub async fn missing(db_client: &impl GenericClient, profile: &str, session: &str, method: &str) -> Result<Vec<String>, String> {
     let rows = db_client
         .query(
             "SELECT m.asset_key FROM core.members_on($1, $2::text::date) m
              WHERE m.ticker IS NOT NULL
-               AND NOT EXISTS (SELECT FROM core.tape_cache t WHERE t.session = $2::text::date AND t.asset_key = m.asset_key)
+               AND NOT EXISTS (SELECT FROM core.tape_cache t WHERE t.session = $2::text::date AND t.asset_key = m.asset_key AND t.method_version = $3)
              ORDER BY m.ordinal",
-            &[&profile, &session],
+            &[&profile, &session, &method],
         )
         .await
         .map_err(db)?;
@@ -93,8 +94,10 @@ pub async fn missing(db_client: &impl GenericClient, profile: &str, session: &st
 }
 
 /// Marks a tape job's session done, under its lease: every member listed on the session must have
-/// its cache, or its stated absence, stored.
-pub async fn session_done(client: &mut Client, token: &str, session: &str) -> Result<(), LeaseError> {
+/// its cache, or its stated absence, stored under one method version: `method` when the worker
+/// names it, else the method version of the session's most recently stored cache (a session being
+/// redone under a new method stores the new one's last).
+pub async fn session_done(client: &mut Client, token: &str, session: &str, method: Option<&str>) -> Result<(), LeaseError> {
     let tx = client.transaction().await.map_err(|e| LeaseError::Failed(db(e)))?;
     let lease = work::held(&tx, token).await?;
     if lease.kind != "TAPE" {
@@ -108,9 +111,22 @@ pub async fn session_done(client: &mut Client, token: &str, session: &str) -> Re
     if listed == 0 {
         return Err(LeaseError::Refused(format!("profile {} has no member listed on {session}: is the universe loaded?", lease.profile_id)));
     }
-    let missing = missing(&tx, &lease.profile_id, session).await.map_err(LeaseError::Failed)?;
+    let method: String = match method {
+        Some(method) => method.to_owned(),
+        None => tx
+            .query_opt("SELECT method_version FROM core.tape_cache WHERE session = $1::text::date ORDER BY stored_at DESC, method_version DESC LIMIT 1", &[&session])
+            .await
+            .map_err(|e| LeaseError::Failed(db(e)))?
+            .map(|r| r.get(0))
+            .ok_or_else(|| LeaseError::Refused(format!("no tape cache is stored for {session}")))?,
+    };
+    let missing = missing(&tx, &lease.profile_id, session, &method).await.map_err(LeaseError::Failed)?;
     if !missing.is_empty() {
-        return Err(LeaseError::Refused(format!("{} of {listed} members have no tape cache for {session}: {}", missing.len(), missing.join(" "))));
+        return Err(LeaseError::Refused(format!(
+            "{} of {listed} members have no tape cache of method {method} for {session}: {}",
+            missing.len(),
+            missing.join(" ")
+        )));
     }
     work::session_done(&tx, &lease, session).await?;
     tx.commit().await.map_err(|e| LeaseError::Failed(db(e)))
