@@ -113,6 +113,21 @@ Working practice: at most three agents at once on the laptop; an audit after eve
   has no coverage start for that source; a missing daily bar still withholds an asset's surface
   for three years (label fixed; owner: leave until the build shows one); an `unknown` ledger
   entry (D-176's 2020-01-02) may make dead listings' open interest unknown on 2022-05..2023-04.
+- **Candidate `pass-fx5-all` 497c1608:** suite 21:05 UTC 1,178 passed, 10 failed (known: 8
+  `option_field`, 2 tape-cache); deployed to both droplets 21:07 (build `497c1608+55b96cfbd3ee`).
+  Terms rewrite (12,864 files) and rebind (59) fine on both. **`m5` (test-2, ETHA unlisted)
+  running since 21:35 UTC. `r3` (test-1) refused by the disk guard: 45 GB free, 60 needed; old
+  run directories there need deleting (asked the owner; keep `p1` and `r2`).**
+- **Audit of batches 4 and 5 triaged 21:35 UTC** (`~/claude-artifacts/audits/2026-11-15-fix-round-d/triage/`):
+  above the line: the exposure cover's denominator leaves out adjusted-root contracts (BABA since
+  2024-06-13: real data); adjusted roots treated as each other's images in the ledger (BABA1/BABA2;
+  OCC #56575, #56574; not shown in data). Certain mislabel: before the option intervals' start
+  (2022-12-08, confirmed by MCP: empty 12-07, rows 12-08) the ACT01 family says
+  NO_GOVERNED_COHORT_CERTIFICATE on about 128 sessions. **Fix batch 6 started 21:30 UTC:**
+  `pass-fx6-a` (`/home/diggz/wt/fx6-a`, D-232..235) and `pass-fx6-b` (`/home/diggz/wt/fx6-b`,
+  D-236..240: the interval coverage start, company guards). Core's C-042 rule corrected (pause,
+  wait for leased day blocks, publish, resume). Left as design choices: a corrected official daily
+  volume between two workers' tape captures; a missing macro capture's containment; overlay 3, 5, 6, 7.
 - 2c: 2025-12-10 runs on both test droplets under e9cce438 since 16:52 UTC (`r2` on 137.184.61.134,
   `m4` on 192.241.147.166, after `act01_auto_source --rebind`, 59 cohorts each); due about 19:25 UTC.
 - To check on a droplet before the final-candidate day: whether captured dividend adjustment records
