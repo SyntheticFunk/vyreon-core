@@ -218,6 +218,9 @@ async fn the_ordered_pass_follows_the_published_days_one_at_a_time() {
     let again = publish_for_lease(&mut client, &path, &block.token).await.unwrap();
     assert_eq!((again.already_published, again.revision_id, again.slots), (true, base.revision_id, 4));
     assert!(!base.already_published);
+    // the block is still on the 10th until its worker says the day is done (its day-local
+    // revision comes after the base): the pass of the 10th waits for that (C-039)
+    assert_eq!(ordered(&mut client, &d).await, None, "the block is still on the 10th");
     // the block's day is done when its worker says so, and not before its base is published
     assert!(matches!(work::day_done(&mut client, &block.token, "2025-12-11").await, Err(LeaseError::Refused(m)) if m.contains("has not published 2025-12-11")));
     work::day_done(&mut client, &block.token, "2025-12-10").await.unwrap();

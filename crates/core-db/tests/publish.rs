@@ -367,7 +367,8 @@ async fn a_day_published_before_the_listed_set_keeps_its_whole_inventory() {
         .await
         .unwrap()
         .get(0);
-    assert_eq!(migrate::apply(&mut client, &all).await.unwrap().applied, [(13, "listed_members".to_owned())]);
+    let through_13: Vec<_> = all.iter().filter(|m| m.version <= 13).cloned().collect();
+    assert_eq!(migrate::apply(&mut client, &through_13).await.unwrap().applied, [(13, "listed_members".to_owned())]);
     assert_eq!(recorded(&client, revision).await, (vec!["ETHA".to_owned(), "AAPL".to_owned()], 8));
     let nullable: String = client
         .query_one("SELECT is_nullable FROM information_schema.columns WHERE table_schema = 'vyreon' AND table_name = 'day_revision' AND column_name = 'listed_members'", &[])

@@ -466,7 +466,7 @@ Audit 2026-11-14 (core.md) 1, 2 and 10. Amends C-024's supersession rule and C-0
   it is the check that the stop happened. The lock replaces the per-day-and-profile one: C-025
   already published one bundle at a time; now that holds across processes too.
 - **An ordinary day changes nothing:** a day block's base and day-local revision of D find no
-  published revision that reads history on D or later (the pass waits for the block, C-038), so
+  published revision that reads history on D or later (the pass waits for the block, C-039), so
   nothing is superseded beyond the day's own previous revision and no notice is posted.
 
 ## C-038 A job is done when its sessions are; finish, day_done and session_done may arrive twice or late (2026-11-15)
@@ -488,3 +488,15 @@ Audit 2026-11-14 (core.md) 6 and 5. Amends C-025.
   sweeps first, outside its own transaction, and ignores what the sweep could not do (the sweeper
   reports it every half minute), so one bad job cannot block every claim; the claim also skips a
   job with no next session rather than read it as one.
+
+## C-039 The ordered pass waits until its own day's block has moved past it (2026-11-15)
+Audit 2026-11-14 (core.md) 7. Amends C-025's order and migration 0005's claim rule (migration 0014
+replaces the view; 0005 is not edited). A day block publishes its day's base, then its day-local
+revision, then says the day is done (C-031). The rule compared the blocks' next session with `<`,
+so the pass of day T was claimable between T's base and T's day-local revision; the engine refuses
+a day without the latter, and three quick refusals left the pass FAILED, holding up every later
+pass. Now a pass waits while any unfinished block of its profile stands at or before its day
+(`<=`). The view also leaves out a job with no session left (C-038), and a constraint keeps any job
+from being queued without one; the migration first makes DONE the jobs a lost `finish` left that
+way. An ordinary day: the pass of T starts after the block's `day_done` of T instead of possibly
+after its base alone.
