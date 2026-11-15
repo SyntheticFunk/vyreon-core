@@ -143,6 +143,16 @@ Working practice: at most three agents at once on the laptop; an audit after eve
   a SUPPORTED 0 and ZERO_DENOMINATOR on about 2022-12-15..2024-11-25. **Fix 7 started 22:13 UTC:**
   `pass-fx7-counts` (`/home/diggz/wt/fx7-counts`, D-237). After it: one audit, then the
   final-candidate days; further edge refinements are listed, not fixed (C-041).
+- **Fix 7 done and merged 22:28 UTC** into `pass-fx7-all` (worktree `/home/diggz/wt/fx7-all`,
+  703bade8, pushed): D-237, a session whose delivered interval rows carry no trade count has an
+  unknown count total; ACT01, ACT01-INTRADAY and TV15 count readings WITHHELD
+  MISSING_REQUIRED_INPUT (not PROVIDER_COVERAGE_START on the roles: it is a containment reason;
+  the plan and log state the coverage start 2024-11-26). Nothing changes from 2024-12-04. Build,
+  suite and its audit (`.../2026-11-15-fix-round-f/`) running. **This is the final candidate for
+  the real days** unless that audit finds something above the line. Listed, not fixed: the
+  reference suite's ACT01 checkers still apply D-037 without the guard; core has no
+  `source_coverage` rows for `option_intervals` and `option_interval_trade_counts` (compiled
+  dates apply).
 - 2c: 2025-12-10 runs on both test droplets under e9cce438 since 16:52 UTC (`r2` on 137.184.61.134,
   `m4` on 192.241.147.166, after `act01_auto_source --rebind`, 59 cohorts each); due about 19:25 UTC.
 - To check on a droplet before the final-candidate day: whether captured dividend adjustment records
