@@ -708,6 +708,24 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   strike rounding for ratios of 3 or more before promising NVDA and AVGO. Of the other real events: the 2025-01-09 closure is
   in the calendar with a test; COIN (2021-04-14) and PLTR (2020-09-30) list before option data
   starts; new expiries to check on the build.
+  **Fix round, 2026-11-15 08:45 UTC (newer than the note below).** All seven engine fix
+  tracks reported, are pushed (`pass-fx-{derived,overlay,tape,surface,company,field,orch}`,
+  D-171 to D-198) and are merged, in that order, into `pass-fx-all` (worktree
+  `/home/diggz/wt/fx-all`, e9cce438, local): two hand-resolved conflicts (the FIELD intraday
+  builder keeps the tape track's `session_withheld`), workspace compiles, full suite run.
+  Failing and not ours: 8 `option_field`, `a_t5_closure`, 2 h2-engine and 3 h2-q01 spill/URL
+  tests (fail on the base too); needing a droplet: `tape_cache` and
+  `a_tape_cache_without_its_daily_bar` (the AAPL cache fixture is the old tape reader's;
+  regenerate from the droplet's raw tape after a day under the new build). Core:
+  `pass-core-fix` pushed, not merged. Gap-only day `g3` (TLT bar 2025-10-15 hidden) published
+  clean: TLT's history sensors PROVIDER_INPUT_MISSING, FIELD W21 supported, W63 matrix
+  withheld whole (the all-64 rule, campaign); bar restored. Running: release build of
+  `pass-fx-all` for the droplets; follow-up agents on `pass-fx2-{style,receipt,small}`
+  (exercise style D-199/200; wall-clock out of receipts D-201/202; nine small items
+  D-203..208, list in the session). Decided by rule: Ichimoku stays 26 bars; core stores no
+  tape absences for this engine. Next: merge fx2, real days on both droplets (marker rewrite
+  with `vyreon-inputs terms`, then the clean day; then a membership day and an early date),
+  Codex audit of the merged round, `pass-s3i` rebase, merge to `worker` with core.
   **State of the pass, 2026-11-15 06:30 UTC (handoff note; start a fresh session from here).**
   Nothing is on `worker` or core's main. Engine candidates, pushed: `pass` (d028637a), for the
   test droplets, and `pass-s3i` (286f5c68), the same plus D-162 (the ACT01 family across a
