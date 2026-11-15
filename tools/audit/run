@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# One read-only Codex audit of one subsystem. Usage: tools/audit/run SCOPE REPO OUT_DIR [NOTE_FILE]
+#   SCOPE     a file name under tools/audit/scopes (overlay, surface, core, tape, ...) or a path to a scope file
+#   REPO      the checkout to audit (the candidate branch's worktree)
+#   OUT_DIR   where the report goes (OUT_DIR/SCOPE.md); the brief sent and Codex's log are kept beside it
+#   NOTE_FILE optional text appended to the brief (what earlier audits found, which commits claim to fix them)
+# Codex only reads (-s read-only). Its findings are claims: verify each with briefs/triage.md before fixing.
+set -euo pipefail
+here=$(cd "$(dirname "$0")" && pwd)
+scope=${1:?scope}; repo=${2:?repo}; out=${3:?output directory}; note=${4:-}
+file=$scope; [ -f "$file" ] || file="$here/scopes/$scope.md"
+name=$(basename "$file" .md); mkdir -p "$out"
+{ cat "$here/briefs/audit-common.md"; echo; cat "$file"; if [ -n "$note" ]; then echo; cat "$note"; fi; } > "$out/$name.brief.md"
+echo "candidate: $(git -C "$repo" rev-parse --short=8 HEAD) $(git -C "$repo" branch --show-current)" > "$out/$name.log"
+codex exec -s read-only -C "$repo" -o "$out/$name.md" - < "$out/$name.brief.md" >> "$out/$name.log" 2>&1
+echo "$name: $(wc -l < "$out/$name.md") lines in $out/$name.md"

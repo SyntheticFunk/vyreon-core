@@ -1,0 +1,18 @@
+Read-only verification task. Do not modify any file, do not run builds (reading code, `git log`, `git show`, `grep` only; you may run small standalone Python calculations to check arithmetic).
+
+A read-only auditor (another model, reading code only) produced findings about one subsystem of a market-data engine. Its findings are CLAIMS: some are real defects, some are misreadings, some describe a deliberate rule recorded in the project's decisions. Your job is to verify each claim against the actual code and the project's decisions, and classify it, so that only real defects are fixed.
+
+The repository to read is the one named at the end of this brief (the candidate the audit read). Read AGENTS.md and the "Rules in force" at the top of docs/DECISIONS.md first; docs/DECISIONS.md is long: search it for the decision numbers and terms relevant to each finding (later decisions amend earlier ones; an amendment may already cover a finding).
+
+The owner's priorities, in order: (1) no wrong numbers: a published value must be what its definition says, on a consistent basis; where an input is missing or its basis cannot be established the reading is withheld with an honest reason, never filled or defaulted; (2) match the published standard or market convention where one exists; (3) an engine failure is an engine fault, never relabelled as a provider absence, and the reverse; (4) one bad asset or input must not stop or corrupt the day for the others; (5) determinism. The historical database will be built from scratch starting 2022-05-27, for 64 US ETFs and large stocks.
+
+For EACH finding in the report(s) named below, do this: open the cited file and line (line numbers may have drifted: find the code by content), trace the path the auditor describes far enough to know whether the stated input really produces the stated outcome, and check docs/DECISIONS.md for a decision that makes the behaviour deliberate. Then classify:
+ - REAL: the defect exists as described (or in a corrected form you state). Give the concrete trigger, what is published, how likely the trigger is in the build's range for these 64 assets (name a real situation if you know one), and the severity: wrong number / wrong absence or mislabel / stops or corrupts a day / nondeterminism / other.
+ - NOT REAL: the auditor misread; say what the code actually does, with file:line.
+ - BY DECISION: the behaviour is a recorded, deliberate rule; cite the decision. Say whether you nevertheless think it contradicts a published standard or priority (1), and why.
+ - UNCERTAIN: you could not establish it by reading; say what evidence (which real data or which run) would settle it.
+Be skeptical in both directions: do not accept a claim because it sounds plausible, and do not dismiss one because the code looks deliberate. Where a claim involves arithmetic or a convention (annualisation, day count, a standard indicator's definition, an option-pricing convention), check it against the standard definition and say which standard.
+
+Report (under 900 words per report file): a table with one row per finding: its number in the report, your classification, severity if real, and one or two sentences with file:line; then, for the REAL ones only, a short list ordered by severity with the smallest correct fix you would make (do not make it); then anything you noticed on the way that the auditor missed. Finish with a one-line count: N real (of which W wrong-number), N not real, N by decision, N uncertain.
+
+REPORT(S) TO VERIFY:
