@@ -3,6 +3,24 @@
 The one living status document. History is in git; decisions in `docs/DECISIONS.md`; the plan in
 `docs/ARCHITECTURE.md`.
 
+## Steps to the MVP (the list shown to the owner on a status request; keep it current)
+1. **Two-day cluster trial.** Done 2026-11-13.
+2. **Engine ready for the build.** In progress. To close it:
+   a. the seven fix tracks merged into `pass-fx-all` (done 2026-11-15); core's fixes on `pass-core-fix` (pushed);
+   b. the follow-ups `pass-fx2-{receipt,style,small}` finished and merged, full suite;
+   c. real days on the merged round: clean 2025-12-10 on both droplets, then on the final candidate a
+      clean day, a membership day and an early date; the AAPL tape-cache fixture regenerated;
+   d. Codex audit of the round, triage to the owner, fixes above the cut line (C-041);
+   e. `pass-s3i` rebased; engine to `worker` and core to `main` together; images rebuilt;
+   f. housekeeping: this file pruned to state and next steps.
+3. **(2.5) Cluster verification:** 2025-12-10; 2025-04-11 (ETHA's option listing); a day before
+   2024-07-23; a block over the FB to META rename (June 2022); a day after a 10-for-1 split. Then the
+   newest two weeks on two nodes. New spend: the owner first.
+4. **(3) The build:** newest first back to 2022-05-27, sized and approved by the owner.
+5. **(4) Reporter and web** on core's API and the built history.
+6. **(5) Judge the reports; the FIELD campaign; the go-live choice.**
+Working practice: at most three agents at once on the laptop; an audit after every landed step.
+
 ## Where things stand (2026-11-10)
 - Engine: `engine-v1` tagged (vyreon-engine a046bf54). A fresh 2025-12-10 agrees laptop vs droplet to
   within 1e-11 (2026-11-09). The droplet is authoritative: Postgres, the daily capture, health checks.
