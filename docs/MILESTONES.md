@@ -708,124 +708,51 @@ Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `w
   strike rounding for ratios of 3 or more before promising NVDA and AVGO. Of the other real events: the 2025-01-09 closure is
   in the calendar with a test; COIN (2021-04-14) and PLTR (2020-09-30) list before option data
   starts; new expiries to check on the build.
-  **State of the pass, 2026-11-14 21:40 UTC (the session's handoff note).** Built by parallel
-  agents on engine branches (worktrees under `/home/diggz/wt/`, all pushed); nothing is on
-  `worker` or core's main yet. Two candidates:
-  `pass` (3836cfe6), for the test droplets: D-164 slots from the session's listed members;
-  D-165 members and tickers (equity requests under the asset key, option requests under the
-  root in force); D-161 and D-163 split stages 1 and 2; D-166 earlier dates (source starts
-  from the claim, listing-aware windows, PROVIDER_COVERAGE_START, newest-first pruning);
-  D-167 rename readers (the rename date not an adjustment, its zero open interest withheld);
-  D-168 sessions before the snapshot start publish with every option reading a coverage
-  absence, open interest and volume included (the overlay decides their basis); audit fixes.
-  `pass-s3i` (bcfee4ac), for the cluster: all of `pass` plus D-162, the ACT01 family across a
-  clean split and across the rename (its capture needs the provider).
-  Core's side is on `pass-core` (publish check against the listed set, the set recorded per
-  revision, migration 0013, NOT_LISTED sessions in the reader, dated `tickers` in the claim).
-  Left by decision or for evidence: the four audit items that change published records;
-  own-history scoring of contract-unit
-  readings across a split; a cash merger's accelerated expirations (no case among the 64).
-  **First proof on a real day (2026-11-14, test-2 `i1`, engine bc4a04b2: D-164 slots and D-161
-  split stage 1; clean 2025-12-10 against `c1`).** Published, exit 0, no ENGINE_FAULT; the new
-  store schema applied and published against. The 59 assets with no split: no slot differs
-  (the comparison ignores digests, ids and cutoffs, which do differ between runs). XLB, XLE,
-  XLK, XLU, XLY: VS-O02, VS-O04, VS-OIJ01 and the unusualness record change; XLK's supported
-  readings go 15 to 277 (O02), 6 to 263 (O04), 11 to 145 (OIJ01), XLF's counts. Values
-  recomputed independently from the post-overlay populations (scripts in the scratchpad,
-  `verify-split/`): the O02 change is ln(total_T / (2 x total_T-5)) exactly for all five (XLK
-  0.0053, against 0.6985 untranslated), all 126 reference entries, HHI, O04's shares, TV and
-  path efficiency, OIJ01's deformation for XLK and XLE and the percentiles match to 2e-16;
-  the ex-date endpoint is withheld PROVIDER_OI_INCOMPLETE; no two cells with open interest
-  merge under the OCC rule in the 134 sessions before the ex-date.
-  Second real day (test-1 `j1`, engine 2c36aefc: plus D-165, D-163 and audit fixes): published,
-  no ENGINE_FAULT; the 59 other assets unchanged in value; the five split assets differ in 7
-  slots: VS-O03 44 of 44 readings supported (was 42 with 2 challenged), VS-V03-MATCHED-NATIVE
-  6 of 6 (was 0), VS-L01 unchanged (its restart), the ACT01 family unchanged (NONE; stage 3
-  is not in this build). Values recomputed independently (scratchpad `verify-t5/`), all bit for
-  bit: VS-O03's quantiles from the populations and its changes under the OCC rule (XLE call 94
-  to 47 against T's 47: 0; put 81 to 40.5 against 41: 0.01227; untranslated -0.693 and
-  -0.681); M0-GAMMA-CHANGE's nine scenarios for six assets from the stored gamma shares (no
-  T-5 cells merge; XLE central joint TV 0.124, untranslated 0.950); INT-IVSC01 and
-  VS-V03-MATCHED-NATIVE from the engine's per-contract volatilities; M0-IV-CHANGE on 1,075 of
-  1,079 supported values (four need T-5 rows the stored profile does not keep). Weaker
-  evidence where the inputs are the engine's own stored gamma and volatility values.
-  The full candidate `pass-s3i` cannot run on a test droplet: its plan asks for the five split
-  assets' translated cohorts, whose capture needs the provider (refused, as designed). The
-  droplet candidate is `pass` (e93ea140: everything but D-162, with the two scoring fixes);
-  running on it: test-2 `l1`, clean 2025-12-10; test-1 `u1`, the membership-and-gap day (ETHA
-  named unlisted by a universe file, its archive present; TLT's 2025-10-15 bar hidden).
-  Third real day (test-2 `l1`, engine e93ea140: the droplet candidate after two audits and both
-  scoring fixes): published, 0 faulted slots of 2,853, 0 derived faults. The 59 other assets
-  differ only in M0-ANALYTICS, M0-GAMMA, M0-GAMMA-CHANGE and M0-IV-PROFILE, one non-numeric
-  leaf each and no numeric difference (the method identities D-167 changed, as predicted);
-  the five split assets differ from `j1` in those four plus the technical record, which now
-  states `recent_splits` 2025-12-05:0.5 (absent for SPY). The cohort-capture check faulted
-  nothing on this archive. The split-basis scores themselves cannot be seen on a one-day
-  store (INSUFFICIENT_HISTORY): they need a built history.
-  Audits 6 and 7 (reports in `~/claude-artifacts/audits/`) followed; audit 6's eight fixes are
-  merged in both candidates (`pass` dfa98a75), audit 7's are being built as one rule (D-170:
-  a prior session is comparable in contract units only when every session between has
-  positive evidence of no adjustment).
-  Membership-and-gap day (test-1 `u1`, e93ea140; ETHA named unlisted with its archive present,
-  TLT's 2025-10-15 bar hidden): published, 0 faulted of 2,810 final slots; ETHA has no slots
-  (64 objects, 4,608 slots against 4,679) and the store accepted the 63-member day; TLT's
-  readers withheld PROVIDER_INPUT_MISSING; the other 62 assets identical to `l1`; FIELD's
-  cross-section sensors over 63, FIELD-DEP01 withholding 945 cells, and the four whole-matrix
-  sensors withheld entirely (an unlisted member leaves no complete row), which hides the gap
-  case: a gap-only day `g3` follows on test-1.
-  Audit 8 (fifth pass) and its fixes are merged (`pass` 8c8650ea, `pass-s3i` d080388d): history
-  bodies are evidence only from the D-161 method labels on (VS-O02/O04/OIJ01 relabelled); the
-  adjustment detector says unknown when it could not compare (no previous quote file, a
-  rejected shift: header marker `ex_date_unknown`); the merge check reads the post-overlay
-  population and reaches only the history it covered; the technical record states every
-  back-adjustment (`recent_adjustments`, method 1.8.0) and scores are translated across
-  dividends too. The new planner run read-only over test-1's real archive (64 assets, 201
-  sessions of quote files) flags no marker but the hidden TLT bar's: the unknown verdict does
-  not fire on this ordinary data. Running: test-2 `p1` (clean, dfa98a75), test-1 `g3`.
-  **Frozen open interest after an adjustment (audit 9, a baseline defect; measured on test-1's
-  archive, scripts in /root/verify3 there).** The overlay dropped a dead listing holding open
-  interest only while the adjustment lay within 21 sessions; after that the old contracts the
-  provider keeps listing were counted on top of the moved positions. On 2026-04-27 to 06-11
-  the frozen rows carry 7-8% of XLE's open interest, 5-11% of XLK's, 8-9% of XLU's, 4-5% of
-  XLB's, 10-12% of XLY's and 6-12% of EWJ's (the provider zeroed them on 2026-06-12); EWJ is
-  already wrong in the archive's stored populations, its 2025-12-16 chain being absent. Fixed
-  by a per-asset adjustment ledger (owner: each asset its own event tracker):
-  `crates/vyreon-cli/src/adjustments.rs`, from core's file `h5-universe/adjustments.json`
-  (schema VYREON-ADJUSTMENTS@1, the claim can send it), the daily bars' split ratios, the
-  confirmed adjusted-roots table and the detector; entries count for 39 months (the longest
-  listing period); the header names every adjustment; a frozen listing whose OCC image is
-  listed is dropped, and under an unknown or undated adjustment its open interest is unknown
-  (PROVIDER_OI_INCOMPLETE above 1%). Re-run on the raw pages of all 64 assets on 14 dates:
-  exactly the frozen rows drop. QQQ carries strikes 0.22 off the lattice on every date: an
-  adjustment nobody recorded, a candidate ledger entry. Other consumers of adjustment dates
-  are not yet on the ledger (`split_history`, the walks, D-161's verdict users).
-  The 9 GB test blow-up was test-only (two test files parsed the 1.2 GB slot fixture once
-  per test); tests now run under a memory cap.
-  Ten subsystem audits of the whole engine and core are running (owner 2026-11-14: audit
-  every independent system); reports in `~/claude-artifacts/audits/2026-11-14-baseline/`.
-  **Share-unit scoring (D-169, merged into both candidates):** DLM-TECHNICAL's
-  `obv_change_20`, `volume_price_trend_change_20` and the three MACD readings were scored
-  against priors on another split basis (XLU 2025-12-10: OBV z -0.97 as published, -0.32 on
-  one basis); the record now states its recent splits and the scorer translates the priors.
-  **Overlay against raw end-of-day figures, measured (2026-11-14; 11,167 asset-sessions, all 64
-  symbols, 250 dates of the test archive; stored post-overlay populations against the raw
-  pages; scripts and tables in the session scratchpad, `overlay-measure/`):** unchanged on
-  96.4% of sessions for total open interest and 98.5% for volume, but large where it differs
-  and not detectable without the snapshot. After a split the provider keeps the old contracts
-  with frozen open interest (raw +35% to +49% on the five ETFs for every session after
-  2025-12-05; ETHA +134% to +220% after its 2026-10-06 adjustment); on a dozen provider-fault
-  dates the end-of-day figure is low or missing for many assets at once (2025-10-20: 59
-  assets; 2026-05-06: 49). Outside corporate actions 136 of 10,380 sessions differ by more
-  than 1% (maximum 53%). So D-168 stands: before 2022-05-27 open interest and volume are
-  coverage absences, not raw figures (no wrong numbers; settled on this evidence).
-  **Owner, 2026-11-14: the database starts when the option snapshots start (2022-05-27,
-  checked against the provider: no snapshot on 2022-05-26 or 2022-03-15).** This replaces the
-  same day's choice of 2021-09-27. The build's oldest fully published date is about
-  2022-06-06; the FB to META rename stays inside it. D-168's handling of earlier sessions
-  stays in the code (a date before the snapshots publishes coverage absences instead of
-  being refused) but those dates are not built, and the January 2022 cluster day is dropped.
-  Known consequence: method identities of M0-ANALYTICS, M0-GAMMA, M0-GAMMA-CHANGE and
-  M0-IV-PROFILE change on every day (D-167).
+  **State of the pass, 2026-11-15 06:30 UTC (handoff note; start a fresh session from here).**
+  Nothing is on `worker` or core's main. Engine candidates, pushed: `pass` (d028637a), for the
+  test droplets, and `pass-s3i` (286f5c68), the same plus D-162 (the ACT01 family across a
+  split and the rename; needs the provider, so cluster only). Core: `pass-core`. Decisions
+  D-161 to D-170 at the end of the engine's docs/DECISIONS.md, with dated amendments, are the
+  specification; nine Codex audit reports of the pass and the triage of ten subsystem audits
+  are in `~/claude-artifacts/audits/` (the pass: `2026-11-14-codex-universe-pass-4..9.md`; the
+  subsystems: `2026-11-14-baseline/` with verified lists under `triage/`).
+  Proven on real days (2025-12-10, values recomputed independently where marked): D-164 slots
+  and the store schema; D-161 and D-163 split stages 1 and 2 (recomputed); a member unlisted
+  and a member with a missing bar; no regression on clean days through `pass` 0881fb8e (audit
+  rounds 1 to 4). Not yet on a real day: audit 8's fixes, the adjustment ledger (audit 9), the
+  FIELD gap case (`g3` running on test-1, engine 8c8650ea), D-165 and D-167 on a rename date,
+  D-162, D-166 on a post-listing date, the split-basis scores (need a built history).
+  Blocked: a day on the ledger build (`pass` d028637a) is refused on a test droplet: 2,081
+  quote files need the new `adjustment=` markers, and the only command that rewrites markers
+  is the fill, which demands a provider key even though this step makes no request. Next: a
+  key-free marker rewrite (extend `vyreon-inputs terms`), then the clean day and a seventh
+  audit on the final candidate.
+  Then: fix the verified subsystem findings (below); two consecutive clean audits; merge
+  `pass-s3i` to `worker` and `pass-core` to core's main together; rebuild the images; step 2.5
+  on the cluster (2025-12-10; 2025-04-11; a day before 2024-07-23; a block over
+  2022-06-01..06-17 for the rename; a day after a 10-for-1 split); the build from 2022-05-27.
+  **Verified subsystem findings, to fix before the build** (triage files give file:line and
+  the smallest fix): stops a day: the ordered derive aborts for all 64 on one object's error
+  (daily 8, likely on ETHA after 2026-10-06 through an exact-equality check, daily 13); one
+  asset's bad carry page fails the surface stage for all (surface 12); one asset's missing bar
+  fails the shared quote fetch (overlay 9); carry is blocking and not withholdable
+  (orchestration 10); one member's failed view stops FIELD (field 3). Wrong numbers: q = 0
+  when no expiry identifies carry, unlabelled (m0 1 / surface 3: needs the owner, it trades
+  coverage for honesty; incidence unmeasured); 0DTE volume on an ex-date (daily 5); charm
+  totals skipping rows without charm (daily 6); derived bars admitted on a weaker test than
+  P01's (daily 3); snapshot zeros accepted against end-of-day open interest (optsensors 1 /
+  overlay 4); a null split ratio read as no split (overlay 3); the dividend projection's
+  split lookback of 400 days against eight payments (surface 5) and its holiday calendar
+  limited to 2025-2028 (surface 6); H.15 yields compounded as ln(1+y) (surface 1: small, a
+  method break, the owner's call). Mislabels: an engine state published as a provider absence
+  (orchestration 3, 4, 5; field 4, 6; daily 9); candlestick NONE with support under nine
+  bars (daily 7). The technical indicators match their standards (Wilder, Appel, Bollinger,
+  Lane and the rest); Ichimoku's spans are one session off the common platform, and moving
+  averages reseed at the archive's start: the build needs about 200 bars before its first
+  date. The engine's own `vyreon-api` is unused (core C-009): delete it rather than fix it.
+  For the FIELD campaign: the all-64 sensors are withheld from the build's start until
+  about 2024-10 to 2025-07 because IBIT and ETHA list in 2024: about half the build.
+  The triage of core and of the tape family, and the company audit, were still running.
   Real days running, 2025-12-10 clean, each against baseline `c1`: test-2 `i1` on bc4a04b2
   (slots and split stage 1), test-1 `j1` on 2c36aefc (plus tickers, audit fixes, split stage
   2). Expected: every asset byte-identical but XLB, XLE, XLK, XLU, XLY, whose VS-O02/O04/OIJ01
