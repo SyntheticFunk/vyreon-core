@@ -13,7 +13,10 @@ def leaves(v, path=()):
 A, B = load(sys.argv[1]), load(sys.argv[2])
 left = collections.Counter(); leftreasons = collections.Counter(); leftsame=[]
 other = collections.defaultdict(lambda: [0, 0.0, None, 0]); 
+gone = collections.Counter(k[1] for k in A if k not in B); new = collections.Counter(k[1] for k in B if k not in A)
+if gone or new: print('slots only in the first:', dict(gone), '| only in the second:', dict(new))
 for k in sorted(A):
+    if k not in B: continue
     la, lb = dict(leaves(json.loads(A[k]["body_text"]))), dict(leaves(json.loads(B[k]["body_text"])))
     if k[1] in LEFT:
         if la == lb: leftsame.append(k[0])
