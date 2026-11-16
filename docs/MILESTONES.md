@@ -249,6 +249,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (D-336) merged (`pass-s3i` a2908ede, pushed): an old strike listed on the adjustment day with no
   open interest and no two-sided quote is a new series under OCC Art. VI 11A and does not block
   the detection; open interest or a two-sided quote still does.**
+- **20:03 UTC: the database volume grown from 60 to 120 GB** (owner-approved; CloudNativePG resized it
+  online, no restart; 111 GB free; `deploy/k8s/10-postgres.yaml` now says 120Gi). A dump taken
+  first: `~/claude-artifacts/db-backups/vyreon-20261116T*.dump` (761 MB, 33 tables; on the laptop
+  as a safety copy only: delete once the build's first tranche is stored).
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two

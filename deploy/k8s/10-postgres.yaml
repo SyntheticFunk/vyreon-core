@@ -21,4 +21,4 @@ spec:
         - CREATE ROLE vyreon_reader NOLOGIN
         - CREATE ROLE vyreon_ordered_pass NOLOGIN
   storage:
-    size: 60Gi
+    size: 120Gi
