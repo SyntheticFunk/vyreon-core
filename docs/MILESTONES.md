@@ -153,6 +153,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (D-083, D-191).** Dump diff of 2025-12-10 from two captures: only CAPVAL's provider row, a
   1.4e-15 float, and two provider edits that move bytes but no published value (WMT's
   `primary_listing` flag, WMT's dividend row hash).
+  **Owner, 2026-11-16: go with the recommendations:** CPI switches to the unrevised `$CPIAUCNS`;
+  industrial production and expected earnings stay, each body stating its basis (the provider's
+  current revised vintage / forecast as captured). Sent to batch 12.
 - **Next for the engine:** merge fx11-a, -b, -c, -d into `pass-s3i` (merge, not rebase; expect
   only docs/DECISIONS.md and small `views.rs`/`vyreon-worker.rs` overlaps); full suite (known
   failures: eight h5-field `option_field` only); ONE Codex audit of the merged result with a
