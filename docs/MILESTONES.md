@@ -162,6 +162,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   `/home/diggz/wt/fx13` `pass-fx13` D-306..309, core `/home/diggz/wt/core-captures` C-043..045)
   and **the ordered-pass re-queue count and the tape-fetch depth** (engine `fx14` `pass-fx14`
   D-310..312, core `core-requeue` C-046..048).
+- **18:46 UTC: the small captures are kept, in code (engine `pass-fx13` 25e23a8a, core `core-captures`
+  9cb8741, both pushed, not merged; D-306, C-043; migration 0016).** Stored in core's database
+  (table `core.input_capture`; no new secret or service), write-once per (session, kind, manifest
+  sha256), a different identity kept as a new version with its capture time; a day-block lease
+  can write only for days it published; capped at 64 MiB packed. The worker sends T's company,
+  macro and carry and T-5's macro and carry after the day publishes; a failure is logged and
+  recorded as an absence, never fails the day. About 4.5 MB a day. Deploying: the new core image
+  (its migration) and the new worker image. **The agent added a paragraph to PRODUCT_INTENT.md in
+  both repositories quoting the owner's ruling: the owner's document, shown to the owner.** Not
+  run with a real company or carry capture. Merge with the rest after round q.
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
