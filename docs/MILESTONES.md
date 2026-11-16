@@ -428,6 +428,17 @@ Engine `worker` checkout: `/home/diggz/vyreon-engine-worker`.
   DLM-UNUSUALNESS `line_95` pools whatever scored sessions exist and states no pool size or
   span** (`derive/ordered.rs:166-181`): to fix before the build; INT-TEMP-EVC01 reads every tape
   session since the tape start (states `prior_count`).
+- **Answered 2026-11-16 16:24 UTC, three rulings:** (1) INT-TEMP-EVC01's baseline is a **fixed
+  trailing window of 252 sessions**, not every retained prior session (sent to the 11-B agent;
+  amends D-089/D-159). (2) A sensor whose definition is reworked is recalculated under the new
+  definition; the owner's intent is **a "compute just this sensor" route** so that does not
+  cost a database build: to evaluate when a real case needs it (standing ruling of 2026-11-12:
+  single-sensor compute when a real snag needs it). Until it exists, a value-changing fix
+  mid-build republishes that sensor's built sessions, and the history layer must not pool
+  across method versions (batch 11-D). (3) **The provider is the reference:** where a choice
+  among point-in-time-valid figures exists, match Intrinio (AAPL and LLY share basis; BABA and
+  TSM receipt ratios from the provider's data); a free external reference is an option, the
+  paid provider is the basis (sent to the valuation agent; the point-in-time rule stands).
 - **Answered 2026-11-16 15:45 UTC: phase 1 is the newest two weeks, then back to 2025-04-10, then
   Reporter, then the launch decision (step list above). Fix the unusualness flag line.** The
   earlier note, kept for the reasoning: The MVP is a weekly
