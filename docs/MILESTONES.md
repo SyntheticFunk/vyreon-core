@@ -129,20 +129,18 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   `pass-core-fix`. Engine `worker` checkout: `/home/diggz/vyreon-engine-worker`.
 
 ## Decisions waiting on the owner
-- Delete ten old run directories on 137.184.61.134 (`vyreon-test-2`) to free about 142 GB: `a3`,
-  `a4`, `d1`, `i1`, `l1`, `s1` and the empty `k1`, `q1`, `r1`, `r3`; keep `p1` and `r2`. Asked
-  2026-11-15. Also on 192.241.147.166 (`vyreon-test-1`): `c1`, `g3`, `j1`, `m1b`, `m3`, `u1` (keep
-  `m4`, `m5`, `m6`); asked 2026-11-16.
-- D-236 withholds the whole ACT01 family on 2022-12-08..12-14, including readings that need only
-  T's intervals: keep or narrow.
-- The production store's 2025-12-10 still carries 177 withheld activity slots; it needs the rebind
-  and a republish. Owner's word before touching production (2026-11-14).
-- The rule for the pooled quantities (financing spread, activity feed check, unusualness line:
-  pooled over the assets present) was "owner to confirm" on 2026-11-14; no answer is recorded.
-- With exactly one visible share report the company unit guard has nothing to compare and the
-  metrics publish: leave it until the build shows how often (recommended), or treat as unevaluated.
-- Answered, not waiting: a missing daily bar withholding an asset's surface for about three years
-  is left until the build shows one (2026-11-15; its label is fixed).
+- None open. New spend for step 2.5 comes to the owner when 2e closes.
+- Answered 2026-11-16 03:55 UTC ("go with your recommendations"): the old run directories deleted
+  on both test droplets (137.184.61.134 keeps `p1`, `r2`; 192.241.147.166 keeps `m4`, `m5`, `m6`;
+  started 03:57 UTC); D-236 stays as it is (the whole ACT01 family withheld 2022-12-08..12-14); the
+  pooled quantities stay pooled over the assets present; with exactly one visible share report the
+  company metrics publish, left until the build shows how often.
+- The production store's 2025-12-10 (177 withheld activity slots) is not touched until the merged
+  engine is deployed there; it then needs the rebind and a republish, on the owner's word.
+- A missing daily bar withholding an asset's surface for about three years is left until the build
+  shows one (2026-11-15; its label is fixed).
+- Step 2.5 is to be run by Opus: write a hand-off (state, commands, what each cluster day must
+  show) when 2e closes. Fable until then (owner 2026-11-16).
 
 ## Listed, not fixed
 - CDD-FND02's `*.as_reported` repeats five CDD-FND01 readings when the standardized and reported
