@@ -116,6 +116,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   of that era is withheld). `pass-fx11-d` (from 912b39a8; Opus agent running,
   D-273..279): histories do not pool across method versions; one bad bar or capture costs only
   what reads it; reasons carried.
+- **17:30 UTC: fx11-a, -b, -c merged into `pass-s3i` (1dcb939d, not pushed; one conflict in
+  `vyreon-worker.rs` run_tape, both behaviours kept); full suite running; round p with a
+  verifier.** Still to merge: fx11-d (agent running).
 - **Next for the engine:** merge fx11-a, -b, -c, -d into `pass-s3i` (merge, not rebase; expect
   only docs/DECISIONS.md and small `views.rs`/`vyreon-worker.rs` overlaps); full suite (known
   failures: eight h5-field `option_field` only); ONE Codex audit of the merged result with a
