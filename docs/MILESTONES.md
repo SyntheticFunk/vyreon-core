@@ -182,6 +182,17 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   suite running. Left: a retained view's collision reads ENGINE_FAULT until `--rebind`. **To
   watch on its real day: XLB, XLE, XLK, XLU, XLY must get their translated cohorts; a refusal
   there would mean the new row reader rejects real chain rows.**
+  **`m6` (`pass-fx8`) finished clean 05:55 UTC:** both summaries COMPLETE, `faulted_engine` 0,
+  0 `Connection refused`; 8 slots withheld for the T-5 macro capture (DBA, UUP; fixed since by
+  D-239 and the capture). Against `m5`: 128 slots differ, all explained: the Greek exposure and
+  unusualness labels (63 each), EMB's ACT01-INTRADAY summary arrays (D-237), XLB's VS-OIJ01 back
+  from its fault. **First real cover numbers (D-228 amended): BABA's Greek exposure covers 0.679
+  of its open interest (617 unresolved rows: BABA1 and BABA2), UNG 0.991, the other 61 as
+  before (median 0.996).** Dumps kept in `~/claude-artifacts/testbed-dumps/` (p1, r2, m4, m5, m6).
+  **`y1` (192.241.147.166, `pass-s3i` d55f6439, clean 2025-12-10, terms + rebind + day) started
+  05:56 UTC.** The test droplets hold no provider key, so the five split assets cannot acquire
+  their translated cohorts there (expect them withheld; the real proof of D-162 is the cluster's
+  split day); `y1` shows whether the merge left the other 59 equal to `x2`.
   **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
   build; its audit sends us round again only for a finding above the line. The gate left is the
   real days on `pass-fx10`.
