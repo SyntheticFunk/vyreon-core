@@ -227,6 +227,17 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   tapes: no tape job). **Item 6, the newest two weeks, needs every tape session from 2025-12-10
   to today (about 232, some 27 node-hours): that is the first quarter of the build's own tape
   phase, so it waits for the owner** (the build is the owner's to size).
+  **`x2` (`pass-fx10` 8a40183e, 137.184.61.134) finished clean 08:01 UTC:** both summaries
+  COMPLETE, 512 of 512 and 2,688 of 2,688, `faulted_engine` 0, no `Connection refused`, 4,679
+  slots. Against `m6` (`pass-fx8`, the home without ETHA): 83 slots differ, all explained: 12
+  FIELD.CORE64 slots (64 members against 63), 63 DLM-UNUSUALNESS (label 1.6.0; BABA's
+  `scored_count` 238 to 233, the five FND02 copies), and the eight DBA and UUP slots
+  (INT-IVSC01, M0-GAMMA-CHANGE, M0-IV-CHANGE, VS-V03-MATCHED-NATIVE) that lose
+  PROVIDER_INPUT_MISSING: **D-239 and the socket fix D-238 have now run a real day.** Dump `x2`.
+  **`x3` (137.184.61.134, `pass-s3i` d55f6439, all 64 listed) started 08:08 UTC** after the same
+  act01 fetch (five translated cohorts, none refused); it is the merged candidate's
+  full-membership day, to compare with `x2` (expect the five split assets' ACT01 family and one
+  change of every task key) and with `y2` across machines.
   **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
   build; its audit sends us round again only for a finding above the line. The gate left is the
   real days on `pass-fx10`.
