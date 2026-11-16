@@ -195,6 +195,22 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   split day); `y1` shows whether the merge left the other 59 equal to `x2`.
   Suite on `pass-s3i` d55f6439, 06:02 UTC: 1,221 passed, 12 failed: the known ten and the two
   `etha-first-chain` fixture tests. `worker` is an ancestor of `pass-s3i` (a fast-forward).
+  **`y1` was refused by its plan (06:03 UTC): the five split assets had no cohort** (they need a
+  provider fetch; the droplet has no key). `vyreon-inputs fill --category act01 2025-12-10` was
+  run there with the key passed on stdin for that one command (nothing stored; about 600
+  requests): **all five got a translated cohort** (`split_translation` in each `source-view.json`,
+  no `no-selection.json`), so the D-246 guard refuses nothing on the real 2025-12-03 chains.
+  **`y2` (192.241.147.166, `pass-s3i` d55f6439, 2025-12-10) started 06:10 UTC, plan ok.** That
+  home has ETHA unlisted (the membership state of `m4`), so `y2` is the membership day; compare
+  with `m6` (same home, `pass-fx8`) and `x2`.
+  **Step 2.5 preparation:** the runbook is `~/claude-artifacts/cluster-verification-runbook.md`
+  (draft, by an agent from the repos and the trial's record; commands marked recorded or
+  inferred). The trial's scratch (kubeconfig, job manifests, `do.sh`, token files) was found in
+  an old session's scratchpad and copied to `~/claude-artifacts/cluster-scratch/` (mode 700);
+  the kubeconfig still works (06:11 UTC: node `core-3aju5s` Ready, `vyreon-core:6e15a27` and
+  `vyreon-pg-1` running, no `day` pool). Two hazards from the runbook to settle before
+  scheduling: a tape job for an old date moves `tape_history_from` (about 640 tape sessions
+  captured); republishing 2025-12-10 re-queues the 12-11 ordered pass under the old build.
   **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
   build; its audit sends us round again only for a finding above the line. The gate left is the
   real days on `pass-fx10`.
