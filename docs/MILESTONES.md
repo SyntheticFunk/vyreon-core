@@ -120,6 +120,18 @@ the cluster still runs `vyreon-core:6e15a27`.
   `/work/logs/vyreon-inputs-fill.log` on exit. After it: 2022-06-06 and 06-07 are FAILED days;
   **do not start another attempt on this block before the cause is fixed** (three FAILED days
   pause the queue, C-035).
+- **Cause found 12:05 UTC (`cluster-scratch/v-day-2206c.log`):** for a session before the tapes
+  the fill still asks the replay endpoint (`replay_capture ... --publish-unavailable`, D-166) and
+  expects 404; Intrinio now answers HTTP 500 (confirmed through the MCP for 2022-06-07 and
+  2023-05-23), which the fill takes as Fatal; it stops before the quote files are fetched (no
+  snapshot request in the counts), hence every other refusal. An agent is fixing it on
+  `pass-s3i` (D-249: coverage decides before the endpoint is asked) and checking whether the
+  quote files have a second defect in 2022 (the nearest snapshot is at :50, in eight parts).
+  Then: rebuild the worker image, register and admit the new build, cancel the block's jobs of
+  build `d55f6439`, schedule 2022-06-06..06-15 again under the new build, `queue retry-failed`
+  not needed (new jobs). 2022-06-06 and 06-07 are FAILED days of the old build; the fourth
+  node idles meanwhile. Also asked of the agent: why every macro capture states INDPRO
+  WITHHELD_WRONG_UNIT. (12:04 UTC)
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
