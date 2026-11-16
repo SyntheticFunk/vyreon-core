@@ -130,6 +130,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   value change), so a code edit in their closure restarts every history that reads them until
   republished: phase 1 must be built from one image, and a later image bump needs a check of
   which labels moved.** Merge fx11-d after the suite now running.
+  **Owner, 2026-11-16: give those six a hand-set method label** (M0-ANALYTICS, M0-GAMMA,
+  M0-GAMMA-CHANGE, M0-IV-CHANGE, M0-IV-PROFILE, M0-PRINT-SIZE: their `method_sha256` is a hash of
+  the method's code, set in `h4_m0_group.rs`, `h4_m0_change.rs`, `h4_m0_analytics.rs`,
+  `h4_m0_gamma_change_calculation.rs`); to do on `pass-s3i` after fx11-d merges. The version rule
+  itself is to be judged by the real build (step 5), as every rule built on sparse data is.
 - **Next for the engine:** merge fx11-a, -b, -c, -d into `pass-s3i` (merge, not rebase; expect
   only docs/DECISIONS.md and small `views.rs`/`vyreon-worker.rs` overlaps); full suite (known
   failures: eight h5-field `option_field` only); ONE Codex audit of the merged result with a
