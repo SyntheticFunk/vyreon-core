@@ -112,8 +112,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   PROVIDER_COVERAGE_START, tape readers TAPE_UNAVAILABLE) and **2025-12-10** (d55f6439: 2,853 +
   1,105 slots, clean, 5 h 50 min from an empty disk; dump `testbed-dumps/c-1210`, equal to the
   test droplet's `x3` except the provider-restated valuation row).
-- **Running:** `v-day-2206e` (job 55, build 518faf7e, the block 2022-06-06..06-15: 06-07 computing)
-  and `v-day-0716c` (job 53, build 518faf7e, 2024-07-16, long download). Judge each day ONLY by
+- **Running (16:57 UTC):** `v-day-2206e` (job 55, build 518faf7e, the block 2022-06-06..06-15:
+  **06-06 and 06-07 published**, 06-08 computing). **`v-day-0716c` (job 53, 2024-07-16) was refused
+  16:48 UTC after 211 minutes of download:** the quote files are no longer missing (the reader
+  works on the single-file 20-column layout) but `option_identity` Stale: 111 option sources to
+  requote, and `option_history` Stale for 58 assets: the requote failed for some sessions of the
+  middle layout, cause unknown (the log died with the pod). Its second attempt (pod `x47gp`) is
+  downloading again; a watcher copies an excerpt of its fill log every two minutes to
+  `cluster-scratch/summaries-0716c/fill-log-excerpt.txt`: **diagnose from that file**; round p's
+  report has arrived (`.../surface-round-p/provider-derived.md`, not triaged). Judge each day ONLY by
   `h4-day-summary-*.json` (`faulted_engine` 0), saved to `cluster-scratch/summaries-<tag>/`.
 - 2025-04-11 failed on d55f6439 (three defects, fixed by D-255..257): run it again on the final
   image. Ordered passes are queued for the published days and have not run (the flag line's new
