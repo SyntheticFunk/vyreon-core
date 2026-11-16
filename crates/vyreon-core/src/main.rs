@@ -16,6 +16,9 @@
 //!                                                     it read and read its day only; --vouch is the operator's word
 //!                                                     that the bundles were computed from what is published now
 //!                                                     (C-042: a bundle that names no base revision, or reads history)
+//!   vyreon-core evidence list [<job>]                 the failure evidence workers left (C-049), newest first
+//!   vyreon-core evidence show <job> [--attempt N]     one attempt's evidence in full (the latest by default):
+//!                                                     its stop message, the input plan's refusals and its log excerpt
 //!   vyreon-core api-key create <holder> <read[,admin]>   make a reader API key (printed once; only its digest is kept)
 //!   vyreon-core api-key revoke <holder>
 //!   vyreon-core serve                                 the HTTP service (the worker and reader APIs). Settings:
@@ -30,7 +33,7 @@
 //! The database connection string comes from `VYREON_CORE_PG`, or from the file named by
 //! `VYREON_CORE_PG_FILE`. It is a secret and is never printed.
 mod engine_store;
-use core_db::{build, migrate, publish, universe, work};
+use core_db::{build, evidence, migrate, publish, universe, work};
 use std::path::Path;
 use tokio_postgres::Client;
 use std::process::ExitCode;
@@ -221,6 +224,56 @@ async fn universe_on(profile: &str, date: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// `evidence list [<job>]`: one line per attempt, newest first; the message's first line only.
+async fn evidence_list(job: Option<&str>) -> Result<(), String> {
+    let job = job.map(|j| j.parse::<i64>().map_err(|_| format!("job id: {j}"))).transpose()?;
+    let rows = evidence::list(&connect().await?, job, 200).await?;
+    if rows.is_empty() {
+        println!("no failure evidence{}", job.map_or(String::new(), |j| format!(" for job {j}")));
+    }
+    for r in &rows {
+        let message = r["message"].as_str().unwrap_or_default();
+        let refusals = r["refusals"].as_i64().map_or(String::new(), |n| format!(", {n} refusals"));
+        println!(
+            "{} job {} attempt {} {} {} by {}: {}: {} ({} bytes of log{refusals})",
+            r["stored_at"].as_str().unwrap_or_default(),
+            r["job_id"],
+            r["attempt"],
+            r["kind"].as_str().unwrap_or_default(),
+            r["session"].as_str().unwrap_or("before its first session"),
+            r["worker"].as_str().unwrap_or_default(),
+            r["stage"].as_str().unwrap_or_default(),
+            message.lines().next().unwrap_or_default(),
+            r["excerpt_bytes"],
+        );
+    }
+    Ok(())
+}
+
+/// `evidence show <job> [--attempt N]`: the record, the refusals, then the excerpt as sent.
+async fn evidence_show(job: &str, attempt: Option<&str>) -> Result<(), String> {
+    let job: i64 = job.parse().map_err(|_| format!("job id: {job}"))?;
+    let attempt = attempt.map(|a| a.parse::<i32>().map_err(|_| format!("attempt: {a}"))).transpose()?;
+    let Some((record, excerpt)) = evidence::show(&connect().await?, job, attempt).await? else {
+        return Err(format!("no failure evidence for job {job}{}", attempt.map_or(String::new(), |a| format!(" attempt {a}"))));
+    };
+    let mut head = record.clone();
+    if let Some(o) = head.as_object_mut() {
+        o.remove("message");
+        o.remove("refusals");
+    }
+    println!("{}", serde_json::to_string_pretty(&head).map_err(|e| e.to_string())?);
+    println!("== message\n{}", record["message"].as_str().unwrap_or_default());
+    if !record["refusals"].is_null() {
+        println!("== refusals\n{}", serde_json::to_string_pretty(&record["refusals"]).map_err(|e| e.to_string())?);
+    }
+    print!("== log excerpt\n{excerpt}");
+    if !excerpt.ends_with('\n') {
+        println!();
+    }
+    Ok(())
+}
+
 async fn run_migrate() -> Result<(), String> {
     let mut client = connect().await?;
     let set = migrate::embedded().map_err(|e| e.to_string())?;
@@ -264,6 +317,10 @@ async fn main() -> ExitCode {
             Ok(client) => core_db::api_key::revoke(&client, holder).await,
             Err(e) => Err(e),
         },
+        ["evidence", "list"] => evidence_list(None).await,
+        ["evidence", "list", job] => evidence_list(Some(job)).await,
+        ["evidence", "show", job] => evidence_show(job, None).await,
+        ["evidence", "show", job, "--attempt", attempt] => evidence_show(job, Some(attempt)).await,
         ["serve"] => serve().await,
         ["months", first, last] => months(first, last).await,
         ["publish", ref rest @ ..] => match publish_args(rest) {

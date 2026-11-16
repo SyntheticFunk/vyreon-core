@@ -4,6 +4,7 @@ pub mod api_key;
 pub mod budget;
 pub mod build;
 pub mod capture;
+pub mod evidence;
 pub mod migrate;
 pub mod notice;
 pub mod publish;

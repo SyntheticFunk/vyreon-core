@@ -1,0 +1,160 @@
+169:   options 2024-07-16 GLD: Retryable("exit 3: == failed capture /work/h5-acq/GLD/options/2023-12-19/capture: option acquisition:Transport(\"HttpStatus(502)\")")
+290:   options 2024-07-16 PLTR: Retryable("exit 3: == failed capture /work/h5-acq/PLTR/options/2023-11-22/capture: option acquisition:Transport(\"HttpStatus(502)\")")
+299:   options 2024-07-16 LLY: Retryable("exit 3: == failed capture /work/h5-acq/LLY/options/2024-03-26/capture: option acquisition:Transport(\"HttpStatus(502)\")")
+304:   options 2024-07-16 WMT: Retryable("exit 3: == failed capture /work/h5-acq/WMT/options/2024-02-26/capture: option acquisition:Transport(\"HttpStatus(502)\")")
+2587:{"source":"/work/h5-acq/MDY/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2590:{"source":"/work/h5-acq/ARKK/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2591:{"source":"/work/h5-acq/XLF/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2592:{"source":"/work/h5-acq/XLK/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2594:{"source":"/work/h5-acq/XLE/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2595:{"source":"/work/h5-acq/QQQ/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2596:{"source":"/work/h5-acq/XLI/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2597:{"source":"/work/h5-acq/SPY/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2598:{"source":"/work/h5-acq/XLY/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2599:{"source":"/work/h5-acq/XLRE/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2600:{"source":"/work/h5-acq/XLB/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2601:{"source":"/work/h5-acq/XLP/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2602:{"source":"/work/h5-acq/XLU/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2603:{"source":"/work/h5-acq/TIP/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2605:{"source":"/work/h5-acq/IEF/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2609:{"source":"/work/h5-acq/HYG/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2610:{"source":"/work/h5-acq/USO/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2611:{"source":"/work/h5-acq/DBA/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2612:{"source":"/work/h5-acq/LQD/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2613:{"source":"/work/h5-acq/TLT/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2615:{"source":"/work/h5-acq/UNG/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2616:{"source":"/work/h5-acq/UUP/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2617:{"source":"/work/h5-acq/INDA/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2619:{"source":"/work/h5-acq/EWY/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2620:{"source":"/work/h5-acq/EEM/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2621:{"source":"/work/h5-acq/GLD/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2624:{"source":"/work/h5-acq/XHB/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2625:{"source":"/work/h5-acq/XRT/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2627:{"source":"/work/h5-acq/URA/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2628:{"source":"/work/h5-acq/SMH/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2630:{"source":"/work/h5-acq/XBI/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2632:{"source":"/work/h5-acq/AMD/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2634:{"source":"/work/h5-acq/AMZN/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2635:{"source":"/work/h5-acq/MSFT/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2636:{"source":"/work/h5-acq/AVGO/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2639:{"source":"/work/h5-acq/LLY/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2640:{"source":"/work/h5-acq/NVDA/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2641:{"source":"/work/h5-acq/TSLA/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2644:{"source":"/work/h5-acq/TSM/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2645:{"source":"/work/h5-acq/BABA/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2647:{"source":"/work/h5-acq/MSTR/options/2023-10-30","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2653:{"source":"/work/h5-acq/XLK/options/2023-10-31","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+2669:{"source":"/work/h5-acq/SLV/options/2023-10-31","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3454:{"source":"/work/h5-acq/RSP/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3455:{"source":"/work/h5-acq/VTV/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3456:{"source":"/work/h5-acq/MDY/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3458:{"source":"/work/h5-acq/ARKK/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3459:{"source":"/work/h5-acq/IWM/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3460:{"source":"/work/h5-acq/DIA/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3461:{"source":"/work/h5-acq/XLK/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3462:{"source":"/work/h5-acq/XLF/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3463:{"source":"/work/h5-acq/XLE/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3465:{"source":"/work/h5-acq/XLC/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3466:{"source":"/work/h5-acq/XLV/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3467:{"source":"/work/h5-acq/XLI/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3468:{"source":"/work/h5-acq/XLB/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3469:{"source":"/work/h5-acq/XLY/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3470:{"source":"/work/h5-acq/XLP/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3471:{"source":"/work/h5-acq/XLRE/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3472:{"source":"/work/h5-acq/QQQ/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3473:{"source":"/work/h5-acq/SPY/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3474:{"source":"/work/h5-acq/XLU/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3475:{"source":"/work/h5-acq/TIP/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3476:{"source":"/work/h5-acq/IEF/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3477:{"source":"/work/h5-acq/EMB/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3478:{"source":"/work/h5-acq/DBA/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3479:{"source":"/work/h5-acq/UNG/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3480:{"source":"/work/h5-acq/SLV/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3481:{"source":"/work/h5-acq/USO/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3482:{"source":"/work/h5-acq/UUP/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3483:{"source":"/work/h5-acq/HYG/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3484:{"source":"/work/h5-acq/EWJ/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3485:{"source":"/work/h5-acq/INDA/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3486:{"source":"/work/h5-acq/LQD/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3487:{"source":"/work/h5-acq/EEM/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3488:{"source":"/work/h5-acq/TLT/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3489:{"source":"/work/h5-acq/EFA/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3490:{"source":"/work/h5-acq/FXI/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3491:{"source":"/work/h5-acq/EWZ/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3492:{"source":"/work/h5-acq/VGK/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3493:{"source":"/work/h5-acq/EWY/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3494:{"source":"/work/h5-acq/GLD/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3495:{"source":"/work/h5-acq/URA/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3496:{"source":"/work/h5-acq/XRT/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3497:{"source":"/work/h5-acq/XHB/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3498:{"source":"/work/h5-acq/KRE/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3499:{"source":"/work/h5-acq/XBI/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3500:{"source":"/work/h5-acq/SMH/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3501:{"source":"/work/h5-acq/MSFT/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3502:{"source":"/work/h5-acq/GOOGL/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3503:{"source":"/work/h5-acq/AVGO/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3506:{"source":"/work/h5-acq/PLTR/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3507:{"source":"/work/h5-acq/JPM/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3508:{"source":"/work/h5-acq/META/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3509:{"source":"/work/h5-acq/NVDA/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3510:{"source":"/work/h5-acq/WMT/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3512:{"source":"/work/h5-acq/TSM/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3513:{"source":"/work/h5-acq/BABA/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3514:{"source":"/work/h5-acq/LLY/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3515:{"source":"/work/h5-acq/TSLA/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3516:{"source":"/work/h5-acq/COIN/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+3517:{"source":"/work/h5-acq/MSTR/options/2023-11-17","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+5083:{"source":"/work/h5-acq/QQQ/options/2023-12-27","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+11304:{"source":"/work/h5-acq/XLC/options/2024-05-20","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+11305:{"source":"/work/h5-acq/XLB/options/2024-05-20","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+11310:{"source":"/work/h5-acq/TIP/options/2024-05-20","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+11323:{"source":"/work/h5-acq/EWJ/options/2024-05-20","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+11499:{"source":"/work/h5-acq/TIP/options/2024-05-23","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+11562:{"source":"/work/h5-acq/TIP/options/2024-05-24","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+11689:{"source":"/work/h5-acq/TIP/options/2024-05-29","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+12229:{"source":"/work/h5-acq/NVDA/options/2024-06-10","state":"FAILED","error":"prepare:Science(\"close quotes cover under half of the population\")"}
+13752:   exit Some(1)
+13753:   quotes 2024-07-16 close_quotes: 14016 published option attempts without a quote file options: 63 assets without one requoted source (SPY, QQQ, IWM, DIA, RSP): Fatal("exit 1: {\"source\":\"/work/h5-acq/NVDA/options/2024-07-16\",\"state\":\"REQUOTED\",\"replaced_after\":null,\"snapshot_at\":\"2024-07-16T19:55:00Z\",\"overlay_quotes\":7913,\"close_quote_overlay_sha256\":\"6731ec05a6dd30348cb7350b1e8c315a3f0b4f919769fb4ea9e4280c12c6edf1\",\"population_root_sha256\":\"e63e62b6906f8b3485c542b
+13810:   exit Some(1)
+13811:   act01 2024-07-16 SPY QQQ IWM DIA RSP MDY VTV ARKK XLK XLF XLE XLV XLY XLI XLC XLB XLP XLU XLRE IEF TLT TIP LQD HYG EMB GLD SLV USO UNG DBA UUP IBIT EFA EEM FXI EWJ EWZ INDA EWY VGK SMH KRE XHB XRT XBI URA AAPL MSFT NVDA AMD AVGO AMZN GOOGL META TSLA PLTR JPM LLY WMT BABA TSM MSTR COIN: Retryable("exit 1: act01_auto_source: 2 asset(s) failed")
+---TAIL
+== 2026-11-16T20:10:24Z /opt/vyreon/bin/h5-company-capture --date 2024-07-16 --out /work/h5-company-capture-2024-07-16 --cutoff-hours 24
+{"schema":"H5-COMPANY-CAPTURE-RESULT@1","manifest_sha256":"239e0801ee8313bdd99aad6b3bdef62224fce395e4048b81df28bfa355661846","total_calls":2439}
+AAPL: COMPLETE, 143 calls, 143 requests
+GOOGL: COMPLETE, 147 calls, 143 requests
+NVDA: COMPLETE, 146 calls, 143 requests
+AVGO: COMPLETE, 150 calls, 148 requests
+LLY: COMPLETE, 147 calls, 143 requests
+MSFT: COMPLETE, 145 calls, 143 requests
+WMT: COMPLETE, 163 calls, 158 requests
+TSM: COMPLETE, 50 calls, 50 requests
+BABA: COMPLETE, 50 calls, 50 requests
+COIN: COMPLETE, 121 calls, 115 requests
+TSLA: COMPLETE, 144 calls, 143 requests
+JPM: COMPLETE, 313 calls, 143 requests
+MSTR: COMPLETE, 148 calls, 143 requests
+PLTR: COMPLETE, 128 calls, 126 requests
+AMZN: COMPLETE, 146 calls, 143 requests
+META: COMPLETE, 153 calls, 143 requests
+AMD: COMPLETE, 145 calls, 143 requests
+calls issued this invocation: 2439
+   exit Some(0)
+== 2026-11-16T20:10:24Z /opt/vyreon/bin/h5-company-capture --date 2024-07-16 --out /work/h5-company-capture-2024-07-16 --cutoff-hours 24 --supplement-securities
+
+== 2026-11-16T20:10:25Z /opt/vyreon/bin/h5-company-capture --date 2024-07-16 --out /work/h5-company-capture-2024-07-16 --cutoff-hours 24 --supplement-securities
+{"schema":"H5-COMPANY-SECURITY-SUPPLEMENT-RESULT@1","manifest_sha256":"9f11c02e3e45d081d8bb6b0083818259981d8f7105382a7850d9c71185969181","calls":2}
+GOOGL: sec_gDaqnX -> COMPLETE
+GOOGL: sec_gxrdPL -> COMPLETE
+   exit Some(0)
+== 2026-11-16T20:10:25Z /opt/vyreon/bin/h5-company-capture --date 2024-07-16 --out /work/h5-company-capture-2024-07-16 --cutoff-hours 24 --supplement-insider
+
+== 2026-11-16T20:10:26Z /opt/vyreon/bin/h5-company-capture --date 2024-07-16 --out /work/h5-company-capture-2024-07-16 --cutoff-hours 24 --supplement-insider
+{"schema":"H5-COMPANY-INSIDER-SUPPLEMENT-RESULT@1","manifest_sha256":"0c0ae229db72554caf7136622130199163bb367d1b621020d669c0f3919b1806","calls":0}
+   exit Some(0)
+== 2026-11-16T20:10:30Z /opt/vyreon/bin/act01_auto_source /work/h5-act01-auto/2024-07-16/job-20261116201027.json
+   exit Some(1)
+   act01 2024-07-16 SPY QQQ IWM DIA RSP MDY VTV ARKK XLK XLF XLE XLV XLY XLI XLC XLB XLP XLU XLRE IEF TLT TIP LQD HYG EMB GLD SLV USO UNG DBA UUP IBIT EFA EEM FXI EWJ EWZ INDA EWY VGK SMH KRE XHB XRT XBI URA AAPL MSFT NVDA AMD AVGO AMZN GOOGL META TSLA PLTR JPM LLY WMT BABA TSM MSTR COIN: Retryable("exit 1: act01_auto_source: 2 asset(s) failed")
+   act01 2024-07-16: retry in 30 s
+== 2026-11-16T20:37:46Z /opt/vyreon/bin/act01_auto_source /work/h5-act01-auto/2024-07-16/job-20261116203746.json
+   exit Some(0)
+== 2026-11-16T20:41:00Z /opt/vyreon/bin/replay_capture session 2024-07-16 --archive /work/h5-acq --symbols ETHA

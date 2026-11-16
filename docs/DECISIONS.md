@@ -697,3 +697,39 @@ newest first over 402 sessions (2025-04-10 to 2026-11-13) that could be some 80,
   pieces; a refusal to schedule passes before passes that have run would also refuse the two
   legitimate cases above, so it would need an override, and the notice already names the error
   on the first publish.
+
+## C-049 A failed attempt leaves its evidence in core before the worker exits (owner-approved process addition, 2026-11-16)
+Twice on 2026-11-16 a refused day's decisive error was lost when its pod exited: it was in the
+day's fill log, which no report carried (`fail` sends the last 64 KiB of the day run's logs).
+Engine D-351 is the worker's side.
+- **Where: the database** (`core.job_evidence`, migration 0017), as C-043's captures: one store, no
+  new secret or service; the document is stored as sent (`STORAGE EXTERNAL`, already gzipped).
+  One record per lease, that is per attempt: job, attempt (the lease's place among the job's
+  leases: it keeps counting after `retry-failed`, which sets `core.job.attempts` back to 0), kind,
+  the session the attempt stopped on (NULL before its first), the job's sessions then, build,
+  worker, stage, stop message, the input plan's refusing entries (jsonb) and the document. Written
+  once: the same lease again is answered `new: false` and the first kept. The lease's own
+  `failed_stage`, `failure` and `failure_log` stay as they are.
+- **The document:** a gzip whose text is one JSON line (`VYREON-JOB-EVIDENCE@1`: stage, message,
+  session, refusals) and the log excerpt after it (D-351: the last 4 MiB of the fill log and 1 MiB
+  of each other log, and every earlier line naming an error, whole). At most 16 MiB as sent (413
+  above), 64 MiB unpacked, read to its end (CRC and length, as C-042).
+- **Secrets.** The worker redacts before sending (it alone can read the literal secrets: the
+  Intrinio key, the workers' token, the lease token, a connection string). Core then refuses
+  (422, nothing stored) a document in which a credential pattern survives
+  (`core_db::evidence::unredacted`, the same list the engine redacts: `api_key=`, `apikey=`,
+  `token=`, `password=`, `x-amz-signature=`, `x-amz-credential=`, `signature=`, `secret=` without
+  regard to case, bearer tokens, a password in a URL, a Discord webhook's token), and the worker
+  sends the account alone. A gap in the worker's redaction is then a refusal, never a stored
+  secret; a key in a form no pattern names is caught only by the worker's literal match.
+- **Who may write: any lease the token names, live or ended**, for a session of its job: a worker
+  whose lease was lost or cancelled still says why it stopped. The token is the same secret as for
+  every lease call (C-016). Route: `PUT /worker/v1/evidence` (body: the document).
+- **Reading:** `vyreon-core evidence list [<job>]` (newest first, one line each) and
+  `vyreon-core evidence show <job> [--attempt N]` (the latest attempt by default: the record,
+  the message, the refusals and the excerpt, checked against its stored digest). No reader-API
+  route: it is for the operator.
+- **Ordinary day:** nothing changes; nothing is written unless an attempt fails, is refused or
+  loses its lease.
+- **Deploying:** the core image (migration 0017, applied by the `migrate` init container) and the
+  engine's worker image; no new secret, setting or service.
