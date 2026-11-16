@@ -25,9 +25,16 @@ is in `docs/ARCHITECTURE.md`.
    only moves earlier): 2025-12-10; 2025-04-11 (ETHA's first chain); 2024-07-16 (AVGO 10-for-1,
    ex 07-15, and before ETHA); the block 2022-06-06..06-15 (FB to META). **The newest two weeks
    on two nodes are the build's first step** (owner, 2026-11-16), not part of 2.5.
-4. **(3) The build:** newest first back to 2022-05-27, sized and approved by the owner.
-5. **(4) Reporter and web** on core's API and the built history.
-6. **(5) Judge the reports; the FIELD campaign; the go-live choice.**
+4. **(3) The build, phase 1 (owner, 2026-11-16).** a. the newest two weeks as a test sample, and
+   fix what they reveal; b. back to **2025-04-10** (about 401 sessions: every sensor at full
+   window on the newest week; no old-layout snapshot, no 2023 gap), and fix what comes up.
+   Before it: the unusualness flag line states its pool (owner: fix it), one final image from
+   one commit, the fixes of step 2.5 audited.
+5. **(4) Reporter and web** on core's API and the phase 1 database, until free and paid reports
+   are generated with confidence.
+6. **(5) The launch decision.** After it, or when wanted: the deeper history (the old snapshot
+   layouts are readable since D-251..D-254; the 2023-01-18..03-07 gap needs a ruling), the FIELD
+   campaign.
 Working practice: at most three agents at once on the laptop; an audit after every landed step;
 every verified finding is fixed, only one above the cut line sends the candidate round again
 (C-041 amended). Write a time only after `date -u`.
@@ -330,7 +337,9 @@ Engine `worker` checkout: `/home/diggz/vyreon-engine-worker`.
   DLM-UNUSUALNESS `line_95` pools whatever scored sessions exist and states no pool size or
   span** (`derive/ordered.rs:166-181`): to fix before the build; INT-TEMP-EVC01 reads every tape
   session since the tape start (states `prior_count`).
-- **How far back the build goes** (owner, 2026-11-16 15:30 UTC: undecided). The MVP is a weekly
+- **Answered 2026-11-16 16:10 UTC: phase 1 is the newest two weeks, then back to 2025-04-10, then
+  Reporter, then the launch decision (step list above). Fix the unusualness flag line.** The
+  earlier note, kept for the reasoning: The MVP is a weekly
   report: it needs only the lookback that populates every sensor truthfully; a full database is
   an advantage; the worry is that short histories make the unusualness and lookback sensors
   less than truthful. Being answered with numbers: `~/claude-artifacts/lookback-inventory.md`
