@@ -85,6 +85,11 @@ schedule day-block FREE_REPORT_64 <build> 2025-12-10 2025-12-11 1      # blocks 
 schedule ordered-pass FREE_REPORT_64 <build> 2025-12-10 2025-12-11
 ```
 
+A build newest first schedules its day blocks in tranches, newest first (the claim takes the
+earliest claimable block), but its ordered passes **once, for the whole range, before the first
+tranche** (or after the last): passes scheduled with each tranche run every later pass again
+after each earlier tranche (C-046).
+
 The ordered pass's read-only login (C-020), with a password made on the spot, and the workers'
 secret:
 

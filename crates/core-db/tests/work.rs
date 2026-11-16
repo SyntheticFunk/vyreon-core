@@ -378,6 +378,119 @@ async fn a_day_published_again_takes_down_what_read_it_and_the_pass_derives_it_a
     scratch.drop().await;
 }
 
+/// When a build schedules its ordered passes (C-046).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Passes {
+    /// every session's pass, once, before the first day block publishes
+    AtStart,
+    /// every session's pass, once, after the last day block is done
+    AfterBlocks,
+    /// each wave's passes with its blocks: the shape that re-runs the later passes
+    WithEachWave,
+}
+
+/// The published base revision of `day`.
+async fn base_of(client: &Client, day: &str) -> i64 {
+    client
+        .query_one("SELECT revision_id FROM vyreon.day_revision WHERE represented_date = $1::text::date AND state = 'PUBLISHED' AND base_revision IS NULL", &[&day])
+        .await
+        .unwrap()
+        .get(0)
+}
+
+/// A pass worker that runs whatever ordered pass is claimable, at once, until none is: the
+/// earliest a pass can run, so the most it can be run again.
+async fn drain_passes(client: &mut Client, d: &str) {
+    while let Some(pass) = ordered(client, d).await {
+        let day = pass.sessions[0].clone();
+        let base = base_of(client, &day).await;
+        derive(client, &day, base, &pass.token).await.unwrap();
+        work::finish(client, &pass.token).await.unwrap();
+    }
+}
+
+/// C-046: a build newest first over `sessions` (oldest first), in blocks of `block`, on `nodes`
+/// workers: each wave schedules the newest `nodes` blocks not yet scheduled (the claim takes the
+/// earliest claimable block, so newest first is the order of scheduling), the nodes claim them and
+/// publish their days in turn, and after every publish and every day done a pass worker runs
+/// every claimable pass. Returns how many times an ordered pass ran (its leases).
+async fn newest_first_build(client: &mut Client, b: &str, d: &str, sessions: &[String], block: usize, nodes: usize, passes: Passes) -> i64 {
+    let (first, last) = (sessions[0].as_str(), sessions[sessions.len() - 1].as_str());
+    if passes == Passes::AtStart {
+        work::schedule(client, Kind::OrderedPass, PROFILE, d, first, last, 1).await.unwrap();
+    }
+    // blocks counted from the newest session, newest block first
+    let blocks: Vec<&[String]> = sessions.rchunks(block).collect();
+    for wave in blocks.chunks(nodes) {
+        for range in wave {
+            work::schedule(client, Kind::DayBlock, PROFILE, b, &range[0], &range[range.len() - 1], block as i32).await.unwrap();
+        }
+        if passes == Passes::WithEachWave {
+            let (oldest, newest) = (&wave[wave.len() - 1][0], wave[0].last().unwrap());
+            work::schedule(client, Kind::OrderedPass, PROFILE, d, oldest, newest, 1).await.unwrap();
+        }
+        let mut held = Vec::new();
+        for node in 0..wave.len() {
+            held.push(work::claim(client, Kind::DayBlock, b, &format!("node{node}"), HOUR).await.unwrap().unwrap());
+        }
+        for k in 0..block {
+            for claim in held.iter().filter(|c| k < c.sessions.len()) {
+                let day = &claim.sessions[k];
+                let (mut h, s, f) = parts(BASE);
+                h.represented_date = day.clone();
+                let path = bundle(&format!("newest-first-{day}"), &h, &s, &f);
+                publish_for_lease(client, &path, &claim.token).await.unwrap();
+                std::fs::remove_file(&path).unwrap();
+                drain_passes(client, d).await;
+                work::day_done(client, &claim.token, day).await.unwrap();
+                drain_passes(client, d).await;
+            }
+        }
+        for claim in &held {
+            work::finish(client, &claim.token).await.unwrap();
+        }
+        drain_passes(client, d).await;
+    }
+    if passes == Passes::AfterBlocks {
+        work::schedule(client, Kind::OrderedPass, PROFILE, d, first, last, 1).await.unwrap();
+        drain_passes(client, d).await;
+    }
+    // every day ends with its base and one derived revision on it, and every pass done
+    assert_eq!(count(client, "SELECT count(*) FROM vyreon.day_revision WHERE state = 'PUBLISHED' AND base_revision IS NOT NULL").await, sessions.len() as i64);
+    assert_eq!(count(client, "SELECT count(*) FROM core.job WHERE kind = 'ORDERED_PASS' AND state <> 'DONE'").await, 0);
+    count(client, "SELECT count(*) FROM core.lease JOIN core.job USING (job_id) WHERE kind = 'ORDERED_PASS'").await
+}
+
+/// C-046 (the verifier's question before the build): a day published newest first takes down the
+/// derived revisions of every later day and queues their passes again (C-037), so a pass that ran
+/// before an earlier day's first publish runs again. The claim rule (0005, 0014: a pass waits for
+/// its day's base, for every earlier pass and for every unfinished block at or before its day)
+/// holds every pass of a range whose passes are all scheduled before its first publish: the
+/// earliest pass waits for the earliest day, which a newest-first build publishes last. So each
+/// pass runs once whether the passes are scheduled at the start or after the blocks; scheduled
+/// with each wave, the later passes run again after every earlier wave (quadratic). Twelve real
+/// sessions to 2025-12-12 (the slice's bodies under each date: core's checks never read a body's
+/// date), blocks of three; counts and orders are simulated, no market value.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_newest_first_build_runs_each_ordered_pass_once() {
+    for (passes, nodes, runs) in [(Passes::AtStart, 2, 12), (Passes::AfterBlocks, 2, 12), (Passes::WithEachWave, 1, 3 + 6 + 9 + 12)] {
+        let (scratch, mut client, b, d) = ready(&format!("newest_first_{}", format!("{passes:?}").to_lowercase())).await;
+        admit(&client, &b).await;
+        admit(&client, &d).await;
+        let sessions: Vec<String> = client
+            .query("SELECT session::text FROM (SELECT session FROM core.session WHERE session <= '2025-12-12' ORDER BY session DESC LIMIT 12) s ORDER BY 1", &[])
+            .await
+            .unwrap()
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
+        assert_eq!((sessions[0].as_str(), sessions.len()), ("2025-11-26", 12));
+        assert_eq!(newest_first_build(&mut client, &b, &d, &sessions, 3, nodes, passes).await, runs, "{passes:?} on {nodes} nodes");
+        scratch.drop().await;
+    }
+}
+
 async fn job_state(client: &Client, job: i64) -> String {
     client.query_one("SELECT state FROM core.job WHERE job_id = $1", &[&job]).await.unwrap().get(0)
 }
