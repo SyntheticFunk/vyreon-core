@@ -229,6 +229,19 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   merge): an old strike relisted on the adjustment day itself, unquoted with no open interest, is
   a new standard series and does not count against "replaced" (OCC adjusts the old series;
   exchanges list new standard strikes alongside).
+- **19:42 UTC: batch 13-C landed (`pass-fx13-company` e61d22df, pushed, D-326..335; agent's suite 1,319
+  passed, 8 failed) and all three batch-13 branches are merged into `pass-s3i` 9f9cfea0 (no
+  conflicts; not pushed until the full suite passes; suite running, log `/home/diggz/wt/s3i-suite5.log`).**
+  Company: a rejected class set never becomes the reference (the blocker); income to common is
+  net income less preferred dividends (FAS 128 / ASC 260), net income only where no preferred
+  was outstanding; an unreadable preferred line is never zero; the valuation never reads an older
+  statement as the latest; an older-period amendment cannot reveal a later count; a date-only
+  fundamental clock is visible from the next session; macro and carry captures refuse at capture
+  what the readback requires; reference checkers aligned (CPIAUCNS, INDPRO roles, four reasons).
+  On 2025-12-10 no published value changes for the 17 (from the dumps). Not run on values: the
+  preferred-dividend subtraction (no real case in the fixtures). **Next: the relisted-strike
+  rule (mine, by OCC), round r (audit of batch 13), core merges, one image, the verification
+  re-runs.**
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
