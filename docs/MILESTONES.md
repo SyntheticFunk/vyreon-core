@@ -172,6 +172,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (its migration) and the new worker image. **The agent added a paragraph to PRODUCT_INTENT.md in
   both repositories quoting the owner's ruling: the owner's document, shown to the owner.** Not
   run with a real company or carry capture. Merge with the rest after round q.
+- **18:47 UTC: re-queue and tape depth settled (core `core-requeue` b3a6bf7 C-046; engine `pass-fx14`
+  43caaf88 D-310; both pushed, not merged).** (1) No code change: a pass re-runs only if it ran
+  before an earlier day published, and migration 0014 makes passes wait for every earlier
+  block, so **scheduling the ordered passes once for the whole range (before the first block or
+  after the last) runs each exactly once: 402 runs for phase 1; scheduling them with each
+  tranche is quadratic (2,602 with 40-session waves; 81,003 day by day).** Operating rule
+  recorded in C-046 and deploy/k8s/README.md. (2) N = 252: EVC01 reads 252 tape sessions, the
+  FIELD intraday panel 189, the rest T's own; a day now fetches 253 sessions of tape caches
+  instead of up to 873, no published value changes (EVC01's receipt digest does). **Phase 1
+  then needs tape jobs only from 2024-04-09, not 2023-05-24: about 219 fewer tape sessions.**
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
