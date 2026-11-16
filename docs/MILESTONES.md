@@ -253,6 +253,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   online, no restart; 111 GB free; `deploy/k8s/10-postgres.yaml` now says 120Gi). A dump taken
   first: `~/claude-artifacts/db-backups/vyreon-20261116T*.dump` (761 MB, 33 tables; on the laptop
   as a safety copy only: delete once the build's first tranche is stored).
+- **Round r reported (20:34 UTC; `2026-11-16-batch13-round-r/`): 12 claims on batch 13.** Company: four
+  possible wrong numbers in the new preferred-stock and latest-statement logic (an unrecognised
+  preferred obligation, an older fact bypassing the invalid-preferred guard, same-period
+  amendments, preferred dividends from a different period end), one reason lost, four reference
+  checker defects. Pipeline: a failed reconciliation leaving today's stale cache usable, one
+  refusal attributed as an engine fault, capture-upload outcomes lost when `day_done` fails; and
+  serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
+  bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
+  tape sessions from 2024-04-09. A verifier is triaging both reports.
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
