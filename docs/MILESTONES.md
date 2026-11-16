@@ -139,7 +139,7 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   engine is deployed there; it then needs the rebind and a republish, on the owner's word.
 - A missing daily bar withholding an asset's surface for about three years is left until the build
   shows one (2026-11-15; its label is fixed).
-- **Step 2.5 is pre-approved (owner, 2026-11-16 04:05 UTC):** if 2e closes while the owner is
+- **Step 2.5 is pre-approved (owner, 2026-11-16 04:00 UTC):** if 2e closes while the owner is
   away, start the cluster verification at once, on Fable, without waiting for the swap to Opus or
   for a spend approval. Limits unchanged: the $200 total ceiling, idle droplets deleted; a finding
   above the cut line or anything beyond 2.5 (the build) still goes to the owner. Write the
