@@ -393,6 +393,17 @@ the cluster still runs `vyreon-core:6e15a27`.
   for AVGO used fiscal-2025 results reported on 2025-12-11 (a second look-ahead in that row).
   Expected withholdings to check on a real day: JPM, MSTR, GOOGL earnings yield or price to
   book. Not run through a real company phase.
+- **16:35 UTC: batch 11-B landed: `pass-fx11-b` 68e18aa5 (pushed, not merged), D-268 to D-271.**
+  A tape cache is valid for the official bar's content: a changed bar has its reconciliation
+  recomputed in the day's `materialize` step (no tape needed; `read.rs` untouched so held caches
+  stay valid; a renamed attempt with the same bar is accepted). A tape's absence is recorded
+  with core through the existing `?absence=` PUT and known to the next fresh pod. **INT-TEMP-EVC01
+  on a fixed window of the 252 sessions before T (owner's ruling; method `...TYPE7-Q90@4`),
+  stating `baseline_sessions`, `baseline_first_session`, `baseline_last_session`;** no value
+  change until an asset has 253 tape sessions. EVC now needs only 252 prior tape sessions, but
+  the day still fetches from the tape-history start (the intraday panel's own window to check
+  before reducing the fetch). Core needs no change. Not verified against a running core. Round
+  o's report is with a verifier (Opus); round p (provider-derived values) still running.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
