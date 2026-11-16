@@ -302,6 +302,17 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **22:32 UTC: failure evidence merged** (engine D-351 into `pass-s3i` 347455f2; core C-049,
+  migration 0017 `core.job_evidence`, main 0e27c5e; agent's totals: engine 1,341 passed, 8 failed;
+  core 56 passed). A failing, refused or lease-lost worker puts job, stage, stop message, the
+  plan's refusals and a redacted log excerpt (whole error lines; fill log last 4 MiB) to core
+  within 60 s; core refuses any upload where a credential pattern survives. `vyreon-core evidence
+  list|show`. **Round t (narrow) returned: 5 confirmed, 1 suspicion, all conditional or
+  rederivation-only; nothing on the normal phase-1 path proven.** My D-343 was wrong by FAS 128
+  (declared ≠ accumulated on cumulative preferred): being retired. Fix batch 17 started
+  (`/home/diggz/wt/fx20`, D-352..358): retire D-343, guard Q4's operands, a self-validating tape
+  cache instead of side markers, D-290 to require the provider's evidence of a special
+  distribution (OCC §11A). Codex at 85% of its week (resets 2026-11-20).
 - **22:19 UTC: batch 16 merged: `pass-s3i` 67599773 (pushed), D-346..349; suite 1,339 passed, 8
   failed (`option_field`).** Round s: 4 real and fixed, 1 already fixed by D-345 (verdicts in
   `.../batch14-round-s/triage/verdicts.md`). A newer null dividend line now withholds; the tape
