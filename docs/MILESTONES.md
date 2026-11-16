@@ -176,6 +176,12 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   damaged or missing T-5 row for the colliding contract. Being hardened anyway (the guard reads
   strike and expiry from the OSI code; an inconsistent row refuses the cohort), with the two
   retained-view labels if narrow. No further gating audit; the real day on the result is the gate.
+  **Round k fixed 05:50 UTC: `pass-s3i` d55f6439 (pushed) is the build candidate** (D-246 and D-247
+  amended: the guard reads the OSI code, refuses on a contradicting or uncoded row of a cohort
+  series; a contradicting saved view faults before the NONE returns). Release build and full
+  suite running. Left: a retained view's collision reads ENGINE_FAULT until `--rebind`. **To
+  watch on its real day: XLB, XLE, XLK, XLU, XLY must get their translated cohorts; a refusal
+  there would mean the new row reader rejects real chain rows.**
   **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
   build; its audit sends us round again only for a finding above the line. The gate left is the
   real days on `pass-fx10`.
