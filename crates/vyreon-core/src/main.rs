@@ -11,7 +11,11 @@
 //!   vyreon-core schedule <tape|day-block|ordered-pass> <profile> <build> <first> <last> [block sessions]
 //!   vyreon-core queue [pause <reason> | resume | retry-failed | cancel <job>...]   the queue at a glance, or change it
 //!   vyreon-core months <first> <last>                 create the store's monthly partitions for a date range
-//!   vyreon-core publish <bundle>...                   check, write, read back and publish day bundles, in order
+//!   vyreon-core publish [--vouch] <bundle>...         check, write, read back and publish day bundles, in order.
+//!                                                     A revision computed from a base must name the base revision
+//!                                                     it read and read its day only; --vouch is the operator's word
+//!                                                     that the bundles were computed from what is published now
+//!                                                     (C-042: a bundle that names no base revision, or reads history)
 //!   vyreon-core api-key create <holder> <read[,admin]>   make a reader API key (printed once; only its digest is kept)
 //!   vyreon-core api-key revoke <holder>
 //!   vyreon-core serve                                 the HTTP service (the worker and reader APIs). Settings:
@@ -78,8 +82,18 @@ async fn queue(change: &[&str]) -> Result<(), String> {
     let mut client = connect().await?;
     match change {
         [] => {}
-        ["pause", reason] => work::pause(&client, reason).await?,
-        ["resume"] => println!("was paused for: {}", work::resume(&client).await?.as_deref().unwrap_or("(it was not paused)")),
+        // the queue's change and its notice are one transaction (C-027's outbox)
+        ["pause", reason] => {
+            let tx = client.transaction().await.map_err(|e| e.to_string())?;
+            work::pause(&tx, reason).await?;
+            tx.commit().await.map_err(|e| e.to_string())?
+        }
+        ["resume"] => {
+            let tx = client.transaction().await.map_err(|e| e.to_string())?;
+            let was = work::resume(&tx).await?;
+            tx.commit().await.map_err(|e| e.to_string())?;
+            println!("was paused for: {}", was.as_deref().unwrap_or("(it was not paused)"))
+        }
         ["retry-failed"] => println!("{} failed jobs queued again", work::retry_failed(&client).await?),
         ["cancel", jobs @ ..] if !jobs.is_empty() => {
             let jobs: Vec<i64> = jobs.iter().map(|j| j.parse().map_err(|_| format!("job id: {j}"))).collect::<Result<_, _>>()?;
@@ -87,7 +101,7 @@ async fn queue(change: &[&str]) -> Result<(), String> {
         }
         _ => return Err("queue [pause <reason> | resume | retry-failed | cancel <job>...]".into()),
     }
-    work::sweep(&client).await?;
+    work::sweep(&mut client).await?;
     println!("{}", serde_json::to_string_pretty(&work::status(&client).await?).map_err(|e| e.to_string())?);
     Ok(())
 }
@@ -103,10 +117,28 @@ async fn months(first: &str, last: &str) -> Result<(), String> {
     Ok(())
 }
 
-async fn publish_bundles(bundles: &[&str]) -> Result<(), String> {
+/// The bundles and whether they are vouched for, from what follows `publish`. The whole command
+/// line is read before anything is published: `--vouch` counts wherever it stands, and any other
+/// word that starts with `--` is refused, not taken as a bundle after the ones before it were
+/// published (a file so named is written `./--name`).
+fn publish_args<'a>(rest: &[&'a str]) -> Result<(Vec<&'a str>, bool), String> {
+    if let Some(flag) = rest.iter().find(|a| a.starts_with("--") && **a != "--vouch") {
+        return Err(format!("publish: unknown option {flag}; nothing was published (publish [--vouch] <bundle>...)"));
+    }
+    let bundles: Vec<&str> = rest.iter().copied().filter(|a| *a != "--vouch").collect();
+    if bundles.is_empty() {
+        return Err("publish: no bundle named; nothing was published (publish [--vouch] <bundle>...)".to_string());
+    }
+    let vouched = bundles.len() != rest.len();
+    Ok((bundles, vouched))
+}
+
+async fn publish_bundles(bundles: &[&str], vouched: bool) -> Result<(), String> {
     let mut client = connect().await?;
     for bundle in bundles {
-        let p = publish::publish_file(&mut client, Path::new(bundle)).await.map_err(|e| format!("{bundle}: {e}"))?;
+        let path = Path::new(bundle);
+        let p = if vouched { publish::publish_file_vouched(&mut client, path).await } else { publish::publish_file(&mut client, path).await };
+        let p = p.map_err(|e| format!("{bundle}: {e}"))?;
         if p.already_published {
             println!("{} {} was already published as revision {}", p.represented_date, p.profile_revision, p.revision_id);
             continue;
@@ -234,7 +266,10 @@ async fn main() -> ExitCode {
         },
         ["serve"] => serve().await,
         ["months", first, last] => months(first, last).await,
-        ["publish", ref bundles @ ..] if !bundles.is_empty() => publish_bundles(bundles).await,
+        ["publish", ref rest @ ..] => match publish_args(rest) {
+            Ok((bundles, vouched)) => publish_bundles(&bundles, vouched).await,
+            Err(e) => Err(e),
+        },
         ["engine-store", "export", date, dir] => engine_store_export(date, dir).await,
         _ => Err("unknown command; the commands are listed at the top of crates/vyreon-core/src/main.rs".to_string()),
     };
@@ -243,6 +278,27 @@ async fn main() -> ExitCode {
         Err(e) => {
             eprintln!("vyreon-core: {e}");
             ExitCode::FAILURE
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::publish_args;
+
+    /// Fix round C (corepublish.md, noticed by the verifier): `publish a --vouch b` published `a`
+    /// unvouched and then failed opening a file named `--vouch`. The command line is now read
+    /// whole first: the flag counts wherever it stands, and a bad line names no bundle to publish.
+    #[test]
+    fn the_publish_command_line_is_read_whole_before_anything_is_published() {
+        assert_eq!(publish_args(&["a", "b"]), Ok((vec!["a", "b"], false)));
+        assert_eq!(publish_args(&["--vouch", "a", "b"]), Ok((vec!["a", "b"], true)));
+        assert_eq!(publish_args(&["a", "--vouch", "b"]), Ok((vec!["a", "b"], true)));
+        assert_eq!(publish_args(&["a", "b", "--vouch"]), Ok((vec!["a", "b"], true)));
+        assert_eq!(publish_args(&["./--vouch"]), Ok((vec!["./--vouch"], false)));
+        for bad in [&[][..], &["--vouch"], &["a", "--vuoch", "b"], &["a", "--vouch=yes"]] {
+            let refused = publish_args(bad).unwrap_err();
+            assert!(refused.contains("nothing was published"), "{refused}");
         }
     }
 }

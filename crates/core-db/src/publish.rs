@@ -4,8 +4,12 @@
 //!
 //! Checked before anything is promoted (started from the engine's `vyreon-store` stage, verify
 //! and `publish_revision`):
-//!   * the build is registered and the bundle's slots are exactly its inventory for the profile:
-//!     none missing, none extra, none twice (the inventory is core's, never the bundle's);
+//!   * the day is a session of the calendar core holds;
+//!   * the members the bundle states as listed on the day are the ones core's universe lists
+//!     (`core.members_on`, a ticker that day): the worker and core agree on membership (C-036);
+//!   * the build is registered and the bundle's slots are exactly its inventory for the profile,
+//!     narrowed to the field object and the members listed that day: none missing, none extra,
+//!     none twice (the inventory and the universe are core's, never the bundle's);
 //!   * every body and receipt hashes to the digest the bundle states; a body ends with the
 //!     newline the engine writes and is stored without it;
 //!   * a body that commits to an event stream has it, and only such a body: the root hashes to
@@ -13,12 +17,15 @@
 //!   * every reader scalar belongs to a slot of the day and is a finite number;
 //!   * a revision computed from a base is bound to the day's published base;
 //!   * read back from the database: every stored body re-hashes to its digest and equals its
-//!     JSONB, every stream decompresses to its digest, and the slot count is the inventory's.
+//!     JSONB, every stream decompresses to its digest, and the slot count is what the inventory
+//!     expects of the listed members recorded with the revision.
 //!
 //! Then the day's previous published revision of the profile is superseded and the new one
-//! published. Publishing a base revision also supersedes the later days' revisions that were
-//! computed from a base (their history windows read this day); the ordered pass derives them again.
-use core_contract::{Header, Item, Scalar, Scalars, SlotFiles, StreamRoot, read_bundle, sha256_hex};
+//! published, with what read what it replaces (`promote`): the day's own revisions computed from a
+//! replaced base or reading replaced day-local values, and every later day's revisions that read
+//! history. The ordered pass derives those again: its jobs are queued again in the same
+//! transaction, and a pass running on an affected day is stopped.
+use core_contract::{FIELD_OBJECT, Header, Item, LISTED_MEMBERS, Scalar, Scalars, SlotFiles, StreamRoot, read_bundle, sha256_hex};
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use futures_util::TryStreamExt;
 use serde_json::Value;
@@ -87,15 +94,31 @@ fn stream_reference(body: &Value) -> Option<&str> {
     (root.len() == 64 && root.bytes().all(|b| b.is_ascii_hexdigit()) && root.bytes().any(|b| b != b'0')).then_some(root)
 }
 
-/// Publishes the bundle file at `path`.
+/// Who sends a bundle: a worker under its lease, or a hand without one.
+#[derive(Clone, Copy)]
+enum By<'a> {
+    Lease(&'a str),
+    Hand { vouched: bool },
+}
+
+/// Publishes the bundle file at `path` by hand, without a lease. With no lease core cannot tell
+/// what a revision computed from a base read (C-042): one that reads history is refused (a day it
+/// read may have been replaced since; the ordered pass publishes those), and one that reads its
+/// day only must name the base revision it was computed from.
 pub async fn publish_file(client: &mut Client, path: &Path) -> Result<Published, Error> {
-    publish(client, path, None).await
+    publish(client, path, By::Hand { vouched: false }).await
+}
+
+/// The same, with the hand's word that the bundle was computed from what is published now: its
+/// day's base and, if it reads history, every earlier day (C-042). Core does not check it.
+pub async fn publish_file_vouched(client: &mut Client, path: &Path) -> Result<Published, Error> {
+    publish(client, path, By::Hand { vouched: true }).await
 }
 
 /// Publishes the bundle a worker sends under its lease: the day must be its job's next session,
 /// for the job's profile and build. The day is published and the job moved on in one transaction.
 pub async fn publish_for_lease(client: &mut Client, path: &Path, token: &str) -> Result<Published, LeaseError> {
-    publish(client, path, Some(token)).await.map_err(|e| match e {
+    publish(client, path, By::Lease(token)).await.map_err(|e| match e {
         Error::Refused(m) if m == GONE => LeaseError::Gone,
         Error::Refused(m) => LeaseError::Refused(m),
         Error::Failed(m) => LeaseError::Failed(m),
@@ -104,14 +127,18 @@ pub async fn publish_for_lease(client: &mut Client, path: &Path, token: &str) ->
 
 const GONE: &str = "no live lease has this token";
 
-async fn publish(client: &mut Client, path: &Path, token: Option<&str>) -> Result<Published, Error> {
+async fn publish(client: &mut Client, path: &Path, by: By<'_>) -> Result<Published, Error> {
     let file = std::fs::File::open(path).map_err(|e| Error::Failed(format!("{}: {e}", path.display())))?;
-    // the bundle is read on a blocking thread, one slot ahead of the database
-    let (sender, mut items) = channel::<Item>(1);
+    // the bundle is read on a blocking thread, one slot ahead of the database; its end is sent as
+    // `None` once the whole bundle has been read, so a channel closed without it (the reader
+    // failed, perhaps after the last slot) is never taken for a complete bundle
+    let (sender, mut items) = channel::<Option<Item>>(1);
     let reader = tokio::task::spawn_blocking(move || {
-        read_bundle(std::io::BufReader::new(file), &mut |item| sender.blocking_send(item).map_err(|_| std::io::Error::other("publish stopped")))
+        let stopped = |_| std::io::Error::other("publish stopped");
+        read_bundle(std::io::BufReader::new(file), &mut |item| sender.blocking_send(Some(item)).map_err(stopped))?;
+        sender.blocking_send(None).map_err(stopped)
     });
-    let result = publish_items(client, &mut items, token).await;
+    let result = publish_items(client, &mut items, by).await;
     drop(items);
     match reader.await {
         // a bundle that cannot be read is refused, whatever the publish made of its beginning
@@ -121,14 +148,34 @@ async fn publish(client: &mut Client, path: &Path, token: Option<&str>) -> Resul
     }
 }
 
-async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: Option<&str>) -> Result<Published, Error> {
-    let Some(Item::Header(header)) = items.recv().await else { return refuse("the bundle has no header") };
-    let Some(Item::Scalars(scalars)) = items.recv().await else { return refuse("the bundle has no scalars") };
+async fn publish_items(client: &mut Client, items: &mut Receiver<Option<Item>>, by: By<'_>) -> Result<Published, Error> {
+    let Some(Some(Item::Header(header))) = items.recv().await else { return refuse("the bundle has no header") };
+    let Some(Some(Item::Scalars(scalars))) = items.recv().await else { return refuse("the bundle has no scalars") };
     let tx = client.transaction().await.map_err(db)?;
+    // one publish at a time, taken before any row lock: a publish supersedes and queues again what
+    // read its day, and an ordered pass is claimed under the same lock (`work::PUBLISH_LOCK`)
+    tx.execute(work::PUBLISH_LOCK, &[]).await.map_err(db)?;
     let date = header.represented_date.as_str();
-    let lease = match token {
-        None => None,
-        Some(token) => {
+    let lease = match by {
+        // no lease says what the bundle read, so the checks a lease allows cannot be made (C-042)
+        By::Hand { vouched } => {
+            if header.base_profile_revision.is_some() && !vouched {
+                if !header.day_local {
+                    return refuse(
+                        "a revision that reads history is published by the ordered pass: by hand, core cannot tell whether a day it read \
+                         has been replaced since (`vyreon-core publish --vouch` states that none has)",
+                    );
+                }
+                if header.base_revision.is_none() {
+                    return refuse(
+                        "published by hand, a revision computed from a base names the base revision it read (base_revision), \
+                         or `vyreon-core publish --vouch` states that it is the day's published one",
+                    );
+                }
+            }
+            None
+        }
+        By::Lease(token) => {
             let lease = match work::held(&tx, token).await {
                 Ok(lease) => lease,
                 Err(LeaseError::Gone) => return refuse(GONE),
@@ -178,12 +225,31 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
             if lease.kind == "ORDERED_PASS" && (!based || header.day_local) {
                 return refuse("the ordered pass publishes only a revision computed from the day's base that reads history");
             }
+            if lease.kind == "ORDERED_PASS" {
+                // the pass read the days up to its own after its lease was granted: a day of them
+                // published since may have changed under it (a publish normally stops such a pass
+                // first, ending its lease; this is the check that it did)
+                let changed: Option<(String, i64)> = tx
+                    .query_opt(
+                        "SELECT d.represented_date::text, d.revision_id FROM vyreon.day_revision d, core.lease l
+                         WHERE l.lease_id = $1 AND d.represented_date <= $2::text::date AND d.published_at > l.granted_at
+                         ORDER BY d.published_at DESC LIMIT 1",
+                        &[&lease.lease_id, &date],
+                    )
+                    .await
+                    .map_err(db)?
+                    .map(|r| (r.get(0), r.get(1)));
+                if let Some((day, revision)) = changed {
+                    return refuse(format!(
+                        "revision {revision} of {day} was published after job {}'s lease was granted: the pass may have read what it replaced",
+                        lease.job_id
+                    ));
+                }
+            }
             Some(lease)
         }
     };
-    // one publish at a time per day and profile
-    tx.execute("SELECT pg_advisory_xact_lock(hashtextextended($1 || ' ' || $2, 0))", &[&date, &header.profile_revision]).await.map_err(db)?;
-    let inventory = check_header(&tx, &header).await?;
+    let listed = check_header(&tx, &header).await?;
     if header.report.as_ref().is_some_and(|r| !r.is_object()) {
         return refuse("the report is not a JSON object");
     }
@@ -191,9 +257,10 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
     let base = bind_base(&tx, &header).await?;
     let revision: i64 = tx
         .query_one(
-            "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, base_revision, report, day_local)
-             VALUES ($1::text::date, $2, $3, $4, $5::text::timestamptz, $6, $7::text::jsonb, $8) RETURNING revision_id",
-            &[&date, &header.profile_id, &header.profile_revision, &header.engine_build, &header.snapshot_cutoff, &base, &report, &header.day_local],
+            "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, base_revision, report, day_local,
+                 listed_members)
+             VALUES ($1::text::date, $2, $3, $4, $5::text::timestamptz, $6, $7::text::jsonb, $8, $9) RETURNING revision_id",
+            &[&date, &header.profile_id, &header.profile_revision, &header.engine_build, &header.snapshot_cutoff, &base, &report, &header.day_local, &listed],
         )
         .await
         .map_err(db)?
@@ -217,7 +284,7 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
         .map_err(db)?;
     for slot in &header.slots {
         let name = format!("{}/{}", slot.measurement_id, slot.object_id);
-        let Some(Item::Slot(files)) = items.recv().await else { return refuse(format!("{name}: the bundle ends before this slot")) };
+        let Some(Some(Item::Slot(files))) = items.recv().await else { return refuse(format!("{name}: the bundle ends before this slot")) };
         let staged = check_slot(slot, &files).map_err(|e| Error::Refused(format!("{name}: {e}")))?;
         tx.execute(
             &insert_slot,
@@ -236,12 +303,15 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
             .map_err(|e| prefixed(&name, db(e)))?;
         }
     }
-    if items.recv().await.is_some() {
-        return refuse("the bundle holds more than its header lists");
+    // nothing is written unless the reader says the bundle ended where its header says (C-024)
+    match items.recv().await {
+        Some(None) => {}
+        Some(Some(_)) => return refuse("the bundle holds more than its header lists"),
+        None => return refuse("the bundle could not be read to its end"),
     }
     let (reader_scalars, unusual_scores) = insert_scalars(&tx, revision, date, &scalars).await?;
-    let (streams, stream_bytes) = read_back(&tx, revision, date, inventory.len()).await?;
-    let superseded = promote(&tx, revision, &header, base).await?;
+    let (streams, stream_bytes) = read_back(&tx, revision, date).await?;
+    let superseded = promote(&tx, revision, &header, base, lease.as_ref()).await?;
     // an ordered pass's day is its one bundle; a day block's is every bundle of the day (the base,
     // then what was computed on it: C-031), so its worker says when the day is done (`work::day_done`)
     if let Some(lease) = lease.as_ref().filter(|l| l.kind != "DAY_BLOCK") {
@@ -264,13 +334,19 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Item>, token: O
 
 /// The published revision of the bundle's day, when the lease's job has already published that
 /// day with this very bundle: an earlier session of the job (or a day block's current one), the
-/// same profile and build, and every
-/// slot's body digest equal. A worker sends a day again when the answer to its first sending was
-/// lost; that is answered, not refused.
+/// same profile and build, the same listed members, each slot once, and every slot's body digest
+/// equal. A worker sends a day again when the answer to its first sending was lost; that is
+/// answered, not refused. Anything else goes on to the full checks.
 async fn published_before(tx: &Transaction<'_>, header: &Header, lease: &work::Held) -> Result<Option<i64>, Error> {
     let date = header.represented_date.as_str();
     let current = lease.kind == "DAY_BLOCK" && lease.next_session.as_deref() == Some(date);
     if !core_contract::is_date(date) || date > lease.last_session.as_str() || (!current && lease.next_session.as_deref().is_some_and(|next| date >= next)) {
+        return Ok(None);
+    }
+    // a slot sent twice would count twice below (audit 2026-11-14, core.md 15)
+    let distinct: HashSet<(&str, &str)> = header.slots.iter().map(|s| (s.measurement_id.as_str(), s.object_id.as_str())).collect();
+    let Some(listed) = &header.listed_members else { return Ok(None) };
+    if distinct.len() != header.slots.len() {
         return Ok(None);
     }
     let slots: Vec<Value> = header.slots.iter().map(|s| serde_json::json!({"measurement_id": s.measurement_id, "object_id": s.object_id, "body_sha256": s.body_sha256})).collect();
@@ -283,14 +359,23 @@ async fn published_before(tx: &Transaction<'_>, header: &Header, lease: &work::H
                          USING (measurement_id, object_id, body_sha256)
                      WHERE m.revision_id = d.revision_id AND m.represented_date = d.represented_date)
              FROM vyreon.day_revision d
-             WHERE d.represented_date = $1::text::date AND d.profile_revision = $2 AND d.engine_build = $3 AND d.state = 'PUBLISHED'",
-            &[&date, &header.profile_revision, &header.engine_build, &Value::Array(slots).to_string()],
+             WHERE d.represented_date = $1::text::date AND d.profile_revision = $2 AND d.engine_build = $3 AND d.state = 'PUBLISHED'
+               AND d.listed_members = $5::text[]",
+            &[&date, &header.profile_revision, &header.engine_build, &Value::Array(slots).to_string(), listed],
         )
         .await
         .map_err(db)?;
     let n = header.slots.len() as i64;
     Ok(row.filter(|r| r.get::<_, i64>(1) == n && r.get::<_, i64>(2) == n).map(|r| r.get(0)))
 }
+
+/// How many slots a stored revision is expected to hold: its build's inventory rows for the field
+/// object and for the members recorded as listed with it ($1 the revision, $2 the field object).
+/// Read from the revision, never from today's universe, so a stored day is never judged again
+/// when the universe is reloaded.
+pub const EXPECTED_COUNT: &str = "SELECT count(*) FROM vyreon.day_revision d
+     JOIN core.expected_slot e ON e.engine_build = d.engine_build AND e.profile_revision = d.profile_revision
+     WHERE d.revision_id = $1 AND (e.object_id = $2 OR e.object_id = ANY(d.listed_members))";
 
 fn prefixed(name: &str, e: Error) -> Error {
     match e {
@@ -299,11 +384,31 @@ fn prefixed(name: &str, e: Error) -> Error {
     }
 }
 
-/// The build, its inventory for the profile against the bundle's slots, and the month's partitions.
-async fn check_header(tx: &Transaction<'_>, header: &Header) -> Result<HashSet<(String, String)>, Error> {
-    let (build, profile) = (&header.engine_build, &header.profile_revision);
-    if !core_contract::is_date(&header.represented_date) {
-        return refuse(format!("represented_date {} is not a date written YYYY-MM-DD", header.represented_date));
+/// Asset keys a and not b, sorted, or "none".
+fn only_in(a: &HashSet<&str>, b: &HashSet<&str>) -> String {
+    let mut keys: Vec<&str> = a.difference(b).copied().collect();
+    keys.sort_unstable();
+    if keys.is_empty() { "none".to_owned() } else { keys.join(" ") }
+}
+
+/// The build; the members listed on the day, core's and the bundle's; the inventory, narrowed to
+/// the field and those members, against the bundle's slots; and the month's partitions. Returns
+/// the listed members in profile order, which the revision records.
+async fn check_header(tx: &Transaction<'_>, header: &Header) -> Result<Vec<String>, Error> {
+    let (build, profile, date) = (&header.engine_build, &header.profile_revision, header.represented_date.as_str());
+    if !core_contract::is_date(date) {
+        return refuse(format!("represented_date {date} is not a date written YYYY-MM-DD"));
+    }
+    // a day is a session of the calendar: a day published on any other date would be stored where
+    // no reader looks (the history lists sessions only)
+    let row = tx
+        .query_one("SELECT EXISTS (SELECT FROM core.session WHERE session = $1::text::date), EXISTS (SELECT FROM core.session)", &[&date])
+        .await
+        .map_err(db)?;
+    match (row.get::<_, bool>(0), row.get::<_, bool>(1)) {
+        (true, _) => {}
+        (false, true) => return refuse(format!("{date} is not a trading session of the calendar")),
+        (false, false) => return Err(Error::Failed("core holds no trading calendar: `vyreon-core calendar load` first".into())),
     }
     if tx.query_opt("SELECT FROM core.engine_build WHERE engine_build = $1", &[build]).await.map_err(db)?.is_none() {
         return refuse(format!("engine build {build} is not registered"));
@@ -318,6 +423,35 @@ async fn check_header(tx: &Transaction<'_>, header: &Header) -> Result<HashSet<(
     if inventory.is_empty() {
         return refuse(format!("engine build {build} has no slot inventory for profile {profile}"));
     }
+
+    // who is listed on the day: core's universe decides, and the worker must have computed with
+    // the same members
+    let members = tx
+        .query("SELECT asset_key, ticker IS NOT NULL FROM core.members_on($1, $2::text::date)", &[&header.profile_id, &date])
+        .await
+        .map_err(db)?;
+    if members.is_empty() {
+        return Err(Error::Failed(format!("core holds no members of profile {}: its universe is not loaded", header.profile_id)));
+    }
+    let listed: Vec<String> = members.iter().filter(|r| r.get::<_, bool>(1)).map(|r| r.get(0)).collect();
+    let Some(stated) = &header.listed_members else {
+        return refuse(format!("the bundle does not state the members listed on {date} ({LISTED_MEMBERS})"));
+    };
+    let mut stated_set = HashSet::new();
+    if let Some(twice) = stated.iter().find(|key| !stated_set.insert(key.as_str())) {
+        return refuse(format!("{LISTED_MEMBERS} names {twice} twice"));
+    }
+    let listed_set: HashSet<&str> = listed.iter().map(String::as_str).collect();
+    if stated_set != listed_set {
+        return refuse(format!(
+            "the worker and core disagree about the members listed on {date}: listed only by the bundle: {}; only by core: {}",
+            only_in(&stated_set, &listed_set),
+            only_in(&listed_set, &stated_set)
+        ));
+    }
+    let expected: HashSet<(String, String)> =
+        inventory.iter().filter(|(_, object)| object == FIELD_OBJECT || listed_set.contains(object.as_str())).cloned().collect();
+
     let mut sent = HashSet::new();
     for slot in &header.slots {
         if !sent.insert((slot.measurement_id.clone(), slot.object_id.clone())) {
@@ -330,26 +464,30 @@ async fn check_header(tx: &Transaction<'_>, header: &Header) -> Result<HashSet<(
         names.truncate(5);
         names.join(", ")
     };
-    let (missing, extra): (Vec<_>, Vec<_>) = (inventory.difference(&sent).collect(), sent.difference(&inventory).collect());
-    if !missing.is_empty() || !extra.is_empty() {
+    let missing: Vec<_> = expected.difference(&sent).collect();
+    let (unlisted, extra): (Vec<_>, Vec<_>) = sent.difference(&expected).partition(|slot| inventory.contains(*slot));
+    if !missing.is_empty() || !unlisted.is_empty() || !extra.is_empty() {
         let mut parts = Vec::new();
         if !missing.is_empty() {
             parts.push(format!("{} missing ({})", missing.len(), examples(missing)));
         }
+        if !unlisted.is_empty() {
+            parts.push(format!("{} for objects not listed on {date} ({})", unlisted.len(), examples(unlisted)));
+        }
         if !extra.is_empty() {
             parts.push(format!("{} not in the inventory ({})", extra.len(), examples(extra)));
         }
-        return refuse(format!("the slots are not the inventory of {build} for {profile}: {}", parts.join("; ")));
+        return refuse(format!("the slots are not the inventory of {build} for {profile} on {date}: {}", parts.join("; ")));
     }
     let month: Option<bool> = tx
-        .query_one("SELECT to_regclass('vyreon.measurement' || to_char($1::text::date, '\"_y\"YYYY\"m\"MM')) IS NOT NULL", &[&header.represented_date])
+        .query_one("SELECT to_regclass('vyreon.measurement' || to_char($1::text::date, '\"_y\"YYYY\"m\"MM')) IS NOT NULL", &[&date])
         .await
         .map_err(db)?
         .get(0);
     if month != Some(true) {
-        return Err(Error::Failed(format!("no partitions for the month of {}: vyreon.ensure_months creates them when work is scheduled", header.represented_date)));
+        return Err(Error::Failed(format!("no partitions for the month of {date}: vyreon.ensure_months creates them when work is scheduled")));
     }
-    Ok(inventory)
+    Ok(listed)
 }
 
 /// The day's published base revision, for a bundle computed from one. The share lock holds it
@@ -497,11 +635,14 @@ async fn insert_scalars(tx: &Transaction<'_>, revision: i64, date: &str, scalars
     Ok((reader, unusual))
 }
 
-/// Reads the staged revision back from the database and checks it as a reader would find it.
+/// Reads the staged revision back from the database and checks it as a reader would find it,
+/// against what its recorded listed members make the inventory expect.
 /// Returns (streams, their uncompressed bytes).
-async fn read_back(tx: &Transaction<'_>, revision: i64, date: &str, expected: usize) -> Result<(u64, u64), Error> {
+async fn read_back(tx: &Transaction<'_>, revision: i64, date: &str) -> Result<(u64, u64), Error> {
     let broken = |what: String| Error::Failed(format!("readback: {what}"));
     let params: [&(dyn ToSql + Sync); 2] = [&revision, &date];
+    let expected: i64 = tx.query_one(EXPECTED_COUNT, &[&revision, &FIELD_OBJECT]).await.map_err(db)?.get(0);
+    let expected = expected as usize;
     let mut committed: HashMap<(String, String), String> = HashMap::new();
     let mut slots = 0usize;
     {
@@ -563,7 +704,19 @@ async fn read_back(tx: &Transaction<'_>, revision: i64, date: &str, expected: us
 }
 
 /// Supersedes what the new revision replaces and publishes it. Returns how many it superseded.
-async fn promote(tx: &Transaction<'_>, revision: i64, header: &Header, base: Option<i64>) -> Result<u64, Error> {
+///
+/// Replaced: the day's previous revision of the profile. Then everything that read what this one
+/// replaces or adds to (C-031, ARCHITECTURE 5.3), whichever kind of revision this is:
+///   * on the day itself, a new base replaces the base every based revision of the day was
+///     computed from; a new day-local revision feeds the day's revisions that read history
+///     (DLM-UNUSUALNESS reads every reader value of the day); a new history revision feeds no
+///     other revision of its day;
+///   * on every later day, each revision that reads history read this day (its windows, or its
+///     own earlier values).
+///
+/// What falls is derived again, not left to vanish: `rederive` queues its ordered-pass jobs again
+/// and stops a pass running on an affected day, in this transaction.
+async fn promote(tx: &Transaction<'_>, revision: i64, header: &Header, base: Option<i64>, lease: Option<&work::Held>) -> Result<u64, Error> {
     let date = header.represented_date.as_str();
     let mut superseded = tx
         .execute(
@@ -573,19 +726,119 @@ async fn promote(tx: &Transaction<'_>, revision: i64, header: &Header, base: Opt
         )
         .await
         .map_err(db)?;
-    if base.is_none() {
-        // this day is in the history windows of every later day's revisions that read history;
-        // the day's own based revisions were all computed from the base this one replaces
-        superseded += tx
-            .execute(
+    let same_day = match (base, header.day_local) {
+        (None, _) => "base_revision IS NOT NULL",
+        (Some(_), true) => "base_revision IS NOT NULL AND NOT day_local",
+        (Some(_), false) => "false",
+    };
+    let fallen = tx
+        .query(
+            &format!(
                 "UPDATE vyreon.day_revision SET state = 'SUPERSEDED'
-                 WHERE represented_date >= $1::text::date AND state = 'PUBLISHED' AND base_revision IS NOT NULL AND base_revision <> $2
-                   AND (represented_date = $1::text::date OR NOT day_local)",
-                &[&date, &revision],
-            )
-            .await
-            .map_err(db)?;
-    }
-    tx.execute("UPDATE vyreon.day_revision SET state = 'PUBLISHED', published_at = now() WHERE revision_id = $1", &[&revision]).await.map_err(db)?;
+                 WHERE state = 'PUBLISHED' AND base_revision IS NOT NULL AND revision_id <> $2
+                   AND ((represented_date > $1::text::date AND NOT day_local) OR (represented_date = $1::text::date AND {same_day}))
+                 RETURNING represented_date::text, profile_id, engine_build, day_local"
+            ),
+            &[&date, &revision],
+        )
+        .await
+        .map_err(db)?;
+    superseded += fallen.len() as u64;
+    let fallen: Vec<Fallen> = fallen.iter().map(|r| Fallen { day: r.get(0), profile_id: r.get(1), engine_build: r.get(2), day_local: r.get(3) }).collect();
+    rederive(tx, header, same_day != "false", &fallen, lease).await?;
+    // the clock, not the transaction's start: an ordered pass compares it with when its lease was
+    // granted, and both are taken under the publish lock
+    tx.execute("UPDATE vyreon.day_revision SET state = 'PUBLISHED', published_at = clock_timestamp() WHERE revision_id = $1", &[&revision])
+        .await
+        .map_err(db)?;
     Ok(superseded)
+}
+
+/// A revision a publish superseded because it read what the publish replaced.
+struct Fallen {
+    day: String,
+    profile_id: String,
+    engine_build: String,
+    day_local: bool,
+}
+
+/// The ordered pass derives again what fell (ARCHITECTURE 5.2): a pass running on an affected day
+/// is stopped (its lease ends and the worker is told the lease is gone) and queued again; the
+/// finished pass of each day whose history revision fell is queued again with fresh attempts.
+/// A day-local revision that fell with its day's base is the day block's to publish again on the
+/// new base. What no job will derive again is said in a notice, never left silent.
+async fn rederive(tx: &Transaction<'_>, header: &Header, same_day: bool, fallen: &[Fallen], lease: Option<&work::Held>) -> Result<(), Error> {
+    let date = header.represented_date.as_str();
+    let stopped: Vec<String> = tx
+        .query(
+            "WITH stopped AS (
+                 UPDATE core.lease l SET ended_at = now(), outcome = 'CANCELLED', failure = 'a day it reads was published again: it is derived again'
+                 FROM core.job j
+                 WHERE l.job_id = j.job_id AND l.ended_at IS NULL AND j.kind = 'ORDERED_PASS'
+                   AND (j.first_session > $1::text::date OR ($2 AND j.first_session = $1::text::date))
+                 RETURNING j.job_id)
+             UPDATE core.job SET state = 'QUEUED', next_session = first_session, attempts = GREATEST(attempts - 1, 0), finished_at = NULL
+             WHERE job_id IN (SELECT job_id FROM stopped) AND state = 'LEASED'
+             RETURNING first_session::text",
+            &[&date, &same_day],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let history: Vec<&Fallen> = fallen.iter().filter(|f| !f.day_local).collect();
+    let days: Vec<&str> = history.iter().map(|f| f.day.as_str()).collect();
+    let profiles: Vec<&str> = history.iter().map(|f| f.profile_id.as_str()).collect();
+    let builds: Vec<&str> = history.iter().map(|f| f.engine_build.as_str()).collect();
+    const FALLEN: &str = "fallen AS (SELECT * FROM unnest($1::text[]::date[], $2::text[], $3::text[]) AS f(day, profile_id, engine_build))";
+    const UNFINISHED: &str = "SELECT FROM core.job u WHERE u.kind = 'ORDERED_PASS' AND u.profile_id = f.profile_id AND u.first_session = f.day
+                                  AND u.state IN ('QUEUED', 'LEASED', 'FAILED')";
+    let requeued: Vec<String> = tx
+        .query(
+            &format!(
+                "WITH {FALLEN},
+                 redo AS (SELECT DISTINCT ON (f.day, f.profile_id, f.engine_build) j.job_id
+                          FROM fallen f JOIN core.job j ON j.kind = 'ORDERED_PASS' AND j.state = 'DONE' AND j.profile_id = f.profile_id
+                                                       AND j.engine_build = f.engine_build AND j.first_session = f.day
+                          WHERE NOT EXISTS ({UNFINISHED})
+                          ORDER BY f.day, f.profile_id, f.engine_build, j.job_id DESC)
+                 UPDATE core.job SET state = 'QUEUED', next_session = first_session, attempts = 0, finished_at = NULL
+                 WHERE job_id IN (SELECT job_id FROM redo)
+                 RETURNING first_session::text"
+            ),
+            &[&days, &profiles, &builds],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let mut orphans: Vec<String> = tx
+        .query(&format!("WITH {FALLEN} SELECT DISTINCT f.day::text FROM fallen f WHERE NOT EXISTS ({UNFINISHED}) ORDER BY 1"), &[&days, &profiles, &builds])
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    // a day block publishes its day's day-local revision again on the base it is publishing
+    if lease.is_none_or(|l| l.kind != "DAY_BLOCK") {
+        orphans.extend(fallen.iter().filter(|f| f.day_local).map(|f| format!("{} (day-local)", f.day)));
+    }
+    if stopped.is_empty() && requeued.is_empty() && orphans.is_empty() {
+        return Ok(());
+    }
+    let mut rerun: Vec<&String> = stopped.iter().chain(&requeued).collect();
+    rerun.sort();
+    rerun.dedup();
+    let mut text = format!("{} of {date} published: {} revisions that read it are superseded", header.profile_revision, fallen.len());
+    if let (Some(first), Some(last)) = (rerun.first(), rerun.last()) {
+        text.push_str(&format!("; the ordered pass derives {} days again, {first} to {last}", rerun.len()));
+    }
+    if !orphans.is_empty() {
+        let shown = orphans.iter().take(10).cloned().collect::<Vec<_>>().join(", ");
+        let more = if orphans.len() > 10 { format!(" and {} more", orphans.len() - 10) } else { String::new() };
+        text.push_str(&format!("; no job derives these again, schedule them: {shown}{more}"));
+    }
+    crate::notice::post(tx, &text).await.map_err(Error::Failed)
 }

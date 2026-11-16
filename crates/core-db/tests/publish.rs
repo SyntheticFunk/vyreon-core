@@ -4,11 +4,11 @@
 //!
 //! `a_full_day_from_the_engines_store_publishes_whole` is the exit test of the publish step: it
 //! runs when `VYREON_CORE_EXIT_DIR` names a directory written by `vyreon-core engine-store export`.
-use test_support::Scratch;
-use test_support::slice::{BASE, DERIVED, SLICE, bundle, inventories, parts, temp};
-use core_contract::{Header, Item, Scalars, SlotFiles, read_bundle, sha256_hex};
-use core_db::publish::{Error, Published, publish_file};
-use core_db::{build, migrate};
+use test_support::{Scratch, fixtures};
+use test_support::slice::{BASE, DERIVED, ETHA_UNLISTED, SLICE, base_inventory_with_etha, bundle, inventories, members_except, parts, temp};
+use core_contract::{FIELD_OBJECT, Header, Item, Scalars, SlotFiles, read_bundle, sha256_hex};
+use core_db::publish::{EXPECTED_COUNT, Error, Published, publish_file, publish_file_vouched};
+use core_db::{build, migrate, universe};
 use flate2::{Compression, write::GzEncoder};
 use serde_json::{Value, json};
 use std::path::{Path, PathBuf};
@@ -16,6 +16,11 @@ use tokio_postgres::Client;
 
 /// A bundle written entry by entry, without the writer's checks: for bundles that are wrong.
 fn raw_bundle(name: &str, header: &Header, scalars: &Scalars, files: &[SlotFiles]) -> PathBuf {
+    raw_bundle_and(name, header, scalars, files, &[])
+}
+
+/// The same, with entries after the last slot's.
+fn raw_bundle_and(name: &str, header: &Header, scalars: &Scalars, files: &[SlotFiles], after: &[(&str, &[u8])]) -> PathBuf {
     let path = temp(name);
     let mut tar = tar::Builder::new(GzEncoder::new(std::fs::File::create(&path).unwrap(), Compression::default()));
     let mut entry = |path: String, bytes: &[u8]| {
@@ -35,14 +40,29 @@ fn raw_bundle(name: &str, header: &Header, scalars: &Scalars, files: &[SlotFiles
             entry(format!("slots/{i:05}/events/events.jsonl"), events);
         }
     }
+    for (name, bytes) in after {
+        entry(name.to_string(), bytes);
+    }
     tar.into_inner().unwrap().finish().unwrap();
     path
+}
+
+/// The engine's trading calendar: a day is published only on one of its sessions.
+async fn calendar(client: &mut Client) {
+    core_db::work::load_calendar(client, &serde_json::from_str(test_support::CALENDAR).unwrap()).await.unwrap();
+}
+
+/// The universe of the 64 from the frozen Intrinio responses.
+fn universe_document() -> Value {
+    universe::read_responses(&fixtures().join("engine-v1-PROFILE.json"), &fixtures().join("intrinio-universe")).unwrap()
 }
 
 async fn ready(test: &str) -> (Scratch, Client) {
     let scratch = Scratch::new(test).await;
     let mut client = scratch.client().await;
     migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
+    calendar(&mut client).await;
+    universe::store(&mut client, &universe_document()).await.unwrap();
     for inventory in inventories() {
         assert!(build::register(&mut client, &inventory).await.unwrap().new);
     }
@@ -50,8 +70,10 @@ async fn ready(test: &str) -> (Scratch, Client) {
     (scratch, client)
 }
 
+/// Published by hand and vouched for (C-042): these tests send derived bundles that name no base
+/// revision and read history, straight after the base they were computed from.
 async fn publish(client: &mut Client, path: &Path) -> Result<Published, Error> {
-    let result = publish_file(client, path).await;
+    let result = publish_file_vouched(client, path).await;
     std::fs::remove_file(path).unwrap();
     result
 }
@@ -186,8 +208,12 @@ async fn a_wrong_bundle_is_refused_and_leaves_nothing() {
     case("stray_scalar", "which is not a slot of the day", &|_, s, _| s.reader_scalar[0].object_id = "MSFT".into());
     case("scalar_twice", "duplicate key", &|_, s, _| s.reader_scalar.push(s.reader_scalar[0].clone()));
     case("base_without_profile", "base_revision without base_profile_revision", &|h, _, _| h.base_revision = Some(1));
+    case("no_listed_set", "does not state the members listed on 2025-12-10 (listed_members)", &|h, _, _| h.listed_members = None);
+    case("listed_twice", "listed_members names AAPL twice", &|h, _, _| h.listed_members.as_mut().unwrap().push("AAPL".into()));
     case("bad_date", "date", &|h, _, _| h.represented_date = "2025-13-45".into());
     case("a_word_for_a_date", "is not a date written YYYY-MM-DD", &|h, _, _| h.represented_date = "yesterday".into());
+    // a Saturday (audit 2026-11-14, core.md 12: it used to publish where no reader looks)
+    case("not_a_session", "2025-12-13 is not a trading session of the calendar", &|h, _, _| h.represented_date = "2025-12-13".into());
     for (name, h, s, f, expect) in cases {
         let refused = publish(&mut client, &raw_bundle(name, &h, &s, &f)).await.unwrap_err();
         assert!(matches!(&refused, Error::Refused(m) if m.contains(expect)), "{name}: {refused}");
@@ -202,6 +228,11 @@ async fn a_wrong_bundle_is_refused_and_leaves_nothing() {
         assert!(matches!(&refused, Error::Refused(m) if m.contains("unreadable bundle")), "{name}: {refused}");
     }
     std::fs::remove_file(temp("whole")).unwrap();
+    // every slot there, then an entry the contract does not have: the reader fails after the last
+    // slot, and nothing is written (audit 2026-11-14, core.md 3: it used to commit, then refuse)
+    let stray = raw_bundle_and("stray", &header, &scalars, &files, &[("stray.json", b"{}")]);
+    let refused = publish(&mut client, &stray).await.unwrap_err();
+    assert!(matches!(&refused, Error::Refused(m) if m.contains("unexpected entry stray.json after the last slot")), "{refused}");
     // a revision computed from a base needs the day's base published
     let (dh, ds, df) = parts(DERIVED);
     let refused = publish(&mut client, &bundle("orphan", &dh, &ds, &df)).await.unwrap_err();
@@ -253,6 +284,8 @@ async fn a_full_day_from_the_engines_store_publishes_whole() {
     let scratch = Scratch::new("exit").await;
     let mut client = scratch.client().await;
     migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
+    calendar(&mut client).await;
+    universe::store(&mut client, &universe_document()).await.unwrap();
     let mut exports: Vec<PathBuf> = std::fs::read_dir(&dir).unwrap().map(|e| e.unwrap().path()).filter(|p| p.to_string_lossy().ends_with(".export.json")).collect();
     exports.sort();
     assert!(!exports.is_empty(), "no *.export.json in {}", dir.display());
@@ -267,7 +300,8 @@ async fn a_full_day_from_the_engines_store_publishes_whole() {
         for file in export["bundles"].as_array().unwrap() {
             let path = dir.join(file.as_str().unwrap());
             let started = std::time::Instant::now();
-            let published = publish_file(&mut client, &path).await.unwrap();
+            // the export names no base revision (the store's ids are not core's): vouched for
+            let published = publish_file_vouched(&mut client, &path).await.unwrap();
             eprintln!("{published:?} in {:.1} s", started.elapsed().as_secs_f64());
             // the bundle's own account of itself, read independently of the publish
             let (mut header, mut scalars) = (None, None);
@@ -324,5 +358,238 @@ async fn a_day_local_revision_is_kept_as_one_and_falls_with_its_own_days_base() 
     assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE day_local").await, 1);
     let again = publish(&mut client, &bundle("daylocal-base2", &header, &scalars, &files)).await.unwrap();
     assert_eq!(again.superseded, 2, "the old base and its day's day-local revision");
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-15 (core.md) 1, C-042: by hand there is no lease to say what a bundle read. A
+/// revision that reads history is refused (a day it read may have been replaced since), and one
+/// that reads its day only must name the base revision it was computed from; a base needs
+/// neither. The same bundles are taken when the hand vouches for them.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn by_hand_a_based_revision_names_its_base_and_one_that_reads_history_is_refused() {
+    let (scratch, mut client) = ready("byhand").await;
+    let strict = async |client: &mut Client, name: &str, (h, s, f): (&Header, &Scalars, &[SlotFiles])| {
+        let path = bundle(name, h, s, f);
+        let result = publish_file(client, &path).await;
+        std::fs::remove_file(&path).unwrap();
+        result
+    };
+    let (header, scalars, files) = parts(BASE);
+    let base = strict(&mut client, "byhand-base", (&header, &scalars, &files)).await.unwrap();
+
+    // reads history: refused, whether or not it names its base
+    let (dh, ds, df) = parts(DERIVED);
+    assert!(!dh.day_local && dh.base_revision.is_none());
+    let mut named = dh.clone();
+    named.base_revision = Some(base.revision_id);
+    for (name, h) in [("byhand-history", &dh), ("byhand-history-named", &named)] {
+        let refused = strict(&mut client, name, (h, &ds, &df)).await.unwrap_err();
+        assert!(matches!(&refused, Error::Refused(m) if m.contains("reads history is published by the ordered pass")), "{refused}");
+    }
+    // reads its day only: refused until it names the base revision it read
+    let mut local = dh.clone();
+    local.day_local = true;
+    let refused = strict(&mut client, "byhand-local", (&local, &ds, &df)).await.unwrap_err();
+    assert!(matches!(&refused, Error::Refused(m) if m.contains("names the base revision it read")), "{refused}");
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision").await, 1, "a refusal leaves nothing");
+    local.base_revision = Some(base.revision_id);
+    let derived = strict(&mut client, "byhand-local-named", (&local, &ds, &df)).await.unwrap();
+    assert_eq!(states(&client).await.last().unwrap(), &(derived.revision_id, "PUBLISHED".to_owned(), Some(base.revision_id)));
+
+    // vouched for, the bundle that reads history and names no base is taken
+    let vouched = publish(&mut client, &bundle("byhand-vouched", &dh, &ds, &df)).await.unwrap();
+    assert_eq!(states(&client).await.last().unwrap(), &(vouched.revision_id, "PUBLISHED".to_owned(), Some(base.revision_id)));
+    scratch.drop().await;
+}
+
+/// A stored revision's recorded listed members, and the slots they make it expected to hold.
+async fn recorded(client: &Client, revision: i64) -> (Vec<String>, i64) {
+    let listed = client.query_one("SELECT listed_members FROM vyreon.day_revision WHERE revision_id = $1", &[&revision]).await.unwrap().get(0);
+    (listed, client.query_one(EXPECTED_COUNT, &[&revision, &FIELD_OBJECT]).await.unwrap().get(0))
+}
+
+/// Migration 0013 on a database that already holds a published day: before it, every object of a
+/// build's inventory was expected on every day, so the day records exactly those (profile order)
+/// and is expected to hold what it was before.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_day_published_before_the_listed_set_keeps_its_whole_inventory() {
+    let scratch = Scratch::new("listed_migration").await;
+    let mut client = scratch.client().await;
+    let all = migrate::embedded().unwrap();
+    let before: Vec<_> = all.iter().filter(|m| m.version < 13).cloned().collect();
+    migrate::apply(&mut client, &before).await.unwrap();
+    universe::store(&mut client, &universe_document()).await.unwrap();
+    build::register(&mut client, &base_inventory_with_etha()).await.unwrap();
+    let revision: i64 = client
+        .query_one(
+            "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, state, published_at)
+             SELECT represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, 'PUBLISHED', now()
+             FROM jsonb_to_recordset($1::text::jsonb->'day_revision')
+                 AS r(represented_date date, profile_id text, profile_revision text, engine_build text, snapshot_cutoff timestamptz, base_revision bigint)
+             WHERE base_revision IS NULL RETURNING revision_id",
+            &[&SLICE],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    let through_13: Vec<_> = all.iter().filter(|m| m.version <= 13).cloned().collect();
+    assert_eq!(migrate::apply(&mut client, &through_13).await.unwrap().applied, [(13, "listed_members".to_owned())]);
+    assert_eq!(recorded(&client, revision).await, (vec!["ETHA".to_owned(), "AAPL".to_owned()], 8));
+    let nullable: String = client
+        .query_one("SELECT is_nullable FROM information_schema.columns WHERE table_schema = 'vyreon' AND table_name = 'day_revision' AND column_name = 'listed_members'", &[])
+        .await
+        .unwrap()
+        .get(0);
+    assert_eq!(nullable, "NO");
+    scratch.drop().await;
+}
+
+/// The members core's universe lists on a day, in order.
+async fn listed_on(client: &Client, day: &str) -> Vec<String> {
+    client
+        .query("SELECT asset_key FROM core.members_on('FREE_REPORT_64', $1::text::date) WHERE ticker IS NOT NULL ORDER BY ordinal", &[&day])
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.get(0))
+        .collect()
+}
+
+/// C-036: a member has slots only on the sessions it is listed. The base build's inventory here
+/// holds the slice's four sensors for ETHA as well as AAPL (the real inventory's rows). ETHA's
+/// first session is 2024-07-23, so on 2024-07-01 it was not listed and IBIT was. Core's checks
+/// never read a body's date, so the slice's real AAPL bodies of 2025-12-10 are sent under
+/// 2024-07-01 (as `january` is above); nothing in them is changed.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_member_not_listed_on_the_day_has_no_slots_and_the_day_keeps_who_was_listed() {
+    let scratch = Scratch::new("listed").await;
+    let mut client = scratch.client().await;
+    migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
+    calendar(&mut client).await;
+    universe::store(&mut client, &universe_document()).await.unwrap();
+    build::register(&mut client, &base_inventory_with_etha()).await.unwrap();
+    client.query_one("SELECT vyreon.ensure_months('2024-07-01', '2024-07-31')", &[]).await.unwrap();
+    client.query_one("SELECT vyreon.ensure_months('2025-12-01', '2025-12-31')", &[]).await.unwrap();
+    assert_eq!(listed_on(&client, ETHA_UNLISTED).await, members_except(&["ETHA"]));
+    assert_eq!(listed_on(&client, "2025-12-10").await, members_except(&[]));
+
+    let (mut header, scalars, files) = parts(BASE);
+    header.represented_date = ETHA_UNLISTED.into();
+    header.listed_members = Some(members_except(&["ETHA"]));
+
+    // the worker and core must agree on who is listed
+    for (name, listed, expect) in [
+        ("claims-etha", members_except(&[]), "listed only by the bundle: ETHA; only by core: none"),
+        ("drops-ibit", members_except(&["ETHA", "IBIT"]), "listed only by the bundle: none; only by core: IBIT"),
+    ] {
+        let mut h = header.clone();
+        h.listed_members = Some(listed);
+        let refused = publish(&mut client, &bundle(name, &h, &scalars, &files)).await.unwrap_err();
+        assert!(
+            matches!(&refused, Error::Refused(m) if m.contains("the worker and core disagree about the members listed on 2024-07-01") && m.contains(expect)),
+            "{name}: {refused}"
+        );
+    }
+    // a slot of the member not listed is refused
+    let (mut h, mut f) = (header.clone(), files.clone());
+    let q01 = h.slots.iter().position(|s| s.measurement_id == "VS-Q01").unwrap();
+    let mut etha = h.slots[q01].clone();
+    etha.object_id = "ETHA".into();
+    h.slots.push(etha);
+    f.push(f[q01].clone());
+    let refused = publish(&mut client, &bundle("etha-slot", &h, &scalars, &f)).await.unwrap_err();
+    assert!(matches!(&refused, Error::Refused(m) if m.contains("1 for objects not listed on 2024-07-01 (VS-Q01/ETHA)")), "{refused}");
+    // on a day ETHA is listed its slots are expected, so the same AAPL-only bundle falls short
+    let refused = publish(&mut client, &bundle("etha-listed", &parts(BASE).0, &scalars, &files)).await.unwrap_err();
+    assert!(
+        matches!(&refused, Error::Refused(m) if m.contains("4 missing (M0-ANALYTICS/ETHA, M0-GAMMA-CHANGE/ETHA, VS-IVS01/ETHA, VS-Q01/ETHA)")),
+        "{refused}"
+    );
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision").await, 0);
+
+    // accepted with exactly the listed members' slots; the day records who was listed
+    let published = publish(&mut client, &bundle("etha-unlisted", &header, &scalars, &files)).await.unwrap();
+    assert_eq!((published.slots, published.streams), (4, 2));
+    assert_eq!(recorded(&client, published.revision_id).await, (members_except(&["ETHA"]), 4));
+
+    // the universe is loaded again with a different member list (AAPL left out): today's answer
+    // changes, the stored day keeps the set it was published with and what it was expected to hold
+    let mut doc = universe_document();
+    doc["members"].as_array_mut().unwrap().retain(|m| m["asset_key"] != "AAPL");
+    universe::store(&mut client, &doc).await.unwrap();
+    assert_eq!(listed_on(&client, ETHA_UNLISTED).await, members_except(&["ETHA", "AAPL"]));
+    assert_eq!(recorded(&client, published.revision_id).await, (members_except(&["ETHA"]), 4));
+    scratch.drop().await;
+}
+
+/// One of the slice's derived sensors as a profile of its own under a build of its own (the rows,
+/// bodies, receipts and scalars are the slice's; only the build and profile names are made here):
+/// C-031 splits the derived sensors into a day-local profile (DLM-MAX-PAIN is one) and a history
+/// profile (DLM-IV30 is one).
+async fn derived_profile(client: &mut Client, measurement: &str, name: &str, day_local: bool) -> (Header, Scalars, Vec<SlotFiles>) {
+    let (mut h, mut s, mut f) = parts(DERIVED);
+    let mut inventory = inventories().remove(1);
+    let profile = format!("{}-{name}", h.profile_revision);
+    inventory["engine_build"] = json!(format!("{}-{name}", h.engine_build));
+    inventory["slots"].as_array_mut().unwrap().retain(|row| row["measurement_id"] == measurement);
+    for row in inventory["slots"].as_array_mut().unwrap() {
+        row["profile_revision"] = json!(profile);
+    }
+    build::register(client, &inventory).await.unwrap();
+    let keep: Vec<bool> = h.slots.iter().map(|slot| slot.measurement_id == measurement).collect();
+    let mut i = 0;
+    h.slots.retain(|_| (keep[i], i += 1).0);
+    let mut i = 0;
+    f.retain(|_| (keep[i], i += 1).0);
+    s.reader_scalar.retain(|x| x.measurement_id == measurement);
+    (h.engine_build, h.profile_revision, h.day_local) = (inventory["engine_build"].as_str().unwrap().to_owned(), profile, day_local);
+    (h, s, f)
+}
+
+/// Audit 2026-11-14 (core.md) 2: a day-local revision published again takes down the revisions
+/// that read history on its day (unusualness reads every reader value of the day) and on every
+/// later day, as a base does; a history revision published again takes down the later days' ones.
+/// Day-local revisions of other days and every base stay. Published here by hand, without jobs,
+/// so nothing derives them again and a notice says so.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_replaced_day_local_or_history_revision_takes_down_what_read_it() {
+    let (scratch, mut client) = ready("cascade").await;
+    let day_local = derived_profile(&mut client, "DLM-MAX-PAIN", "DAY-LOCAL", true).await;
+    let history = derived_profile(&mut client, "DLM-IV30", "HISTORY", false).await;
+    let days = ["2025-12-10", "2025-12-11"];
+    let send = async |client: &mut Client, (h, s, f): &(Header, Scalars, Vec<SlotFiles>), day: &str| {
+        let mut h = h.clone();
+        h.represented_date = day.into();
+        publish(client, &bundle(&format!("cascade-{}-{day}", h.profile_revision), &h, s, f)).await.unwrap()
+    };
+    let base = parts(BASE);
+    let mut ids = Vec::new();
+    for day in days {
+        for profile in [&base, &day_local, &history] {
+            ids.push(send(&mut client, profile, day).await.revision_id);
+        }
+    }
+    let published = async |client: &Client| -> Vec<i64> {
+        client.query("SELECT revision_id FROM vyreon.day_revision WHERE state = 'PUBLISHED' ORDER BY 1", &[]).await.unwrap().iter().map(|r| r.get(0)).collect()
+    };
+    assert_eq!(published(&client).await, ids);
+    // [base 10th, day-local 10th, history 10th, base 11th, day-local 11th, history 11th]
+    let again = send(&mut client, &day_local, days[0]).await;
+    assert_eq!(again.superseded, 3, "the old day-local revision, and the history revisions of the 10th and the 11th");
+    assert_eq!(published(&client).await, [ids[0], ids[3], ids[4], again.revision_id]);
+    let said: String = client.query_one("SELECT message FROM core.notice ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    assert!(said.contains("no job derives these again, schedule them: 2025-12-10, 2025-12-11"), "{said}");
+
+    // the history derived again in order; then the 10th's history alone again takes the 11th's down
+    let tenth = send(&mut client, &history, days[0]).await;
+    let eleventh = send(&mut client, &history, days[1]).await;
+    assert_eq!((tenth.superseded, eleventh.superseded), (0, 0));
+    let tenth_again = send(&mut client, &history, days[0]).await;
+    assert_eq!(tenth_again.superseded, 2, "the 10th's own previous history revision and the 11th's");
+    assert_eq!(published(&client).await, [ids[0], ids[3], ids[4], again.revision_id, tenth_again.revision_id]);
     scratch.drop().await;
 }

@@ -19,14 +19,36 @@
 //! engine checks them against its bodies and receipts, whose shapes are its own), its coordinates
 //! view (the engine's projection of its own body; core cannot recompute it), and the header's
 //! `report` (the run's stage timings and request counts). What core
-//! checks: every digest, the stream commitments, and the slot list against the inventory
-//! registered for the build.
+//! checks: every digest, the stream commitments, the stated listed members against core's own
+//! universe, and the slot list against the inventory registered for the build, narrowed to the
+//! field and the members listed that day.
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::io::{self, Read, Write};
 
 pub const CONTRACT: &str = "VYREON-DAY-BUNDLE@2";
+
+/// The cross-asset object. Every other object of an inventory is a member's asset key, and a
+/// member has slots only on the sessions it is listed (C-036).
+pub const FIELD_OBJECT: &str = "FIELD.CORE64";
+
+/// The header field that states the session's listed members. Its name is this constant and the
+/// `rename` on `Header::listed_members` (they must agree: a test checks it).
+pub const LISTED_MEMBERS: &str = "listed_members";
+
+/// The most bytes one entry of a bundle may hold uncompressed. Read before anything is allocated,
+/// so a damaged or hostile bundle cannot make its reader take more memory than this per entry
+/// (the upload limit bounds only the compressed bytes). Unmeasured at its maximum; a measured day
+/// (2025-12-10) holds 320 event streams of 724 MB in all, about 2.3 MB each, so 256 MiB is two
+/// orders of magnitude above the typical entry.
+pub const MAX_ENTRY_BYTES: u64 = 256 << 20;
+
+/// The most uncompressed bytes that may follow a bundle's last entry before the gzip stream ends.
+/// The reader drains them to reach the gzip trailer (C-042) and refuses a bundle with more: an
+/// unbounded tail would be decompressed in full while a publish waits. The engine's writer leaves
+/// the tar's two end blocks (1,024 bytes); a tar padded to a 10 KiB record leaves under 10 KiB.
+pub const MAX_TRAILING_BYTES: u64 = 1 << 20;
 
 /// Whether `text` is a calendar date written `YYYY-MM-DD`. Dates cross the contract in this form
 /// only: PostgreSQL would also read words such as "yesterday" as dates.
@@ -68,6 +90,13 @@ pub struct Header {
     /// category. A JSON object of the engine's choosing; core stores it with the revision.
     #[serde(default)]
     pub report: Option<serde_json::Value>,
+    /// The members listed on the day, as asset keys in profile order: the worker's view of the
+    /// universe it computed with (C-036). Core refuses a bundle whose set differs from its own
+    /// (`core.members_on`, members with a ticker that day) and expects slots for those members and
+    /// the field only. Optional in the format so an older bundle still reads; core refuses one
+    /// without it.
+    #[serde(default, rename = "listed_members", skip_serializing_if = "Option::is_none")]
+    pub listed_members: Option<Vec<String>>,
     pub slots: Vec<Slot>,
 }
 
@@ -224,8 +253,11 @@ pub fn read_bundle<R: Read>(input: R, visit: &mut dyn FnMut(Item) -> io::Result<
         let Some(entry) = entries.next() else { return Ok(None) };
         let mut entry = entry?;
         let name = entry.path()?.to_string_lossy().into_owned();
+        if entry.size() > MAX_ENTRY_BYTES {
+            return Err(invalid(format!("{name} is {} bytes uncompressed; an entry is at most {MAX_ENTRY_BYTES}", entry.size())));
+        }
         let mut bytes = Vec::with_capacity(entry.size() as usize);
-        entry.read_to_end(&mut bytes)?;
+        (&mut entry).take(MAX_ENTRY_BYTES).read_to_end(&mut bytes)?;
         Ok(Some((name, bytes)))
     };
     let mut held: Entry = None;
@@ -259,8 +291,146 @@ pub fn read_bundle<R: Read>(input: R, visit: &mut dyn FnMut(Item) -> io::Result<
         };
         visit(Item::Slot(SlotFiles { body, receipt, coordinates, stream }))?;
     }
-    match next(&mut held)? {
-        None => Ok(()),
-        Some((name, _)) => Err(invalid(format!("unexpected entry {name} after the last slot"))),
+    if let Some((name, _)) = next(&mut held)? {
+        return Err(invalid(format!("unexpected entry {name} after the last slot")));
+    }
+    // the gzip stream is read to its end, where its CRC and length are checked: bundle.json and
+    // scalars.json carry no digest of their own, and the tar ends before the trailer (C-042).
+    // What follows the last entry is the tar's end blocks and its padding; the read is bounded,
+    // so a bundle cannot make its reader decompress an endless tail
+    let mut tail = archive.into_inner().take(MAX_TRAILING_BYTES + 1);
+    let trailing = io::copy(&mut tail, &mut io::sink()).map_err(|e| invalid(format!("the gzip stream after the last entry: {e}")))?;
+    if trailing > MAX_TRAILING_BYTES {
+        return Err(invalid(format!("more than {MAX_TRAILING_BYTES} bytes uncompressed follow the last entry; the bundle is refused unread to its end")));
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The engine's own bundle of 2025-12-10 (contract 2, written before the listed set existed).
+    const ENGINE_BUNDLE_AAPL: &[u8] = include_bytes!("../../test-support/fixtures/engine-bundle-2025-12-10-aapl.tar.gz");
+
+    fn engine_header() -> Header {
+        let mut header = None;
+        read_bundle(ENGINE_BUNDLE_AAPL, &mut |item| {
+            if let Item::Header(h) = item {
+                header = Some(*h);
+            }
+            Ok(())
+        })
+        .unwrap();
+        header.unwrap()
+    }
+
+    /// Audit 2026-11-14 (core.md) 9: an entry whose header claims more than `MAX_ENTRY_BYTES` is
+    /// refused before anything is allocated for it (the reader used to reserve whatever the
+    /// header claimed). The engine's real header is the entry; only its declared size is wrong.
+    #[test]
+    fn an_entry_larger_than_the_limit_is_refused_before_it_is_read() {
+        let header = serde_json::to_vec(&engine_header()).unwrap();
+        let mut head = tar::Header::new_gnu();
+        head.set_path("bundle.json").unwrap();
+        head.set_size(MAX_ENTRY_BYTES + 1);
+        head.set_mode(0o644);
+        head.set_cksum();
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        gz.write_all(head.as_bytes()).unwrap();
+        gz.write_all(&header).unwrap();
+        let bundle = gz.finish().unwrap();
+        let mut visited = 0;
+        let refused = read_bundle(bundle.as_slice(), &mut |_| {
+            visited += 1;
+            Ok(())
+        })
+        .unwrap_err();
+        assert!(refused.to_string().contains(&format!("bundle.json is {} bytes uncompressed; an entry is at most {MAX_ENTRY_BYTES}", MAX_ENTRY_BYTES + 1)), "{refused}");
+        assert_eq!(visited, 0);
+    }
+
+    /// Audit 2026-11-15 (core.md) 9: the gzip stream is read to its end, so its CRC is checked.
+    /// bundle.json and scalars.json have no digest of their own; the tar ends before the trailer,
+    /// and the reader used to stop there. The engine's real bundle with one bit of its stored
+    /// CRC changed (the eight bytes that end a gzip stream are the CRC-32 and the length).
+    #[test]
+    fn a_bundle_whose_gzip_checksum_does_not_match_is_refused() {
+        let mut slots = 0;
+        read_bundle(ENGINE_BUNDLE_AAPL, &mut |item| {
+            slots += matches!(item, Item::Slot(_)) as usize;
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(slots, engine_header().slots.len());
+        let mut damaged = ENGINE_BUNDLE_AAPL.to_vec();
+        let crc = damaged.len() - 8;
+        damaged[crc] ^= 1;
+        let refused = read_bundle(damaged.as_slice(), &mut |_| Ok(())).unwrap_err();
+        assert!(refused.to_string().contains("the gzip stream after the last entry"), "{refused}");
+    }
+
+    /// The engine's real bundle with `zeros` more zero bytes after the tar's end, inside the one
+    /// gzip member (what a tar padded to a larger record looks like; the entries are untouched).
+    fn engine_bundle_with_a_longer_tail(zeros: usize) -> Vec<u8> {
+        let mut tar = Vec::new();
+        GzDecoder::new(ENGINE_BUNDLE_AAPL).read_to_end(&mut tar).unwrap();
+        tar.resize(tar.len() + zeros, 0);
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        gz.write_all(&tar).unwrap();
+        gz.finish().unwrap()
+    }
+
+    /// Audit 2026-11-15 (fix round C, corepublish.md) 2: the drain that reaches the gzip trailer
+    /// is bounded. The tail after the last entry used to be decompressed whatever its length
+    /// while a publish waited. A tail within `MAX_TRAILING_BYTES` reads as before and its CRC is
+    /// still checked; a longer one is refused without being read to its end, after every slot
+    /// has been handed over (nothing is committed until the reader returns, C-024).
+    #[test]
+    fn a_bundle_with_more_than_the_allowed_tail_after_its_last_entry_is_refused() {
+        let slots = engine_header().slots.len();
+        let count = |bundle: &[u8]| {
+            let mut seen = 0;
+            let read = read_bundle(bundle, &mut |item| {
+                seen += matches!(item, Item::Slot(_)) as usize;
+                Ok(())
+            });
+            (seen, read)
+        };
+        let mut within = engine_bundle_with_a_longer_tail(MAX_TRAILING_BYTES as usize / 2);
+        let (seen, read) = count(&within);
+        read.unwrap();
+        assert_eq!(seen, slots);
+        let crc = within.len() - 8;
+        within[crc] ^= 1;
+        let (_, read) = count(&within);
+        assert!(read.unwrap_err().to_string().contains("the gzip stream after the last entry"));
+
+        // a tail of 64 times the limit: refused, and not read to its end first (the reader
+        // stopped with compressed input still unread, which an unbounded drain would have taken)
+        let beyond = engine_bundle_with_a_longer_tail(64 * MAX_TRAILING_BYTES as usize);
+        let mut input = beyond.as_slice();
+        let mut seen = 0;
+        let refused = read_bundle(&mut input, &mut |item| {
+            seen += matches!(item, Item::Slot(_)) as usize;
+            Ok(())
+        })
+        .unwrap_err();
+        assert!(refused.to_string().contains(&format!("more than {MAX_TRAILING_BYTES} bytes uncompressed follow the last entry")), "{refused}");
+        assert_eq!(seen, slots);
+        assert!(input.len() > beyond.len() - ENGINE_BUNDLE_AAPL.len() - input.len(), "{} of {} bytes left unread", input.len(), beyond.len());
+    }
+
+    #[test]
+    fn the_listed_set_travels_under_its_one_name() {
+        // a header written before the field still reads, without a listed set
+        let mut header = engine_header();
+        assert_eq!(header.listed_members, None);
+        assert!(serde_json::to_value(&header).unwrap().get(LISTED_MEMBERS).is_none());
+        // the field's name in the JSON is the constant
+        header.listed_members = Some(vec!["AAPL".into()]);
+        let text = serde_json::to_value(&header).unwrap();
+        assert_eq!(text[LISTED_MEMBERS], serde_json::json!(["AAPL"]));
+        assert_eq!(serde_json::from_value::<Header>(text).unwrap(), header);
     }
 }

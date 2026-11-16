@@ -29,6 +29,13 @@ impl Default for Budget {
     }
 }
 
+/// Seconds core counts a lease beyond the validity it tells the worker: the worker starts its
+/// `valid_seconds` when the answer reaches it, after core has recorded the grant, so core's end of
+/// the lease must not come before the worker's. A plain allowance for the answer's way back (on
+/// the cluster's own network, well under a second), not a measured one; an answer later than this
+/// could still let requests fall outside core's count.
+pub const TRANSIT_SECONDS: f64 = 5.0;
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Grant {
     Granted { budget_lease_id: i64, requests: i32, valid_seconds: f64 },
@@ -57,10 +64,13 @@ pub async fn draw(client: &mut Client, budget: Budget, worker: &str, requests: i
         return Ok(Grant::Wait { seconds: frees_in.unwrap_or(1.0).max(0.1) });
     }
     let granted = requests.min(free).min(budget.max_lease);
+    // the clock, not the transaction's start (which is before the lock was had), plus the answer's
+    // way to the worker
     let id: i64 = tx
         .query_one(
-            "INSERT INTO core.budget_lease (worker, granted, valid_until) VALUES ($1, $2, now() + make_interval(secs => $3)) RETURNING budget_lease_id",
-            &[&worker, &granted, &budget.lease_seconds],
+            "INSERT INTO core.budget_lease (worker, granted, granted_at, valid_until)
+             VALUES ($1, $2, clock_timestamp(), clock_timestamp() + make_interval(secs => $3)) RETURNING budget_lease_id",
+            &[&worker, &granted, &(budget.lease_seconds + TRANSIT_SECONDS)],
         )
         .await
         .map_err(db)?
@@ -70,8 +80,8 @@ pub async fn draw(client: &mut Client, budget: Budget, worker: &str, requests: i
 }
 
 /// Releases a lease with what was used, by category (`{"daily": 12, "options": 300}`). The usage
-/// is added to the worker's minute. A lease is released once, by its worker, for no more than it
-/// was granted.
+/// is added to the worker's minute. A lease is released once, by its worker. More than was granted
+/// is counted as reported, and the release then answers with an error saying so.
 pub async fn release(client: &mut Client, budget_lease_id: i64, worker: &str, used: &Value) -> Result<i32, String> {
     let categories = used.as_object().ok_or("usage is a JSON object of category: requests")?;
     let mut total: i64 = 0;
@@ -85,8 +95,9 @@ pub async fn release(client: &mut Client, budget_lease_id: i64, worker: &str, us
         .map_err(db)?
         .ok_or_else(|| format!("{worker} has no open budget lease {budget_lease_id}"))?
         .get(0);
-    // more than granted is recorded as it was reported, and counted in full: the ceiling's margin is for this
-    let counted = total.min(i64::from(granted)) as i32;
+    // more than granted is recorded as it was reported, and counted in full: the ceiling's margin
+    // is for this, and the next grants see it (migration 0015; the column held at most the grant)
+    let counted = total.min(i64::from(i32::MAX)) as i32;
     tx.execute("UPDATE core.budget_lease SET used = $2, released_at = now() WHERE budget_lease_id = $1", &[&budget_lease_id, &counted]).await.map_err(db)?;
     tx.execute(
         "INSERT INTO core.request_usage (minute, worker, category, requests)

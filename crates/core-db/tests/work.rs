@@ -3,9 +3,9 @@
 //! published. Run with `cargo test -- --ignored`.
 use test_support::Scratch;
 use test_support::slice::{BASE, DERIVED, bundle, inventories, parts};
-use core_db::publish::publish_for_lease;
+use core_db::publish::{publish_file, publish_for_lease};
 use core_db::work::{self, Claim, Kind, LeaseError};
-use core_db::{build, migrate};
+use core_db::{build, migrate, universe};
 use serde_json::{Value, json};
 use tokio_postgres::Client;
 
@@ -19,6 +19,10 @@ async fn ready(test: &str) -> (Scratch, Client, String, String) {
     migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
     let calendar: Value = serde_json::from_str(test_support::CALENDAR).unwrap();
     assert_eq!(work::load_calendar(&mut client, &calendar).await.unwrap(), 2261);
+    // a published day is checked against the universe's members listed that day
+    let fixtures = test_support::fixtures();
+    let doc = universe::read_responses(&fixtures.join("engine-v1-PROFILE.json"), &fixtures.join("intrinio-universe")).unwrap();
+    universe::store(&mut client, &doc).await.unwrap();
     let mut builds = Vec::new();
     for inventory in inventories() {
         builds.push(build::register(&mut client, &inventory).await.unwrap().engine_build);
@@ -103,7 +107,9 @@ async fn work_is_scheduled_over_sessions_and_claimed_in_order() {
         done(&mut client, tape, &tape.sessions[0]).await.unwrap();
         work::finish(&mut client, &tape.token).await.unwrap();
     }
-    assert_eq!(work::finish(&mut client, &tape10.token).await, Err(LeaseError::Gone));
+    // the lease is over; a finish sent again is answered as done
+    assert_eq!(work::heartbeat(&mut client, &tape10.token, HOUR).await, Err(LeaseError::Gone));
+    assert_eq!(work::finish(&mut client, &tape10.token).await, Ok(tape10.job_id));
     // tapes for the 10th and 11th are in: that block is free, the 12th's still waits for its tape
     let second_block = work::claim(&mut client, Kind::DayBlock, &b, "w3", HOUR).await.unwrap().unwrap();
     assert_eq!(second_block.sessions, ["2025-12-10", "2025-12-11"]);
@@ -166,7 +172,7 @@ async fn a_lost_workers_block_resumes_and_a_failed_day_is_set_aside() {
     // stops the queue
     client.execute("UPDATE core.job SET max_attempts = 1 WHERE state <> 'FAILED'", &[]).await.unwrap();
     expire(&client, &rest).await;
-    assert_eq!(work::sweep(&client).await.unwrap(), 1);
+    assert_eq!(work::sweep(&mut client).await.unwrap(), 1);
     assert_eq!(work::status(&client).await.unwrap()["paused"], false);
     let other = work::claim(&mut client, Kind::DayBlock, &b, "w5", HOUR).await.unwrap().unwrap();
     assert_eq!(other.sessions, ["2025-12-15", "2025-12-16"]);
@@ -212,8 +218,26 @@ async fn the_ordered_pass_follows_the_published_days_one_at_a_time() {
     let again = publish_for_lease(&mut client, &path, &block.token).await.unwrap();
     assert_eq!((again.already_published, again.revision_id, again.slots), (true, base.revision_id, 4));
     assert!(!base.already_published);
+    // but not one that only resembles it (audit 2026-11-14, core.md 15): one slot four times, or
+    // another listed set, goes through the full checks and is refused
+    let (header, scalars, files) = parts(BASE);
+    let mut repeated = header.clone();
+    repeated.slots = vec![header.slots[0].clone(); 4];
+    let repeated = bundle("ordered-repeated", &repeated, &scalars, &vec![files[0].clone(); 4]);
+    assert!(matches!(publish_for_lease(&mut client, &repeated, &block.token).await, Err(LeaseError::Refused(m)) if m.contains("is listed twice")));
+    std::fs::remove_file(&repeated).unwrap();
+    let mut fewer = header.clone();
+    fewer.listed_members.as_mut().unwrap().retain(|k| k != "ETHA");
+    let fewer = bundle("ordered-fewer", &fewer, &scalars, &files);
+    assert!(matches!(publish_for_lease(&mut client, &fewer, &block.token).await, Err(LeaseError::Refused(m)) if m.contains("disagree about the members")));
+    std::fs::remove_file(&fewer).unwrap();
+    // the block is still on the 10th until its worker says the day is done (its day-local
+    // revision comes after the base): the pass of the 10th waits for that (C-039)
+    assert_eq!(ordered(&mut client, &d).await, None, "the block is still on the 10th");
     // the block's day is done when its worker says so, and not before its base is published
     assert!(matches!(work::day_done(&mut client, &block.token, "2025-12-11").await, Err(LeaseError::Refused(m)) if m.contains("has not published 2025-12-11")));
+    work::day_done(&mut client, &block.token, "2025-12-10").await.unwrap();
+    // said twice (the first answer lost), it is answered and changes nothing
     work::day_done(&mut client, &block.token, "2025-12-10").await.unwrap();
     // but another day's bundle, or this day with another body, is not the block's next day
     let (mut other, scalars_again, mut changed) = parts(BASE);
@@ -258,6 +282,166 @@ async fn the_ordered_pass_follows_the_published_days_one_at_a_time() {
     assert_eq!(ordered(&mut client, &d).await, None, "the 11th still waits for its base day");
     assert_eq!(work::status(&client).await.unwrap()["claimable"], json!({}));
 
+    scratch.drop().await;
+}
+
+async fn notices(client: &Client) -> Vec<String> {
+    client.query("SELECT message FROM core.notice ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect()
+}
+
+async fn pass_jobs(client: &Client) -> Vec<(String, String, i32)> {
+    client
+        .query("SELECT first_session::text, state, attempts FROM core.job WHERE kind = 'ORDERED_PASS' ORDER BY first_session", &[])
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| (r.get(0), r.get(1), r.get(2)))
+        .collect()
+}
+
+/// The derived revision of `day` computed from `base`, sent under a lease.
+async fn derive(client: &mut Client, day: &str, base: i64, token: &str) -> Result<i64, LeaseError> {
+    let (mut h, s, f) = parts(DERIVED);
+    (h.represented_date, h.base_revision) = (day.into(), Some(base));
+    let path = bundle(&format!("derive-{day}-{base}"), &h, &s, &f);
+    let published = publish_for_lease(client, &path, token).await;
+    std::fs::remove_file(&path).unwrap();
+    published.map(|p| p.revision_id)
+}
+
+/// Audit 2026-11-14 (core.md) 1, 2 and 10: a day published again supersedes what read it, and the
+/// ordered pass derives that again instead of leaving it DONE with nothing published; a pass
+/// running on an affected day is stopped, and a pass whose lease predates a publish of a day it
+/// reads is refused. The slice's real bodies of 2025-12-10 are sent under the 11th as well: core's
+/// checks never read a body's date.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_day_published_again_takes_down_what_read_it_and_the_pass_derives_it_again() {
+    let (scratch, mut client, b, d) = ready("rederive").await;
+    admit(&client, &b).await;
+    admit(&client, &d).await;
+    let days = ["2025-12-10", "2025-12-11"];
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[0], days[1], 30).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, days[0], days[1], 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    let mut bases = Vec::new();
+    for day in days {
+        let (mut h, s, f) = parts(BASE);
+        h.represented_date = day.into();
+        let path = bundle(&format!("rederive-base-{day}"), &h, &s, &f);
+        bases.push(publish_for_lease(&mut client, &path, &block.token).await.unwrap().revision_id);
+        std::fs::remove_file(&path).unwrap();
+        work::day_done(&mut client, &block.token, day).await.unwrap();
+    }
+    work::finish(&mut client, &block.token).await.unwrap();
+    for (day, base) in days.iter().zip(&bases) {
+        let pass = ordered(&mut client, &d).await.unwrap();
+        assert_eq!(pass.sessions, [*day]);
+        derive(&mut client, day, *base, &pass.token).await.unwrap();
+        work::finish(&mut client, &pass.token).await.unwrap();
+    }
+    let done = |state: &str, attempts: i32| days.iter().map(|d| (d.to_string(), state.to_owned(), attempts)).collect::<Vec<_>>();
+    assert_eq!(pass_jobs(&client).await, done("DONE", 1));
+
+    // the 10th's base is published again: the 10th's derived revision was computed from the old
+    // base and the 11th's read the 10th, so both fall, and both passes are queued again
+    let (h, s, f) = parts(BASE);
+    let again = publish_file(&mut client, &bundle("rederive-again", &h, &s, &f)).await.unwrap();
+    assert_eq!(again.superseded, 3, "the old base, the 10th's derived revision and the 11th's");
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE state = 'PUBLISHED' AND base_revision IS NOT NULL").await, 0);
+    assert_eq!(pass_jobs(&client).await, done("QUEUED", 0));
+    let said = notices(&client).await;
+    assert!(said.last().unwrap().contains("the ordered pass derives 2 days again, 2025-12-10 to 2025-12-11"), "{said:?}");
+
+    // the 10th first, the 11th behind it; the base changes again while the 10th's pass runs: the
+    // pass is stopped (its lease is gone) and what it computed on the old base is not taken
+    let tenth = ordered(&mut client, &d).await.unwrap();
+    assert_eq!((tenth.sessions.as_slice(), ordered(&mut client, &d).await), (&["2025-12-10".to_owned()][..], None));
+    let third = publish_file(&mut client, &bundle("rederive-third", &h, &s, &f)).await.unwrap();
+    assert_eq!(derive(&mut client, days[0], again.revision_id, &tenth.token).await, Err(LeaseError::Gone));
+    assert_eq!(count(&client, &format!("SELECT count(*) FROM core.lease WHERE job_id = {} AND outcome = 'CANCELLED'", tenth.job_id)).await, 1);
+    assert_eq!(pass_jobs(&client).await, done("QUEUED", 0), "the stopped attempt is not counted against the pass");
+
+    // and if a publish of a day it reads came after its lease was granted without stopping it, the
+    // pass is refused all the same (made here by moving the grant back)
+    let tenth = ordered(&mut client, &d).await.unwrap();
+    client.execute("UPDATE core.lease SET granted_at = granted_at - interval '1 hour' WHERE job_id = $1 AND ended_at IS NULL", &[&tenth.job_id]).await.unwrap();
+    let refused = derive(&mut client, days[0], third.revision_id, &tenth.token).await.unwrap_err();
+    assert!(matches!(&refused, LeaseError::Refused(m) if m.contains(&format!("revision {} of 2025-12-10 was published after job {}", third.revision_id, tenth.job_id))), "{refused}");
+    client.execute("UPDATE core.lease SET granted_at = clock_timestamp() WHERE job_id = $1 AND ended_at IS NULL", &[&tenth.job_id]).await.unwrap();
+    derive(&mut client, days[0], third.revision_id, &tenth.token).await.unwrap();
+    work::finish(&mut client, &tenth.token).await.unwrap();
+    let eleventh = ordered(&mut client, &d).await.unwrap();
+    derive(&mut client, days[1], bases[1], &eleventh.token).await.unwrap();
+    work::finish(&mut client, &eleventh.token).await.unwrap();
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE state = 'PUBLISHED'").await, 4, "two bases and their two derived revisions");
+    scratch.drop().await;
+}
+
+async fn job_state(client: &Client, job: i64) -> String {
+    client.query_one("SELECT state FROM core.job WHERE job_id = $1", &[&job]).await.unwrap().get(0)
+}
+
+/// Audit 2026-11-14 (core.md) 6 and 5: a job whose sessions are all done is DONE when its lease
+/// ends, whatever became of its `finish` (lost, late, or sent twice), so no job without a next
+/// session is ever queued for a claim to choke on; a session marked done twice is answered, not
+/// refused; and a lease the sweep cannot end does not keep the other leases from ending or the
+/// claims from going on.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_done_job_whose_finish_is_lost_is_done_and_one_bad_lease_stops_no_claim() {
+    let (scratch, mut client, b, _) = ready("lost_finish").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-10", 30).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-11", "2025-12-12", 30).await.unwrap();
+
+    // the worker does its one day, says so twice (the first answer lost), and dies before finish
+    let first = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    done(&mut client, &first, "2025-12-10").await.unwrap();
+    done(&mut client, &first, "2025-12-10").await.unwrap();
+    expire(&client, &first).await;
+    // the next claim ends that lease, finds the job done, and takes the next block
+    let second = work::claim(&mut client, Kind::DayBlock, &b, "w2", HOUR).await.unwrap().unwrap();
+    assert_eq!(second.sessions, ["2025-12-11", "2025-12-12"]);
+    assert_eq!(job_state(&client, first.job_id).await, "DONE");
+    let said: String = client.query_one("SELECT message FROM core.notice ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    assert_eq!(said, "Day block 2025-12-10 to 2025-12-10 done by its worker, whose finish never arrived (1 blocks to go).");
+    // its finish arriving late, or twice, is answered as done
+    assert_eq!(work::finish(&mut client, &first.token).await, Ok(first.job_id));
+    assert_eq!(work::finish(&mut client, &first.token).await, Ok(first.job_id));
+
+    // a block on its last attempt that fails after its last day is done, not set aside
+    client.execute("UPDATE core.job SET max_attempts = 1 WHERE job_id = $1", &[&second.job_id]).await.unwrap();
+    for day in &second.sessions {
+        done(&mut client, &second, day).await.unwrap();
+    }
+    assert!(!work::fail(&mut client, &second.token, "cleanup", "the disk could not be emptied", "log").await.unwrap());
+    assert_eq!(job_state(&client, second.job_id).await, "DONE");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.job").await, 2, "nothing was split off");
+    assert_eq!(work::claim(&mut client, Kind::DayBlock, &b, "w3", HOUR).await.unwrap(), None);
+
+    // two tape leases expire; ending one of them fails (made here by a trigger on its job): the
+    // other is ended and its job claimed again, and the sweep names the one it could not end
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-15", "2025-12-16", 1).await.unwrap();
+    let t1 = work::claim(&mut client, Kind::Tape, &b, "t1", HOUR).await.unwrap().unwrap();
+    let t2 = work::claim(&mut client, Kind::Tape, &b, "t2", HOUR).await.unwrap().unwrap();
+    expire(&client, &t1).await;
+    expire(&client, &t2).await;
+    client
+        .batch_execute(&format!(
+            "CREATE FUNCTION stuck() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD.job_id = {} THEN RAISE EXCEPTION 'stuck'; END IF; RETURN NEW; END $$;
+             CREATE TRIGGER stuck BEFORE UPDATE ON core.job FOR EACH ROW EXECUTE FUNCTION stuck();",
+            t1.job_id
+        ))
+        .await
+        .unwrap();
+    let again = work::claim(&mut client, Kind::Tape, &b, "t3", HOUR).await.unwrap().unwrap();
+    assert_eq!((again.job_id, again.attempt), (t2.job_id, 2));
+    let error = work::sweep(&mut client).await.unwrap_err();
+    assert!(error.contains("stuck"), "{error}");
+    client.batch_execute("DROP TRIGGER stuck ON core.job").await.unwrap();
+    assert_eq!(work::sweep(&mut client).await.unwrap(), 1);
+    assert_eq!(job_state(&client, t1.job_id).await, "QUEUED");
     scratch.drop().await;
 }
 

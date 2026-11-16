@@ -109,6 +109,9 @@ golden days check it.
 ## C-016 Workers publish over HTTP (owner, 2026-11-10)
 A worker sends each finished day to core as one compressed bundle; the publisher job checks and writes
 it. Workers hold no database or storage credentials and there is no shared storage between them.
+*Amended 2026-11-15 (audit 2026-11-14, core.md 17):* each worker pod mounts only the keys of the
+`vyreon-worker` Secret it reads; tape and day-block pods mounted the whole Secret, the ordered
+pass's database login included (C-020's one exception). Manifest edited, not applied.
 
 ## C-017 Stable Vyreon asset keys (owner, 2026-11-10; ARCHITECTURE D2)
 Each asset has a permanent key; core maps it to the Intrinio security id and the dated tickers.
@@ -199,6 +202,10 @@ unusualness scores, and each slot's body, receipt and event stream as the engine
 - **Stage, verify and publish are one transaction.** A staged revision is never visible and a
   refused bundle leaves nothing. The readback is done inside that transaction, on what the
   database returns, before promotion.
+  *Amended 2026-11-15 (audit 2026-11-14, core.md 3):* the transaction commits only after the
+  bundle's reader says it reached the end. A reader that failed after the last slot (an entry the
+  contract does not have, a damaged tail) closed its channel, which was taken for the end: the day
+  was committed, then reported refused and the queue paused.
 - **A day's reader scalars and unusualness scores travel in its bundle.** They are the engine's
   projection of the bodies; core cannot derive them. Today the engine's derive writes the base
   day's scalars afterwards, which a single writer rules out: the worker's bundle carries its own
@@ -209,6 +216,19 @@ unusualness scores, and each slot's body, receipt and event stream as the engine
 - **The supersession rules are the engine's** (`publish_revision`): the day's previous revision of
   the profile, and, on a base publish, every later day's revision computed from a base.
 - **An inventory is written once.** Registering a build again is accepted only with the same rows.
+- *Added 2026-11-15 (audit 2026-11-14, core.md 12):* **a day is published only on a session of the
+  calendar core holds** (C-025); any other date is refused, and with no calendar loaded the publish
+  fails. A lease's day was always its job's session, but `vyreon-core publish` took a Saturday,
+  which the history never lists and whose `/v1/sessions/{date}` is a 404. Loading the calendar
+  therefore comes before publishing by hand as well.
+- *Added 2026-11-15 (audit 2026-11-14, core.md 9):* **an entry of a bundle is at most 256 MiB
+  uncompressed** (`core_contract::MAX_ENTRY_BYTES`), checked on its tar header before anything is
+  allocated. The upload limit (2 GiB) bounds compressed bytes only, and the reader reserved
+  whatever an entry's header claimed, so one damaged entry could exhaust the core node's memory
+  and stop the service for every worker. The largest real entries are event streams, about 2.3 MB
+  on average on 2025-12-10; the maximum is not measured. Left: the tar library reads GNU long-name
+  and pax entries itself, unbounded; a worker's bundle is authenticated, so this is a fault guard,
+  not a security boundary.
 - Left for the recompute work (milestone 5): copy-forward revisions (`carried_from_revision`,
   `republish_scope`).
 
@@ -236,9 +256,25 @@ lines; digests, text, JSONB, receipts, versions, states, scalar values).
   grant until 60 s after its end, at full size while open and at what was used once released. The
   requests of any rolling minute therefore cannot exceed the ceiling. Sustained throughput is about
   1,200 a minute if every lease is held to its end, more when workers release early.
+  *Amended 2026-11-15 (audit 2026-11-14, core.md 13):* a release reporting more than the lease
+  granted is counted at what it reports (migration 0015 lifts the column's cap at the grant), so
+  the overrun holds back the next grants until it ages out; the release still answers with an
+  error naming the overrun. It was counted at the grant: 900 reported on 600 granted left 300
+  requests outside the ceiling.
+  *Amended 2026-11-15 (audit 2026-11-14, core.md 14):* core counts a lease from the clock when it
+  is granted (not the transaction's start, which precedes the wait for the budget's lock) to 5 s
+  after the validity the worker is told (`budget::TRANSIT_SECONDS`, a plain allowance for the
+  answer's way back, not measured): the worker starts its 30 s on receipt, so core's window must
+  not end before the worker's. A lease now counts for at most 95 s, not 90 s; sustained
+  throughput with every lease held to its end is about 1,140 a minute instead of 1,200.
 - **Tape caches are opaque and written once**: stored as the worker packed them; the same bytes
   again are accepted, other bytes refused. A session without a tape is a stated absence. A tape job
   is done only when every member listed on the session has one or the other.
+  *Amended 2026-11-15 (audit 2026-11-14, core.md 11):* under one method version. A session redone
+  under a new method was complete as soon as the old method's rows covered it, so its days could
+  start and read neither caches nor absences of the new method. `tape-caches/{session}/done` takes
+  `method_version`; without it (today's worker sends none) the method of the session's most
+  recently stored cache is the one checked.
 - **Sessions come from the engine's calendar**, loaded as a list; core does not compute trading days.
 - **The claim carries the member manifest**: for each session, each member's key, security id,
   ticker in use (none when not listed), group and company flag, and the provider sources' first
@@ -262,6 +298,10 @@ history pages at 20 sessions, headline at 260. No Parquet yet (no reader has ask
   words such as "yesterday" as dates, which a test caught on the session route.
 - The service reads through its one database pool; a separate login in the `vyreon_reader` role
   comes with the deployment.
+- *Amended 2026-11-15 (audit 2026-11-14, core.md 16):* a history's ETag is taken over every session
+  it lists, not only the revisions it serves, so a session added to the calendar inside a range a
+  reader holds changes it (RFC 9110 8.8.1: a strong validator changes with the representation).
+  Every history ETag changes once with this release.
 
 ## C-027 Notices are an outbox; automated admission waits for track B (2026-11-10)
 - A notice is a row written in the same transaction as the event it reports, and the service posts
@@ -279,6 +319,10 @@ history pages at 20 sessions, headline at 260. No Parquet yet (no reader has ask
   engine's knowledge, not core's. Core's part exists: a build claims nothing until
   `vyreon-core build admit <build> <evidence.json>` records what it passed. Track B's harness will
   write that evidence file; admission stays one command by hand for the first build, as planned.
+- *Amended 2026-11-15 (audit 2026-11-14, core.md 18):* the queue's pause and resume are written in
+  one transaction with their notice by every caller (the refused-bundle path and `queue pause` /
+  `resume` used two autocommitted statements, so a restart between them left the queue paused with
+  no notice, and a second pause changed nothing). The lease sweep's own transactions are C-038.
 
 ## C-028 A day sent twice is answered, not refused (2026-11-10)
 A worker whose publish succeeded but whose answer was lost will send the day again. Core answers
@@ -286,6 +330,11 @@ A worker whose publish succeeded but whose answer was lost will send the day aga
 job, for the same profile and build, with every slot's body digest equal to the published
 revision's. Anything else that is not the job's next day is still refused and pauses the queue. This
 makes the publish call safe to retry, so the worker retries it on a transport failure.
+*Amended 2026-11-15 (audit 2026-11-14, core.md 15):* "the same bundle" also means each slot once
+and the same listed members as the stored revision. The recognition compared counts from a join,
+so one matching slot repeated as many times as the revision has slots was answered "already
+published" without the inventory or listed-members checks (C-024, C-036); such a bundle now goes
+through the full checks.
 
 ## C-029 Owner decisions on E11, coordinates and the security key (2026-11-11)
 - E11: an absent provider input withholds its assets with a new provider-limited reason,
@@ -414,6 +463,107 @@ run again once its cause is fixed. `queue retry-failed` puts the set-aside days 
 Reason: the owner's rule that a stopped day never holds up other dates (2026-11-12), with the
 engine's sensor-level withholding as the first line (a fault withholds its sensors, not the day).
 
+## C-036 A member has slots only on the sessions it is listed (owner, 2026-11-14)
+Nothing stored may depend on which assets are in the universe. An asset not listed on a session
+(before its first listing, after a delisting) has no slots that session; the field object
+`FIELD.CORE64` has them every session.
+- **Core's universe decides who is listed**: `core.members_on(profile, day)` with a ticker. A day
+  bundle states its listed set in the header (`listed_members`, asset keys in profile order; one
+  constant, `core_contract::LISTED_MEMBERS`, names the field). A bundle without it, or whose set
+  differs from core's, is refused: the worker and core disagree about membership, and neither
+  copy is silently preferred. The expected slots are the build's inventory rows of the field and of
+  the listed members; the inventory itself stays one template per build.
+- **The set is recorded with the revision** (`vyreon.day_revision.listed_members`, migration 0013).
+  What a stored day was expected to hold (the readback's count, the reader) comes from that record,
+  never from today's universe, so loading the universe again never re-judges a stored day. Days
+  published before it record every object of their inventory, which is what was expected of them.
+- **The reader:** in an asset's history a published session on which the asset was not listed is
+  `NOT_LISTED`, with no revisions: not a 404, not `NOT_PUBLISHED`. `/v1/sessions/{date}` gives each
+  revision's `listed_members`. Other shapes are unchanged.
+- **The claim** adds `tickers`: each member's every ticker span `{ticker, from, to}` (inclusive,
+  `to` null while open), since a day's history windows cross ticker changes (Meta: FB to
+  2022-06-08, META from 2022-06-09). `days` is unchanged.
+- `vyreon-core engine-store export` states the inventory's objects as listed: the engine's store
+  published a fixed member list on every day. Its own `expected_slot` joins read that store and are
+  unaffected.
+- Tests send the slice's real AAPL bodies of 2025-12-10 under 2024-07-01 (ETHA not listed, IBIT
+  listed); core's checks never read a body's date. The field object's path has no database test:
+  no frozen slice holds a field body.
+
+## C-037 What a publish replaces takes down everything that read it, and the pass derives it again (2026-11-15)
+Audit 2026-11-14 (core.md) 1, 2 and 10. Amends C-024's supersession rule and C-031.
+- **Whatever kind of revision is published on day D**, every revision that read what it replaces
+  or adds to is superseded in the same transaction: on later days every revision that reads
+  history (its windows, or its own earlier values); on D itself, after a base every revision
+  computed from the old base (as before), after a day-local revision the revisions of D that read
+  history (DLM-UNUSUALNESS reads every reader value of the day). A history revision takes down
+  only later days. Before, only a base cascaded, so a replaced day-local or history revision left
+  dependants published on its old values.
+- **What falls is derived again, not left to vanish.** In the same transaction the finished
+  ordered-pass job of each day whose history revision fell is queued again with fresh attempts,
+  and a pass running on an affected day is stopped: its lease ends (`CANCELLED`, the worker is
+  told the lease is gone at its next call) and its job is queued again without counting that
+  attempt. Before, the jobs stayed DONE while their measurements were gone. A revision no job will
+  derive again (published by hand, or a day-local revision taken down by a base published outside
+  its day block) is named in a notice. The notice is posted only when a pass is queued again or
+  something is left with no job, so an ordinary day posts nothing new.
+- **A pass is refused if a day it reads was published after its lease was granted** (any revision
+  dated on or before its day): it may have read what was replaced. Publishes and ordered-pass
+  claims take one advisory lock (`work::PUBLISH_LOCK`, taken before any row lock), and the grant
+  and `published_at` are taken from the clock (`clock_timestamp()`), not the transaction's start,
+  so the comparison follows the lock's order. With the stop above this refusal should never fire;
+  it is the check that the stop happened. The lock replaces the per-day-and-profile one: C-025
+  already published one bundle at a time; now that holds across processes too.
+- **An ordinary day changes nothing:** a day block's base and day-local revision of D find no
+  published revision that reads history on D or later (the pass waits for the block, C-039), so
+  nothing is superseded beyond the day's own previous revision and no notice is posted.
+
+## C-038 A job is done when its sessions are; finish, day_done and session_done may arrive twice or late (2026-11-15)
+Audit 2026-11-14 (core.md) 6 and 5. Amends C-025.
+- **A job whose every session is done is DONE when its lease ends**, by expiry or by `fail`,
+  whatever became of its worker's `finish`. Before, a lost `finish` left it QUEUED with no next
+  session: the claim panicked on it, and, being the earliest job of its kind, it stopped every
+  claim of that kind; a day block out of attempts in that state failed a NOT NULL check inside the
+  claim's transaction, so every claim failed. `retry-failed` makes such a FAILED job DONE.
+- **Calls a worker sends once are safe twice or late.** `finish` on a lease whose job is DONE
+  answers with the job, as the first one did; `days/{date}/done` and a tape session's `done` for a
+  session already done answer and change nothing; a publish sent twice was already answered
+  (C-028). A late call on a lease that expired with work left is told the lease is gone (410), and
+  the next claim redoes the day.
+- **The sweep ends each expired lease and moves its job in one transaction of its own** (before:
+  the service's sweeper ended every expired lease in one autocommitted statement and moved the jobs
+  in others, so a restart between them left jobs LEASED under ended leases that nothing recovers).
+  A lease that cannot be ended is reported and does not keep the others from ending. The claim
+  sweeps first, outside its own transaction, and ignores what the sweep could not do (the sweeper
+  reports it every half minute), so one bad job cannot block every claim; the claim also skips a
+  job with no next session rather than read it as one.
+
+## C-039 The ordered pass waits until its own day's block has moved past it (2026-11-15)
+Audit 2026-11-14 (core.md) 7. Amends C-025's order and migration 0005's claim rule (migration 0014
+replaces the view; 0005 is not edited). A day block publishes its day's base, then its day-local
+revision, then says the day is done (C-031). The rule compared the blocks' next session with `<`,
+so the pass of day T was claimable between T's base and T's day-local revision; the engine refuses
+a day without the latter, and three quick refusals left the pass FAILED, holding up every later
+pass. Now a pass waits while any unfinished block of its profile stands at or before its day
+(`<=`). The view also leaves out a job with no session left (C-038), and a constraint keeps any job
+from being queued without one; the migration first makes DONE the jobs a lost `finish` left that
+way. An ordinary day: the pass of T starts after the block's `day_done` of T instead of possibly
+after its base alone.
+
+## C-040 One worker pod's failure never stops the others (2026-11-15)
+Audit 2026-11-14 (core.md) 8. Each worker Job of `deploy/k8s/30-workers.yaml` ran several pods
+under `backoffLimit: 0`: one pod exiting unsuccessfully failed the whole Job, and Kubernetes then
+terminates its running pods ("Job termination and cleanup", kubernetes.io/docs/concepts/workloads/
+controllers/job). It happened on 2026-11-12, and it defeats C-035 (a failed date is set aside, the
+build goes on). Now every worker Job is `completionMode: Indexed` with `backoffLimitPerIndex: 1`
+(Kubernetes "Backoff limit per index", GA in 1.33; the cluster runs 1.36): a failed pod is
+replaced once and its index then given up, the other pods run on, and the Job is marked failed
+only when all of them have finished. No Job-wide `backoffLimit` and no `maxFailedIndexes`, since
+either, once exceeded, terminates the running pods. The job a failed pod held returns to core's
+queue as before (its `fail`, or its lease expiring); the replacement pod claims whatever is
+claimable. The KEDA ScaledJob for the build, not yet written, must keep this property (README).
+Edited as files only; nothing was applied.
+
 ## C-041 The audit loop lives in the repository; the cut line for the build (2026-11-15)
 The Codex audit loop (briefs, scopes, the runner, the fix rules) is in `tools/audit/`, with the
 steps in its README. It had lived in a session's scratch directory and was nearly lost when WSL's
@@ -434,4 +584,36 @@ judge rounds g and h (fixes 8 and 9) converged: no defect in the audited changes
 latent and unreached on real captures. Fix 10 (`pass-fx10`) is the last batch before the build;
 its audit runs as usual and, with nothing above the line, its findings are fixed during or after
 the build. The remaining gate is the candidate's real days.
-(C-036 to C-040 are on `pass-core-fix`, not yet merged here.)
+
+## C-042 By hand, core takes a based revision only if it can check its base, or on the operator's word (2026-11-15)
+Audit 2026-11-15 (fix round A, core.md) 1 and 9. Amends C-024 and C-037.
+- **`vyreon-core publish` has no lease**, so C-037's check (a day the bundle read was published
+  after the lease was granted) cannot run, and `bind_base` bound a bundle naming no `base_revision`
+  to whatever base is published now. A history revision of T computed before an earlier day was
+  replaced, or a revision computed on a replaced base, was published as it stood: a wrong number.
+  Workers cannot reach this path. Now, by hand: a revision computed from a base that reads history
+  is refused (the ordered pass publishes those), and one that reads its day only must name the
+  base revision it read. A base needs neither.
+- **`publish --vouch` is the operator's word** that the bundles were computed from what is
+  published now; core then takes them as before and checks nothing more. One flag covers both
+  refusals, not the history one alone as the audit proposed: `engine-store export` writes derived
+  bundles that cannot name core's base revision (the store's ids are not core's), so a rule with
+  no way round it would end publishing an exported day (C-024's exit test).
+- **A bundle's gzip stream is read to its end**, where its CRC-32 and length are checked.
+  `bundle.json` and `scalars.json` (the reader scalars `detail=headline` serves) carry no digest,
+  and the reader stopped at the tar's end, before the trailer. A mismatch refuses the bundle
+  before anything is committed (C-024: nothing is written until the reader reaches the end).
+
+Note, 2026-11-15 (fix round C, corepublish.md). Two small corrections: the drain to the gzip
+trailer is bounded at 1 MiB of uncompressed tail (`MAX_TRAILING_BYTES`; the engine's writer leaves
+1,024 bytes) and a bundle with more is refused, since an unbounded tail was decompressed in full
+while a publish waited; and `publish` reads its whole command line first, so `--vouch` counts
+wherever it stands and a bad line publishes nothing. One thing is open and not changed here: a
+worker's day-local bundle names no `base_revision`, so on the leased path it binds to whatever
+base is published now, and a base of the same date published by hand between the worker's base and
+its day-local bundle would leave values derived from the old base stored on the new one (the day
+block's lease is not ended, as an ordered pass's is). Until that is decided, the operating rule:
+during a build, `vyreon-core queue pause`, wait until no day block is leased (a pause stops new
+claims, not a lease already held), then publish the base by hand, then resume. (Corrected the same
+day after the audit of this note: pausing alone left a live lease free to publish.) The trailer
+bound counts bytes after the tar's end-of-archive blocks.

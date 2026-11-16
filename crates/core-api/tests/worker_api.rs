@@ -133,6 +133,17 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
     assert_eq!((day["days"][0]["session"].as_str(), members.len()), (Some("2025-12-10"), 64));
     assert_eq!(day["tape_history_from"], "2025-12-10", "the first scheduled tape session");
     assert_eq!(members.iter().find(|m| m["asset_key"] == "META").unwrap()["ticker"], "META");
+    // and, since history windows cross ticker changes, every ticker each member has traded under
+    let tickers = day["tickers"].as_object().unwrap();
+    assert_eq!(tickers.len(), 64);
+    assert_eq!(
+        day["tickers"]["META"],
+        json!([{"ticker": "FB", "from": "2012-05-18", "to": "2022-06-08"}, {"ticker": "META", "from": "2022-06-09", "to": null}])
+    );
+    assert_eq!(day["tickers"]["ETHA"], json!([{"ticker": "ETHA", "from": "2024-07-23", "to": null}]));
+    // the bundle states the day's listed members: the asset keys with a ticker that day
+    let listed: Vec<&str> = members.iter().filter(|m| m["ticker"].is_string()).map(|m| m["asset_key"].as_str().unwrap()).collect();
+    assert_eq!(listed, test_support::slice::members_except(&[]));
     let tar_bytes = s.http.get(format!("{caches}?method_version=engine-v1")).bearer_auth(token).send().await.unwrap().bytes().await.unwrap();
     let mut archive = tar::Archive::new(&tar_bytes[..]);
     let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
@@ -193,6 +204,9 @@ async fn a_refused_bundle_pauses_the_queue_and_a_failing_worker_sends_its_log() 
     let status = work::status(&admin).await.unwrap();
     assert_eq!(status["paused"], true);
     assert!(status["pause_reason"].as_str().unwrap().contains("(day-1): bundle refused: unreadable bundle"), "{status}");
+    // the pause and its notice were written together
+    let notice: String = admin.query_one("SELECT message FROM core.notice ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    assert!(notice.starts_with("Queue paused: job ") && notice.contains("bundle refused: unreadable bundle"), "{notice}");
     assert_eq!(s.claim("day-block", &s.base_build, "day-2").await.status(), StatusCode::NO_CONTENT);
     assert_eq!(s.post("/lease/heartbeat", token, json!({})).await.1["paused"], true, "the worker learns of the pause");
     assert_eq!(admin.query_one("SELECT count(*) FROM vyreon.day_revision", &[]).await.unwrap().get::<_, i64>(0), 0);

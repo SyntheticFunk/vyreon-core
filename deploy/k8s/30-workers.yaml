@@ -3,8 +3,16 @@
 # nothing to claim exits at once, so the three Jobs are applied in order: tape, then day-block,
 # then ordered-pass. Set `completions` to the number of jobs scheduled and `parallelism` to the
 # nodes of the pool.
+# One pod's failure never stops the others (C-040). Each pod is an index of its Job
+# (`completionMode: Indexed`) with its own retry budget (`backoffLimitPerIndex`): a failed pod is
+# replaced once and its index is then given up, while every other pod runs on. No `backoffLimit`
+# (with a per-index limit it defaults to unlimited) and no `maxFailedIndexes`: either, once
+# exceeded, makes Kubernetes terminate the Job's running pods, which is what a single failed pod
+# did under `backoffLimit: 0` on 2026-11-12. The job the failed pod held goes back to core's queue
+# (its `fail`, or its lease expiring) and the replacement pod claims whatever is claimable.
 # Secret `vyreon-worker` (made by hand, see README): `worker-token`, `intrinio-key`,
-# `ordered-pass-pg` (the read-only connection string of the ordered pass's login).
+# `ordered-pass-pg` (the read-only connection string of the ordered pass's login). Each pod mounts
+# only the keys it reads: tape and day-block pods never see the database login.
 # A day needs its node to itself: 6 CPUs requested on an 8-vCPU node, scratch on the node's disk.
 apiVersion: batch/v1
 kind: Job
@@ -14,7 +22,8 @@ metadata:
 spec:
   completions: 2
   parallelism: 2
-  backoffLimit: 0
+  completionMode: Indexed
+  backoffLimitPerIndex: 1
   template:
     metadata:
       labels: {app: vyreon-worker, work: tape}
@@ -42,8 +51,15 @@ spec:
       volumes:
         - name: work
           emptyDir: {}
+        # only the keys this pod reads: the ordered pass's database login stays with the ordered
+        # pass (C-016, C-020)
         - name: secrets
-          secret: {secretName: vyreon-worker, defaultMode: 0400}
+          secret:
+            secretName: vyreon-worker
+            defaultMode: 0400
+            items:
+              - {key: worker-token, path: worker-token}
+              - {key: intrinio-key, path: intrinio-key}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -53,7 +69,8 @@ metadata:
 spec:
   completions: 2
   parallelism: 2
-  backoffLimit: 0
+  completionMode: Indexed
+  backoffLimitPerIndex: 1
   template:
     metadata:
       labels: {app: vyreon-worker, work: day-block}
@@ -84,8 +101,15 @@ spec:
       volumes:
         - name: work
           emptyDir: {}
+        # only the keys this pod reads: the ordered pass's database login stays with the ordered
+        # pass (C-016, C-020)
         - name: secrets
-          secret: {secretName: vyreon-worker, defaultMode: 0400}
+          secret:
+            secretName: vyreon-worker
+            defaultMode: 0400
+            items:
+              - {key: worker-token, path: worker-token}
+              - {key: intrinio-key, path: intrinio-key}
 ---
 apiVersion: batch/v1
 kind: Job
@@ -96,7 +120,8 @@ spec:
   # one day at a time, in date order: never parallel
   completions: 2
   parallelism: 1
-  backoffLimit: 0
+  completionMode: Indexed
+  backoffLimitPerIndex: 1
   template:
     metadata:
       labels: {app: vyreon-worker, work: ordered-pass}
@@ -124,5 +149,11 @@ spec:
       volumes:
         - name: work
           emptyDir: {}
+        # only the keys this pod reads: it calls no provider
         - name: secrets
-          secret: {secretName: vyreon-worker, defaultMode: 0400}
+          secret:
+            secretName: vyreon-worker
+            defaultMode: 0400
+            items:
+              - {key: worker-token, path: worker-token}
+              - {key: ordered-pass-pg, path: ordered-pass-pg}

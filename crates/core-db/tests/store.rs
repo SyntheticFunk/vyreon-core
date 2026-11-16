@@ -9,7 +9,7 @@ use std::collections::HashMap;
 use tokio_postgres::error::SqlState;
 use tokio_postgres::{Client, Error};
 
-use test_support::slice::SLICE;
+use test_support::slice::{SLICE, listed_2025_12_10};
 
 async fn migrated(test: &str) -> (Scratch, Client) {
     let scratch = Scratch::new(test).await;
@@ -55,12 +55,12 @@ async fn stage_revisions(client: &Client) -> Vec<(i64, i64)> {
         let (old, base): (i64, Option<i64>) = (row.get(0), row.get(1));
         let new: i64 = client
             .query_one(
-                "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, base_revision)
-                 SELECT represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, $3
+                "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, base_revision, listed_members)
+                 SELECT represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, $3, $4
                  FROM jsonb_to_recordset($1::text::jsonb->'day_revision')
                      AS r(revision_id bigint, represented_date date, profile_id text, profile_revision text, engine_build text, snapshot_cutoff timestamptz)
                  WHERE revision_id = $2 RETURNING revision_id",
-                &[&SLICE, &old, &base.map(|b| ids[&b])],
+                &[&SLICE, &old, &base.map(|b| ids[&b]), &listed_2025_12_10()],
             )
             .await
             .unwrap()
@@ -253,8 +253,8 @@ async fn a_real_day_slice_is_stored_in_its_month_and_reads_back_exact() {
 
     // a second published revision of the same day and profile is refused
     let second = client
-        .execute("INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, state)
-                  SELECT represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, 'PUBLISHED' FROM vyreon.day_revision WHERE base_revision IS NULL", &[])
+        .execute("INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, state, listed_members)
+                  SELECT represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, 'PUBLISHED', listed_members FROM vyreon.day_revision WHERE base_revision IS NULL", &[])
         .await
         .unwrap_err();
     assert_eq!(state(&second), Some(&SqlState::UNIQUE_VIOLATION));
@@ -265,15 +265,16 @@ async fn a_real_day_slice_is_stored_in_its_month_and_reads_back_exact() {
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn a_revision_needs_a_registered_build() {
     let (scratch, client) = migrated("build").await;
-    let insert = "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff)
-                  SELECT represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff
+    let insert = "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, listed_members)
+                  SELECT represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, $2
                   FROM jsonb_to_recordset($1::text::jsonb->'day_revision')
                       AS r(represented_date date, profile_id text, profile_revision text, engine_build text, snapshot_cutoff timestamptz, base_revision bigint)
                   WHERE base_revision IS NULL";
-    let unregistered = client.execute(insert, &[&SLICE]).await.unwrap_err();
+    let listed = listed_2025_12_10();
+    let unregistered = client.execute(insert, &[&SLICE, &listed]).await.unwrap_err();
     assert_eq!(state(&unregistered), Some(&SqlState::FOREIGN_KEY_VIOLATION));
     register_builds(&client).await;
-    assert_eq!(client.execute(insert, &[&SLICE]).await.unwrap(), 1);
+    assert_eq!(client.execute(insert, &[&SLICE, &listed]).await.unwrap(), 1);
     // admission carries its evidence, and only an admitted build can be withdrawn
     for bad in ["UPDATE core.engine_build SET admitted_at = now()", "UPDATE core.engine_build SET withdrawn_at = now(), withdrawal = 'x'"] {
         assert_eq!(state(&client.execute(bad, &[]).await.unwrap_err()), Some(&SqlState::CHECK_VIOLATION), "{bad}");
@@ -300,8 +301,8 @@ async fn a_row_cannot_leave_its_revisions_day_and_goes_with_its_revision() {
     }
     // a derived revision's base is a revision of the same day
     let other_day = client
-        .execute("INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, base_revision)
-                  SELECT represented_date + 1, profile_id, profile_revision, engine_build, snapshot_cutoff, base_revision
+        .execute("INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, base_revision, listed_members)
+                  SELECT represented_date + 1, profile_id, profile_revision, engine_build, snapshot_cutoff, base_revision, listed_members
                   FROM vyreon.day_revision WHERE revision_id = $1", &[&derived])
         .await
         .unwrap_err();

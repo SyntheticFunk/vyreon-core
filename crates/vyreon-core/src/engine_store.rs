@@ -2,7 +2,7 @@
 //! droplet's. It turns a published day into bundles and its builds into inventory documents, so
 //! days the engine published itself can go through core's publish path. Read-only. It goes when
 //! the droplet's store does.
-use core_contract::{BundleWriter, CONTRACT, Header, Scalar, Scalars, Slot, SlotFiles};
+use core_contract::{BundleWriter, CONTRACT, FIELD_OBJECT, Header, Scalar, Scalars, Slot, SlotFiles};
 use flate2::read::GzDecoder;
 use futures_util::TryStreamExt;
 use serde_json::{Value, json};
@@ -72,6 +72,20 @@ pub async fn export_day(store: &Client, date: &str, dir: &Path) -> Result<Vec<St
                 coordinates_sha256: None,
             })
             .collect();
+        // the engine's store has no universe: it published every object of its inventory on every
+        // day (a fixed member list), so the day's listed members are the inventory's objects, the
+        // field aside. Core still checks them against its own universe.
+        let listed: Vec<String> = store
+            .query(
+                "SELECT object_id FROM vyreon.expected_slot WHERE profile_revision = $1 AND object_id <> $2
+                 GROUP BY object_id ORDER BY min(slot_ordinal)",
+                &[&profile, &FIELD_OBJECT],
+            )
+            .await
+            .map_err(db)?
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
         let header = Header {
             contract: CONTRACT.to_owned(),
             represented_date: date.to_owned(),
@@ -83,6 +97,7 @@ pub async fn export_day(store: &Client, date: &str, dir: &Path) -> Result<Vec<St
             base_revision: None,
             report: None,
             day_local: false,
+            listed_members: Some(listed),
             slots,
         };
         let all = Scalars {

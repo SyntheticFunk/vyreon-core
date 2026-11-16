@@ -18,6 +18,9 @@ saved Intrinio responses; `vyreon-core universe on <profile> <date>` lists them 
 `vyreon-core months <first> <last>` creates the store's monthly partitions; `vyreon-core publish
 <bundle>...` checks, writes, reads back and publishes day bundles (`crates/core-contract`).
 `vyreon-core engine-store export <date> <dir>` writes a day of the droplet's store as bundles.
+By hand, a revision computed from a base must name the base revision it read and read its day
+only; `publish --vouch <bundle>...` is the operator's word that the bundles were computed from
+what is published now (C-042), which an exported day's derived bundle needs.
 
 `vyreon-core serve` runs the HTTP service: the worker API (`crates/core-api/src/worker.rs`) and the reader API
 (`crates/core-api/src/reader.rs`; keys from `vyreon-core api-key create`);

@@ -3,13 +3,13 @@
 use core_api::{App, Config};
 use core_contract::sha256_hex;
 use core_db::budget::Budget;
-use core_db::publish::publish_file;
-use core_db::{api_key, build, migrate, work};
+use core_db::publish::{publish_file, publish_file_vouched};
+use core_db::{api_key, build, migrate, universe, work};
 use reqwest::{Client as Http, StatusCode};
 use serde_json::{Value, json};
 use std::io::Read;
-use test_support::slice::{BASE, DERIVED, bundle, inventories, parts, slice};
-use test_support::{CALENDAR, Scratch};
+use test_support::slice::{BASE, DERIVED, ETHA_UNLISTED, base_inventory_with_etha, bundle, inventories, members_except, parts, slice};
+use test_support::{CALENDAR, Scratch, fixtures};
 
 struct Service {
     scratch: Scratch,
@@ -21,11 +21,30 @@ struct Service {
     derived_revision: i64,
 }
 
-async fn service(test: &str) -> Service {
+/// A migrated database with the engine's calendar and the universe of the 64.
+async fn database(test: &str) -> (Scratch, tokio_postgres::Client) {
     let scratch = Scratch::new(test).await;
     let mut client = scratch.client().await;
     migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
     work::load_calendar(&mut client, &serde_json::from_str(CALENDAR).unwrap()).await.unwrap();
+    let doc = universe::read_responses(&fixtures().join("engine-v1-PROFILE.json"), &fixtures().join("intrinio-universe")).unwrap();
+    universe::store(&mut client, &doc).await.unwrap();
+    (scratch, client)
+}
+
+/// The service on a free local port.
+async fn serve(scratch: &Scratch) -> String {
+    let pool = deadpool_postgres::Pool::builder(deadpool_postgres::Manager::new(scratch.config.clone(), tokio_postgres::NoTls)).max_size(4).build().unwrap();
+    let config = Config { worker_token_sha256: sha256_hex(b"unused"), spool: std::env::temp_dir(), lease_seconds: 300.0, budget: Budget::default(), max_bundle_bytes: 1 << 20 };
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/v1", listener.local_addr().unwrap());
+    let app = App::new(pool, config);
+    tokio::spawn(async move { axum::serve(listener, core_api::router(app)).await.unwrap() });
+    url
+}
+
+async fn service(test: &str) -> Service {
+    let (scratch, mut client) = database(test).await;
     for inventory in inventories() {
         build::register(&mut client, &inventory).await.unwrap();
     }
@@ -34,17 +53,13 @@ async fn service(test: &str) -> Service {
     for revision in [BASE, DERIVED] {
         let (header, scalars, files) = parts(revision);
         let path = bundle(&format!("reader-{test}-{revision}"), &header, &scalars, &files);
-        revisions.push(publish_file(&mut client, &path).await.unwrap().revision_id);
+        // the derived bundle names no base revision and reads history: vouched for (C-042)
+        revisions.push(publish_file_vouched(&mut client, &path).await.unwrap().revision_id);
         std::fs::remove_file(&path).unwrap();
     }
     let reader = api_key::create(&client, "reporter", &["read".to_owned()]).await.unwrap();
     let admin = api_key::create(&client, "owner", &["read".to_owned(), "admin".to_owned()]).await.unwrap();
-    let pool = deadpool_postgres::Pool::builder(deadpool_postgres::Manager::new(scratch.config.clone(), tokio_postgres::NoTls)).max_size(4).build().unwrap();
-    let config = Config { worker_token_sha256: sha256_hex(b"unused"), spool: std::env::temp_dir(), lease_seconds: 300.0, budget: Budget::default(), max_bundle_bytes: 1 << 20 };
-    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let url = format!("http://{}/v1", listener.local_addr().unwrap());
-    let app = App::new(pool, config);
-    tokio::spawn(async move { axum::serve(listener, core_api::router(app)).await.unwrap() });
+    let url = serve(&scratch).await;
     Service { scratch, url, http: Http::new(), reader, admin, base_revision: revisions[0], derived_revision: revisions[1] }
 }
 
@@ -218,10 +233,7 @@ async fn a_body_and_its_stream_are_served_byte_for_byte() {
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn the_engines_coordinates_view_is_stored_and_served_as_published() {
     use core_contract::{BundleWriter, Item, read_bundle};
-    let scratch = Scratch::new("reader_coordinates").await;
-    let mut client = scratch.client().await;
-    migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
-    work::load_calendar(&mut client, &serde_json::from_str(CALENDAR).unwrap()).await.unwrap();
+    let (scratch, mut client) = database("reader_coordinates").await;
     client.query_one("SELECT vyreon.ensure_months('2025-12-01', '2025-12-31')", &[]).await.unwrap();
 
     let (mut header, mut scalars, mut files) = (None, None, Vec::new());
@@ -246,6 +258,9 @@ async fn the_engines_coordinates_view_is_stored_and_served_as_published() {
     // the run's report travels in the header
     let report = json!({"schema": "VYREON-RUN-REPORT@1", "stages": [{"stage": "intent B (T)", "seconds": 4211}], "block_requests_so_far": {"captures": 31250}});
     header.report = Some(report.clone());
+    // written before bundles stated the day's listed members (C-036): all 64 were listed that day
+    assert_eq!(header.listed_members, None);
+    header.listed_members = Some(members_except(&[]));
     let path = test_support::slice::temp("reader-coordinates");
     let mut writer = BundleWriter::new(std::fs::File::create(&path).unwrap(), &header, &scalars).unwrap();
     files.iter().for_each(|f| writer.add(f).unwrap());
@@ -283,5 +298,90 @@ async fn the_engines_coordinates_view_is_stored_and_served_as_published() {
     // the other details do not carry it
     assert!(get("").await["sessions"][0]["revisions"][0]["measurements"][0].get("coordinates").is_none());
     assert!(get("&detail=headline").await["sessions"][0]["revisions"][0]["measurements"][0].get("coordinates").is_none());
+    scratch.drop().await;
+}
+
+/// C-036: on a published session an asset that was not listed has no measurements, and its
+/// history says so (NOT_LISTED), neither 404 nor NOT_PUBLISHED. ETHA's first session is
+/// 2024-07-23; the base build's inventory holds the slice's four sensors for ETHA and AAPL (real
+/// rows). Core's checks never read a body's date, so the slice's real AAPL bodies of 2025-12-10
+/// are published under 2024-07-01, unchanged.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn an_asset_not_listed_on_a_session_reads_as_not_listed() {
+    let (scratch, mut client) = database("reader_not_listed").await;
+    build::register(&mut client, &base_inventory_with_etha()).await.unwrap();
+    client.query_one("SELECT vyreon.ensure_months('2024-07-01', '2024-07-31')", &[]).await.unwrap();
+    let (mut header, scalars, files) = parts(BASE);
+    header.represented_date = ETHA_UNLISTED.into();
+    header.listed_members = Some(members_except(&["ETHA"]));
+    let path = bundle("reader-not-listed", &header, &scalars, &files);
+    let revision = publish_file(&mut client, &path).await.unwrap().revision_id;
+    std::fs::remove_file(&path).unwrap();
+    let key = api_key::create(&client, "reporter", &["read".to_owned()]).await.unwrap();
+    let url = serve(&scratch).await;
+    let get = |path: String| {
+        let (url, key) = (url.clone(), key.clone());
+        async move {
+            let r = Http::new().get(format!("{url}{path}")).bearer_auth(key).send().await.unwrap();
+            (r.status(), r.json::<Value>().await.unwrap_or(Value::Null))
+        }
+    };
+    let states = |history: &Value| -> Vec<(String, String, usize)> {
+        history["sessions"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|s| (s["date"].as_str().unwrap().to_owned(), s["state"].as_str().unwrap().to_owned(), s["revisions"].as_array().unwrap().len()))
+            .collect()
+    };
+    let day = |state: &str, revisions: usize| [("2024-06-28", "NOT_PUBLISHED", 0), ("2024-07-01", state, revisions), ("2024-07-02", "NOT_PUBLISHED", 0)].map(|(d, s, n)| (d.to_owned(), s.to_owned(), n)).to_vec();
+
+    for detail in ["full", "coordinates", "headline"] {
+        let (status, etha) = get(format!("/assets/ETHA/history?from=2024-06-28&to=2024-07-02&detail={detail}")).await;
+        assert_eq!(status, StatusCode::OK, "{etha}");
+        assert_eq!(states(&etha), day("NOT_LISTED", 0), "{detail}");
+        let (_, aapl) = get(format!("/assets/AAPL/history?from=2024-06-28&to=2024-07-02&detail={detail}")).await;
+        assert_eq!(states(&aapl), day("PUBLISHED", 1), "{detail}");
+        assert_eq!(aapl["sessions"][1]["revisions"][0]["measurements"].as_array().unwrap().len(), 4);
+    }
+    let (status, latest) = get("/assets/ETHA/latest".to_owned()).await;
+    assert_eq!((status, latest["sessions"][0]["state"].as_str()), (StatusCode::OK, Some("NOT_LISTED")));
+    // the session says who was listed, as recorded when it was published
+    let (_, session) = get(format!("/sessions/{ETHA_UNLISTED}")).await;
+    let published = &session["session"]["revisions"][0];
+    assert_eq!((published["revision_id"].as_i64(), published["slot_count"].as_i64()), (Some(revision), Some(4)));
+    assert_eq!(published["listed_members"], json!(members_except(&["ETHA"])));
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-14 (core.md) 16: a session added to the calendar inside a range already read
+/// changes the history's ETag, so a reader holding the old answer is not told 304 and keeps a
+/// response missing the session. The calendar is the engine's, first loaded without the 9th and
+/// the 11th of December 2025, then whole.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_session_added_to_the_calendar_changes_the_historys_etag() {
+    let scratch = Scratch::new("etag_calendar").await;
+    let mut client = scratch.client().await;
+    migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
+    let mut calendar: Value = serde_json::from_str(CALENDAR).unwrap();
+    calendar["sessions"].as_array_mut().unwrap().retain(|d| d != "2025-12-09" && d != "2025-12-11");
+    work::load_calendar(&mut client, &calendar).await.unwrap();
+    let doc = universe::read_responses(&fixtures().join("engine-v1-PROFILE.json"), &fixtures().join("intrinio-universe")).unwrap();
+    universe::store(&mut client, &doc).await.unwrap();
+    let reader = api_key::create(&client, "reporter", &["read".to_owned()]).await.unwrap();
+    let url = serve(&scratch).await;
+    let http = Http::new();
+    let path = format!("{url}/assets/AAPL/history?from=2025-12-09&to=2025-12-11");
+    let first = http.get(&path).bearer_auth(&reader).send().await.unwrap();
+    let etag = first.headers()["etag"].to_str().unwrap().to_owned();
+    assert_eq!(first.json::<Value>().await.unwrap()["sessions"].as_array().unwrap().len(), 1);
+    work::load_calendar(&mut client, &serde_json::from_str(CALENDAR).unwrap()).await.unwrap();
+    let again = http.get(&path).bearer_auth(&reader).header("if-none-match", &etag).send().await.unwrap();
+    assert_eq!(again.status(), StatusCode::OK);
+    assert_ne!(again.headers()["etag"].to_str().unwrap(), etag);
+    let dates: Vec<Value> = again.json::<Value>().await.unwrap()["sessions"].as_array().unwrap().iter().map(|s| s["date"].clone()).collect();
+    assert_eq!(dates, [json!("2025-12-09"), json!("2025-12-10"), json!("2025-12-11")]);
     scratch.drop().await;
 }

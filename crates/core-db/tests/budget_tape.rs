@@ -35,11 +35,19 @@ async fn the_budget_never_commits_more_than_its_ceiling() {
     // three workers starting cold take all of it; the fourth waits for the first lease to age out
     let (first, n) = granted(budget::draw(&mut client, budget, "w1", 5000).await.unwrap());
     assert_eq!(n, 600, "no lease is larger than the maximum");
+    let span: f64 = client
+        .query_one("SELECT EXTRACT(EPOCH FROM valid_until - granted_at)::float8 FROM core.budget_lease WHERE budget_lease_id = $1", &[&first])
+        .await
+        .unwrap()
+        .get(0);
+    assert!((span - 35.0).abs() < 0.01, "{span}");
     let (second, _) = granted(budget::draw(&mut client, budget, "w2", 600).await.unwrap());
     granted(budget::draw(&mut client, budget, "w3", 600).await.unwrap());
     assert_eq!(budget::committed(&client).await.unwrap(), 1800);
     match budget::draw(&mut client, budget, "w4", 100).await.unwrap() {
-        Grant::Wait { seconds } => assert!((80.0..=90.0).contains(&seconds), "a 30 s lease counts for 90 s: {seconds}"),
+        // audit 2026-11-14, core.md 14: core's end of a lease is taken from the clock and allows
+        // for the answer's way to the worker, which starts its 30 s on receipt
+        Grant::Wait { seconds } => assert!((85.0..=95.0).contains(&seconds), "a 30 s lease counts for 30 + 5 + 60 s: {seconds}"),
         other => panic!("{other:?}"),
     }
     // a worker that used less gives the rest back at once
@@ -49,13 +57,16 @@ async fn the_budget_never_commits_more_than_its_ceiling() {
     // a lease is released once, by its own worker
     assert!(budget::release(&mut client, first, "w1", &json!({"daily": 1})).await.is_err());
     assert!(budget::release(&mut client, second, "w1", &json!({"daily": 1})).await.is_err());
-    // a worker that reports more than its lease is counted in full and reported
+    // a worker that reports more than its lease is counted in full and reported (audit 2026-11-14,
+    // core.md 13: it was counted at its grant, so 100 requests went unaccounted): nothing more is
+    // granted until the overrun has aged out
     let over = budget::release(&mut client, second, "w2", &json!({"options": 700})).await.unwrap_err();
     assert!(over.contains("700 requests on a lease of 600"), "{over}");
-    assert_eq!(budget::committed(&client).await.unwrap(), 1800);
+    assert_eq!(budget::committed(&client).await.unwrap(), 1900);
+    assert!(matches!(budget::draw(&mut client, budget, "w5", 1).await.unwrap(), Grant::Wait { .. }));
     // a lease stops counting a minute after its end
     client.execute("UPDATE core.budget_lease SET released_at = released_at - interval '61 seconds', granted_at = granted_at - interval '2 minutes', valid_until = valid_until - interval '2 minutes' WHERE budget_lease_id = $1", &[&first]).await.unwrap();
-    assert_eq!(budget::committed(&client).await.unwrap(), 1650);
+    assert_eq!(budget::committed(&client).await.unwrap(), 1750);
     // what was used is kept by worker and category
     let usage: Vec<(String, String, i64)> = client
         .query("SELECT worker, category, requests FROM core.request_usage ORDER BY 1, 2", &[])
@@ -97,14 +108,30 @@ async fn a_tape_cache_is_written_once_and_a_tape_job_needs_every_listed_member()
     // a tape job is done only when every member listed on the session has a cache or a stated absence
     work::schedule(&mut client, Kind::Tape, "FREE_REPORT_64", &b, "2025-12-10", "2025-12-10", 1).await.unwrap();
     let claim = work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();
-    let refused = tape::session_done(&mut client, &claim.token, "2025-12-10").await.unwrap_err();
-    assert!(matches!(&refused, LeaseError::Refused(m) if m.starts_with("63 of 64 members have no tape cache for 2025-12-10: SPY QQQ ")), "{refused}");
+    let refused = tape::session_done(&mut client, &claim.token, "2025-12-10", Some(METHOD)).await.unwrap_err();
+    assert!(matches!(&refused, LeaseError::Refused(m) if m.starts_with("63 of 64 members have no tape cache of method engine-v1 for 2025-12-10: SPY QQQ ")), "{refused}");
     for (key, _) in doc["members"].as_array().unwrap().iter().map(|m| (m["asset_key"].as_str().unwrap(), ())).filter(|(k, _)| *k != "AAPL") {
         tape::put(&client, key, "2025-12-10", METHOD, &Cache::Absent("NOT_CAPTURED: only AAPL's tape was fetched for this test".into())).await.unwrap();
     }
     assert!(tape::put(&client, "SPY", "2025-12-10", METHOD, &cache).await.is_err(), "an absence is not overwritten either");
-    tape::session_done(&mut client, &claim.token, "2025-12-10").await.unwrap();
+    tape::session_done(&mut client, &claim.token, "2025-12-10", None).await.unwrap();
     work::finish(&mut client, &claim.token).await.unwrap();
+
+    // the session redone under a new method (audit 2026-11-14, core.md 11): the first method's
+    // caches do not make it complete, whether the worker names the method or not
+    const NEW: &str = "engine-v2";
+    work::schedule(&mut client, Kind::Tape, "FREE_REPORT_64", &b, "2025-12-10", "2025-12-10", 1).await.unwrap();
+    let redo = work::claim(&mut client, Kind::Tape, &b, "tape-2", 3600.0).await.unwrap().unwrap();
+    assert!(tape::put(&client, "AAPL", "2025-12-10", NEW, &cache).await.unwrap());
+    for method in [Some(NEW), None] {
+        let refused = tape::session_done(&mut client, &redo.token, "2025-12-10", method).await.unwrap_err();
+        assert!(matches!(&refused, LeaseError::Refused(m) if m.starts_with("63 of 64 members have no tape cache of method engine-v2")), "{refused}");
+    }
+    for key in doc["members"].as_array().unwrap().iter().map(|m| m["asset_key"].as_str().unwrap()).filter(|k| *k != "AAPL") {
+        tape::put(&client, key, "2025-12-10", NEW, &Cache::Absent("NOT_CAPTURED: only AAPL's tape was fetched for this test".into())).await.unwrap();
+    }
+    tape::session_done(&mut client, &redo.token, "2025-12-10", Some(NEW)).await.unwrap();
+    work::finish(&mut client, &redo.token).await.unwrap();
 
     // a later day reads the session's caches back, byte for byte
     let stored = tape::of_session(&client, "2025-12-10", METHOD).await.unwrap();
