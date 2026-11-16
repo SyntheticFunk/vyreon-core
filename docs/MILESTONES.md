@@ -117,8 +117,13 @@ the cluster still runs `vyreon-core:6e15a27`.
   differ.** Against `x2`: the five split assets' ACT01 family (30) and unusualness (5), and
   M0-GAMMA-CHANGE's method hash (64, no value). Dump `x3`. Real days on the test droplets are
   done; an agent is re-freezing the `etha-first-chain` and AAPL tape-cache fixtures from
-  137.184.61.134's real archive (11:20 UTC). After that the two test droplets have no task left
-  ($0.334 an hour together): deleting them is the owner's word.
+  137.184.61.134's real archive: done 11:32 UTC. **`pass-s3i` 170bd77d (pushed): suite 1,225
+  passed, 8 failed, only the `option_field` fixture tests.** `etha-first-chain` (real captures
+  2025-04-09..04-14, unmodified; the shared, git-ignored directory under the main checkout's
+  `workspace/fixtures`: older branches fail against it; the old copy is in
+  `~/claude-artifacts/fixtures-old/`) and the AAPL tape cache (only `derived.json` was stale).
+  Core's own copy of the tape-cache fixture now differs (its tests pass). The two test droplets
+  have no task left ($0.334 an hour together): deleting them is the owner's word.
 - Ledger: test droplets $0.334/h (both since about 2026-11-13); cluster core $0.083/h; pool
   from 10:02 UTC.
 
