@@ -315,6 +315,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **23:11 UTC: candidate final: `pass-s3i` b727fc6b (D-355: one selection rule for every FND01
+  cell; a newer unreadable statement withholds, no older figure stands in); suite 1,347 passed,
+  8 failed (`option_field`). `worker` fast-forwarded to it (pushed). Images building on the
+  laptop (`cluster-scratch/build-images.sh`, log `build-b727fc6b.log`): worker from `worker`,
+  core from main (migrations 0016, 0017). Round u started in parallel: narrow Codex check of
+  batches 17-18 and D-351, only phase-1 wrong numbers, stopped days or credential leaks.**
 - **22:56 UTC: batch 17 merged (`pass-s3i` 2bf314fd, pushed; D-352..354); suite 1,346 passed, 8
   failed (`option_field`).** All six round-t findings real and fixed. D-343 retired (declared
   dividends never deducted; no to-common or EPS line → withheld). Q4's operands all get D-346's
