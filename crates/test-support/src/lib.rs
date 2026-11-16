@@ -57,3 +57,10 @@ pub const CALENDAR: &str = include_str!("../fixtures/engine-v1-sessions.json");
 pub const ENGINE_BUNDLE_AAPL: &[u8] = include_bytes!("../fixtures/engine-bundle-2025-12-10-aapl.tar.gz");
 
 pub const TAPE_AAPL: &[u8] = include_bytes!("../fixtures/tape-cache-AAPL-2025-12-10.tar.gz");
+
+/// The real macro capture of 2025-12-03 (the engine's frozen `h3-macro/tests/fixtures/
+/// macro-2025-12-03`, fetched 2026-11-16) packed by the engine as core keeps it (`vyreon-worker
+/// pack-capture`, engine pass-fx13; the engine's test pins the same SHA-256, 96709c90…). Its
+/// identity is the SHA-256 of its manifest.
+pub const MACRO_CAPTURE: &[u8] = include_bytes!("../fixtures/input-capture-macro-2025-12-03.tar.gz");
+pub const MACRO_CAPTURE_IDENTITY: &str = "efc96bf3d914609ebb5cb1d2c6837976cb355071b5e7b5e5f4417ea2024a4bae";

@@ -617,3 +617,46 @@ during a build, `vyreon-core queue pause`, wait until no day block is leased (a 
 claims, not a lease already held), then publish the base by hand, then resume. (Corrected the same
 day after the audit of this note: pausing alone left a live lease free to publish.) The trailer
 bound counts bytes after the tar's end-of-archive blocks.
+
+## C-043 The inputs the provider restates are kept, in the database (owner, 2026-11-16)
+Owner's ruling, 2026-11-16 ("do it before phase 1"): bulk raw inputs stay with Intrinio (option
+chains, snapshots, tapes: tens of GB a day), but the small inputs the provider restates in place
+are kept, because a past session's restated input cannot be fetched again as it was: the company
+capture (filings, share reports, float, standardized and as-reported fundamentals, the
+daily-metrics row), the macro capture and the carry capture (dividends, spot, rates). Uses: a
+sensor computed again later on the inputs it was first computed from, consistent with the rest of
+its day (the planned "compute just this sensor" route); restatements seen by comparing a later
+fetch with the kept one; macro first prints. Engine D-306 is the worker's side.
+- **Where: the database** (`core.input_capture`, migration 0016), by C-010's reasoning: one store,
+  one backup (C-013, when backups start), and no storage key on any pod (C-016). Spaces would put
+  a key in core's Secret and add a second store with its own retention and restore. The archives
+  are larger than C-010's 256 KB line (the company capture about 4.2 MB gzipped), where file
+  storage reads faster, but they are written once a day and read rarely. Size: measured on a
+  cluster worker (2026-11-16) about 44 MB a day raw, 4.2 MB gzipped for the company capture, 0.8
+  MB for the carry and 0.2 MB for the macro (27 KB packed on 2025-12-03); about 4.5 MB a day
+  stored, about 5 GB for every session from 2022-05-27, beside about 150 MB a published day
+  (C-024's exit test). Stored `STORAGE EXTERNAL`, as the tape caches: already compressed.
+  Amends C-004 for the cluster: the company captures it names go to core, not to Spaces.
+- **Key and versions.** A capture is (session, kind, identity), the identity being the SHA-256 of
+  the capture's `manifest.json`, the digest the engine's receipts already bind. Written once: the
+  same identity again is answered `new: false`; the same identity with other bytes is refused and
+  the first kept; another identity for the same session and kind is kept beside the first, with
+  `captured_at` (when the worker's capture wrote its manifest, as the worker states it; the
+  provider's own retrieval clocks are in the manifest) and `stored_at`, never in its place. That is
+  how a restatement becomes visible. A capture a worker could not keep is recorded with its reason
+  (an absence), each time it is reported.
+- **What core checks** (generic, `core_db::capture::check`): the archive is a gzip tar read to its
+  end (CRC and length, as C-042), its first entry and only that is `manifest.json` and hashes to
+  the identity, every entry is a file with a plain relative name, at most 64 MiB as sent (413
+  above) and 512 MiB unpacked. Core never unpacks it to disk or reads its contents otherwise.
+- **Who may write: a day block's lease**, for a session on or before the latest day its job has
+  published (a base from its own build), so a day that was refused keeps nothing, and a day keeps
+  what it read up to its own session (T−5's macro and carry with T's three).
+- **Routes.** Worker API (lease token): `PUT /input-captures/{session}/{kind}/{identity}?captured_at=T`
+  (the archive), `POST /input-captures/{session}/{kind}/absence {reason}`,
+  `GET /input-captures/{session}` (every version and absence) and
+  `GET /input-captures/{session}/{kind}/{identity}` (the archive as sent). Reader API with the
+  `admin` scope, the same two reads under `/v1/input-captures/`: these are the provider's raw
+  responses, not measurements, so a `read` key does not see them.
+- **Deploying:** the core image (migration 0016 is applied by the Deployment's `migrate` init
+  container) and the engine's worker image; no new secret, setting or service.

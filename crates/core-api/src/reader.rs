@@ -1,6 +1,7 @@
 //! The reader API, under `/v1`: what vyreon-reporter (later vyreon-web) reads (C-009, C-020).
 //! Read-only; published days only. Every request carries `Authorization: Bearer <key>` for a key
-//! with the `read` scope (`admin` for `/v1/status`).
+//! with the `read` scope (`admin` for `/v1/status` and the input captures, which are the provider's
+//! raw responses, not measurements).
 //!
 //!   GET /v1/contract                                      the contract version, the calendar's range, the profiles, the latest session
 //!   GET /v1/sessions?from=A&to=B                          every trading session from A to B: PUBLISHED with its revisions, or NOT_PUBLISHED
@@ -12,6 +13,8 @@
 //!   GET /v1/revisions/{rev}/slots/{mid}/{obj}/stream/root     its event stream's root
 //!   GET /v1/revisions/{rev}/slots/{mid}/{obj}/stream/events   and events (gzip)
 //!   GET /v1/status                                        the queue, the budget and the store at a glance
+//!   GET /v1/input-captures/{date}                         (admin) a session's kept input captures and absences (C-043)
+//!   GET /v1/input-captures/{date}/{kind}/{identity}       (admin) one capture's archive as the worker sent it
 //!
 //! Rules a reader can rely on:
 //!   * sessions come from the trading calendar, never from the data; a session without a
@@ -38,7 +41,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::get;
 use axum::{Json, Router};
 use core_contract::{FIELD_OBJECT, sha256_hex};
-use core_db::{api_key, budget, work};
+use core_db::{api_key, budget, capture, work};
 use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use serde_json::{Value, json};
@@ -65,6 +68,8 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/revisions/{revision}/slots/{measurement}/{object}/stream/root", get(stream_root))
         .route("/revisions/{revision}/slots/{measurement}/{object}/stream/events", get(stream_events))
         .route("/status", get(status))
+        .route("/input-captures/{date}", get(input_captures))
+        .route("/input-captures/{date}/{kind}/{identity}", get(input_capture))
 }
 
 fn bad(message: impl Into<String>) -> ApiError {
@@ -433,4 +438,21 @@ async fn status(State(app): Shared, headers: HeaderMap) -> Reply {
         "store": serde_json::from_str::<Value>(&store).map_err(|e| failed(e.to_string()))?,
     }))
     .into_response())
+}
+
+async fn input_captures(State(app): Shared, headers: HeaderMap, Path(date): Path<String>) -> Reply {
+    dates(&[&date])?;
+    let client = app.db().await?;
+    allowed(&client, &headers, "admin").await?;
+    Ok(Json(json!({"session": date, "captures": capture::list(&client, &date).await.map_err(failed)?})).into_response())
+}
+
+async fn input_capture(State(app): Shared, headers: HeaderMap, Path((date, kind, identity)): Path<(String, String, String)>) -> Reply {
+    dates(&[&date])?;
+    let client = app.db().await?;
+    allowed(&client, &headers, "admin").await?;
+    match capture::archive(&client, &date, &kind, &identity).await.map_err(failed)? {
+        Some(bytes) => Ok(([(header::CONTENT_TYPE, "application/gzip")], bytes).into_response()),
+        None => Err(not_found(format!("no {kind} capture {identity} of {date}"))),
+    }
 }

@@ -9,6 +9,10 @@
 //!   POST /tape-caches/{session}/done[?method_version=V]                 the tape job's session is complete (under V; without
 //!                                                                          it, under the method of the session's newest cache)
 //!   GET  /tape-caches/{session}?method_version=V                        -> a tar: one entry per asset, and absences.json
+//!   PUT  /input-captures/{session}/{kind}/{identity}?captured_at=T      body: the capture's archive -> {new} (C-043)
+//!   POST /input-captures/{session}/{kind}/absence  {reason}             a capture the worker could not keep -> {new}
+//!   GET  /input-captures/{session}                                      -> {session, captures: [...]}: every version and absence
+//!   GET  /input-captures/{session}/{kind}/{identity}                    -> the archive as it was sent (application/gzip)
 //!   POST /budget                     {requests}                         -> {budget_lease_id, requests, valid_seconds}
 //!                                                                          or {requests: 0, retry_after_seconds}
 //!   POST /budget/{id}/release        {used: {category: requests}}       -> {counted}
@@ -22,6 +26,14 @@
 //! its day (`listed_members`, the asset keys with a ticker in `days`), and core refuses one that
 //! differs from its own (C-036).
 //!
+//! An input capture (C-043) is one of a published day's company, macro or carry captures, as the
+//! engine packed it: a gzip tar whose first entry is the capture's `manifest.json`, whose SHA-256 is
+//! the `identity`, then the directory's other files. It is sent under a day block's lease, for a
+//! session on or before the latest day the job has published; at most
+//! `core_db::capture::MAX_ARCHIVE_BYTES` (413 above). The same identity again is answered
+//! `new: false`; the same identity with other bytes is refused; another identity of the same
+//! session and kind is kept as another version, with `captured_at` and the time core stored it.
+//!
 //! Statuses: 401 no or wrong token; 410 the lease is gone (stop working); 422 the call or the
 //! bundle is wrong (a refused bundle also pauses the queue); 5xx core or the database failed.
 use crate::{ApiError, App, bearer, failed, refused};
@@ -33,6 +45,7 @@ use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use core_contract::sha256_hex;
 use core_db::budget::{self, Grant};
+use core_db::capture;
 use core_db::tape::{self, Cache};
 use core_db::work::{self, Held, Kind};
 use core_db::publish;
@@ -58,6 +71,9 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/tape-caches/{session}", get(tape_get))
         .route("/tape-caches/{session}/done", post(tape_done))
         .route("/tape-caches/{session}/{asset}", put(tape_put))
+        .route("/input-captures/{session}", get(captures_list))
+        .route("/input-captures/{session}/{kind}/absence", post(capture_absent))
+        .route("/input-captures/{session}/{kind}/{identity}", put(capture_put).get(capture_get))
         .route("/budget", post(budget_draw))
         .route("/budget/{id}/release", post(budget_release))
 }
@@ -273,6 +289,61 @@ async fn tape_get(State(app): Shared, headers: HeaderMap, Path(session): Path<St
     add("absences.json", Value::Object(absences).to_string().as_bytes())?;
     let bytes = archive.into_inner().map_err(|e| failed(e.to_string()))?;
     Ok(([(header::CONTENT_TYPE, "application/x-tar")], bytes).into_response())
+}
+
+#[derive(Deserialize)]
+struct CaptureQuery {
+    captured_at: String,
+}
+
+/// Reads a request body into memory, refusing more than `limit` bytes (413).
+async fn read_limited(body: Body, limit: usize) -> Result<Vec<u8>, ApiError> {
+    let mut stream = body.into_data_stream();
+    let mut out = Vec::new();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.map_err(|e| ApiError(StatusCode::BAD_REQUEST, format!("upload: {e}")))?;
+        if out.len() + chunk.len() > limit {
+            return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, format!("an input capture is at most {limit} bytes")));
+        }
+        out.extend_from_slice(&chunk);
+    }
+    Ok(out)
+}
+
+async fn capture_put(State(app): Shared, headers: HeaderMap, Path((session, kind, identity)): Path<(String, String, String)>, Query(q): Query<CaptureQuery>, body: Body) -> Reply {
+    let token = bearer(&headers)?.to_owned();
+    let archive = read_limited(body, capture::MAX_ARCHIVE_BYTES).await?;
+    // the archive is read to its end to check it (tens of MB unpacked): off the async threads
+    let checked = tokio::task::spawn_blocking(move || capture::check(archive, &identity)).await.map_err(|e| failed(e.to_string()))?.map_err(refused)?;
+    let mut client = app.db().await?;
+    let new = capture::put(&mut client, &token, &session, &kind, &capture::Capture::Archive { checked, captured_at: q.captured_at }).await?;
+    ok(json!({"new": new}))
+}
+
+#[derive(Deserialize)]
+struct Absence {
+    reason: String,
+}
+
+async fn capture_absent(State(app): Shared, headers: HeaderMap, Path((session, kind)): Path<(String, String)>, Json(absence): Json<Absence>) -> Reply {
+    let mut client = app.db().await?;
+    let new = capture::put(&mut client, bearer(&headers)?, &session, &kind, &capture::Capture::Absent(absence.reason)).await?;
+    ok(json!({"new": new}))
+}
+
+async fn captures_list(State(app): Shared, headers: HeaderMap, Path(session): Path<String>) -> Reply {
+    let client = app.db().await?;
+    caller(&client, &headers).await?;
+    ok(json!({"session": session, "captures": capture::list(&client, &session).await.map_err(refused)?}))
+}
+
+async fn capture_get(State(app): Shared, headers: HeaderMap, Path((session, kind, identity)): Path<(String, String, String)>) -> Reply {
+    let client = app.db().await?;
+    caller(&client, &headers).await?;
+    match capture::archive(&client, &session, &kind, &identity).await.map_err(failed)? {
+        Some(bytes) => Ok(([(header::CONTENT_TYPE, "application/gzip")], bytes).into_response()),
+        None => Err(ApiError(StatusCode::NOT_FOUND, format!("no {kind} capture {identity} of {session}"))),
+    }
 }
 
 #[derive(Deserialize)]

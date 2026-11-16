@@ -162,6 +162,42 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
     let (status, published) = s.publish(token, &bundle("api-base", &header, &scalars, &files)).await;
     assert_eq!((status, published["slots"].as_i64(), published["streams"].as_i64()), (StatusCode::OK, Some(4), Some(2)), "{published}");
     assert_eq!(s.post("/lease/finish", token, json!({})).await.0, StatusCode::UNPROCESSABLE_ENTITY, "the worker has not said the day is done");
+    // C-043: the published day's input captures (here T−5's real macro capture), written once;
+    // one not kept is recorded with its reason
+    let captures = format!("{}/worker/v1/input-captures", s.url);
+    let put_capture = |body: Vec<u8>, captured_at: &str| {
+        s.http
+            .put(format!("{captures}/2025-12-03/macro/{}", test_support::MACRO_CAPTURE_IDENTITY))
+            .query(&[("captured_at", captured_at)])
+            .bearer_auth(token)
+            .body(body)
+            .send()
+    };
+    let kept = put_capture(test_support::MACRO_CAPTURE.to_vec(), "2026-11-16T04:49:17.420677Z").await.unwrap();
+    assert_eq!((kept.status(), kept.json::<Value>().await.unwrap()["new"].clone()), (StatusCode::OK, json!(true)));
+    let again = put_capture(test_support::MACRO_CAPTURE.to_vec(), "2026-11-16T04:49:17.420677Z").await.unwrap();
+    assert_eq!(again.json::<Value>().await.unwrap()["new"], false);
+    let damaged = put_capture(test_support::MACRO_CAPTURE[..1000].to_vec(), "2026-11-16T04:49:17Z").await.unwrap();
+    assert_eq!(damaged.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    let too_large = put_capture(vec![0; core_db::capture::MAX_ARCHIVE_BYTES + 1], "2026-11-16T04:49:17Z").await.unwrap();
+    assert_eq!(too_large.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(s.post("/input-captures/2025-12-10/company/absence", token, json!({"reason": "not packed: no manifest.json"})).await, (StatusCode::OK, json!({"new": true})));
+    let listed: Value = s.http.get(format!("{captures}/2025-12-03")).bearer_auth(token).send().await.unwrap().json().await.unwrap();
+    assert_eq!(listed["captures"].as_array().unwrap().iter().map(|c| c["identity"].as_str().unwrap()).collect::<Vec<_>>(), [test_support::MACRO_CAPTURE_IDENTITY]);
+    let fetched = s.http.get(format!("{captures}/2025-12-03/macro/{}", test_support::MACRO_CAPTURE_IDENTITY)).bearer_auth(token).send().await.unwrap();
+    assert_eq!(fetched.headers()["content-type"], "application/gzip");
+    assert_eq!(fetched.bytes().await.unwrap().as_ref(), test_support::MACRO_CAPTURE);
+    // and for the owner, with an admin key (a read key is not enough: these are the provider's
+    // raw responses)
+    let owner = core_db::api_key::create(&admin, "owner", &["read".to_owned(), "admin".to_owned()]).await.unwrap();
+    let reporter = core_db::api_key::create(&admin, "reporter", &["read".to_owned()]).await.unwrap();
+    let as_key = |key: &str, path: &str| s.http.get(format!("{}/v1/input-captures/{path}", s.url)).bearer_auth(key.to_owned()).send();
+    assert_eq!(as_key(&reporter, "2025-12-03").await.unwrap().status(), StatusCode::FORBIDDEN);
+    let listed: Value = as_key(&owner, "2025-12-10").await.unwrap().json().await.unwrap();
+    assert_eq!(listed["captures"][0]["absence"], "not packed: no manifest.json");
+    let fetched = as_key(&owner, &format!("2025-12-03/macro/{}", test_support::MACRO_CAPTURE_IDENTITY)).await.unwrap().bytes().await.unwrap();
+    assert_eq!(fetched.as_ref(), test_support::MACRO_CAPTURE);
+    assert_eq!(as_key(&owner, &format!("2025-12-04/macro/{}", test_support::MACRO_CAPTURE_IDENTITY)).await.unwrap().status(), StatusCode::NOT_FOUND);
     assert_eq!(s.post("/days/2025-12-10/done", token, json!({})).await.0, StatusCode::OK);
     assert_eq!(s.post("/lease/finish", token, json!({})).await.0, StatusCode::OK);
 
