@@ -145,6 +145,17 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   scoring on T's split basis), which change 2025-12-10 for XLU (2-for-1 on 2025-12-05). So the
   days on `pass-fx10` alone are not the last word: the second droplet's day runs the merged
   branch, compared with `x2`.
+  **Merged 05:10 UTC: `pass-s3i` = `pass-fx10` 8a40183e + D-162 (pushed); release build running
+  (`/home/diggz/wt/target-s3i`).** The two branches had each built the cohort across a ticker
+  change; `pass-s3i`'s mechanism runs (the certificate carries the root the chain was requested
+  under, T's chain must list every translated code, EXQ01 covered); `pass-fx10`'s `option_root`
+  is dropped, its reader tolerance kept (my call; merge note under the amendment to D-167; D-236
+  leaves no cohort on Meta's 2022-06-09 change either way). Against `pass-fx10` on 2025-12-10:
+  XLB, XLE, XLK, XLU and XLY (2-for-1 on 2025-12-05) leave the NONE route for a translated
+  cohort (SAI-ACT01, its intraday, INT-ACT-TV15 measured); every task key changes once; the feed
+  check pools five more cohorts. **Two h3-asset tests fail** (`t_chain_admits_only_a_cohort_it_lists`,
+  `a_translated_cohort_is_admitted_by_its_bound_t_chain_only`): the frozen `etha-first-chain`
+  fixture predates `exercise_style` (D-199); re-freeze it from a droplet with the AAPL fixture.
   **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
   build; its audit sends us round again only for a finding above the line. The gate left is the
   real days on `pass-fx10`.
