@@ -15,13 +15,13 @@ is in `docs/ARCHITECTURE.md`.
       the AAPL tape-cache and the `etha-first-chain` fixtures. An early date and a pre-listing
       day need a provider key: they are step 2.5's.
    d. [done] audit triage and fixes: batches 3 to 10, rounds c to i. Converged (owner, 2026-11-16).
-   e. [closing] `pass-s3i` = `pass-fx10` + D-162 by merge (done); core `pass-core-fix` merged into
+   e. [done 2026-11-16 10:00 UTC] `pass-s3i` = `pass-fx10` + D-162 by merge (done); core `pass-core-fix` merged into
       `main` (done, pushed); *audit of the merge* (rounds j and k, fixed); images built on the
-      laptop (not pushed). Left: engine fast-forward to `worker` once `y2` and `x3` are judged.
+      laptop and pushed; engine fast-forwarded to `worker` (d55f6439).
    f. [done] housekeeping: this file pruned 2026-11-16 twice (tags above). Prune again, with a new
       tag, when it passes about 300 lines.
-3. **(2.5) Cluster verification. Pre-approved by the owner (2026-11-16 04:00 UTC): start it when
-   2e closes.** Runbook `~/claude-artifacts/cluster-verification-runbook.md`. Order (tape history
+3. **(2.5) Cluster verification. IN PROGRESS since 2026-11-16 10:00 UTC (owner's pre-approval of
+   04:00 UTC).** Runbook `~/claude-artifacts/cluster-verification-runbook.md`. Order (tape history
    only moves earlier): 2025-12-10; 2025-04-11 (ETHA's first chain); 2024-07-16 (AVGO 10-for-1,
    ex 07-15, and before ETHA); the block 2022-06-06..06-15 (FB to META). **The newest two weeks
    on two nodes wait for the owner** (they need about 232 tape sessions: the build's tape phase).
@@ -68,7 +68,29 @@ the cluster still runs `vyreon-core:6e15a27`.
   macro capture, made on the laptop with `capture_source` and copied to both homes' `h5-macro/
   2025-12-03`; `y1`: the split cohorts). Check the plan line of a new run before leaving it.
 
-**Ready for 2.5, nothing pushed or deployed:** `vyreon-worker:d55f6439` (build identity
+**Step 2e closed and step 2.5 started (owner's pre-approval), 2026-11-16 10:00 UTC:**
+- Engine `worker` fast-forwarded to `pass-s3i` d55f6439 and pushed. Images pushed to the registry:
+  `vyreon-worker:d55f6439`, `vyreon-core:f491ea9` (fresh registry credentials through `do.sh`,
+  two hours, in `cluster-scratch/docker/`).
+- Core redeployed on the cluster (`kubectl set image`, both containers; the budget stays 1,500 a
+  minute): migrations 0012 to 0015 applied. Build `d55f6439+62fb506e43f3` registered (4,679
+  slots) and admitted (`cluster-scratch/evidence-d55f6439.json`).
+- **Pool `day`: 2 x `s-8vcpu-16gb-amd` created 10:02 UTC ($0.334 an hour for the two; id
+  `5b683697-6614-4a62-9fb9-315a10a840a3`). Delete it when the runs end** (`do.sh DELETE
+  /v2/kubernetes/clusters/5f56e6e0-1c74-4dc9-bfdb-962ee55ebff3/node_pools/<id>`).
+- 2025-12-10 scheduled under the new build (tape, day block, ordered pass). Running:
+  `cluster-scratch/run-day.sh 1210 tape` (Jobs `v-tape-1210`, then `v-day-1210`; it saves the
+  pod's `h4-day-summary-*.json` to `cluster-scratch/summaries-1210/` while the pod lives). Jobs
+  come from `cluster-scratch/mkjob.py KIND NAME COMPLETIONS PARALLELISM`. Then: Job
+  `v-pass-1210` (ordered pass), cancel the re-queued 12-11 pass of build `0ca127ea`, dump, compare
+  with `x2`.
+- Next days, each scheduled only after the day before it has been claimed: 2025-04-11 (as soon
+  as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
+- `x3` (137.184.61.134, all 64) still running; judge it against `x2` and `y2` when it ends.
+- Ledger: test droplets $0.334/h (both since about 2026-11-13); cluster core $0.083/h; pool
+  from 10:02 UTC.
+
+**Before 2.5 (kept for reference):** `vyreon-worker:d55f6439` (build identity
 `d55f6439+62fb506e43f3`; inventory `~/claude-artifacts/cluster-scratch/inventory-d55f6439.json`)
 and `vyreon-core:f491ea9`, built on the laptop. The trial's scratch (kubeconfig, job manifests,
 `do.sh`, token files) is in `~/claude-artifacts/cluster-scratch/` (mode 700); the kubeconfig
