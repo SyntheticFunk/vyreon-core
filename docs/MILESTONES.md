@@ -37,6 +37,11 @@ is in `docs/ARCHITECTURE.md`.
 6. **(5) The launch decision:** pay for Intrinio's Startup tier and integrate Reporter's output
    into the website. After it, or when wanted: the deeper history (the old snapshot layouts are
    readable since D-251..D-254; the 2023-01-18..03-07 gap needs a ruling), the FIELD campaign.
+**End goal (owner, 2026-11-16): the whole system lives on DigitalOcean and runs by itself:**
+capture, the day, the ordered pass, Reporter and the website, **reports published without user
+intervention**. Today Reporter runs on the laptop and feeds the website by hand. So step 5
+builds Reporter to read core's API and to run headless (a scheduled job beside core), with its
+own publish gate and a channel notice on a hold, not a person's check.
 Working practice: at most three agents at once on the laptop; an audit after every landed step;
 every verified finding is fixed, only one above the cut line sends the candidate round again
 (C-041 amended). Write a time only after `date -u`.
