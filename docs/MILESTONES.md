@@ -182,6 +182,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   FIELD intraday panel 189, the rest T's own; a day now fetches 253 sessions of tape caches
   instead of up to 873, no published value changes (EVC01's receipt digest does). **Phase 1
   then needs tape jobs only from 2024-04-09, not 2023-05-24: about 219 fewer tape sessions.**
+- **Round q reported (18:59 UTC; `2026-11-16-merged-round-q/`): 20 claims across the merged whole,
+  several WRONG NUMBER (company: a share count revealed by an older-period amendment, an
+  incomplete class set accepted, unreadable preferred read as zero, earnings yield mixing
+  common and pre-preferred earnings, "latest filed" silently older; histories: D-273 pools
+  labels globally while ACT01/EXQ01 routes carry different labels, a failed history skipping
+  today's volume reconciliation; options: a strike reduction hidden by a new lower strike).
+  Three verifiers (one per report) are triaging; then fix batch 13.** The 2024-07-16 retry's
+  kept log shows provider HTTP 502s on four assets' old option captures (GLD 2023-12-19, PLTR
+  2023-11-22, LLY 2024-03-26, WMT 2024-02-26), classed retryable.
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
