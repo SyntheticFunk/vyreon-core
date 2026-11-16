@@ -51,6 +51,11 @@ is in `docs/ARCHITECTURE.md`.
    store). Caveat: base code changed after B1 (company valuation D-259..D-261, D-326..D-345;
    M0-GAMMA on cleared open interest; the open-interest outage and strike-adjustment rules), so
    those base sensors also get their reference checks on the sample.
+   **Reference checks on every computed day (owner, 2026-11-16):** run `python3 -m refcheck run`
+   (QuantLib 1.43, TA-Lib 0.8.2 on the laptop) on each verification and sample day's dump, not
+   only at step 5. Company valuation gets a genuinely external reference: SEC EDGAR's XBRL API
+   (the filers' own reported facts), pending the owner's choice of the contact SEC requires in
+   the User-Agent.
 5. **(3.5) Examine the built database (owner, 2026-11-16).** Done twice: **a first pass after the
    two-week sample** (thin: about ten sessions, so it can show a rule that misfires or never
    fires on ordinary days, not how one generalises; anything it changes is fixed before going
