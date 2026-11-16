@@ -143,6 +143,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   against shipping a method change without a bump; round o finding 5; provider-eras 10 (macro
   containment); the four small items found by the fix agents. Then: merge fx12, one Codex audit
   of the merged whole (everything since d55f6439 is unaudited as a whole) with a verifier.
+- **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
+  2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
+  not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
+  of them against priority 1 and so the owner's: **macro history is the provider's current
+  revised vintage (D-107(17)): Intrinio serves no first prints, so old sessions publish revised
+  CPI and industrial production** (checked: `$CPIAUCNS`, the not-seasonally-adjusted CPI that BLS
+  does not revise, is on Intrinio); **expected earnings are the provider's current forecast
+  (D-083, D-191).** Dump diff of 2025-12-10 from two captures: only CAPVAL's provider row, a
+  1.4e-15 float, and two provider edits that move bytes but no published value (WMT's
+  `primary_listing` flag, WMT's dividend row hash).
 - **Next for the engine:** merge fx11-a, -b, -c, -d into `pass-s3i` (merge, not rebase; expect
   only docs/DECISIONS.md and small `views.rs`/`vyreon-worker.rs` overlaps); full suite (known
   failures: eight h5-field `option_field` only); ONE Codex audit of the merged result with a
