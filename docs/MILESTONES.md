@@ -315,6 +315,18 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **22:56 UTC: batch 17 merged (`pass-s3i` 2bf314fd, pushed; D-352..354); suite 1,346 passed, 8
+  failed (`option_field`).** All six round-t findings real and fixed. D-343 retired (declared
+  dividends never deducted; no to-common or EPS line → withheld). Q4's operands all get D-346's
+  check. The tape cache validates itself on every read (no side markers). Intrinio's dividend
+  records cannot tell special from ordinary, so a one-step ladder reduction reads as unknown and
+  **that session's open interest is withheld (PROVIDER_OI_INCOMPLETE)**: watch its frequency in
+  the sample (coverage floor). Last small fix (D-355: a newer unreadable net-income or to-common
+  figure withholds, one shared helper) running in `/home/diggz/wt/fx21`; then the image.
+- **Reporter gap found (survey 2026-11-16):** Reporter reads only the engine's own API
+  (VYREON-ENGINE-API@1: `/v1/review`, `/v1/rankings`, `/peers`, windows); core serves only
+  `/v1/assets/{symbol}/history` and `/v1/sessions/{date}`. The paid issue's review and
+  rankings need serving from core, without science in Reporter. No email/beehiiv output yet.
 - **22:32 UTC: failure evidence merged** (engine D-351 into `pass-s3i` 347455f2; core C-049,
   migration 0017 `core.job_evidence`, main 0e27c5e; agent's totals: engine 1,341 passed, 8 failed;
   core 56 passed). A failing, refused or lease-lost worker puts job, stage, stop message, the
