@@ -28,8 +28,10 @@ is in `docs/ARCHITECTURE.md`.
 4. **(3) The build, phase 1 (owner, 2026-11-16).** a. the newest two weeks as a test sample, and
    fix what they reveal; b. back to **2025-04-10** (about 401 sessions: every sensor at full
    window on the newest week; no old-layout snapshot, no 2023 gap), and fix what comes up.
-   Before it: the unusualness flag line states its pool (owner: fix it), one final image from
-   one commit, the fixes of step 2.5 audited.
+   Before it: the unusualness flag line states its pool (done, D-258), the fix batches of the
+   failure-surface audits, **the small restatable captures (company, macro, carry: about 4 MB a
+   day gzipped) kept through core's write-once path (owner, 2026-11-16: do it before phase 1)**,
+   the database volume grown (approved), one final image from one commit, everything audited.
 5. **(4) Reporter on the phase 1 database.** First a proper paid report (none has been produced
    yet: it needed the database) beside the free one (all there, a lot of numbers); then **a
    significant body of iteration on the reports themselves** (owner, 2026-11-16) until free and
