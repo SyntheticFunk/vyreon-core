@@ -416,6 +416,23 @@ the cluster still runs `vyreon-core:6e15a27`.
   real day with a failed step was run. Batch 11-D (histories and reasons; the method-version
   rule first) started in `/home/diggz/wt/fx11-d` on Opus, D-273..279. Batch 11-C (provider
   readers) waits for the valuation agent, which is in `h5-company`.
+- **16:45 UTC: valuation complete in code: `pass-s3i` e05fac7f (pushed), D-259 to D-261; nothing run
+  on a real capture.** D-260: enterprise value = market cap + short-term and long-term debt +
+  capital leases + preferred + minority - cash - short-term investments (the Capital IQ
+  convention), from the latest filed standardized balance sheet, which the capture already
+  holds (no extra requests); an absent line is zero only when its parent total adds up; **JPM is
+  NOT_APPLICABLE (a bank, detected from its deposit lines).** Offline on 2025-12-10 only AAPL, WMT
+  and JPM are computable: WMT equals the provider's 950,184,496,986 to the dollar; AAPL 4,163.31
+  against 4,149.25 billion (the provider also subtracts 77.7 billion of long-term investments).
+  D-261: the provider comparison is emitted (`EXPORT_SUPPORT`, not scored): per reading
+  `.provider_reported`, `.provider_relative_difference`, `.provider_difference_class`, plus
+  `daily_market_cap.provider_implied_shares` and `provider_daily_metrics.captured_at`; AAPL and
+  LLY class IMPLIED_SHARE_COUNT_DIFFERS; "provider uses a later filing" cannot be established
+  from a capture of T (AVGO classes FUNDAMENTAL_INPUT_DIFFERS). The remembered test figures
+  are gone (D-102); untested for want of frozen data: the trailing-quarter window, the
+  to-common and preferred paths, the `evaluate` wiring. **To check: that core and Reporter
+  carry `EXPORT_SUPPORT` company roles; labels still say H5-COMPANY@3 and /D-259.** Batch 11-C
+  (provider readers, D-280..289) started in `/home/diggz/wt/fx11-c` on Opus.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
