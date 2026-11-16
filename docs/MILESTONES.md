@@ -93,8 +93,8 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   with the fault; XLB's unusualness drops the faulted sensor's roles instead of stating them
   absent. Rule from now: a day is clean
   only if its summary says `faulted_engine` 0, not if the log lacks the word.
-- **`m6` (192.241.147.166, the final candidate `pass-fx8` 99d79488) started 2026-11-16 01:30 UTC**
-  (terms, rebind, day; due about 05:30 UTC). After it that droplet has about 44 GB free, under
+- **`m6` (192.241.147.166, `pass-fx8` 99d79488) started 2026-11-16 01:30 UTC**
+  (terms, rebind, day; inputs ready and plan accepted 02:56 UTC; due about 06:00 UTC). After it that droplet has about 44 GB free, under
   the guard's 60. `r3` (137.184.61.134) refused by the disk guard (45 GB free, 60 needed). So
   after `m6` neither droplet can run a day until old run directories are deleted.
 - Next: deploy `pass-fx8` to both test droplets when `m5` ends and test-1 has disk; a clean day, a
@@ -110,6 +110,9 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   `2026-11-15-fix-round-d/triage/`. e, batch 6: `2026-11-15-fix-round-e/triage/SUMMARY.md`.
 - f, fix 7: `2026-11-15-fix-round-f/counts.md` (three findings, all fixed in `pass-fx8`). g, those
   three changes: `2026-11-15-fix-round-g/scoring.md`: no defect in them (2026-11-16 00:30 UTC).
+- h, fix 9 (`pass-fx9`): `2026-11-15-fix-round-h/triage/startup.md` (2026-11-16 03:25 UTC). The
+  socket race is closed; nothing above the line; 5 real below it (listed below), 2 by decision.
+  Triage with the owner.
 
 **Branches and worktrees** (`/home/diggz/wt/<name>`; cargo target deleted when a branch is merged):
 - Merged batches, oldest first, pushed: `pass-fx-all` e9cce438 (`fx-all`), `pass-fx2-all` db15396f
@@ -140,6 +143,11 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
 - CDD-FND02's `*.as_reported` repeats five CDD-FND01 readings when the standardized and reported
   fiscal periods coincide, and both score (AAPL 2025-12-10: `scored_count` five too high, z
   withheld): a conditional mirror; unusualness republishes in seconds a day (round g).
+- Round h (fix 9 audit), none fixed yet: the surface stage's FEDFUNDS reader ignores the
+  capture's `metadata_gate` and keeps the first of two differing values for a month (DBA and UUP
+  only; no real capture has shown either); a stale worker socket after a kill plus PID reuse stops
+  a run; a faulted T-5 surface is cached on a persistent home (stateless workers unaffected); an
+  export fault's unusualness roles are dropped, not stated (the XLB case, D-238).
 - Style items 3 to 7 (round a triage directory). Findings for after the build (round e summary).
 - Overlay 3, 5, 6, 7; a corrected official daily volume between two workers' tape captures; a
   missing macro capture's containment (design choices; round d triage).
