@@ -111,7 +111,14 @@ the cluster still runs `vyreon-core:6e15a27`.
   `cluster-scratch/summaries-<tag>/` directly.**
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
-- `x3` (137.184.61.134, all 64) still running; judge it against `x2` and `y2` when it ends.
+- **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
+  COMPLETE (2,688 of 2,688; 512 of 512), `faulted_engine` 0, 4,679 slots. **Against `y2` on the
+  other machine, with its own separately fetched cohorts: only the 12 FIELD membership slots
+  differ.** Against `x2`: the five split assets' ACT01 family (30) and unusualness (5), and
+  M0-GAMMA-CHANGE's method hash (64, no value). Dump `x3`. Real days on the test droplets are
+  done; an agent is re-freezing the `etha-first-chain` and AAPL tape-cache fixtures from
+  137.184.61.134's real archive (11:20 UTC). After that the two test droplets have no task left
+  ($0.334 an hour together): deleting them is the owner's word.
 - Ledger: test droplets $0.334/h (both since about 2026-11-13); cluster core $0.083/h; pool
   from 10:02 UTC.
 
@@ -134,7 +141,11 @@ worktrees can go (preview and ask: about 40 worktrees). Core: `main`; `/home/dig
 Engine `worker` checkout: `/home/diggz/vyreon-engine-worker`.
 
 ## Decisions waiting on the owner
-- None open.
+- **Delete the two test droplets** (137.184.61.134, 192.241.147.166; $0.334 an hour together)
+  once the fixtures are re-frozen? Their real days are done and dumped; each holds the 2025-12-10
+  archive, re-downloadable. Asked 2026-11-16.
+- **The newest two weeks on two nodes** need about 232 tape sessions (the build's own tape
+  phase): run them inside 2.5, or with the build? Asked 2026-11-16.
 - Answered 2026-11-16 03:55 UTC ("go with your recommendations"): the old run directories deleted
   on both test droplets (137.184.61.134 keeps `p1`, `r2`; 192.241.147.166 keeps `m4`, `m5`, `m6`;
   done 04:10 UTC: 184 and 182 GB free); D-236 stays as it is (the whole ACT01 family withheld 2022-12-08..12-14); the
