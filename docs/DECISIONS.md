@@ -426,4 +426,12 @@ round before added). Each merged batch of fixes runs a real day before the next 
 Order of authority: a published standard, then product intent, then the owner.
 Reason: owner, 2026-11-15; rebuilds and republishes are a planned workload, and the build is the
 correctness experiment.
+Amended 2026-11-15 (owner): every verified finding is fixed, without asking, on either side of the
+line; fixing and gating are separate. Only a finding above the line sends the candidate round
+again before the build. The audits have done their job when their findings converge on low
+meaning, which an auditor's report never being empty does not contradict. The owner and Claude
+judge rounds g and h (fixes 8 and 9) converged: no defect in the audited changes, the rest
+latent and unreached on real captures. Fix 10 (`pass-fx10`) is the last batch before the build;
+its audit runs as usual and, with nothing above the line, its findings are fixed during or after
+the build. The remaining gate is the candidate's real days.
 (C-036 to C-040 are on `pass-core-fix`, not yet merged here.)

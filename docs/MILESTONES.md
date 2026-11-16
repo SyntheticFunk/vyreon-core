@@ -115,6 +115,9 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   Owner 2026-11-16 03:40 UTC: fix all of them, and always fix every verified audit finding. Fix 10
   started on `pass-fx10` (in the `fx9` worktree): the five, plus round g's FND02 double scoring.
   `pass-fx10` becomes the candidate when it lands; then its audit and the real days.
+  **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
+  build; its audit sends us round again only for a finding above the line. The gate left is the
+  real days on `pass-fx10`.
 
 **Branches and worktrees** (`/home/diggz/wt/<name>`; cargo target deleted when a branch is merged):
 - Merged batches, oldest first, pushed: `pass-fx-all` e9cce438 (`fx-all`), `pass-fx2-all` db15396f
