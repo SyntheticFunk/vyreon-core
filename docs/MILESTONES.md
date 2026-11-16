@@ -83,7 +83,7 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
 - c, batch 3: `2026-11-15-fix-round-c/triage/SUMMARY.md`. d, batches 4 and 5:
   `2026-11-15-fix-round-d/triage/`. e, batch 6: `2026-11-15-fix-round-e/triage/SUMMARY.md`.
 - f, fix 7: `2026-11-15-fix-round-f/counts.md` (three findings, all fixed in `pass-fx8`). g, those
-  three changes: `2026-11-15-fix-round-g/` (started 2026-11-16 00:02 UTC).
+  three changes: `2026-11-15-fix-round-g/scoring.md`: no defect in them (2026-11-16 00:30 UTC).
 
 **Branches and worktrees** (`/home/diggz/wt/<name>`; cargo target deleted when a branch is merged):
 - Merged batches, oldest first, pushed: `pass-fx-all` e9cce438 (`fx-all`), `pass-fx2-all` db15396f
@@ -110,6 +110,9 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   is left until the build shows one (2026-11-15; its label is fixed).
 
 ## Listed, not fixed
+- CDD-FND02's `*.as_reported` repeats five CDD-FND01 readings when the standardized and reported
+  fiscal periods coincide, and both score (AAPL 2025-12-10: `scored_count` five too high, z
+  withheld): a conditional mirror; unusualness republishes in seconds a day (round g).
 - Style items 3 to 7 (round a triage directory). Findings for after the build (round e summary).
 - Overlay 3, 5, 6, 7; a corrected official daily volume between two workers' tape captures; a
   missing macro capture's containment (design choices; round d triage).
