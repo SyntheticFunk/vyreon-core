@@ -101,8 +101,19 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   failed on our side is ENGINE_FAULT, not PROVIDER_INPUT_MISSING (the one finding that blocked).
 - `pass-fx11-b` 68e18aa5 (D-268..271): tape caches valid by the official bar's content; a tape's
   absence recorded with core; INT-TEMP-EVC01 on a fixed 252-session window (owner's ruling).
-- `pass-fx11-c` (from e05fac7f; Opus agent running, D-280..289): provider readers (dividends,
-  company rows, paging, macro capture). `pass-fx11-d` (from 912b39a8; Opus agent running,
+- `pass-fx11-c` 354fc5a5 (pushed; D-280..288): provider readers: a dividend with no number, no
+  USD currency, no ex-date or (pools) no factor is the asset's stated lack; only `next_page: null`
+  ends a capture and one asset's undelivered request no longer fails the carry capture; the
+  spot bar is found by its clocks; a float or report with no readable clock is not visible
+  (UNKNOWN_CLOCK); a share row with an axis but no member is not the total; unit-less facts still
+  mark their period; prior-period reasons stated. **Left: provider-eras 10 (one macro series'
+  failure fails the macro capture): needs a "not delivered" series state across h3-macro,
+  h3-asset `macro01_production` and h3-iv-surface; do at the merge.** Also found: `plan.rs:241`
+  `empty_tenors` reads carry with the strict reader (one asset's page still refuses the day: use
+  `read_contained`); the shares endpoint would not follow a continuation; the CAPVAL reference
+  checker sums a member-less class row (now differs from D-284). Owner's call later: whether an
+  absent dividend currency on a US listing may be read as USD (if old eras omit it, every payer
+  of that era is withheld). `pass-fx11-d` (from 912b39a8; Opus agent running,
   D-273..279): histories do not pool across method versions; one bad bar or capture costs only
   what reads it; reasons carried.
 - **Next for the engine:** merge fx11-a, -b, -c, -d into `pass-s3i` (merge, not rebase; expect
