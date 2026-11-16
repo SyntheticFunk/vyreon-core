@@ -337,7 +337,7 @@ Engine `worker` checkout: `/home/diggz/vyreon-engine-worker`.
   DLM-UNUSUALNESS `line_95` pools whatever scored sessions exist and states no pool size or
   span** (`derive/ordered.rs:166-181`): to fix before the build; INT-TEMP-EVC01 reads every tape
   session since the tape start (states `prior_count`).
-- **Answered 2026-11-16 16:10 UTC: phase 1 is the newest two weeks, then back to 2025-04-10, then
+- **Answered 2026-11-16 15:45 UTC: phase 1 is the newest two weeks, then back to 2025-04-10, then
   Reporter, then the launch decision (step list above). Fix the unusualness flag line.** The
   earlier note, kept for the reasoning: The MVP is a weekly
   report: it needs only the lookback that populates every sensor truthfully; a full database is
