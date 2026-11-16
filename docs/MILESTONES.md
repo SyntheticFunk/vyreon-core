@@ -239,6 +239,14 @@ the cluster still runs `vyreon-core:6e15a27`.
   suspected (with a universe in the home ETHA's record was skipped and "no record" counted as
   listed). Not on the cluster yet: the next image waits for what `v-day-0716c` and `v-day-2206e`
   show.
+- **13:33 UTC: the reader reads real 2022 snapshots.** `v-day-2206e` (job 55, build 518faf7e)
+  fetched the seven sessions 2022-05-27..06-07, each eight parts, about 50 MB, 62 symbols,
+  125,000 to 132,000 rows, `provider_layout` 20-column, `padded_ids` true, `cut` empty (no cut
+  line on a universe asset); no header error, nothing refused; **the plan accepted 2022-06-06 and
+  the day is computing since 13:26 UTC**, the first session ever run before the tapes, the
+  intervals and the trade counts. `v-day-0716c` (job 53) is downloading. On the old build
+  `v-day-1210` (computing since 13:04 UTC) and `v-day-0411` (13:09 UTC) passed their plans after
+  about three hours of download.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
