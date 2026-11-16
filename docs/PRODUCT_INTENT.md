@@ -203,6 +203,13 @@ Recomputing is rare: a measurement found wrong is recomputed for that sensor alo
 over the affected days, re-downloading its inputs (new provider evidence, which may
 differ slightly); a better method applies from its date forward.
 
+Except the small inputs the provider restates in place (owner, 2026-11-16): the company,
+macro and carry captures a published day read are kept by core, a few MB a day, because a
+past session's restated input cannot be fetched again as it was. A sensor can then be
+computed again on the inputs it was first computed from, and a later fetch compared with
+the kept one shows what the provider restated. Bulk inputs (option chains, snapshots,
+tapes) stay transient (D-306).
+
 ## Reporter boundary
 
 Reporter is a separate machine and product component. It queries Engine through
