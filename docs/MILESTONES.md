@@ -193,6 +193,8 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   05:56 UTC.** The test droplets hold no provider key, so the five split assets cannot acquire
   their translated cohorts there (expect them withheld; the real proof of D-162 is the cluster's
   split day); `y1` shows whether the merge left the other 59 equal to `x2`.
+  Suite on `pass-s3i` d55f6439, 06:02 UTC: 1,221 passed, 12 failed: the known ten and the two
+  `etha-first-chain` fixture tests. `worker` is an ancestor of `pass-s3i` (a fast-forward).
   **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
   build; its audit sends us round again only for a finding above the line. The gate left is the
   real days on `pass-fx10`.
