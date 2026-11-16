@@ -356,6 +356,25 @@ the cluster still runs `vyreon-core:6e15a27`.
   point-in-time fundamentals or withheld, the provider's row kept as private evidence only.**
   BABA and TSM (depositary receipts, ratios 8 and 5) publish only if a captured source states
   the ratio; else withheld and the owner decides the source.
+- **Round n triaged (16:14 UTC; `.../surface-round-n/triage/SUMMARY.md`): 30 real of 31, one
+  blocks phase 1:** the fill's exit status is discarded (`days.rs:291`), so a capture that
+  failed on our side publishes as PROVIDER_INPUT_MISSING. Most others need a provider
+  malfunction nobody has seen (rated HYPOTHETICAL); observed or plausible: tape caches checked
+  by the bar's name not its content (D-089's preliminary next-day bars), a `DATE-r1` retry
+  stalling days, prior-session reasons lost, unusualness pools ignoring the method version.
+  Four fix batches: **11-A fill and plan (`/home/diggz/wt/fx11-a`, `pass-fx11-a`, D-262..267)
+  and 11-B tape caches (`fx11-b`, `pass-fx11-b`, D-268..272) started**; 11-C provider readers and
+  11-D histories and reasons follow (three agents at once: the valuation fix is the third).
+  **To verify before the build: each earlier day's publication re-queues every later session's
+  ordered pass: newest first over 401 sessions that could be about 80,000 pass runs unless
+  migration 0014's wait holds them.** Owner's calls: EVC's expanding baseline or a fixed
+  window; a value-changing fix mid-build republishes what was built under the old method.
+- **Storage measured (16:14 UTC, a live pod and the cluster's store):** the small restatable
+  captures are 44 MB a day raw for company, 0.2 MB macro, 0.8 MB carry: about 4.3 MB a day
+  gzipped, 1.7 GB for phase 1 (owner agrees to keep these and not the bulk raws). **The
+  database: about 110 MB of bodies and about 150 MB on disk per published day: phase 1 is about
+  60 GB and the cluster's volume is 60 GB (55 GB free): grow it before the build** (the plan in
+  ARCHITECTURE.md was 250 GB).
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
