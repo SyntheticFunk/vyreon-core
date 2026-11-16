@@ -88,7 +88,14 @@ the cluster still runs `vyreon-core:6e15a27`.
   ones were another method version); `v-day-1210` claimed job 24 with tape history from
   2025-12-10 and is downloading. 10:18 UTC: 2025-04-11 scheduled (tape, day, pass; ETHA is a
   member) and `run-day.sh 0411 tape` started on the second node.
-- Next days, each scheduled only after the day before it has been claimed: 2025-04-11 (as soon
+- 10:20 UTC: `v-day-0411` claimed job 27 (tape history from 2025-04-11) and is downloading.
+  **10:49 UTC: pool `day` grown to 4 nodes ($0.668 an hour; the same node-hours, sooner);**
+  2024-07-16 scheduled (tape, day, pass) and `run-day.sh 0716 tape` started; the block
+  2022-06-06..06-15 scheduled as one eight-session job with its eight passes and `run-day.sh
+  2206` started (no tape job: before 2023-05-24). Core's universe shows Meta as FB on 2022-06-08
+  and META on 06-09. The ordered passes (11 queued) run last, in date order: Job from
+  `mkjob.py ordered-pass v-pass 11 1` once every day block is done.
+- (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - `x3` (137.184.61.134, all 64) still running; judge it against `x2` and `y2` when it ends.
 - Ledger: test droplets $0.334/h (both since about 2026-11-13); cluster core $0.083/h; pool
