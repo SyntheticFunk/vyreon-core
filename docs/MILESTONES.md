@@ -198,6 +198,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   Fix batch 13-O started (`/home/diggz/wt/fx13o`, `pass-fx13-options`, D-313..317): that, the
   strike-reduction detection with extra strikes allowed (OCC Art. VI 11A), a refused snapshot
   behind an ex-date, D-290's text.
+- **19:08 UTC: `pass-fx13` (kept captures) and `pass-fx14` (252 tape sessions) merged into `pass-s3i`
+  5b28718d (pushed; clean, compiles). Core's `core-captures` and `core-requeue` merge clean into
+  main (not yet merged). Round q pipeline triaged (`.../triage/pipeline-histories.md`): 7 real, 1
+  not real, none blocks; the important one: D-273 reads labels from SPY and AAPL only while
+  ACT01/EXQ01 publish a different label on NONE slots (observed: the five split assets on
+  2025-12-10), so a NONE route on SPY or AAPL would withhold every asset's activity histories.
+  Fix batch 13-P started (`/home/diggz/wt/fx13p`, `pass-fx13-pipeline`, D-318..325).**
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
