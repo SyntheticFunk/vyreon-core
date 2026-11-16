@@ -262,6 +262,16 @@ the cluster still runs `vyreon-core:6e15a27`.
   minutes, computing since 14:53 UTC). `v-day-1210` and `v-day-0411` are in intent B (first
   halves: 512 of 512 each; 2025-04-11 says COMPLETE_WITH_FAULTS with `failed_other_tasks` 1 and
   no measure fault: to read when it ends). `v-day-0716c` still downloading (14:55 UTC).
+- **2025-04-11 (build d55f6439) finished its second half COMPLETE_WITH_FAULTS: `faulted_engine` 2,
+  2,682 of 2,688, both VS-OIJ01 (15:37 UTC, `summaries-0411/`).** (1) EMB: its history export fails
+  at 2024-12-30, a session on which the provider delivered EMB's whole chain (868 contracts) with
+  open interest 0 (60,951 on 12-27, 60,929 on 12-31): `OIJ01 zero positive OI without a provider
+  fault`; VS-OIJ01 would be an ENGINE_FAULT for EMB on about 200 sessions. (2) ETHA: its first
+  chain (168 contracts, no open interest) faults VS-OIJ01 where a stated absence is due
+  (C-034); its four change sensors are correctly EMPTY_DELIVERED_POPULATION. An agent is fixing
+  both on `pass-s3i` (D-255..) and checking whether VS-O02/O04/DLM-OI-CHANGE publish a wrong
+  change across such a zero session (their exports completed). 2022-06-07's first half is
+  clean (496 of 496); `v-day-1210` in intent B; `v-day-0716c` downloading.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
