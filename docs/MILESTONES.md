@@ -157,6 +157,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   directory deleted. **Round q started 18:20 UTC: three Codex audits of the merged whole since
   d55f6439, by area (`2026-11-16-merged-round-q/`: options, company-macro,
   pipeline-histories); Codex at 75 per cent of its week.**
+- **18:28 UTC:** 2022-06-08 published (the block's third session; 06-09 computing). Two preparation
+  items started while round q runs: **keep the small restatable captures through core** (engine
+  `/home/diggz/wt/fx13` `pass-fx13` D-306..309, core `/home/diggz/wt/core-captures` C-043..045)
+  and **the ordered-pass re-queue count and the tape-fetch depth** (engine `fx14` `pass-fx14`
+  D-310..312, core `core-requeue` C-046..048).
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
