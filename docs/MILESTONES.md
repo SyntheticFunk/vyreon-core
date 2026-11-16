@@ -22,8 +22,9 @@ engine's `docs/DECISIONS.md` (D-numbers); the plan is in `docs/ARCHITECTURE.md`.
    e. [not started] `pass-s3i` brought up to date by a merge (not a rebase: its commits are pushed
       and cited by hash in the decisions and audits); engine to `worker` and core to `main`
       together; images rebuilt; *audit of the merged branches (the gate into 2.5)*
-   f. [in progress] housekeeping: this file pruned to state and next steps; the commit before the
-      prune is tagged (`milestones-<date>`) so the old one is one command away. Git is the history.
+   f. [done 2026-11-16] housekeeping: this file pruned to state and next steps (1,306 lines to
+      under 200); the commit before the prune is tagged `milestones-2026-11-15`. Prune again, with
+      a new tag, when it passes about 300 lines.
 3. **(2.5) Cluster verification:** 2025-12-10; 2025-04-11 (ETHA's option listing); a day before
    2024-07-23; a block over the FB to META rename (June 2022); a day after a 10-for-1 split. Then the
    newest two weeks on two nodes. New spend: the owner first.
