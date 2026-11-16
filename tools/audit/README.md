@@ -34,6 +34,15 @@ Everything the loop needs is in this directory, so a new session can run it with
 6. **Audit again** the scopes the batch touched. The engine is ready for the build when an audit of
    the candidate leaves no finding above the cut line, not when an audit finds nothing.
 
+## Failure-surface audits (owner, 2026-11-16)
+When a real run exposes a fault, the fault is one point on a surface: the same assumption is
+usually made elsewhere. Besides fixing the fault and auditing the fix, run an audit ALONG the
+surface: `scopes/failure-surface.md` is the template. State the fault as the assumption that
+failed, in general form (not "the replay endpoint returned 500" but "the code assumes a provider
+endpoint answers 404 for a date it has no data for"), give the real evidence, and ask for every
+other place that makes the same assumption, each marked by what it would do on the build's range.
+Worth it for faults found by real days and cluster runs; not for every audit finding.
+
 ## Order of authority for a finding
 A published standard (OCC, Cboe, exchange calendars, the standard definition of an indicator) decides;
 then product intent; then the owner.
