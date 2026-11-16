@@ -299,6 +299,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **22:19 UTC: batch 16 merged: `pass-s3i` 67599773 (pushed), D-346..349; suite 1,339 passed, 8
+  failed (`option_field`).** Round s: 4 real and fixed, 1 already fixed by D-345 (verdicts in
+  `.../batch14-round-s/triage/verdicts.md`). A newer null dividend line now withholds; the tape
+  fault record now lives beside T's capture, so every derive path (including `vyreon-days
+  daily/rebuild`'s deferred `derive_all`, a gap bigger than the audit said) sees it; a failed tape
+  capture stays ENGINE_FAULT; D-336 needs every image of a series to be a new strike (OCC §11A).
+  Residual named by D-349: D-290 can read an ordinary dividend day as an ex-date when the top old
+  strike is delisted. **Round t started: narrow Codex check of batches 15 and 16 plus that
+  residual.**
 - **22:07 UTC: worker failure evidence (process addition c) started** in parallel: engine
   `/home/diggz/wt/fx19` (pass-fx19) and core `/home/diggz/wt/core-evidence`: a failing or refused
   worker puts its stop message, refusal list and a redacted log excerpt to a new core table
