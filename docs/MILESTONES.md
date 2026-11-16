@@ -30,11 +30,13 @@ is in `docs/ARCHITECTURE.md`.
    window on the newest week; no old-layout snapshot, no 2023 gap), and fix what comes up.
    Before it: the unusualness flag line states its pool (owner: fix it), one final image from
    one commit, the fixes of step 2.5 audited.
-5. **(4) Reporter and web** on core's API and the phase 1 database, until free and paid reports
-   are generated with confidence.
-6. **(5) The launch decision.** After it, or when wanted: the deeper history (the old snapshot
-   layouts are readable since D-251..D-254; the 2023-01-18..03-07 gap needs a ruling), the FIELD
-   campaign.
+5. **(4) Reporter on the phase 1 database.** First a proper paid report (none has been produced
+   yet: it needed the database) beside the free one (all there, a lot of numbers); then **a
+   significant body of iteration on the reports themselves** (owner, 2026-11-16) until free and
+   paid are generated with confidence.
+6. **(5) The launch decision:** pay for Intrinio's Startup tier and integrate Reporter's output
+   into the website. After it, or when wanted: the deeper history (the old snapshot layouts are
+   readable since D-251..D-254; the 2023-01-18..03-07 gap needs a ruling), the FIELD campaign.
 Working practice: at most three agents at once on the laptop; an audit after every landed step;
 every verified finding is fixed, only one above the cut line sends the candidate round again
 (C-041 amended). Write a time only after `date -u`.
