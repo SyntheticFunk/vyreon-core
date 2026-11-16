@@ -15,8 +15,11 @@ security's typical level AND in the top or bottom tenth of its last 63 sessions 
 through the latest session; no signals or forecasts. So by 2027-01-09 we need: (1) history
 back at least 63 sessions before 2027-01-08 (phase 1 covers it); (2) **daily go-forward runs**
 computing each new session from the build onward; (3) Reporter producing the paid issue from
-core's API, sent through beehiiv. Owner to confirm: whether Intrinio's Startup tier (commercial
-use) must be in place before issue 1.
+core's API, sent through beehiiv. **Owner, 2026-11-16:** the deadline will be met; target free
+reports live in **December 2026**. Intrinio's Startup tier (USD 333 a month, scaling to USD 999)
+is required for redistribution rights and covers free and paid reports, so it starts before the
+first publication of either; ideally free and paid are ready together. Google Ads all-time:
+1.58M impressions, 156k clicks (CTR 9.88%).
 
 1. **Two-day cluster trial.** Done 2026-11-13.
 2. **Engine ready for the build.** Closing. A Codex audit ran after each lettered item:
