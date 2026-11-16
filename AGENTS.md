@@ -70,6 +70,13 @@ The engine computes; core schedules, stores and serves. The measurements are the
   old tip), then do it. The commit before a prune of the status document is tagged
   (`milestones-<date>`). Commit each landed step
   with a short summary; separate commits for code, tests, docs and deploy.
+- Disk housekeeping on the laptop (owner, 2026-11-16): the WSL disk crash of 2026-11-15 was cargo
+  build directories not deleted after their branches merged; WSL's virtual disk never shrinks on
+  its own. Delete a worktree's `/home/diggz/wt/target-<name>` when its branch merges, and the
+  worktree when it is no longer needed; check `du -sh /home/diggz/wt/target-*` at every merge.
+- Decisions: a published standard first, then product intent, then the owner. Every verified audit
+  finding is fixed (C-041). A status request gets the step list with where we are, what changed,
+  decisions made and decisions waiting on the owner.
 - Report delivered capability, not documents or test counts. Times for the owner in Mountain Time.
 
 ## Machines
