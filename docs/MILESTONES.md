@@ -454,6 +454,14 @@ Engine `worker` checkout: `/home/diggz/vyreon-engine-worker`.
   among point-in-time-valid figures exists, match Intrinio (AAPL and LLY share basis; BABA and
   TSM receipt ratios from the provider's data); a free external reference is an option, the
   paid provider is the basis (sent to the valuation agent; the point-in-time rule stands).
+- **Answered 2026-11-16 16:32 UTC:** (1) **enterprise value comes before phase 1** (sent to the
+  valuation agent as D-260: point-in-time debt, preferred, minority interest and cash from the
+  latest visible balance sheet; a bank publishes NOT_APPLICABLE, as vendors do). (2) Share
+  basis: the cover-page count stays the rule for all 17 (owner agrees with the provisional
+  recommendation); **the provider's inconsistency must be statable when we publish**: the
+  comparison with the provider's figure becomes an emitted support role with a reason class
+  (D-261), not private evidence only. A firm recommendation on AAPL and LLY follows the first
+  real day.
 - **Answered 2026-11-16 15:45 UTC: phase 1 is the newest two weeks, then back to 2025-04-10, then
   Reporter, then the launch decision (step list above). Fix the unusualness flag line.** The
   earlier note, kept for the reasoning: The MVP is a weekly
