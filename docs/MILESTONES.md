@@ -280,6 +280,19 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   reader of 518faf7e passes timestamps the overlay then rejects, which D-293 (now on the
   candidate) fixes, with D-254's per-security containment. Jobs 53 and 54 cancelled; the idle
   node deleted (pool `day`: 1 node, the June 2022 block). Re-run on the final image.
+- **21:13 UTC: batch 14 merged: `pass-s3i` 1c31e750 (pushed; fast-forward), D-337 to D-342; agent's full
+  suite 1,335 passed, 8 failed (`option_field`).** All 12 round-r findings fixed. Preferred
+  dividends are deducted for the period per FAS 128 whatever the balance sheet shows (a real MSTR
+  case: its preferred is temporary equity and `PreferredStockValue` is 0). MSTR on 2025-12-10:
+  earnings yield 0.1454669 (provider 0.145467), price to book 1.013879, enterprise value
+  66,962,941,630 (provider 66,961,026,630; it also subtracts 1.9 million of restricted cash). A
+  tape of T that failed to reconcile makes its readers' fault; uploads stop at a 10-minute total
+  deadline. **Rule I will set (standard: FAS 128 paragraph 9 deducts dividends DECLARED for the
+  period on non-cumulative preferred): MSTR's `DividendsPreferredStock` (declared) is accepted as
+  the deduction where no EPS-adjustment or to-common line exists; the agent withheld there.**
+  Open, small: the own-store `derive_one` path still computes DLM-VWAP from an unreconciled
+  tape; the reference lacks D-327. The agent read Intrinio (9 read-only calls) though its brief
+  said no network. **Round s started: one Codex audit of batch 14.**
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
