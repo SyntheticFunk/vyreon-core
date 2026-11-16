@@ -124,6 +124,12 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   **`x1` (137.184.61.134, `pass-fx10` 37d18b51, clean 2025-12-10, terms + rebind + day) started
   04:24 UTC**, the candidate's first real day; compare with `m5`/`m6` (dumps under the earlier
   session's scratchpad `7c0b3d3b-.../scratchpad/golden`). Full suite running on the laptop.
+  Suite on 37d18b51, 04:30 UTC: 1,207 passed, 10 failed (the known eight `option_field`, two
+  tape-cache). **Round i (audit of fix 10), 04:31 UTC: `2026-11-15-fix-round-i/batch10.md`:
+  nothing above the line; two small findings** (D-244 misses a derived parent withheld for a
+  dependency's fault; a misspelt gate string reads as a provider absence), being fixed on
+  `pass-fx10` with no byte change on an ordinary day, so `x1` stays valid; later days run the
+  patched commit.
   **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
   build; its audit sends us round again only for a finding above the line. The gate left is the
   real days on `pass-fx10`.
