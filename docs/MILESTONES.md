@@ -366,12 +366,8 @@ Engine `worker` checkout: `/home/diggz/vyreon-engine-worker`.
   checks; nightly archive to its 250 GB volume `vyreon-engine-v1` and the Spaces bucket
   `vyreon-data` (C-004). $112 a month. Not looked at on 2026-11-15: whether
   `/root/vyreon-engine-worker` and `/root/worker-proof` (57 GB) are still on it.
-- **Test droplets** (8 vCPU, $0.167/h each, $112 a month; no timers, key or webhook; each holds
-  the 2025-12-10 archive and a scratch store). By their DigitalOcean names (checked 2026-11-16):
-  `vyreon-test-1` is 192.241.147.166 (keeps `m4`, `m5`, `m6`, `y2`); `vyreon-test-2` is
-  137.184.61.134 (keeps `p1`, `r2`, `x2`, `x3`). **The 2026-11-15 entries of
-  the old file and the audit notes call 137.184.61.134 "test-1" and 192.241.147.166 "test-2":
-  go by the address.** Both carry `pass-s3i` d55f6439. No third test droplet exists.
+- **Test droplets:** both deleted 2026-11-16 15:34 UTC on the owner's word (dumps of their days in
+  `~/claude-artifacts/testbed-dumps/`). A new one needs the 2025-12-10 archive downloaded again.
 - **Kubernetes cluster `vyreon`** (nyc1, created 2026-11-11): pool `core`, 1 x `s-4vcpu-8gb-amd`
   ($0.083/h), with CloudNativePG, a 60 GB database volume and core. Pool `day` was deleted
   2026-11-13 00:35 UTC; "the core node stays". Registry `vyreon` (Basic, nyc3, $5 a month) holds
