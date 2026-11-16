@@ -156,6 +156,14 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   check pools five more cohorts. **Two h3-asset tests fail** (`t_chain_admits_only_a_cohort_it_lists`,
   `a_translated_cohort_is_admitted_by_its_bound_t_chain_only`): the frozen `etha-first-chain`
   fixture predates `exercise_style` (D-199); re-freeze it from a droplet with the AAPL fixture.
+  **Round j (audit of the merge), triaged 05:26 UTC: `2026-11-16-merge-round-j/triage/merge.md`.**
+  One finding at the cut line: after a split, an unselected T-5 contract can translate to a
+  cohort contract's code (strike halves rounded to the cent) and the two T-vs-T-5 readings would
+  compare different sets. Not present on the real 2025-12-05 splits (7,764 contracts of XLB, XLE,
+  XLK, XLU, XLY on 2025-12-03: no odd-cent strike, no colliding pair); the guard (refuse the
+  cohort) is being written. Below the line, also being fixed on `pass-s3i`: plan roots bound
+  exactly; a stale translated view is that asset's fault, not the day's stop; a translation
+  refusal's true reason published. No ordinary-day byte may change.
   **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
   build; its audit sends us round again only for a finding above the line. The gate left is the
   real days on `pass-fx10`.
