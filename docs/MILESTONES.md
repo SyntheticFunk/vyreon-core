@@ -289,6 +289,15 @@ the cluster still runs `vyreon-core:6e15a27`.
   a stateless worker, and what a newest-first build's history readings state before earlier
   sessions exist). Triage with a verifier before fixing; Codex has about a third of its
   allowance left until 2026-11-19.
+- **2025-04-11 was NOT published (15:48 UTC): core refused its bundle, `422: M0-PRINT-SIZE/ETHA is
+  listed twice`, after 5.5 hours** (23,467 capture requests), and the refusal paused the queue.
+  The worker's log: one export fault, `ETHA--M0-PRINT-SIZE ... PRINT product
+  scientific/calculation/parent linkage`, then `final_slots 2854` (2,853 are due). The
+  open-interest fix agent has it as a third finding (D-257: why that export faults on ETHA's
+  first chain day; a bundle never lists a slot twice and the engine checks its own bundle before
+  publishing). Job 27 and its pass (28) cancelled, the old 12-11 pass (22, build 0ca127ea,
+  re-queued as foreseen) cancelled, **queue resumed 15:49 UTC**. Still leased: 24 (2025-12-10),
+  53 (2024-07-16), 55 (the 2022 block). 2025-04-11 runs again under the final image.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
