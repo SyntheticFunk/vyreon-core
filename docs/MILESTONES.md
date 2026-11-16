@@ -1,255 +1,81 @@
 # Milestones
 
-The one living status document: current state and what is next. History is in git (the long form
-is at tag `milestones-2026-11-15`); decisions are in `docs/DECISIONS.md` (core, C-numbers) and the
-engine's `docs/DECISIONS.md` (D-numbers); the plan is in `docs/ARCHITECTURE.md`.
+The one living status document: current state and what is next. History is in git (the longer
+forms are at tags `milestones-2026-11-15` and `milestones-2026-11-16`); decisions are in
+`docs/DECISIONS.md` (core, C-numbers) and the engine's `docs/DECISIONS.md` (D-numbers); the plan
+is in `docs/ARCHITECTURE.md`.
 
 ## Steps to the MVP (the list shown to the owner on a status request; keep it current)
 1. **Two-day cluster trial.** Done 2026-11-13.
-2. **Engine ready for the build.** In progress. To close it (a Codex audit after each of a to e,
-   and one more on the merged whole before 2.5: repeated passes are the method, owner 2026-11-15):
-   a. [done] the seven fix tracks merged into `pass-fx-all` (done 2026-11-15); core's fixes on
-      `pass-core-fix` (pushed); *audit of the merged round* (round a, triaged)
-   b. [done] the follow-ups `pass-fx2-{receipt,style,small}` finished and merged, full suite;
-      *audit* (round b, triaged: nothing above the line)
-   c. [in progress] real days on the merged round: clean 2025-12-10 on both droplets (done: `r2`,
-      `m4`), then on the final candidate a clean day, a membership day and an early date (not
-      started); the AAPL tape-cache fixture regenerated (not done); *audit of whatever the days
-      made us change*
-   d. [in progress] triage of the audits to the owner (done; rulings 2026-11-15 20:25 UTC); fixes
-      above the cut line (C-041), each batch with its real day (batches 3 to 8 written, their real
-      day pending); *audit* (rounds c to f)
-   e. [not started] `pass-s3i` brought up to date by a merge (not a rebase: its commits are pushed
-      and cited by hash in the decisions and audits); engine to `worker` and core to `main`
-      together; images rebuilt; *audit of the merged branches (the gate into 2.5)*
-   f. [done 2026-11-16] housekeeping: this file pruned to state and next steps (1,306 lines to
-      under 200); the commit before the prune is tagged `milestones-2026-11-15`. Prune again, with
-      a new tag, when it passes about 300 lines.
-3. **(2.5) Cluster verification:** 2025-12-10; 2025-04-11 (ETHA's option listing); a day before
-   2024-07-23; a block over the FB to META rename (June 2022); a day after a 10-for-1 split. Then the
-   newest two weeks on two nodes. New spend: the owner first.
+2. **Engine ready for the build.** Closing. A Codex audit ran after each lettered item:
+   a. [done] the seven fix tracks merged (`pass-fx-all`); *audit* (round a)
+   b. [done] the follow-ups merged; *audit* (round b)
+   c. [closing] real days on the candidate: `x2` clean on `pass-fx10`; **`y2` and `x3` running on
+      the merged candidate `pass-s3i` d55f6439**. Left for a droplet with real data: re-freeze
+      the AAPL tape-cache and the `etha-first-chain` fixtures. An early date and a pre-listing
+      day need a provider key: they are step 2.5's.
+   d. [done] audit triage and fixes: batches 3 to 10, rounds c to i. Converged (owner, 2026-11-16).
+   e. [closing] `pass-s3i` = `pass-fx10` + D-162 by merge (done); core `pass-core-fix` merged into
+      `main` (done, pushed); *audit of the merge* (rounds j and k, fixed); images built on the
+      laptop (not pushed). Left: engine fast-forward to `worker` once `y2` and `x3` are judged.
+   f. [done] housekeeping: this file pruned 2026-11-16 twice (tags above). Prune again, with a new
+      tag, when it passes about 300 lines.
+3. **(2.5) Cluster verification. Pre-approved by the owner (2026-11-16 04:00 UTC): start it when
+   2e closes.** Runbook `~/claude-artifacts/cluster-verification-runbook.md`. Order (tape history
+   only moves earlier): 2025-12-10; 2025-04-11 (ETHA's first chain); 2024-07-16 (AVGO 10-for-1,
+   ex 07-15, and before ETHA); the block 2022-06-06..06-15 (FB to META). **The newest two weeks
+   on two nodes wait for the owner** (they need about 232 tape sessions: the build's tape phase).
 4. **(3) The build:** newest first back to 2022-05-27, sized and approved by the owner.
 5. **(4) Reporter and web** on core's API and the built history.
 6. **(5) Judge the reports; the FIELD campaign; the go-live choice.**
-Working practice: at most three agents at once on the laptop; an audit after every landed step.
+Working practice: at most three agents at once on the laptop; an audit after every landed step;
+every verified finding is fixed, only one above the cut line sends the candidate round again
+(C-041 amended). Write a time only after `date -u`.
 
-## Now (2026-11-16 00:00 UTC)
-**Final candidate: engine `pass-fx9` (d83c3a8d, worktree `/home/diggz/wt/fx9`, pushed) = `pass-fx8`
-(99d79488) plus D-238 and D-239 (below).** For `pass-fx8`: Release
-build done; its suite fails only the known tests (8 `option_field`, 2 tape-cache fixture). No more
-fix batches before the real days: a new finding is listed unless it is above the cut line with data
-behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it holds, by subject:
-- *Surface and pricing:* Treasury par yields bootstrapped to a zero curve (D-225, H5-SURFACE@21);
-  exercise style (D-199/200); an American-only fit; split readers (surface, company, EVC01).
-- *Open interest and the ledger:* adjusted roots never dropped as frozen and counted in the
-  exposure cover (DLM-GREEK-EXPOSURE@2.2.0, D-170c); the ledger defect `r2` found; negative OI;
-  duplicate-row volume; Greek exposure totals publish the unsolved count and the solved
-  open-interest share as support, no gate (D-228).
-- *Activity (ACT01 family):* PROVIDER_COVERAGE_START while T-5 is before 2022-12-08 (D-236); count
-  readings withheld MISSING_REQUIRED_INPUT before trade counts exist, 2024-11-26 (D-237);
-  SAI-ACT01-INTRADAY's copies score once (DLM-UNUSUALNESS@1.5.0); a summary array with no supported
-  cell withheld; one asset's inventory aborting every ACT01 job; META's family 2022-06-06..15.
-- *Listings, company, macro, day:* a newly listed asset's short history in five price sensors and
-  V03's monthly rule exact to the OCC By-Laws (batch 4); company shares and guards; macro damage
-  and 429; the FIELD panel; the earnings-anchor SQL defect `r2` found; wall-clock out of receipts
-  (D-201); tape-cache upload retry; m0 1 and 4; under all of it the first round's seven fix tracks.
-- *Core, `pass-core-fix`* (worktree `/home/diggz/wt/fx-core`, pushed, not merged): C-037 on; C-042:
-  a hand publish of a history bundle needs `--vouch`. A hand publish of a base: pause the queue,
-  wait for leased day blocks, publish, resume.
+## Now (08:55 UTC 2026-11-16)
+**Build candidate: engine `pass-s3i` d55f6439** (worktree `/home/diggz/wt/s3i`, target
+`/home/diggz/wt/target-s3i`, release built, pushed) = `pass-fx10` 8a40183e (worktree
+`/home/diggz/wt/fx9`, decisions to D-245) merged with the cohort across a split or rename (D-162,
+D-163, D-167), plus D-246 (collision guard) and D-247. Suite: 1,221 passed, 12 failed (eight
+`option_field`, two tape-cache, two `etha-first-chain`: all fixtures). `worker` (dc279ff1) is an
+ancestor: a fast-forward. Core `main` holds C-036 to C-042 (8 unit, 40 database tests pass);
+the cluster still runs `vyreon-core:6e15a27`.
 
-**Proven on real days (2025-12-10, both on `pass-fx-all` e9cce438):**
-- `r2` (137.184.61.134, all 64): exit 0, no faults, 4,679 slots, no state change against pre-fix `p1`. It
-  found two defects of the new build: the ledger rule (30c68c20, `frozen_by_adjustment`) dropped
-  six live contracts expiring 2025-07-18 (BABA -5,725 of 2,667,522; MSTR -1,838 of 2,614,287); an
-  SQL alias bug (f79c7af2, `load_events`) lost the earnings anchor on the store path (BABA, TSM).
-  Both are fixed from `pass-fx5-all` on; **the fix awaits a re-run** (the totals must return; BABA
-  and TSM state NO_UPCOMING_EARNINGS_DATE). Reports: `.../2026-11-15-fix-round-a/day-r2-*.md`.
-- `m4` (192.241.147.166, ETHA not listed): exit 0, no faults, 4,608 slots. Against `r2` every per-asset slot
-  of the other 63 assets is equal in every non-identity leaf; only the 12 FIELD slots differ. The
-  membership day holds and the two machines agree.
+**Real days, all 2025-12-10** (a day is clean only if `h4-day-summary-*.json` says
+`faulted_engine` 0; dumps in `~/claude-artifacts/testbed-dumps/`: p1, r2, m4, m5, m6, x2):
+- `m6` (`pass-fx8`, 192.241.147.166, ETHA unlisted): clean. Against `m5` 128 slots, all explained.
+  First real cover numbers (D-228 amended): BABA's Greek exposure covers 0.679 of its open
+  interest (617 unresolved rows, BABA1 and BABA2), UNG 0.991, the other 61 median 0.996.
+- `x2` (`pass-fx10` 8a40183e, 137.184.61.134, all 64): clean, 4,679 slots. Against `m6` 83 slots,
+  all explained (12 FIELD for membership, 63 unusualness at 1.6.0, eight DBA and UUP slots that
+  lose PROVIDER_INPUT_MISSING: D-239 proven; D-238 ran without a fault).
+- **Running on `pass-s3i` d55f6439:** `y2` (192.241.147.166, ETHA unlisted, started 06:10 UTC) and
+  `x3` (137.184.61.134, all 64, started 08:12 UTC). Both homes got the five split assets' cohorts
+  by `vyreon-inputs fill --category act01 2025-12-10` with the key passed on stdin (nothing
+  stored): XLB, XLE, XLK, XLU, XLY each a translated cohort, none refused by D-246. To judge:
+  against `x2`/`m6` only those five assets' ACT01 family (and what pools it) may differ, plus
+  one change of every task key; `y2` against `x3` only membership.
+- Test droplets hold no provider key: a day whose plan lacks an input is refused (`x1`: the T-5
+  macro capture, made on the laptop with `capture_source` and copied to both homes' `h5-macro/
+  2025-12-03`; `y1`: the split cohorts). Check the plan line of a new run before leaving it.
 
-**Running or waiting:**
-- **`m5` (192.241.147.166, `pass-fx5-all` 497c1608, ETHA unlisted) finished 2026-11-16 01:28 UTC,
-  exit 0, 4,608 slots, no slot state change against `m4`; **one engine fault** (corrected 01:49
-  UTC: my check grepped the day's log, which never prints it; the run's own summary
-  `h4-day-summary-*.json` says COMPLETE_WITH_FAULTS, `faulted_engine` 1; `r2` and `m4` do say 0).** Both `r2` defects are fixed on
-  it: every VS-O02/O04/OIJ01 value of BABA and MSTR that moved from `p1` to `r2` equals `p1`
-  again, and BABA's and TSM's earnings reason is NO_UPCOMING_EARNINGS_DATE. Full comparison with
-  `m4`: `.../2026-11-15-fix-round-d/day-m5-vs-m4.md` (22 explained, 9 to check, 2 unexplained).
-  **Two findings, being root-caused and fixed on `pass-fx9` (`/home/diggz/wt/fx9`, D-238..239):**
-  XLB's VS-OIJ01 is an ENGINE_FAULT body (`source oij01_history ... No such file or directory`;
-  XLB only, not under `m4`'s build); DBA and UUP's four five-session-change sensors are
-  PROVIDER_INPUT_MISSING because no macro capture exists for T-5 (2025-12-03) and the plan asks
-  for T's only (D-154 amended), which a build day would also hit. **Root-caused and fixed
-  02:00 UTC, `pass-fx9` b1cd1c2d and d83c3a8d (pushed; suite 02:12 UTC: 1,201 passed, 10 failed, known; release
-  build done):** the XLB fault
-  is a startup race, not data: a history export connected to its worker between `bind` and
-  `listen` (`Connection refused`; 1 failure in the 1,780 exports of the seven runs kept there);
-  the socket name now exists only once the worker accepts (D-238), and a failed view build's
-  fault names its file and cause. The plan now requires, and the fill captures, the macro
-  capture of T-5 (D-239; 38 requests a capture, 190 a block). **`pass-fx9` is the final
-  candidate**; `m6` is running `pass-fx8`, which still has both. Neither fix has run on a real
-  day. Noticed, not changed: a transient export failure is not retried and the day publishes
-  with the fault; XLB's unusualness drops the faulted sensor's roles instead of stating them
-  absent. Rule from now: a day is clean
-  only if its summary says `faulted_engine` 0, not if the log lacks the word.
-- **`m6` (192.241.147.166, `pass-fx8` 99d79488) started 2026-11-16 01:30 UTC**
-  (terms, rebind, day; inputs ready and plan accepted 02:56 UTC; due about 06:00 UTC). After it that droplet has about 44 GB free, under
-  the guard's 60. `r3` (137.184.61.134) refused by the disk guard (45 GB free, 60 needed). So
-  after `m6` neither droplet can run a day until old run directories are deleted.
-- Next: deploy `pass-fx8` to both test droplets when `m5` ends and test-1 has disk; a clean day, a
-  membership day, an early date; regenerate the AAPL tape-cache fixture from a droplet's raw tape.
-- Before that day, check on a droplet: whether captured dividend adjustment records carry
-  `split_ratio` (D-206), and how many root-days state no exercise style (D-199).
+**Ready for 2.5, nothing pushed or deployed:** `vyreon-worker:d55f6439` (build identity
+`d55f6439+62fb506e43f3`; inventory `~/claude-artifacts/cluster-scratch/inventory-d55f6439.json`)
+and `vyreon-core:f491ea9`, built on the laptop. The trial's scratch (kubeconfig, job manifests,
+`do.sh`, token files) is in `~/claude-artifacts/cluster-scratch/` (mode 700); the kubeconfig
+works (node `core-3aju5s`, `vyreon-pg-1`, no `day` pool). Before scheduling: republishing
+2025-12-10 re-queues the 12-11 ordered pass under build `0ca127ea` (cancel it); tape history is
+the earliest TAPE job not cancelled and a DONE one cannot be cancelled (`work.rs`).
 
-**Audit rounds** (Codex, read-only; tool in `tools/audit/`; under `~/claude-artifacts/audits/`):
-- a, `pass-fx-all` and `pass-core-fix`: `2026-11-15-fix-round-a/triage/SUMMARY.md` (and
-  `data-scans.md`: the archive scan on test-2 found no latent condition).
-- b, the follow-ups: `2026-11-15-fix-round-b/triage/`; nothing above the line.
-- c, batch 3: `2026-11-15-fix-round-c/triage/SUMMARY.md`. d, batches 4 and 5:
-  `2026-11-15-fix-round-d/triage/`. e, batch 6: `2026-11-15-fix-round-e/triage/SUMMARY.md`.
-- f, fix 7: `2026-11-15-fix-round-f/counts.md` (three findings, all fixed in `pass-fx8`). g, those
-  three changes: `2026-11-15-fix-round-g/scoring.md`: no defect in them (2026-11-16 00:30 UTC).
-- h, fix 9 (`pass-fx9`): `2026-11-15-fix-round-h/triage/startup.md` (2026-11-16 03:25 UTC). The
-  socket race is closed; nothing above the line; 5 real below it (listed below), 2 by decision.
-  Owner 2026-11-16 03:40 UTC: fix all of them, and always fix every verified audit finding. Fix 10
-  started on `pass-fx10` (in the `fx9` worktree): the five, plus round g's FND02 double scoring.
-  `pass-fx10` becomes the candidate when it lands; then its audit and the real days.
-  **Fix 10 landed 04:17 UTC: `pass-fx10` 37d18b51 (pushed), D-240..D-245, DLM-UNUSUALNESS@1.6.0.
-  This is the candidate.** Release build and its audit (round i) started; the full suite follows.
-  On an ordinary day: the unusualness label and one sentence of its definition, and for the 17
-  companies the FND02 as-reported roles go (never scored there, unconditionally: the agent's
-  choice, as for `VS-P01/raw_r1`). Left: a faulted reading with no value in its 63-session window
-  is still not stated; FND02's standardized roles equal FND01's on 72 of 81 pairs and both score.
-  **`x1` (137.184.61.134, `pass-fx10` 37d18b51, clean 2025-12-10, terms + rebind + day) started
-  04:24 UTC**, the candidate's first real day; compare with `m5`/`m6` (dumps under the earlier
-  session's scratchpad `7c0b3d3b-.../scratchpad/golden`). Full suite running on the laptop.
-  Suite on 37d18b51, 04:30 UTC: 1,207 passed, 10 failed (the known eight `option_field`, two
-  tape-cache). **Round i (audit of fix 10), 04:31 UTC: `2026-11-15-fix-round-i/batch10.md`:
-  nothing above the line; two small findings** (D-244 misses a derived parent withheld for a
-  dependency's fault; a misspelt gate string reads as a provider absence), being fixed on
-  `pass-fx10` with no byte change on an ordinary day, so `x1` stays valid; later days run the
-  patched commit. **Both fixed 04:37 UTC: `pass-fx10` 8a40183e (pushed; D-244 and D-240 amended;
-  no ordinary-day byte change, label stays 1.6.0); release build running.** The merged audit of
-  2e covers these two commits.
-  **`x1` was refused by its plan (04:46 UTC): `macro 2025-12-03 Missing`** (D-239 doing its job:
-  the test droplets' homes had no T-5 macro capture, and they hold no provider key, so no fill).
-  The capture was made on the laptop with the candidate's `capture_source` (38 requests) and
-  copied to both droplets' `h5-macro/2025-12-03`. **`x2` (137.184.61.134, `pass-fx10` 8a40183e,
-  clean 2025-12-10) started 04:50 UTC, plan ok.** It started 2 minutes before that capture's
-  snapshot cutoff (04:52:17Z); only the T-5 surface's FEDFUNDS reads it. For an early date or
-  any day whose T-5 macro is absent on a test droplet: capture it the same way first.
-  **2e started early (04:55 UTC): `pass-fx10` is being merged into `pass-s3i` (`/home/diggz/wt/s3i`),
-  three conflicted files (`act01_auto_source.rs`, `act01_job.rs`, `views.rs`).** `pass-s3i` has 25
-  commits the candidate lacks (D-162, D-163, D-167, D-169: cohort across a split or rename,
-  scoring on T's split basis), which change 2025-12-10 for XLU (2-for-1 on 2025-12-05). So the
-  days on `pass-fx10` alone are not the last word: the second droplet's day runs the merged
-  branch, compared with `x2`.
-  **Merged 05:04 UTC: `pass-s3i` 7409bb1a = `pass-fx10` 8a40183e + D-162 (pushed); release build running
-  (`/home/diggz/wt/target-s3i`).** The two branches had each built the cohort across a ticker
-  change; `pass-s3i`'s mechanism runs (the certificate carries the root the chain was requested
-  under, T's chain must list every translated code, EXQ01 covered); `pass-fx10`'s `option_root`
-  is dropped, its reader tolerance kept (my call; merge note under the amendment to D-167; D-236
-  leaves no cohort on Meta's 2022-06-09 change either way). Against `pass-fx10` on 2025-12-10:
-  XLB, XLE, XLK, XLU and XLY (2-for-1 on 2025-12-05) leave the NONE route for a translated
-  cohort (SAI-ACT01, its intraday, INT-ACT-TV15 measured); every task key changes once; the feed
-  check pools five more cohorts. **Two h3-asset tests fail** (`t_chain_admits_only_a_cohort_it_lists`,
-  `a_translated_cohort_is_admitted_by_its_bound_t_chain_only`): the frozen `etha-first-chain`
-  fixture predates `exercise_style` (D-199); re-freeze it from a droplet with the AAPL fixture.
-  **Round j (audit of the merge), triaged 05:26 UTC: `2026-11-16-merge-round-j/triage/merge.md`.**
-  One finding at the cut line: after a split, an unselected T-5 contract can translate to a
-  cohort contract's code (strike halves rounded to the cent) and the two T-vs-T-5 readings would
-  compare different sets. Not present on the real 2025-12-05 splits (7,764 contracts of XLB, XLE,
-  XLK, XLU, XLY on 2025-12-03: no odd-cent strike, no colliding pair); the guard (refuse the
-  cohort) is being written. Below the line, also being fixed on `pass-s3i`: plan roots bound
-  exactly; a stale translated view is that asset's fault, not the day's stop; a translation
-  refusal's true reason published. No ordinary-day byte may change.
-  **Round j fixed 05:35 UTC: `pass-s3i` b6bdc1ec (pushed): D-246 (the collision guard, at acquisition,
-  rebind, verify and admission), D-167 amended (exact plan codes), D-247 (a stale translated view
-  is the asset's fault). No ordinary-day byte change. Its audit (round k) and release build
-  running.** Left: a translation refusal still publishes NO_GOVERNED_COHORT_CERTIFICATE (a new
-  published reason needs a body form in five owners and a cause class; only an empty T chain
-  fits an existing code); a resumed worker's existing stale view is not set aside and reselected.
-  **Round k (audit of the round j fixes), 05:44 UTC: `2026-11-16-merge-round-k/guard.md`: nothing
-  above the line by my reading; this ends the pre-build audit rounds on the engine.** Its three
-  "wrong number" claims each need the collision (seen in no real chain) and, on top of it, a
-  damaged or missing T-5 row for the colliding contract. Being hardened anyway (the guard reads
-  strike and expiry from the OSI code; an inconsistent row refuses the cohort), with the two
-  retained-view labels if narrow. No further gating audit; the real day on the result is the gate.
-  **Round k fixed 05:50 UTC: `pass-s3i` d55f6439 (pushed) is the build candidate** (D-246 and D-247
-  amended: the guard reads the OSI code, refuses on a contradicting or uncoded row of a cohort
-  series; a contradicting saved view faults before the NONE returns). Release build and full
-  suite running. Left: a retained view's collision reads ENGINE_FAULT until `--rebind`. **To
-  watch on its real day: XLB, XLE, XLK, XLU, XLY must get their translated cohorts; a refusal
-  there would mean the new row reader rejects real chain rows.**
-  **`m6` (`pass-fx8`) finished clean 05:55 UTC:** both summaries COMPLETE, `faulted_engine` 0,
-  0 `Connection refused`; 8 slots withheld for the T-5 macro capture (DBA, UUP; fixed since by
-  D-239 and the capture). Against `m5`: 128 slots differ, all explained: the Greek exposure and
-  unusualness labels (63 each), EMB's ACT01-INTRADAY summary arrays (D-237), XLB's VS-OIJ01 back
-  from its fault. **First real cover numbers (D-228 amended): BABA's Greek exposure covers 0.679
-  of its open interest (617 unresolved rows: BABA1 and BABA2), UNG 0.991, the other 61 as
-  before (median 0.996).** Dumps kept in `~/claude-artifacts/testbed-dumps/` (p1, r2, m4, m5, m6).
-  **`y1` (192.241.147.166, `pass-s3i` d55f6439, clean 2025-12-10, terms + rebind + day) started
-  05:56 UTC.** The test droplets hold no provider key, so the five split assets cannot acquire
-  their translated cohorts there (expect them withheld; the real proof of D-162 is the cluster's
-  split day); `y1` shows whether the merge left the other 59 equal to `x2`.
-  Suite on `pass-s3i` d55f6439, 06:02 UTC: 1,221 passed, 12 failed: the known ten and the two
-  `etha-first-chain` fixture tests. `worker` is an ancestor of `pass-s3i` (a fast-forward).
-  **`y1` was refused by its plan (06:03 UTC): the five split assets had no cohort** (they need a
-  provider fetch; the droplet has no key). `vyreon-inputs fill --category act01 2025-12-10` was
-  run there with the key passed on stdin for that one command (nothing stored; about 600
-  requests): **all five got a translated cohort** (`split_translation` in each `source-view.json`,
-  no `no-selection.json`), so the D-246 guard refuses nothing on the real 2025-12-03 chains.
-  **`y2` (192.241.147.166, `pass-s3i` d55f6439, 2025-12-10) started 06:10 UTC, plan ok.** That
-  home has ETHA unlisted (the membership state of `m4`), so `y2` is the membership day; compare
-  with `m6` (same home, `pass-fx8`) and `x2`.
-  **Step 2.5 preparation:** the runbook is `~/claude-artifacts/cluster-verification-runbook.md`
-  (draft, by an agent from the repos and the trial's record; commands marked recorded or
-  inferred). The trial's scratch (kubeconfig, job manifests, `do.sh`, token files) was found in
-  an old session's scratchpad and copied to `~/claude-artifacts/cluster-scratch/` (mode 700);
-  the kubeconfig still works (06:11 UTC: node `core-3aju5s` Ready, `vyreon-core:6e15a27` and
-  `vyreon-pg-1` running, no `day` pool). Two hazards from the runbook to settle before
-  scheduling: a tape job for an old date moves `tape_history_from` (about 640 tape sessions
-  captured); republishing 2025-12-10 re-queues the 12-11 ordered pass under the old build.
-  **Core: `pass-core-fix` merged into `main` 06:30 UTC** (one conflict, the decisions file, kept in
-  number order; 8 unit and 40 database tests pass on PostgreSQL 16). Not deployed: the cluster
-  still runs `vyreon-core:6e15a27`. The worker image of `pass-s3i` d55f6439 is building on the
-  laptop (log in `~/claude-artifacts/cluster-scratch/`). Engine to `worker` (a fast-forward) waits
-  for `x2` and `y2`.
-  **Ready for 2.5 (06:36 UTC), nothing pushed or deployed:** images built on the laptop,
-  `vyreon-worker:d55f6439` (build identity `d55f6439+62fb506e43f3`, inventory in
-  `~/claude-artifacts/cluster-scratch/inventory-d55f6439.json`) and `vyreon-core:f491ea9`.
-  **Plan for 2.5 (mine, from the code):** the claim's tape history starts at the earliest TAPE
-  job that is not cancelled, and a DONE job cannot be cancelled (`work.rs` `cancel`), so on this
-  database it is 2025-12-10 and only moves earlier. Order, each older tape job scheduled only
-  after the later days have been claimed: 2025-12-10; 2025-04-11; 2024-07-16 (AVGO's 10-for-1,
-  ex 07-15, and before ETHA: items 3 and 5 in one day); the block 2022-06-06..06-15 (before
-  tapes: no tape job). **Item 6, the newest two weeks, needs every tape session from 2025-12-10
-  to today (about 232, some 27 node-hours): that is the first quarter of the build's own tape
-  phase, so it waits for the owner** (the build is the owner's to size).
-  **`x2` (`pass-fx10` 8a40183e, 137.184.61.134) finished clean 08:01 UTC:** both summaries
-  COMPLETE, 512 of 512 and 2,688 of 2,688, `faulted_engine` 0, no `Connection refused`, 4,679
-  slots. Against `m6` (`pass-fx8`, the home without ETHA): 83 slots differ, all explained: 12
-  FIELD.CORE64 slots (64 members against 63), 63 DLM-UNUSUALNESS (label 1.6.0; BABA's
-  `scored_count` 238 to 233, the five FND02 copies), and the eight DBA and UUP slots
-  (INT-IVSC01, M0-GAMMA-CHANGE, M0-IV-CHANGE, VS-V03-MATCHED-NATIVE) that lose
-  PROVIDER_INPUT_MISSING: **D-239 and the socket fix D-238 have now run a real day.** Dump `x2`.
-  **`x3` (137.184.61.134, `pass-s3i` d55f6439, all 64 listed) started 08:08 UTC** after the same
-  act01 fetch (five translated cohorts, none refused); it is the merged candidate's
-  full-membership day, to compare with `x2` (expect the five split assets' ACT01 family and one
-  change of every task key) and with `y2` across machines.
-  **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
-  build; its audit sends us round again only for a finding above the line. The gate left is the
-  real days on `pass-fx10`.
+**Audit rounds** (Codex, read-only; `tools/audit/`; reports under `~/claude-artifacts/audits/`):
+a to g `2026-11-15-fix-round-{a..g}`; h (fix 9) and i (fix 10) `-round-h`, `-round-i`; j (the
+merge) and k (its fixes) `2026-11-16-merge-round-{j,k}`. Nothing above the line since round j's
+collision finding (D-246). The pre-build rounds on the engine ended with k.
 
-**Branches and worktrees** (`/home/diggz/wt/<name>`; cargo target deleted when a branch is merged):
-- Merged batches, oldest first, pushed: `pass-fx-all` e9cce438 (`fx-all`), `pass-fx2-all` db15396f
-  (`fx2-all`), `pass-fx3-all` a58bced0 (`fx3-all`), `pass-fx4-all` abf1ae22, `pass-fx5-all` 497c1608
-  (`fx5-all`), `pass-fx6-all` 5afdde54 (`fx6-all`), `pass-fx7-all` 703bade8 (`fx7-all`), `pass-fx8`
-  99d79488 (`fx8`). Parts: `fx3-a`, `fx3-b`, `fx4-a`, `fx4-b`, `fx5-curve`, `fx5-pull`, `fx5-greek`,
-  `fx6-a`, `fx6-b`, `fx7-counts`.
-- `pass` d028637a and `pass-s3i` 286f5c68 (plus D-162, cluster only), pushed. Core: `pass-core`,
-  `pass-core-fix`. Engine `worker` checkout: `/home/diggz/vyreon-engine-worker`.
+**Branches and worktrees** (`/home/diggz/wt/<name>`): candidate `s3i`; `fx9` (branch
+`pass-fx10`); the merged batches `pass-fx-all` to `pass-fx8` and their parts are pushed and their
+worktrees can go (preview and ask: about 40 worktrees). Core: `main`; `/home/diggz/wt/fx-core`.
+Engine `worker` checkout: `/home/diggz/vyreon-engine-worker`.
 
 ## Decisions waiting on the owner
 - None open.
@@ -269,14 +95,14 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   hand-off for Opus all the same, so the owner can swap when back.
 
 ## Listed, not fixed
-- CDD-FND02's `*.as_reported` repeats five CDD-FND01 readings when the standardized and reported
-  fiscal periods coincide, and both score (AAPL 2025-12-10: `scored_count` five too high, z
-  withheld): a conditional mirror; unusualness republishes in seconds a day (round g).
-- Round h (fix 9 audit), being fixed on `pass-fx10`: the surface stage's FEDFUNDS reader ignores the
-  capture's `metadata_gate` and keeps the first of two differing values for a month (DBA and UUP
-  only; no real capture has shown either); a stale worker socket after a kill plus PID reuse stops
-  a run; a faulted T-5 surface is cached on a persistent home (stateless workers unaffected); an
-  export fault's unusualness roles are dropped, not stated (the XLB case, D-238).
+- From rounds i to k: a faulted reading with no value in its 63-session window is not stated in
+  unusualness; FND02's standardized roles equal FND01's on 72 of 81 pairs and both score; a
+  translation refusal publishes NO_GOVERNED_COHORT_CERTIFICATE, not its cause (a new published
+  reason: five owners and a cause class); a retained view's collision reads ENGINE_FAULT until
+  `--rebind`; a resumed worker's stale view is not reselected; the collision guard sees only
+  T-5's delivered chain. The guard's refusal has run on no real chain (none collides).
+- INDPRO's macro capture states WITHHELD_WRONG_UNIT on the 2025-12-03 capture (seen 2026-11-16;
+  not looked into: whether T's does too and what reads it).
 - Style items 3 to 7 (round a triage directory). Findings for after the build (round e summary).
 - Overlay 3, 5, 6, 7; a corrected official daily volume between two workers' tape captures; a
   missing macro capture's containment (design choices; round d triage).
@@ -321,10 +147,10 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   `/root/vyreon-engine-worker` and `/root/worker-proof` (57 GB) are still on it.
 - **Test droplets** (8 vCPU, $0.167/h each, $112 a month; no timers, key or webhook; each holds
   the 2025-12-10 archive and a scratch store). By their DigitalOcean names (checked 2026-11-16):
-  `vyreon-test-1` is 192.241.147.166 (runs `g3`, `j1`, `u1`, `m3`, `m4`, `m5`); `vyreon-test-2` is
-  137.184.61.134 (runs `p1`, `r1`, `r2`, `r3` and older; 45 GB free). **The 2026-11-15 entries of
+  `vyreon-test-1` is 192.241.147.166 (keeps `m4`, `m5`, `m6`, `y2`); `vyreon-test-2` is
+  137.184.61.134 (keeps `p1`, `r2`, `x2`, `x3`). **The 2026-11-15 entries of
   the old file and the audit notes call 137.184.61.134 "test-1" and 192.241.147.166 "test-2":
-  go by the address.** Both carry build `497c1608+55b96cfbd3ee`. No third test droplet exists.
+  go by the address.** Both carry `pass-s3i` d55f6439. No third test droplet exists.
 - **Kubernetes cluster `vyreon`** (nyc1, created 2026-11-11): pool `core`, 1 x `s-4vcpu-8gb-amd`
   ($0.083/h), with CloudNativePG, a 60 GB database volume and core. Pool `day` was deleted
   2026-11-13 00:35 UTC; "the core node stays". Registry `vyreon` (Basic, nyc3, $5 a month) holds
@@ -355,7 +181,7 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   the q = 0 default measured (35 of 23,104 asset-sessions).
 
 ## Not yet proven
-- `pass-fx8` on any real day (`m6` running); batches 6 to 8 on a finished day (3 to 5: `m5`).
+- The merged candidate on a finished day (`y2`, `x3` running); the split cohort's readings.
 - An early date: before the tapes (2023-05-24), option intervals (2022-12-08) or trade counts
   (2024-11-26); a real pre-listing day (the fill skipping an unlisted asset).
 - D-165 and D-167 on a rename date; D-162; D-166 on a post-listing date; a day after a 10-for-1
