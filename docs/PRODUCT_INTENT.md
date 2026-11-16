@@ -137,7 +137,8 @@ products.
 
 Presentation decisions (owner, 2026-09-29):
 - Free per-asset reports are **web-first** (HTML on the public site) with a PDF
-  download; paid synthesis is delivered **as a PDF**.
+  download; paid synthesis is delivered **as a PDF**, or as a weekly email issue
+  through beehiiv, which serves the same purpose (owner, 2026-11-16).
 - Audience is **retail investors**: explain everything in plain language
   (expandable where long), built from market-research
   `public-sensor-documentation` and keeping its stated limits.
@@ -302,6 +303,19 @@ Enterprise upgrade) plus the AI subscriptions that build it (~USD 400/month),
 with margin. At those costs 100 payers leave roughly USD 500–750/month: upside,
 not an income (Codex economics, `commercial-research/2026-10-05/13_*` §6). The Enterprise upgrade itself is a data-driven decision at that point.
 No unrealistic growth assumptions; the kill criteria in MILESTONES.md still bind.
+Same targets, current assumptions (owner, 2026-11-16):
+- **Price:** try USD 49 a month (four weekly issues) if the paid reports support
+  it. USD 29 was a felt price, not a measured one; the first real paid issues
+  decide.
+- **Running cost:** Intrinio Startup is USD 333 a month for four months, USD 666
+  for four, then USD 999 for four, so about USD 550–800 a month all in at first.
+  Conservative steady state, rounded up: about USD 1,500 a month (DigitalOcean
+  about USD 250, Intrinio up to about USD 1,250 with the Enterprise upgrade,
+  which adds indices and more content and is taken once profitable). Ads
+  (USD 0–500 a month) are meant to pay for themselves.
+- **Revenue:** about USD 2,000 a month and the business floats; about USD 5,000 a
+  month (about 100 subscribers at USD 49) and it is a full-time job covering
+  living expenses.
 Scale rule (owner, 2026-10-04): the goal is eventually the full optionable
 market, but the 64-security system must be profitable first. Additions are
 chosen by reader demand (coverage requests from signups and pilot
