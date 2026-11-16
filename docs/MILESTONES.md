@@ -221,6 +221,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   absence; own-capture faults name themselves in beta and correlation; EVC01's identity
   includes prior pages' official volume (EVC01 @5). Agent's suite: 1,210 passed, 8 failed
   (`option_field`). **Check at the merge: the count is below the 1,306 of a91557b8.**
+- **19:41 UTC: batch 13-O landed (`pass-fx13-options` 61b31725, pushed, D-313..316; suite 1,308 passed,
+  8 failed).** On an ex-date or outage day M0-GAMMA withholds every figure PROVIDER_OI_INCOMPLETE
+  (was a supported 0) and DLM-GAMMA-EXPOSURE carries that cause (`M0-GAMMA@1.1.0`); a strike
+  reduction with an extra lower strike is detected; a refused snapshot behind an ex-date withholds
+  only its asset; D-290's text corrected. Open rule (mine to decide by the standard, at the
+  merge): an old strike relisted on the adjustment day itself, unquoted with no open interest, is
+  a new standard series and does not count against "replaced" (OCC adjusts the old series;
+  exchanges list new standard strikes alongside).
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
