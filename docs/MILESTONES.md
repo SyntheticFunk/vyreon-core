@@ -115,7 +115,7 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   Owner 2026-11-16 03:40 UTC: fix all of them, and always fix every verified audit finding. Fix 10
   started on `pass-fx10` (in the `fx9` worktree): the five, plus round g's FND02 double scoring.
   `pass-fx10` becomes the candidate when it lands; then its audit and the real days.
-  **Fix 10 landed 04:45 UTC: `pass-fx10` 37d18b51 (pushed), D-240..D-245, DLM-UNUSUALNESS@1.6.0.
+  **Fix 10 landed 04:17 UTC: `pass-fx10` 37d18b51 (pushed), D-240..D-245, DLM-UNUSUALNESS@1.6.0.
   This is the candidate.** Release build and its audit (round i) started; the full suite follows.
   On an ordinary day: the unusualness label and one sentence of its definition, and for the 17
   companies the FND02 as-reported roles go (never scored there, unconditionally: the agent's
