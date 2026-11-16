@@ -68,9 +68,16 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   membership day holds and the two machines agree.
 
 **Running or waiting:**
-- `m5` (192.241.147.166, `pass-fx5-all` 497c1608, ETHA unlisted) running since 2026-11-15 21:35
-  UTC; in its history stage at 23:53. `r3` (137.184.61.134) refused by the disk guard (45 GB
-  free, 60 needed).
+- **`m5` (192.241.147.166, `pass-fx5-all` 497c1608, ETHA unlisted) finished 2026-11-16 01:28 UTC,
+  exit 0, no faults, 4,608 slots, no state change against `m4`.** Both `r2` defects are fixed on
+  it: every VS-O02/O04/OIJ01 value of BABA and MSTR that moved from `p1` to `r2` equals `p1`
+  again, and BABA's and TSM's earnings reason is NO_UPCOMING_EARNINGS_DATE. Full comparison with
+  `m4` being written (`.../2026-11-15-fix-round-d/day-m5-vs-m4.md`; to explain: XLB's unusualness
+  `scored_count` 194 to 187).
+- **`m6` (192.241.147.166, the final candidate `pass-fx8` 99d79488) started 2026-11-16 01:30 UTC**
+  (terms, rebind, day; due about 05:30 UTC). After it that droplet has about 44 GB free, under
+  the guard's 60. `r3` (137.184.61.134) refused by the disk guard (45 GB free, 60 needed). So
+  after `m6` neither droplet can run a day until old run directories are deleted.
 - Next: deploy `pass-fx8` to both test droplets when `m5` ends and test-1 has disk; a clean day, a
   membership day, an early date; regenerate the AAPL tape-cache fixture from a droplet's raw tape.
 - Before that day, check on a droplet: whether captured dividend adjustment records carry
@@ -97,7 +104,8 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
 ## Decisions waiting on the owner
 - Delete ten old run directories on 137.184.61.134 (`vyreon-test-2`) to free about 142 GB: `a3`,
   `a4`, `d1`, `i1`, `l1`, `s1` and the empty `k1`, `q1`, `r1`, `r3`; keep `p1` and `r2`. Asked
-  2026-11-15.
+  2026-11-15. Also on 192.241.147.166 (`vyreon-test-1`): `c1`, `g3`, `j1`, `m1b`, `m3`, `u1` (keep
+  `m4`, `m5`, `m6`); asked 2026-11-16.
 - D-236 withholds the whole ACT01 family on 2022-12-08..12-14, including readings that need only
   T's intervals: keep or narrow.
 - The production store's 2025-12-10 still carries 177 withheld activity slots; it needs the rebind
@@ -191,7 +199,7 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   the q = 0 default measured (35 of 23,104 asset-sessions).
 
 ## Not yet proven
-- `pass-fx8` on any real day; batches 3 to 8 on a finished day; the two `r2` fixes on a re-run.
+- `pass-fx8` on any real day (`m6` running); batches 6 to 8 on a finished day (3 to 5: `m5`).
 - An early date: before the tapes (2023-05-24), option intervals (2022-12-08) or trade counts
   (2024-11-26); a real pre-listing day (the fill skipping an unlisted asset).
 - D-165 and D-167 on a rename date; D-162; D-166 on a post-listing date; a day after a 10-for-1
