@@ -38,11 +38,18 @@ is in `docs/ARCHITECTURE.md`.
    ratio, bank not-applicable, refused snapshot rows, capture failures, the provider comparison
    classes), how often it fired, on which assets and dates, and every withheld state by reason;
    the rules are judged on that population, not on the one case that prompted each.
-5. **(4) Reporter on the phase 1 database.** First a proper paid report (none has been produced
+5. **(3.5) Examine the built database (owner, 2026-11-16).** Its own step, after phase 1 and
+   before Reporter: go through the rules and decisions against the built store and ask of each
+   whether it **generalises cleanly**: from the census (how often each rule fired, on what, and
+   what was published), which rules are doing real work, which over-fire, which never fired,
+   which rest on one case and should be retired or restated, and where a missing threshold
+   needs the population's evidence. Outcome: a short list of rule changes (each then a scoped
+   recalculation), and the rules that stand.
+6. **(4) Reporter on the phase 1 database.** First a proper paid report (none has been produced
    yet: it needed the database) beside the free one (all there, a lot of numbers); then **a
    significant body of iteration on the reports themselves** (owner, 2026-11-16) until free and
    paid are generated with confidence.
-6. **(5) The launch decision:** pay for Intrinio's Startup tier and integrate Reporter's output
+7. **(5) The launch decision:** pay for Intrinio's Startup tier and integrate Reporter's output
    into the website. After it, or when wanted: the deeper history (the old snapshot layouts are
    readable since D-251..D-254; the 2023-01-18..03-07 gap needs a ruling), the FIELD campaign.
 **End goal (owner, 2026-11-16): the whole system lives on DigitalOcean and runs by itself:**
