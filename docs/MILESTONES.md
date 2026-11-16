@@ -242,6 +242,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   preferred-dividend subtraction (no real case in the fixtures). **Next: the relisted-strike
   rule (mine, by OCC), round r (audit of batch 13), core merges, one image, the verification
   re-runs.**
+- **19:51 UTC: candidate `pass-s3i` 9f9cfea0 pushed after a full suite of 1,327 passed, 8 failed
+  (only `option_field`). Core main ad9f512 holds `core-captures` (C-043, migration 0016) and
+  `core-requeue` (C-046): 53 unit and database tests pass. Round r started: two Codex audits of
+  batch 13 (`2026-11-16-batch13-round-r/`: company, pipeline-options). The relisted-strike rule
+  (D-336) is being written in `/home/diggz/wt/fx15`.**
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
