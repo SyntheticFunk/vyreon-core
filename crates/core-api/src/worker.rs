@@ -4,6 +4,7 @@
 //!   POST /lease/heartbeat                                               -> {expires_at, paused}
 //!   POST /lease/finish                                                  -> {job_id}
 //!   POST /lease/fail                 {stage, message, log}              -> {requeued}
+//!   PUT  /evidence                   body: the attempt's failure evidence (application/gzip) -> {new} (C-049)
 //!   POST /days                       body: a day bundle                 -> what was published
 //!   PUT  /tape-caches/{session}/{asset}?method_version=V[&absence=WHY]  body: the packed cache -> {new}
 //!   POST /tape-caches/{session}/done[?method_version=V]                 the tape job's session is complete (under V; without
@@ -34,6 +35,14 @@
 //! `new: false`; the same identity with other bytes is refused; another identity of the same
 //! session and kind is kept as another version, with `captured_at` and the time core stored it.
 //!
+//! Failure evidence (C-049) is what a worker whose attempt failed or was refused leaves before it
+//! exits, sent before its `fail` (or after a lost lease): a gzip of one JSON line (`schema`
+//! `VYREON-JOB-EVIDENCE@1`, `stage`, `message`, `session`, `refusals`) and an excerpt of its logs
+//! after it, credentials removed by the worker. Any lease the token names, live or ended, may send
+//! it once; the same lease again is answered `new: false`. At most
+//! `core_db::evidence::MAX_DOCUMENT_BYTES` (413 above); a document in which a credential pattern
+//! survives is refused (422) and nothing is stored.
+//!
 //! Statuses: 401 no or wrong token; 410 the lease is gone (stop working); 422 the call or the
 //! bundle is wrong (a refused bundle also pauses the queue); 5xx core or the database failed.
 use crate::{ApiError, App, bearer, failed, refused};
@@ -46,6 +55,7 @@ use axum::{Json, Router};
 use core_contract::sha256_hex;
 use core_db::budget::{self, Grant};
 use core_db::capture;
+use core_db::evidence;
 use core_db::tape::{self, Cache};
 use core_db::work::{self, Held, Kind};
 use core_db::publish;
@@ -66,6 +76,7 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/lease/heartbeat", post(heartbeat))
         .route("/lease/finish", post(finish))
         .route("/lease/fail", post(fail))
+        .route("/evidence", put(evidence_put))
         .route("/days", post(publish_day))
         .route("/days/{session}/done", post(day_done))
         .route("/tape-caches/{session}", get(tape_get))
@@ -297,13 +308,13 @@ struct CaptureQuery {
 }
 
 /// Reads a request body into memory, refusing more than `limit` bytes (413).
-async fn read_limited(body: Body, limit: usize) -> Result<Vec<u8>, ApiError> {
+async fn read_limited(body: Body, limit: usize, what: &str) -> Result<Vec<u8>, ApiError> {
     let mut stream = body.into_data_stream();
     let mut out = Vec::new();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| ApiError(StatusCode::BAD_REQUEST, format!("upload: {e}")))?;
         if out.len() + chunk.len() > limit {
-            return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, format!("an input capture is at most {limit} bytes")));
+            return Err(ApiError(StatusCode::PAYLOAD_TOO_LARGE, format!("{what} is at most {limit} bytes")));
         }
         out.extend_from_slice(&chunk);
     }
@@ -312,12 +323,21 @@ async fn read_limited(body: Body, limit: usize) -> Result<Vec<u8>, ApiError> {
 
 async fn capture_put(State(app): Shared, headers: HeaderMap, Path((session, kind, identity)): Path<(String, String, String)>, Query(q): Query<CaptureQuery>, body: Body) -> Reply {
     let token = bearer(&headers)?.to_owned();
-    let archive = read_limited(body, capture::MAX_ARCHIVE_BYTES).await?;
+    let archive = read_limited(body, capture::MAX_ARCHIVE_BYTES, "an input capture").await?;
     // the archive is read to its end to check it (tens of MB unpacked): off the async threads
     let checked = tokio::task::spawn_blocking(move || capture::check(archive, &identity)).await.map_err(|e| failed(e.to_string()))?.map_err(refused)?;
     let mut client = app.db().await?;
     let new = capture::put(&mut client, &token, &session, &kind, &capture::Capture::Archive { checked, captured_at: q.captured_at }).await?;
     ok(json!({"new": new}))
+}
+
+async fn evidence_put(State(app): Shared, headers: HeaderMap, body: Body) -> Reply {
+    let token = bearer(&headers)?.to_owned();
+    let document = read_limited(body, evidence::MAX_DOCUMENT_BYTES, "a failure's evidence").await?;
+    // read to its end to check it (some MiB unpacked): off the async threads
+    let checked = tokio::task::spawn_blocking(move || evidence::check(document)).await.map_err(|e| failed(e.to_string()))?.map_err(refused)?;
+    let mut client = app.db().await?;
+    ok(json!({"new": evidence::put(&mut client, &token, &checked).await?}))
 }
 
 #[derive(Deserialize)]
