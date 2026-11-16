@@ -222,6 +222,18 @@ the cluster still runs `vyreon-core:6e15a27`.
   input, so one asset's refused rows stop the day for all** (the fix must also say what a day on
   or around a session with no snapshot at all does: the 2023-01-18..03-07 gap); a lone part
   file numbered 1 is admitted. The two runs under 518faf7e go on meanwhile.
+- **Regression caught by the cluster, 13:07 UTC:** under 518faf7e the tape job of 2024-07-16
+  (job 52) failed twice at `ETHA daily bars` (ETHA first trades 2024-07-23; the same job passed
+  under d55f6439 with 63 members). Cause to confirm: round l's ed66a433 writes the claim's
+  universe in `run_tape` and the listing decision changes. The first fix agent is repairing it.
+  Job 52 cancelled (core holds that session's 63 tape caches from the old build's tape job);
+  `run-day2.sh 0716c` started 13:16 UTC for the day (job 53). The 2022 block (`v-day-2206e`, job
+  55) is downloading. Round m's three fixes are on `pass-s3i` 7977a40c (pushed, D-254: a
+  security whose snapshot rows are refused is that security's missing options input; not in
+  the running image). **A session with no snapshot at all still refuses its own day, and days
+  within about 200 sessions after it run with every asset's option-history readers withheld:
+  the 2023-01-18..03-07 gap is not crossable with option readings; whether such a session ends
+  the option history like a coverage terminal (D-166) is the owner's call.**
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
@@ -259,6 +271,9 @@ worktrees can go (preview and ask: about 40 worktrees). Core: `main`; `/home/dig
 Engine `worker` checkout: `/home/diggz/vyreon-engine-worker`.
 
 ## Decisions waiting on the owner
+- **The snapshot gap of about 2023-01-18 to 2023-03-07** (the provider lists nothing): treat it
+  as a coverage terminal for option history (D-166 style: stated absence, histories restart
+  after it), or keep refusing those days? Asked 2026-11-16; bears on the build start below.
 - **Build start:** the option snapshots before 2024-05-20 need a reader the engine lacks (being
   written). Keep 2022-05-27, or start at 2024-05-20 and add the rest later? Asked 2026-11-16.
 - **Delete the two test droplets** (137.184.61.134, 192.241.147.166; $0.334 an hour together)
