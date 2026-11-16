@@ -170,6 +170,12 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   running.** Left: a translation refusal still publishes NO_GOVERNED_COHORT_CERTIFICATE (a new
   published reason needs a body form in five owners and a cause class; only an empty T chain
   fits an existing code); a resumed worker's existing stale view is not set aside and reselected.
+  **Round k (audit of the round j fixes), 05:44 UTC: `2026-11-16-merge-round-k/guard.md`: nothing
+  above the line by my reading; this ends the pre-build audit rounds on the engine.** Its three
+  "wrong number" claims each need the collision (seen in no real chain) and, on top of it, a
+  damaged or missing T-5 row for the colliding contract. Being hardened anyway (the guard reads
+  strike and expiry from the OSI code; an inconsistent row refuses the cohort), with the two
+  retained-view labels if narrow. No further gating audit; the real day on the result is the gate.
   **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
   build; its audit sends us round again only for a finding above the line. The gate left is the
   real days on `pass-fx10`.
