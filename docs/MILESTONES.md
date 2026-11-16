@@ -112,7 +112,9 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   three changes: `2026-11-15-fix-round-g/scoring.md`: no defect in them (2026-11-16 00:30 UTC).
 - h, fix 9 (`pass-fx9`): `2026-11-15-fix-round-h/triage/startup.md` (2026-11-16 03:25 UTC). The
   socket race is closed; nothing above the line; 5 real below it (listed below), 2 by decision.
-  Triage with the owner.
+  Owner 2026-11-16 03:40 UTC: fix all of them, and always fix every verified audit finding. Fix 10
+  started on `pass-fx10` (in the `fx9` worktree): the five, plus round g's FND02 double scoring.
+  `pass-fx10` becomes the candidate when it lands; then its audit and the real days.
 
 **Branches and worktrees** (`/home/diggz/wt/<name>`; cargo target deleted when a branch is merged):
 - Merged batches, oldest first, pushed: `pass-fx-all` e9cce438 (`fx-all`), `pass-fx2-all` db15396f
@@ -143,7 +145,7 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
 - CDD-FND02's `*.as_reported` repeats five CDD-FND01 readings when the standardized and reported
   fiscal periods coincide, and both score (AAPL 2025-12-10: `scored_count` five too high, z
   withheld): a conditional mirror; unusualness republishes in seconds a day (round g).
-- Round h (fix 9 audit), none fixed yet: the surface stage's FEDFUNDS reader ignores the
+- Round h (fix 9 audit), being fixed on `pass-fx10`: the surface stage's FEDFUNDS reader ignores the
   capture's `metadata_gate` and keeps the first of two differing values for a month (DBA and UUP
   only; no real capture has shown either); a stale worker socket after a kill plus PID reuse stops
   a run; a faulted T-5 surface is cached on a persistent home (stateless workers unaffected); an
