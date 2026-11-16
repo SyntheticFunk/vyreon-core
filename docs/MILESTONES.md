@@ -69,7 +69,7 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
 
 **Running or waiting:**
 - **`m5` (192.241.147.166, `pass-fx5-all` 497c1608, ETHA unlisted) finished 2026-11-16 01:28 UTC,
-  exit 0, 4,608 slots, no slot state change against `m4`; **one engine fault** (corrected 02:00
+  exit 0, 4,608 slots, no slot state change against `m4`; **one engine fault** (corrected 01:49
   UTC: my check grepped the day's log, which never prints it; the run's own summary
   `h4-day-summary-*.json` says COMPLETE_WITH_FAULTS, `faulted_engine` 1; `r2` and `m4` do say 0).** Both `r2` defects are fixed on
   it: every VS-O02/O04/OIJ01 value of BABA and MSTR that moved from `p1` to `r2` equals `p1`
