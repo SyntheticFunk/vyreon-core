@@ -38,11 +38,12 @@ is in `docs/ARCHITECTURE.md`.
    ratio, bank not-applicable, refused snapshot rows, capture failures, the provider comparison
    classes), how often it fired, on which assets and dates, and every withheld state by reason;
    the rules are judged on that population, not on the one case that prompted each.
-   **Owner, 2026-11-16: expect at least one full rebuild of phase 1.** A rule will likely fail to
-   generalise; rather than recompute sensor by sensor, the first phase-1 build is treated as the
-   experiment that gives the rules enough data, and the database is built again after step 5's
-   changes. Cost roughly doubles phase 1's node time: bring it with the sizing (it passes the
-   $300 ceiling).
+   **Owner, 2026-11-16: expect that a rule will fail to generalise, and choose the remedy from what
+   the build shows:** if one sensor is affected, a single-sensor rebuild (the owner's planned
+   route); if many, a full rebuild of phase 1. The two-week sample is the main place to catch and
+   fix issues before committing to the full build. Not a fixed plan: decided once the evidence is
+   in. A full second pass roughly doubles phase 1's node time (past the $300 ceiling): raise it
+   then if needed.
 5. **(3.5) Examine the built database (owner, 2026-11-16).** Done twice: **a first pass after the
    two-week sample** (thin: about ten sessions, so it can show a rule that misfires or never
    fires on ordinary days, not how one generalises; anything it changes is fixed before going
