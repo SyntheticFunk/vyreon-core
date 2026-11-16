@@ -272,6 +272,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   temporary equity (5.79 billion), its income statement carries preferred dividends and a
   to-common line, and a later restated version (filed 2026-11-02) is excluded by the existing
   as-of guard (seen in the real dump). Fix batch 14 started (`/home/diggz/wt/fx16`, D-337..346).
+- **20:43 UTC: 2024-07-16 refused again under build 518faf7e** (second attempt, 3 h 53 min): the
+  quote step's requote exited 1 (Fatal) after reading the middle-layout snapshots, leaving 111
+  sources unrequoted and 58 assets' option histories unreadable; four provider HTTP 502s on old
+  captures were retryable and separate. **The exact requote error was lost: my watcher cut each
+  log line at 500 characters** (now 6,000 for the next run). Likely cause, not proven: the
+  reader of 518faf7e passes timestamps the overlay then rejects, which D-293 (now on the
+  candidate) fixes, with D-254's per-security containment. Jobs 53 and 54 cancelled; the idle
+  node deleted (pool `day`: 1 node, the June 2022 block). Re-run on the final image.
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
