@@ -32,6 +32,12 @@ is in `docs/ARCHITECTURE.md`.
    failure-surface audits, **the small restatable captures (company, macro, carry: about 4 MB a
    day gzipped) kept through core's write-once path (owner, 2026-11-16: do it before phase 1)**,
    the database volume grown (approved), one final image from one commit, everything audited.
+   After each tranche, **a census of the built store (owner, 2026-11-16: the database must hold
+   enough data points to judge the event rules):** per event rule written before the build
+   (first chain, strike adjustment, open-interest outage, split and rename translation, receipt
+   ratio, bank not-applicable, refused snapshot rows, capture failures, the provider comparison
+   classes), how often it fired, on which assets and dates, and every withheld state by reason;
+   the rules are judged on that population, not on the one case that prompted each.
 5. **(4) Reporter on the phase 1 database.** First a proper paid report (none has been produced
    yet: it needed the database) beside the free one (all there, a lot of numbers); then **a
    significant body of iteration on the reports themselves** (owner, 2026-11-16) until free and
