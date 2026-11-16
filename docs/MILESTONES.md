@@ -109,6 +109,17 @@ the cluster still runs `vyreon-core:6e15a27`.
   second pod), `v-day-2206b` (41). Watchers: `run-day.sh` per tag; **I edited `run-day.sh` while
   the 1210 and 0411 watchers were running it, so their final print may fail: read
   `cluster-scratch/summaries-<tag>/` directly.**
+- **Second failure on the 2022 block, 11:36 UTC:** with the directory made, `v-day-2206b`
+  downloaded 2022-06-07 for 20 minutes (about 5,000 requests), the fill exited 1 and the plan
+  refused the day: `options` Stale (62 assets without one requoted source, T and 2022-05-31),
+  `close_quotes` Missing (434 = 62 assets x 7 sessions without a quote file), `consolidated`
+  Missing (62: a tape asked for before the tape start?), `option_history` Missing. Two attempts
+  of job 41. The provider does serve the option snapshot (asked through the MCP: 2022-06-07
+  19:50 UTC, eight parts of about 6 MB), so the cause is on our side and not yet known: the fill
+  log dies with the pod. 11:37 UTC: Job `v-day-2206c` (attempt 3) runs the worker wrapped to print
+  `/work/logs/vyreon-inputs-fill.log` on exit. After it: 2022-06-06 and 06-07 are FAILED days;
+  **do not start another attempt on this block before the cause is fixed** (three FAILED days
+  pause the queue, C-035).
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
