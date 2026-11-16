@@ -163,10 +163,9 @@ after every landed step, converged or not; a separate verifier triages; every re
 fixed; only one above the cut line gates (C-041).
 
 ## Decisions waiting on the owner
-- **AAPL and LLY share basis** (CDD-CAPVAL01): the provider's implied share counts (15.00 billion,
-  898.8 million) differ from the filing cover counts (14.78 billion, 945.4 million); the cover
-  count is the rule for all 17 (owner agrees provisionally); the firm recommendation follows the
-  first real day, whose body records any filed share fact equal to the provider's.
+- Resolved 2026-11-16: AAPL and LLY share basis: the filing cover count for all 17 (owner
+  agreed), the provider's differing figure published as a stated comparison (D-261). Claude's
+  follow-up only: confirm the cause on the first real day.
 - The spend for the two-week sample and phase 1 against the $200 ceiling: to bring with the sizing.
 - The production store's 2025-12-10 (177 withheld activity slots): untouched until the merged
   engine is deployed there; then a rebind and republish, on the owner's word.
