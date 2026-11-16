@@ -6,6 +6,18 @@ forms are at tags `milestones-2026-11-15` and `milestones-2026-11-16`); decision
 is in `docs/ARCHITECTURE.md`.
 
 ## Steps to the MVP (the list shown to the owner on a status request; keep it current)
+**DATED COMMITMENT: the paid pilot (live on www.vyreonlabs.net/early-access, read 2026-11-16).**
+One customer has paid USD 10 for four weekly email issues on Sundays **2027-01-10, 01-17, 01-24,
+01-31** (sales close 01-09; automatic full refund if issue 1 is not sent by 23:59 ET on 01-10;
+refunds on request to 02-07). Promised: all 64 securities; readings flagged when far from the
+security's typical level AND in the top or bottom tenth of its last 63 sessions (the engine's
+`unusual.rs` WINDOW = 63, robust z: matches); "what could not be measured, and why"; data
+through the latest session; no signals or forecasts. So by 2027-01-09 we need: (1) history
+back at least 63 sessions before 2027-01-08 (phase 1 covers it); (2) **daily go-forward runs**
+computing each new session from the build onward; (3) Reporter producing the paid issue from
+core's API, sent through beehiiv. Owner to confirm: whether Intrinio's Startup tier (commercial
+use) must be in place before issue 1.
+
 1. **Two-day cluster trial.** Done 2026-11-13.
 2. **Engine ready for the build.** Closing. A Codex audit ran after each lettered item:
    a. [done] the seven fix tracks merged (`pass-fx-all`); *audit* (round a)
