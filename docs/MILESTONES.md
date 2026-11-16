@@ -176,6 +176,14 @@ the cluster still runs `vyreon-core:6e15a27`.
   i.e. every modern day.** The 2022 block is stopped (Job deleted, jobs 43 to 51 cancelled); the
   idle fourth node was deleted 12:37 UTC (pool `day` is 3 nodes, $0.50 an hour). The three later
   days go on under d55f6439; watch what `v-day-0716` does with its sessions before 2024-05-20.
+- **Pinned (12:43 UTC): the layout changes between the sessions 2024-05-17 (20 columns, 59 MB) and
+  2024-05-20 (14 columns, 22 MB).** 2022-12-15 is still eight parts; where the parts end
+  (before 2023-06-15) is being found. An agent is writing the reader for the old layouts on
+  `pass-s3i` (D-251..: normalise at ingestion to the engine's 14 columns and modern ids; parts
+  by number; a single file is numbered 1; real slices as fixtures) with leave to list snapshots
+  through the MCP and fetch the signed files. Image `ed66a433` (pushed) stays unused.
+  **Owner's choice, asked 12:40 UTC:** keep the start at 2022-05-27 (my plan: the reader) or
+  start the build at 2024-05-20 and add the earlier two years later.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
@@ -213,6 +221,8 @@ worktrees can go (preview and ask: about 40 worktrees). Core: `main`; `/home/dig
 Engine `worker` checkout: `/home/diggz/vyreon-engine-worker`.
 
 ## Decisions waiting on the owner
+- **Build start:** the option snapshots before 2024-05-20 need a reader the engine lacks (being
+  written). Keep 2022-05-27, or start at 2024-05-20 and add the rest later? Asked 2026-11-16.
 - **Delete the two test droplets** (137.184.61.134, 192.241.147.166; $0.334 an hour together)
   once the fixtures are re-frozen? Their real days are done and dumped; each holds the 2025-12-10
   archive, re-downloadable. Asked 2026-11-16.
