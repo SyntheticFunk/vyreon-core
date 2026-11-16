@@ -78,6 +78,15 @@ first publication of either; ideally free and paid are ready together. Google Ad
    list to core before it exits (observability; built with the image); (d) the sample's raw
    downloads kept in Spaces for fast re-runs, deleted when phase 1 starts; (e) **planned hand-off
    to a fresh session after the two-week sample**, before phase 1, recorded here first.
+   **Rule census in step 5 (owner, 2026-11-16):** "with agent driven development on things of this
+   scale ... we just sort of accumulate rules over time and the result can be an unfortunate agent
+   stuck in spaghetti constraints". The engine has 324 recorded decisions (12,081 lines; 257
+   commits to DECISIONS.md since 2026-11-09). On the built phase-1 database, for every rule in
+   force: how often it fired, on which assets and dates, what it changed (value or absence),
+   and what evidence it was written from. Never fired, fired only on its origin case, or
+   contradicted by the population → retire or merge; the agents' instructions are pruned the same
+   way. Needs each published value or absence to name the rule that decided it: check before the
+   build whether reason codes already do.
 5. **(3.5) Examine the built database (owner, 2026-11-16).** Done twice: **a first pass after the
    two-week sample** (thin: about ten sessions, so it can show a rule that misfires or never
    fires on ordinary days, not how one generalises; anything it changes is fixed before going
