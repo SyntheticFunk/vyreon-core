@@ -374,7 +374,8 @@ the cluster still runs `vyreon-core:6e15a27`.
   gzipped, 1.7 GB for phase 1 (owner agrees to keep these and not the bulk raws). **The
   database: about 110 MB of bodies and about 150 MB on disk per published day: phase 1 is about
   60 GB and the cluster's volume is 60 GB (55 GB free): grow it before the build** (the plan in
-  ARCHITECTURE.md was 250 GB).
+  ARCHITECTURE.md was 250 GB). **Owner, 2026-11-16: grow it for the build (approved); do it in
+  the build's preparation, with a dump of the store first.**
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
