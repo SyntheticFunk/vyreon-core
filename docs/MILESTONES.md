@@ -41,7 +41,10 @@ is in `docs/ARCHITECTURE.md`.
 capture, the day, the ordered pass, Reporter and the website, **reports published without user
 intervention**. Today Reporter runs on the laptop and feeds the website by hand. So step 5
 builds Reporter to read core's API and to run headless (a scheduled job beside core), with its
-own publish gate and a channel notice on a hold, not a person's check.
+own publish gate and a channel notice on a hold, not a person's check. **Reports publish on
+Sundays** (owner): the week's last session is Friday's, so Friday evening after the close and
+Saturday are the slack for a held day or report. Reporter is C#; it can run as a weekly job on
+the core node (no extra droplet).
 Working practice: at most three agents at once on the laptop; an audit after every landed step;
 every verified finding is fixed, only one above the cut line sends the candidate round again
 (C-041 amended). Write a time only after `date -u`.
