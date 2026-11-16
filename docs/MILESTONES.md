@@ -81,11 +81,22 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   layouts; refused rows withhold one security), D-255/D-256 (open-interest outage; first chain),
   D-257 (a slot is staged once; the bundle refuses a duplicate), D-258 (the unusualness flag line
   states its pool, DLM-UNUSUALNESS@1.7.0), D-259 to D-261 (company valuation computed in the
-  engine; enterprise value; the provider comparison emitted). **A Fable fix agent is writing
-  D-290..294 there now** (EMB's 2024-12-30 was an OCC strike re-strike of 0.25 for a special
-  distribution: the outage test must match by root, expiry and right, the adjustment must be
-  detected and stated; plus round o's six smaller findings): commits will appear on `pass-s3i`
-  unpushed: push them, then merge the batches below.
+  engine; enterprise value; the provider comparison emitted). **Then D-290 to D-294 (e10b6780, pushed 17:01 UTC):** real facts read from the provider: EMB's bar of
+  2024-12-30 states a dividend of 0.2545; every strike of every shared series is 0.25 lower
+  (calls 2025-01-17: 88.50..91.50 become 88.25..91.25, all open interest 0); on 12-31 the open
+  interest is back on the new strikes (869 at 90.75). D-290: a uniform strike reduction with a
+  bar dividend at least that amount is an ex-date (`ex_date=`, image `shift:d`; else
+  `ex_date_unknown=`), with the existing ex-date behaviour: that session's open interest is
+  withheld PROVIDER_OI_INCOMPLETE and histories restart there (EMB's phase 1 histories are short
+  until about 2025-10). D-291: "still listed" is the series (root, expiry, right), and the
+  prior session's quote file counts. D-292..294: the smaller findings. **Left:** round o
+  finding 5 (three lines in `h5-derived/src/lib.rs` `share`: say PROVIDER_OI_INCOMPLETE when the
+  open-interest fault is set; do it after `pass-fx11-d` merges); finding 4 fixed only for a
+  chain with no reported count (ETHA's real first chain is 160 zeros and 8 unknown and stays
+  ZERO_ELIGIBLE_OI_MASS); the ACT01 cohort is not translated across a strike reduction (a
+  stated NONE); core's ledger needs an EMB 2024-12-30 `shift 0.25` entry for sessions more than
+  21 after it; a partial outage without an adjustment still publishes (no threshold invented).
+  Not run on a real day. Phase 1 will meet the December 2025 distributions.
 - `pass-fx11-a` 72177277 (D-262..266): the fill records how it left each input; a capture that
   failed on our side is ENGINE_FAULT, not PROVIDER_INPUT_MISSING (the one finding that blocked).
 - `pass-fx11-b` 68e18aa5 (D-268..271): tape caches valid by the official bar's content; a tape's
