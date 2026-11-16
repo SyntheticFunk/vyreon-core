@@ -272,6 +272,14 @@ the cluster still runs `vyreon-core:6e15a27`.
   both on `pass-s3i` (D-255..) and checking whether VS-O02/O04/DLM-OI-CHANGE publish a wrong
   change across such a zero session (their exports completed). 2022-06-07's first half is
   clean (496 of 496); `v-day-1210` in intent B; `v-day-0716c` downloading.
+- **Failure-surface audits (owner, 2026-11-16; `tools/audit/README.md`, template
+  `scopes/failure-surface.md`):** three started 15:40 UTC on `pass-s3i`, reports to
+  `~/claude-artifacts/audits/2026-11-16-surface-round-n/`: `provider-eras` (what else assumes
+  today's provider shapes on old dates), `one-bad-session` (what else fails or computes across
+  one degenerate session in a window), `empty-home` (what else exists only as a side effect on
+  a stateless worker, and what a newest-first build's history readings state before earlier
+  sessions exist). Triage with a verifier before fixing; Codex has about a third of its
+  allowance left until 2026-11-19.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
