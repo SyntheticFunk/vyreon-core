@@ -84,6 +84,10 @@ the cluster still runs `vyreon-core:6e15a27`.
   come from `cluster-scratch/mkjob.py KIND NAME COMPLETIONS PARALLELISM`. Then: Job
   `v-pass-1210` (ordered pass), cancel the re-queued 12-11 pass of build `0ca127ea`, dump, compare
   with `x2`.
+- 10:09 UTC: the tape job of 2025-12-10 done in 7 minutes (64 caches new to core: the stored
+  ones were another method version); `v-day-1210` claimed job 24 with tape history from
+  2025-12-10 and is downloading. 10:18 UTC: 2025-04-11 scheduled (tape, day, pass; ETHA is a
+  member) and `run-day.sh 0411 tape` started on the second node.
 - Next days, each scheduled only after the day before it has been claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - `x3` (137.184.61.134, all 64) still running; judge it against `x2` and `y2` when it ends.
