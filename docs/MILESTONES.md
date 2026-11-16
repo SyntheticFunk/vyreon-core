@@ -95,6 +95,20 @@ the cluster still runs `vyreon-core:6e15a27`.
   2206` started (no tape job: before 2023-05-24). Core's universe shows Meta as FB on 2022-06-08
   and META on 06-09. The ordered passes (11 queued) run last, in date order: Job from
   `mkjob.py ordered-pass v-pass 11 1` once every day block is done.
+- **Found by the cluster, 10:51 UTC (D-248, fixed on `pass-s3i` 1250232b, pushed; NOT in the
+  running image):** a worker's empty home has no `h5-acq` until a tape cache is unpacked, and the
+  fill refuses such a home (exit 2), so a block before the tapes (every session to 2023-05-23)
+  failed at once. Job 32 (2022-06-06..06-15) failed three times (the third by the 2024-07-16 pod,
+  which claimed it in a race); core set 2022-06-06 aside (FAILED, C-035) and re-queued the rest
+  as job 41, the other pods ran on (C-040 held). Workaround running: Job `v-day-2206b` with an
+  init container that makes the directory (`cluster-scratch/job-v-day-2206b.yaml`): it claimed
+  job 41 (2022-06-07..06-15) and is downloading. **To do:** `queue retry-failed` and run
+  2022-06-06 the same way when a node frees; rebuild the worker image from the fixed commit
+  before the build (new build identity), fast-forward `worker` then.
+- 10:53 UTC, all four nodes busy: `v-day-1210` (job 24), `v-day-0411` (27), `v-day-0716` (30,
+  second pod), `v-day-2206b` (41). Watchers: `run-day.sh` per tag; **I edited `run-day.sh` while
+  the 1210 and 0411 watchers were running it, so their final print may fail: read
+  `cluster-scratch/summaries-<tag>/` directly.**
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - `x3` (137.184.61.134, all 64) still running; judge it against `x2` and `y2` when it ends.
