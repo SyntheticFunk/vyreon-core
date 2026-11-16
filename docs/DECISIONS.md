@@ -660,3 +660,40 @@ fetch with the kept one; macro first prints. Engine D-306 is the worker's side.
   responses, not measurements, so a `read` key does not see them.
 - **Deploying:** the core image (migration 0016 is applied by the Deployment's `migrate` init
   container) and the engine's worker image; no new secret, setting or service.
+
+## C-046 A newest-first build runs each ordered pass once when its passes are scheduled whole (2026-11-16)
+The question before the build (MILESTONES step 5, from a verifier): by C-037 each earlier day's
+publication takes down every later day's history revisions and queues their passes again;
+newest first over 402 sessions (2025-04-10 to 2026-11-13) that could be some 80,000 pass runs.
+- **The mechanism as it is.** A publish of day D (its base or its day-local revision) supersedes
+  every published history revision dated after D and queues again the pass of each such day that
+  is DONE (`publish::rederive`); a pass running on such a day is stopped and queued again. A pass
+  QUEUED or never run is left as it is: nothing of it is published. So a pass runs again only if
+  it ran before an earlier day's publish. The claim (`core.claimable_job`, 0005 as replaced by
+  0014) lets the pass of S run only when S's base is published, no earlier pass of the profile is
+  unfinished and no unfinished day block stands at or before S. When every session's pass exists
+  before the range's first publish, the earliest pass waits for the earliest day, which a
+  newest-first build publishes last, and every later pass waits behind it: no pass runs before
+  every earlier day of the range is published and its block past it, and each runs once, in date
+  order, after the blocks. Scheduled after the blocks: the same.
+- **Measured** with a pass worker that runs every claimable pass after every publish and every
+  day done (a pass runs as early as the claim allows), the real calendar and the slice's bodies
+  under each date; each wave of blocks is scheduled newest first, since the claim takes the
+  earliest claimable block. Over the 402 sessions, blocks of 5, 8 nodes (run once): passes
+  scheduled at the start **402 runs**, after the blocks **402**; with each wave's blocks (40
+  sessions) **2,602**, every later pass running again after each earlier wave. With each block
+  of 5 it would be 5·(1 + … + 80) + 402 = 16,602, day by day 402·403/2 = 81,003: quadratic only
+  in that shape. The test (`tests/work.rs` `a_newest_first_build_runs_each_ordered_pass_once`,
+  12 sessions to 2025-12-12 in blocks of 3): 12 at the start and 12 after the blocks on 2
+  nodes, 3 + 6 + 9 + 12 = 30 with each block's passes.
+- **Rule (operating):** a build schedules its ordered passes once, for its whole range, before
+  its first day block publishes (or after its last), never with each tranche of blocks
+  (`deploy/k8s/README.md`). The code then runs each pass once; nothing in it changes. Adding an
+  earlier range later (phase 1b after the two-week sample, the deeper history after phase 1),
+  its passes scheduled whole the same way, runs each later pass once more, which is right: their
+  windows gain the earlier days. The mistake
+  shows at once: each publish posts "the ordered pass derives N days again" (C-037).
+- **Not enforced, and why:** core cannot tell a range scheduled whole from one scheduled in
+  pieces; a refusal to schedule passes before passes that have run would also refuse the two
+  legitimate cases above, so it would need an override, and the notice already names the error
+  on the first publish.
