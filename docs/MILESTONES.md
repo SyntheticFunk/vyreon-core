@@ -280,6 +280,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **Batch 15 done: `pass-fx17` 17a70729 (pushed; D-343..345), held unmerged while round s reads
+  the `pass-s3i` worktree.** Declared preferred dividends are the deduction where no to-common
+  or EPS-adjustment line exists (MSTR, real figures: matches its own to-common lines); a fourth
+  quarter mixing the declared and EPS elements is withheld. Own-store DLM-VWAP follows D-340
+  (`derive_all`/`derive-local` still don't read tape faults: small, open). Reference has
+  D-327/D-337/D-343. Suite 1,336 passed, 8 failed (`option_field`). Ordinary day: no change.
+  Merge after round s, then a narrow check of it with round s's fixes.
 - **Round r triaged (20:43 UTC; `.../batch13-round-r/triage/`): nothing blocks.** Company: 3 real (an
   older preferred fact bypassing the guard, preferred dividends from another period, a lost
   reason), 1 by decision with an edge against FAS 128 (fixed by the standard), 1 not real (Part
