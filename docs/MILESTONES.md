@@ -132,7 +132,7 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
 - None open.
 - Answered 2026-11-16 03:55 UTC ("go with your recommendations"): the old run directories deleted
   on both test droplets (137.184.61.134 keeps `p1`, `r2`; 192.241.147.166 keeps `m4`, `m5`, `m6`;
-  started 03:57 UTC); D-236 stays as it is (the whole ACT01 family withheld 2022-12-08..12-14); the
+  done 04:10 UTC: 184 and 182 GB free); D-236 stays as it is (the whole ACT01 family withheld 2022-12-08..12-14); the
   pooled quantities stay pooled over the assets present; with exactly one visible share report the
   company metrics publish, left until the build shows how often.
 - The production store's 2025-12-10 (177 withheld activity slots) is not touched until the merged
