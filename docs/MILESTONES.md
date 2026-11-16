@@ -129,7 +129,9 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   nothing above the line; two small findings** (D-244 misses a derived parent withheld for a
   dependency's fault; a misspelt gate string reads as a provider absence), being fixed on
   `pass-fx10` with no byte change on an ordinary day, so `x1` stays valid; later days run the
-  patched commit.
+  patched commit. **Both fixed 04:50 UTC: `pass-fx10` 8a40183e (pushed; D-244 and D-240 amended;
+  no ordinary-day byte change, label stays 1.6.0); release build running.** The merged audit of
+  2e covers these two commits.
   **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
   build; its audit sends us round again only for a finding above the line. The gate left is the
   real days on `pass-fx10`.
