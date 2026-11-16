@@ -212,6 +212,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (earnings yield's fallback to net income) contradicts the published standard (FAS 128 /
   ASC 260: income to common is net income less preferred dividends), so it is fixed too.
   Fix batch 13-C started (`/home/diggz/wt/fx13c`, `pass-fx13-company`, D-326..335).
+- **19:38 UTC: batch 13-P landed (`pass-fx13-pipeline` 839f1d31, pushed, D-318..324).** Every
+  ACT01/EXQ01 slot, certified, NONE or faulted, carries the certified method label (the route
+  is named by the receipt and index schemas; one label per definition, as D-295 did for M0);
+  D-273's first-block query stays strict (any second label is a real one). Today's tape is
+  reconciled even when the history fails; all-unlisted tapes finish in one attempt; a refused
+  chain is not a failed unit's fault; a tape cache lacking only its bar is the provider's
+  absence; own-capture faults name themselves in beta and correlation; EVC01's identity
+  includes prior pages' official volume (EVC01 @5). Agent's suite: 1,210 passed, 8 failed
+  (`option_field`). **Check at the merge: the count is below the 1,306 of a91557b8.**
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
