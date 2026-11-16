@@ -262,6 +262,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **Round r triaged (20:43 UTC; `.../batch13-round-r/triage/`): nothing blocks.** Company: 3 real (an
+  older preferred fact bypassing the guard, preferred dividends from another period, a lost
+  reason), 1 by decision with an edge against FAS 128 (fixed by the standard), 1 not real (Part
+  III amendments carry no statements), 4 reference-checker defects. Pipeline: 3 real (a failed
+  restate leaving today's stale cache readable, a refusal in T-5..T-1 misattributed, upload
+  outcomes lost). Upload worst case verified at about 131 minutes (core accepting but never
+  answering): to be bounded. Checked through the MCP: MSTR's perpetual preferred sits in
+  temporary equity (5.79 billion), its income statement carries preferred dividends and a
+  to-common line, and a later restated version (filed 2026-11-02) is excluded by the existing
+  as-of guard (seen in the real dump). Fix batch 14 started (`/home/diggz/wt/fx16`, D-337..346).
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
