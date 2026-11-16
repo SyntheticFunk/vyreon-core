@@ -309,7 +309,7 @@ the earliest TAPE job not cancelled and a DONE one cannot be cancelled (`work.rs
 **Audit rounds** (Codex, read-only; `tools/audit/`; reports under `~/claude-artifacts/audits/`):
 a to g `2026-11-15-fix-round-{a..g}`; h (fix 9) and i (fix 10) `-round-h`, `-round-i`; j (the
 merge) and k (its fixes) `2026-11-16-merge-round-{j,k}`. Nothing above the line since round j's
-collision finding (D-246). The pre-build rounds on the engine ended with k.
+collision finding (D-246). **Audits keep running after every landed step (owner, again 2026-11-16: converged or not, even if it costs fixing time); convergence only decides what gates the build.** Rounds since: l (early-date fixes), m (snapshot reader), n (three failure-surface audits). Not yet audited: the round m fixes (0aad5c56, 6bcd0039, 7977a40c), the tape-listing fix f4b0b62a, and the open-interest fix in progress: audit them together when it lands.
 
 **Branches and worktrees** (`/home/diggz/wt/<name>`): candidate `s3i`; `fx9` (branch
 `pass-fx10`); the merged batches `pass-fx-all` to `pass-fx8` and their parts are pushed and their
