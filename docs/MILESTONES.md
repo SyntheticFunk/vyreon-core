@@ -317,6 +317,19 @@ worktrees can go (preview and ask: about 40 worktrees). Core: `main`; `/home/dig
 Engine `worker` checkout: `/home/diggz/vyreon-engine-worker`.
 
 ## Decisions waiting on the owner
+- **Build depth, sized (15:42 UTC; `~/claude-artifacts/lookback-inventory.md`, read from the code,
+  nothing run; newest session taken as 2026-11-13):** store-derived readings are supported from
+  126 prior published sessions and at full window from 252; the unusualness flag line pooled
+  over full-window scores needs 315 to 344; fixed tape depth 189; a day's own option window is
+  223 prior sessions. **A day reads an old-layout snapshot only if it is on or before
+  2025-04-09, and reaches the 2023 gap only if on or before 2024-01-25.** Recommendation to the
+  owner: build back to **2025-04-10 (401 sessions)**: every sensor at full window on the newest
+  week, no old layout, no gap. Floor 130 sessions (flag lines then rest on about 84 sessions,
+  unstated). Deepening later changes `line_95`, EVC01's pool and partial percentiles on days
+  already published (a re-derive, not a rebuild). **One misleading reading found:
+  DLM-UNUSUALNESS `line_95` pools whatever scored sessions exist and states no pool size or
+  span** (`derive/ordered.rs:166-181`): to fix before the build; INT-TEMP-EVC01 reads every tape
+  session since the tape start (states `prior_count`).
 - **How far back the build goes** (owner, 2026-11-16 15:30 UTC: undecided). The MVP is a weekly
   report: it needs only the lookback that populates every sensor truthfully; a full database is
   an advantage; the worry is that short histories make the unusualness and lookback sensors
