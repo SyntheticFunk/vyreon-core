@@ -44,6 +44,13 @@ is in `docs/ARCHITECTURE.md`.
    fix issues before committing to the full build. Not a fixed plan: decided once the evidence is
    in. A full second pass roughly doubles phase 1's node time (past the $300 ceiling): raise it
    then if needed.
+   Where the risk sits (owner, 2026-11-16): the base layer was checked against external references
+   in the B0/B1 censuses; the derived and history layer could not be, because it needs continuous
+   histories. So step 5 runs the independent reference checks over the BUILT histories (the
+   `tools/reference` checkers recompute z-scores, percentiles, flag lines and technicals from the
+   store). Caveat: base code changed after B1 (company valuation D-259..D-261, D-326..D-345;
+   M0-GAMMA on cleared open interest; the open-interest outage and strike-adjustment rules), so
+   those base sensors also get their reference checks on the sample.
 5. **(3.5) Examine the built database (owner, 2026-11-16).** Done twice: **a first pass after the
    two-week sample** (thin: about ten sessions, so it can show a rule that misfires or never
    fires on ordinary days, not how one generalises; anything it changes is fixed before going
