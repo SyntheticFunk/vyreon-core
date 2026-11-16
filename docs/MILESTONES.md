@@ -287,6 +287,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **22:07 UTC: worker failure evidence (process addition c) started** in parallel: engine
+  `/home/diggz/wt/fx19` (pass-fx19) and core `/home/diggz/wt/core-evidence`: a failing or refused
+  worker puts its stop message, refusal list and a redacted log excerpt to a new core table
+  before exiting; `vyreon-core evidence list|show`. Goes into the same image.
 - **21:54 UTC: round s returned (Codex, batch 14): 4 confirmed, 1 suspicion; nothing blocks; no
   day-stopping or nondeterminism.** A stale preferred-dividend fact surviving a newer unreadable
   one (wrong number, pattern unseen); own-store and `derive-local` reading an unreconciled tape
