@@ -145,7 +145,7 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   scoring on T's split basis), which change 2025-12-10 for XLU (2-for-1 on 2025-12-05). So the
   days on `pass-fx10` alone are not the last word: the second droplet's day runs the merged
   branch, compared with `x2`.
-  **Merged 05:10 UTC: `pass-s3i` = `pass-fx10` 8a40183e + D-162 (pushed); release build running
+  **Merged 05:04 UTC: `pass-s3i` 7409bb1a = `pass-fx10` 8a40183e + D-162 (pushed); release build running
   (`/home/diggz/wt/target-s3i`).** The two branches had each built the cohort across a ticker
   change; `pass-s3i`'s mechanism runs (the certificate carries the root the chain was requested
   under, T's chain must list every translated code, EXQ01 covered); `pass-fx10`'s `option_root`
