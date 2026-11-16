@@ -152,6 +152,15 @@ the cluster still runs `vyreon-core:6e15a27`.
   d55f6439); `run-day2.sh` is the copy to use from now. The ordered passes are now of two
   builds: eight of 5f5f90b9 (2022), three of d55f6439 (2024-07-16, 2025-04-11, 2025-12-10), to
   run in date order, so the 2022 passes first.
+- **Round l (audit of D-248..D-250), 12:28 UTC: `2026-11-16-cluster-round-l/early.md`.** Four
+  findings and a suspicion, all being fixed on `pass-s3i` (no separate verifier; the fix agent
+  re-verifies): the snapshot's parts must be ordered by their `part` number and be exactly
+  0..n-1 (the provider lists them 7 to 0: today's code hashes listing order and would admit a
+  listing with a part missing: the one wrong-number risk); a contract repeated across parts
+  counted twice in the adjusted-terms price check; the tape-history clamp and the tape job
+  ignore a claim's earlier source start (latent: core sends none). **The block running under
+  5f5f90b9 (`v-day-2206d`, job 43, downloading since 12:22 UTC) is therefore evidence for values
+  but not for 2022 quote-file identities: the part order will change.** A third image follows.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
