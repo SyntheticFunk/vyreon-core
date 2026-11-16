@@ -166,7 +166,9 @@ fixed; only one above the cut line gates (C-041).
 - Resolved 2026-11-16: AAPL and LLY share basis: the filing cover count for all 17 (owner
   agreed), the provider's differing figure published as a stated comparison (D-261). Claude's
   follow-up only: confirm the cause on the first real day.
-- The spend for the two-week sample and phase 1 against the $200 ceiling: to bring with the sizing.
+- Resolved 2026-11-16: **the spend ceiling is $300 in total** (owner, raised from $200), "willing
+  to expand as necessary": not "no ceiling". Practice: a running total kept here; the owner is
+  told before a step would pass the ceiling, and at the two-week sample's sizing.
 - The production store's 2025-12-10 (177 withheld activity slots): untouched until the merged
   engine is deployed there; then a rebind and republish, on the owner's word.
 - **Rulings of 2026-11-16 (all recorded above or in the step list):** converged on audits, fix
