@@ -327,6 +327,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (VYREON-ENGINE-API@1: `/v1/review`, `/v1/rankings`, `/peers`, windows); core serves only
   `/v1/assets/{symbol}/history` and `/v1/sessions/{date}`. The paid issue's review and
   rankings need serving from core, without science in Reporter. No email/beehiiv output yet.
+  **Owner, 2026-11-16:** Reporter was not built for the distributed system; the bulk of step 6 is
+  adapting it to what the database became. vyreon-web is wired to Reporter only once Reporter
+  reports reliably.
 - **22:32 UTC: failure evidence merged** (engine D-351 into `pass-s3i` 347455f2; core C-049,
   migration 0017 `core.job_evidence`, main 0e27c5e; agent's totals: engine 1,341 passed, 8 failed;
   core 56 passed). A failing, refused or lease-lost worker puts job, stage, stop message, the
