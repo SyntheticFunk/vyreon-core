@@ -191,6 +191,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   Three verifiers (one per report) are triaging; then fix batch 13.** The 2024-07-16 retry's
   kept log shows provider HTTP 502s on four assets' old option captures (GLD 2023-12-19, PLTR
   2023-11-22, LLY 2024-03-26, WMT 2024-02-26), classed retryable.
+- **Round q options triaged (19:06 UTC; `.../merged-round-q/triage/options.md`): 3 real, 1 by decision;
+  one BLOCKS: on an outage or ex-date day M0-GAMMA publishes base/eligible open interest and
+  positive cells as a supported 0 and the gamma exposure says ZERO_DENOMINATOR (observed: D-150
+  recorded it on EWJ 2025-12-16; every ex-date, including the 2025-12-05 splits, triggers it).**
+  Fix batch 13-O started (`/home/diggz/wt/fx13o`, `pass-fx13-options`, D-313..317): that, the
+  strike-reduction detection with extra strikes allowed (OCC Art. VI 11A), a refused snapshot
+  behind an ex-date, D-290's text.
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
