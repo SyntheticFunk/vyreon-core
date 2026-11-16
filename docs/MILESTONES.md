@@ -135,6 +135,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   the method's code, set in `h4_m0_group.rs`, `h4_m0_change.rs`, `h4_m0_analytics.rs`,
   `h4_m0_gamma_change_calculation.rs`); to do on `pass-s3i` after fx11-d merges. The version rule
   itself is to be judged by the real build (step 5), as every rule built on sparse data is.
+- **17:34 UTC: all four fix batches merged: `pass-s3i` 7e19fe90 (fx11-a, -b, -c pushed at 1dcb939d
+  after a suite of 1,282 passed, 8 failed: only the known `option_field`; fx11-d merged clean on
+  top, suite re-running; log `/home/diggz/wt/s3i-suite4.log`, totals in `s3i-suite4.sum`).** The
+  fx11 worktrees and build directories are deleted (disk 774 GB free). **Batch 12 started in
+  `/home/diggz/wt/fx12` (`pass-fx12`, D-295..305):** the six M0 hand-set labels with a guard
+  against shipping a method change without a bump; round o finding 5; provider-eras 10 (macro
+  containment); the four small items found by the fix agents. Then: merge fx12, one Codex audit
+  of the merged whole (everything since d55f6439 is unaudited as a whole) with a verifier.
 - **Next for the engine:** merge fx11-a, -b, -c, -d into `pass-s3i` (merge, not rebase; expect
   only docs/DECISIONS.md and small `views.rs`/`vyreon-worker.rs` overlaps); full suite (known
   failures: eight h5-field `option_field` only); ONE Codex audit of the merged result with a
