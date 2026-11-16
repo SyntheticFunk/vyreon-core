@@ -209,6 +209,12 @@ the cluster still runs `vyreon-core:6e15a27`.
   about 2025-04-10 can run; 2025-04-11's window starts 2024-05-21, just inside. Its jobs
   (old build) cancelled 13:06 UTC; it runs again under the reader's build. (The `run-day.sh`
   watcher died of my edit, as noted; the pod log is the source.)
+- **13:07 UTC: image `vyreon-worker:518faf7e` pushed; build `518faf7e+56852725ab12` registered and
+  admitted** (`evidence-518faf7e.json`). Under it: 2024-07-16 scheduled (tape, day, pass;
+  `WORKER_TAG=518faf7e run-day2.sh 0716b tape`) and the block 2022-06-06..06-15 (one job, eight
+  passes; `run-day2.sh 2206e`). Pool `day` back to 4 nodes ($0.668 an hour). Either pod may
+  claim either job (same image). First things to look for: FETCHED lines for sessions before
+  2024-05-20 in the fill log (`provider_layout` in the quote files), no `snapshot header` error.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
