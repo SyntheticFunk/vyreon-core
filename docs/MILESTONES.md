@@ -202,6 +202,13 @@ the cluster still runs `vyreon-core:6e15a27`.
   rows, 48 roots) filed as adjusted roots: about 48 adjustment requests a session; (e) `Max` read
   as no ask is the agent's reading; (f) 2024-05-20 itself carries few trades (34,970 rows with
   one against 220,553 on 05-17). Image of 518faf7e building; round m audits the reader.
+- **`v-day-0716` (2024-07-16, build d55f6439) refused by its plan 13:05 UTC after 133 minutes of
+  download** (22,450 capture requests): `close_quotes` Missing for 11,559 option attempts (the
+  window's sessions before 2024-05-20), `option_history` Missing for 61 assets. So a day needs
+  quote files over its whole 224-session option window: under the old build only days from
+  about 2025-04-10 can run; 2025-04-11's window starts 2024-05-21, just inside. Its jobs
+  (old build) cancelled 13:06 UTC; it runs again under the reader's build. (The `run-day.sh`
+  watcher died of my edit, as noted; the pod log is the source.)
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
