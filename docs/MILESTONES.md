@@ -139,7 +139,7 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   clean 2025-12-10) started 04:50 UTC, plan ok.** It started 2 minutes before that capture's
   snapshot cutoff (04:52:17Z); only the T-5 surface's FEDFUNDS reads it. For an early date or
   any day whose T-5 macro is absent on a test droplet: capture it the same way first.
-  **2e started early (04:58 UTC): `pass-fx10` is being merged into `pass-s3i` (`/home/diggz/wt/s3i`),
+  **2e started early (04:55 UTC): `pass-fx10` is being merged into `pass-s3i` (`/home/diggz/wt/s3i`),
   three conflicted files (`act01_auto_source.rs`, `act01_job.rs`, `views.rs`).** `pass-s3i` has 25
   commits the candidate lacks (D-162, D-163, D-167, D-169: cohort across a split or rename,
   scoring on T's split basis), which change 2025-12-10 for XLU (2-for-1 on 2025-12-05). So the
