@@ -342,6 +342,20 @@ the cluster still runs `vyreon-core:6e15a27`.
   condition on `line_95_sessions` wherever it shows a flag; `/v1/review` does not carry it yet.
   Not audited yet (with round o's follow-up). Failure-surface audits (round n): 28 claims, with
   a verifier (`.../surface-round-n/triage/`).
+- **Company valuation diagnosed (16:07 UTC; `~/claude-artifacts/capval-capture-dependence.md`):**
+  CDD-CAPVAL01 copies market cap, enterprise value, earnings yield and price to book from the
+  provider's derived `daily_metrics` row, which has no vintage. Between 2026-11-07 and 11-16 the
+  provider changed that row for 2025-12-10 for the 11 dividend payers (each by about 11 months
+  of dividend yield: the earlier vintage used a dividend back-adjusted close, i.e. look-ahead;
+  the later the raw close). Shares, floats and filings are identical in both; not our code.
+  Checked through the MCP: JPM 2025-04-10 market cap 635,023,656,144 = raw close 227.11 x
+  2,796,106,099, so today's vintage is on the raw basis at the deep end too. The provider's
+  implied shares differ from the engine's visible count for AAPL (+1.55 per cent) and LLY
+  (-4.93). **Fix under way on `pass-s3i` (D-259..): market cap computed in the engine (raw
+  close x the visible share count, CRSP's definition), the other three derived from the
+  point-in-time fundamentals or withheld, the provider's row kept as private evidence only.**
+  BABA and TSM (depositary receipts, ratios 8 and 5) publish only if a captured source states
+  the ratio; else withheld and the owner decides the source.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
