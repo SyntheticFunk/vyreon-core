@@ -164,6 +164,12 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   cohort) is being written. Below the line, also being fixed on `pass-s3i`: plan roots bound
   exactly; a stale translated view is that asset's fault, not the day's stop; a translation
   refusal's true reason published. No ordinary-day byte may change.
+  **Round j fixed 05:35 UTC: `pass-s3i` b6bdc1ec (pushed): D-246 (the collision guard, at acquisition,
+  rebind, verify and admission), D-167 amended (exact plan codes), D-247 (a stale translated view
+  is the asset's fault). No ordinary-day byte change. Its audit (round k) and release build
+  running.** Left: a translation refusal still publishes NO_GOVERNED_COHORT_CERTIFICATE (a new
+  published reason needs a body form in five owners and a cause class; only an empty T chain
+  fits an existing code); a resumed worker's existing stale view is not set aside and reselected.
   **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
   build; its audit sends us round again only for a finding above the line. The gate left is the
   real days on `pass-fx10`.
