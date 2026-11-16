@@ -205,6 +205,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   ACT01/EXQ01 publish a different label on NONE slots (observed: the five split assets on
   2025-12-10), so a NONE route on SPY or AAPL would withhold every asset's activity histories.
   Fix batch 13-P started (`/home/diggz/wt/fx13p`, `pass-fx13-pipeline`, D-318..325).**
+- **Round q company-macro triaged (19:08 UTC; `.../triage/company-macro.md`): 8 real, 1 by decision;
+  one BLOCKS: a rejected incomplete share-class set still becomes the reference, so a later
+  single-class date passes and one class becomes the total (META 2.206 for 2.548 billion,
+  -13 per cent; plausible: META's real class rows show an incomplete date).** The by-decision one
+  (earnings yield's fallback to net income) contradicts the published standard (FAS 128 /
+  ASC 260: income to common is net income less preferred dividends), so it is fixed too.
+  Fix batch 13-C started (`/home/diggz/wt/fx13c`, `pass-fx13-company`, D-326..335).
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
