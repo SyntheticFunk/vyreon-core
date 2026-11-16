@@ -169,6 +169,9 @@ fixed; only one above the cut line gates (C-041).
 - Resolved 2026-11-16: **the spend ceiling is $300 in total** (owner, raised from $200), "willing
   to expand as necessary": not "no ceiling". Practice: a running total kept here; the owner is
   told before a step would pass the ceiling, and at the two-week sample's sizing.
+- Standing rule (owner, 2026-11-16): standing infrastructure (core node, volume, registry,
+  Spaces, the production droplet) is just "on". **Worker nodes and test droplets: use as many in
+  parallel as testing needs, without asking; delete each as soon as it idles; keep it tidy.**
 - The production store's 2025-12-10 (177 withheld activity slots): untouched until the merged
   engine is deployed there; then a rebind and republish, on the owner's word.
 - **Rulings of 2026-11-16 (all recorded above or in the step list):** converged on audits, fix
