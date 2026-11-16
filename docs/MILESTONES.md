@@ -330,6 +330,18 @@ the cluster still runs `vyreon-core:6e15a27`.
   (`~/claude-artifacts/capval-capture-dependence.md`, read-only agent, 16:00 UTC). The history
   slots (721) await the ordered pass. Three day pods are done or failed; pool `day` still 4
   nodes: two busy (2022 block, 2024-07-16).
+- **16:06 UTC: the flag line states its basis: `pass-s3i` 912b39a8 (pushed), D-258,
+  DLM-UNUSUALNESS@1.7.0.** Beside every `line_95`: `line_95_pooled_values`, `line_95_sessions`,
+  `line_95_first_session`, `line_95_last_session` (SUPPORT roles). The rule is unchanged (D-069:
+  95th percentile of |z| over the prior 252 sessions, 500 pooled values, pooled per measure
+  across all securities: **500 values are reached in 8 sessions**, so a line can be calibrated
+  on very little and now says so); no session minimum was invented. The line is now one Rust
+  computation in both derive paths (the SQL `percentile_cont` is gone): **its store query has
+  not run against PostgreSQL: the cluster's ordered pass is its first test.** Real numbers from
+  the frozen panel: 207 sessions give 2.1648, 84 sessions 2.1191. Reporter must show or
+  condition on `line_95_sessions` wherever it shows a flag; `/v1/review` does not carry it yet.
+  Not audited yet (with round o's follow-up). Failure-surface audits (round n): 28 claims, with
+  a verifier (`.../surface-round-n/triage/`).
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
