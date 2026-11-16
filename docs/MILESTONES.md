@@ -81,7 +81,8 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   XLB only, not under `m4`'s build); DBA and UUP's four five-session-change sensors are
   PROVIDER_INPUT_MISSING because no macro capture exists for T-5 (2025-12-03) and the plan asks
   for T's only (D-154 amended), which a build day would also hit. **Root-caused and fixed
-  02:00 UTC, `pass-fx9` b1cd1c2d and d83c3a8d (pushed; build and suite running):** the XLB fault
+  02:00 UTC, `pass-fx9` b1cd1c2d and d83c3a8d (pushed; suite 02:12 UTC: 1,201 passed, 10 failed, known; release
+  build done):** the XLB fault
   is a startup race, not data: a history export connected to its worker between `bind` and
   `listen` (`Connection refused`; 1 failure in the 1,780 exports of the seven runs kept there);
   the socket name now exists only once the worker accepts (D-238), and a failed view build's
