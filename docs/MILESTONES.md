@@ -318,6 +318,18 @@ the cluster still runs `vyreon-core:6e15a27`.
   a leftover `.building` directory beside a fault body (any staged slot whose read-back failed
   could have doubled). Round o audits these with the four earlier unaudited commits
   (`2026-11-16-cluster-round-o`). The flag-line fix (D-258) is being written.
+- **2025-12-10 PUBLISHED on the cluster 15:58 UTC (build d55f6439): both summaries COMPLETE,
+  512 of 512 and 2,688 of 2,688, `faulted_engine` 0; 2,853 base and 1,105 day-local slots; 5 h 50
+  min from an empty disk** (download about 3 h 40 min, compute and publish 174 min; 24,040
+  capture requests). Dump `testbed-dumps/c-1210`. Against `x3` (the same commit on a test
+  droplet, its own captures): every value equal except (1) DLM-OI-CENTROID at 1.4e-15 and (2)
+  **CDD-CAPVAL01 for 11 of 17 companies: the same session's market value differs by up to 2.6 per
+  cent (JPM 595.56 against 611.51 billion; AAPL 4,171.65 against 4,183.01 billion) between a
+  company capture of 2026-11-07 and one of 2026-11-16.** A past session's value depending on the
+  capture date is either look-ahead or a provider restatement: being diagnosed
+  (`~/claude-artifacts/capval-capture-dependence.md`, read-only agent, 16:00 UTC). The history
+  slots (721) await the ordered pass. Three day pods are done or failed; pool `day` still 4
+  nodes: two busy (2022 block, 2024-07-16).
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
