@@ -215,6 +215,13 @@ the cluster still runs `vyreon-core:6e15a27`.
   passes; `run-day2.sh 2206e`). Pool `day` back to 4 nodes ($0.668 an hour). Either pod may
   claim either job (same image). First things to look for: FETCHED lines for sessions before
   2024-05-20 in the fill log (`provider_layout` in the quote files), no `snapshot header` error.
+- **Round m (audit of the reader), 13:08 UTC: `2026-11-16-cluster-round-m/layouts.md`: no
+  wrong-number or nondeterminism defect; the 14 fields map correctly, cut tails are dropped,
+  modern bytes preserved.** Three findings, being fixed on `pass-s3i`: a bad timestamp in one
+  asset's row fails the whole stream; **an asset left without a quote file is not a withholdable
+  input, so one asset's refused rows stop the day for all** (the fix must also say what a day on
+  or around a session with no snapshot at all does: the 2023-01-18..03-07 gap); a lone part
+  file numbered 1 is admitted. The two runs under 518faf7e go on meanwhile.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
