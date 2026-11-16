@@ -143,6 +143,20 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   against shipping a method change without a bump; round o finding 5; provider-eras 10 (macro
   containment); the four small items found by the fix agents. Then: merge fx12, one Codex audit
   of the merged whole (everything since d55f6439 is unaudited as a whole) with a verifier.
+- **18:20 UTC: batch 12 merged: `pass-s3i` a91557b8 (pushed; fast-forward), D-295 to D-305; suite 1,306
+  passed, 8 failed (only `option_field`).** The six M0 sensors carry hand-set labels
+  (`M0-ANALYTICS@1.0.0` and so on) with a test pinning their code hash; round o finding 5;
+  one macro series not delivered no longer fails the capture; carry plan, shares paging,
+  reference CAPVAL, BENCHMARK_UNAVAILABLE, undated 8-Ks; share counts visible only through the
+  reporting filing; provider update dates counted (WMT's 10-Q was updated 2026-06-18: rebuilds
+  will show non-zero counts); **CPI is CPIAUCNS** (no published month-over-month CPI change
+  existed); INDPRO and expected earnings state their basis. **Old macro captures (CPIAUCSL) are
+  refused: every day needs a fresh macro capture.** Left: the reference checker still pins
+  CPIAUCSL values and ignores the new INDPRO roles; four DLM-BETA reasons missing from
+  causes.py; the BLS no-revision citation was written from memory. fx12 worktree and build
+  directory deleted. **Round q started 18:20 UTC: three Codex audits of the merged whole since
+  d55f6439, by area (`2026-11-16-merged-round-q/`: options, company-macro,
+  pipeline-histories); Codex at 75 per cent of its week.**
 - **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
   2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
   not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
