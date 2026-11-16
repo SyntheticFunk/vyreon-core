@@ -280,6 +280,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **21:54 UTC: round s returned (Codex, batch 14): 4 confirmed, 1 suspicion; nothing blocks; no
+  day-stopping or nondeterminism.** A stale preferred-dividend fact surviving a newer unreadable
+  one (wrong number, pattern unseen); own-store and `derive-local` reading an unreconciled tape
+  (partly closed by D-344); a failed tape capture relabelled as missing (mislabel); the reference
+  treating an unreadable dividend as zero; suspicion: D-336 reading an ordinary ladder expansion
+  as an adjustment. MSTR's figures and the upload deadline checked clean. Batch 15 merged
+  (`pass-s3i` 17a70729, pushed). One agent verifies each finding (finding 5 on real chains) and
+  fixes the real ones (`/home/diggz/wt/fx18`, D-346..350).
 - **Batch 15 done: `pass-fx17` 17a70729 (pushed; D-343..345), held unmerged while round s reads
   the `pass-s3i` worktree.** Declared preferred dividends are the deduction where no to-common
   or EPS-adjustment line exists (MSTR, real figures: matches its own to-common lines); a fourth
