@@ -306,6 +306,18 @@ the cluster still runs `vyreon-core:6e15a27`.
   publishing). Job 27 and its pass (28) cancelled, the old 12-11 pass (22, build 0ca127ea,
   re-queued as foreseen) cancelled, **queue resumed 15:49 UTC**. Still leased: 24 (2025-12-10),
   53 (2024-07-16), 55 (the 2022 block). 2025-04-11 runs again under the final image.
+- **15:57 UTC: the three 2025-04-11 findings fixed on `pass-s3i` e6b5361a (pushed), none run on the
+  cluster.** D-255: a chain with contracts and no positive open interest after one (within 21
+  sessions) that reported it on contracts still listed is an outage: that session's
+  open-interest sensors WITHHELD PROVIDER_OI_INCOMPLETE, the changes that touch it withheld.
+  **A wrong number was being published before (read from the code): DLM-OI-CHANGE about -60,951
+  and +60,929 around EMB's 2024-12-30, VS-O02's total 0.** Limit: a book that really closed
+  every position in one session reads as an outage (a false absence). D-256: a first chain
+  without open interest is VS-OIJ01's empty field (ZERO_ELIGIBLE_OI_MASS; NO_PRIOR_HISTORY).
+  D-257: a slot is staged once and the bundle refuses a duplicate before sending; the cause was
+  a leftover `.building` directory beside a fault body (any staged slot whose read-back failed
+  could have doubled). Round o audits these with the four earlier unaudited commits
+  (`2026-11-16-cluster-round-o`). The flag-line fix (D-258) is being written.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
