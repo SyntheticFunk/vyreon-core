@@ -144,6 +144,14 @@ the cluster still runs `vyreon-core:6e15a27`.
   effective gate overrides; D-110 item 2 wrongly says the override is retired).
   Building the worker image of 5f5f90b9 and auditing the four changes (round l,
   `2026-11-16-cluster-round-l`). Job 42 (2022-06-08..06-15, old build) cancelled 12:10 UTC.
+- **12:22 UTC: worker image `vyreon-worker:5f5f90b9` built and pushed; build
+  `5f5f90b9+252c04820c46` registered and admitted** (`evidence-5f5f90b9.json`). The block's old
+  jobs (32 to 41) cancelled; 2022-06-06..06-15 scheduled again under the new build (one
+  eight-session job, eight passes) and `WORKER_TAG=5f5f90b9 run-day2.sh 2206d` started (plain
+  manifest: it tests D-248 too). `mkjob.py` takes the image tag from `WORKER_TAG` (default
+  d55f6439); `run-day2.sh` is the copy to use from now. The ordered passes are now of two
+  builds: eight of 5f5f90b9 (2022), three of d55f6439 (2024-07-16, 2025-04-11, 2025-12-10), to
+  run in date order, so the 2022 passes first.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
