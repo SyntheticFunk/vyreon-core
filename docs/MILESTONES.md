@@ -1,25 +1,29 @@
 # Milestones
 
-The one living status document. History is in git; decisions in `docs/DECISIONS.md`; the plan in
-`docs/ARCHITECTURE.md`.
+The one living status document: current state and what is next. History is in git (the long form
+is at tag `milestones-2026-11-15`); decisions are in `docs/DECISIONS.md` (core, C-numbers) and the
+engine's `docs/DECISIONS.md` (D-numbers); the plan is in `docs/ARCHITECTURE.md`.
 
 ## Steps to the MVP (the list shown to the owner on a status request; keep it current)
 1. **Two-day cluster trial.** Done 2026-11-13.
 2. **Engine ready for the build.** In progress. To close it (a Codex audit after each of a to e,
    and one more on the merged whole before 2.5: repeated passes are the method, owner 2026-11-15):
-   a. the seven fix tracks merged into `pass-fx-all` (done 2026-11-15); core's fixes on `pass-core-fix` (pushed);
-      *audit of the merged round*
-   b. the follow-ups `pass-fx2-{receipt,style,small}` finished and merged, full suite; *audit*
-   c. real days on the merged round: clean 2025-12-10 on both droplets, then on the final candidate a
-      clean day, a membership day and an early date; the AAPL tape-cache fixture regenerated; *audit
-      of whatever the days made us change*
-   d. triage of the audits to the owner; fixes above the cut line (C-041), each batch with its real
-      day; *audit*
-   e. `pass-s3i` brought up to date by a merge (not a rebase: its commits are pushed and cited by
-      hash in the decisions and audits); engine to `worker` and core to `main` together; images rebuilt; *audit of
-      the merged branches (the gate into 2.5)*
-   f. housekeeping: this file pruned to state and next steps; the commit before the prune is
-      tagged (`milestones-<date>`) so the old one is one command away. Git is the history.
+   a. [done] the seven fix tracks merged into `pass-fx-all` (done 2026-11-15); core's fixes on
+      `pass-core-fix` (pushed); *audit of the merged round* (round a, triaged)
+   b. [done] the follow-ups `pass-fx2-{receipt,style,small}` finished and merged, full suite;
+      *audit* (round b, triaged: nothing above the line)
+   c. [in progress] real days on the merged round: clean 2025-12-10 on both droplets (done: `r2`,
+      `m4`), then on the final candidate a clean day, a membership day and an early date (not
+      started); the AAPL tape-cache fixture regenerated (not done); *audit of whatever the days
+      made us change*
+   d. [in progress] triage of the audits to the owner (done; rulings 2026-11-15 20:25 UTC); fixes
+      above the cut line (C-041), each batch with its real day (batches 3 to 8 written, their real
+      day pending); *audit* (rounds c to f)
+   e. [not started] `pass-s3i` brought up to date by a merge (not a rebase: its commits are pushed
+      and cited by hash in the decisions and audits); engine to `worker` and core to `main`
+      together; images rebuilt; *audit of the merged branches (the gate into 2.5)*
+   f. [in progress] housekeeping: this file pruned to state and next steps; the commit before the
+      prune is tagged (`milestones-<date>`) so the old one is one command away. Git is the history.
 3. **(2.5) Cluster verification:** 2025-12-10; 2025-04-11 (ETHA's option listing); a day before
    2024-07-23; a block over the FB to META rename (June 2022); a day after a 10-for-1 split. Then the
    newest two weeks on two nodes. New spend: the owner first.
@@ -28,1279 +32,167 @@ The one living status document. History is in git; decisions in `docs/DECISIONS.
 6. **(5) Judge the reports; the FIELD campaign; the go-live choice.**
 Working practice: at most three agents at once on the laptop; an audit after every landed step.
 
-**Now (2026-11-15 17:20 UTC; newest state, kept here):**
-- 2b: the three follow-ups are finished (D-199 to D-207; D-202 and D-208 unused) and merged into
-  `pass-fx2-all` (db15396f, worktree `/home/diggz/wt/fx2-all`, pushed). Full suite 17:20 UTC:
-  1,140 passed, 11 failed, all known (8 `option_field`, `a_t5_closure`, the two tape-cache fixture
-  tests); the h2-engine and h2-q01 failures of the last run did not recur. **2b is done.** Its audit
-  (three change scopes: style, receipt, small) is queued behind the first batch, reports in
-  `~/claude-artifacts/audits/2026-11-15-fix-round-b/`; the release build for the droplets is running. `pass-fx-all` stays at e9cce438 while its audit reads it.
-- Audit after 2a: ten Codex repeat audits of `pass-fx-all` and `pass-core-fix` running, reports in
-  `~/claude-artifacts/audits/2026-11-15-fix-round-a/`; triage next, then to the owner.
-- **Audit after 2a triaged, 18:30 UTC** (`~/claude-artifacts/audits/2026-11-15-fix-round-a/triage/`,
-  `SUMMARY.md` first): nine distinct findings above the cut line, most small; with the owner:
-  the Greek exposure totals over unresolved contracts (gate or support), Treasury par yields as
-  zero rates (D-183 against the Treasury's description), and which below-line items go in before
-  the build. No fix started until the owner has seen it. A read-only archive scan on test-2
-  (`data-scans.md`, same directory) settles the frequencies several fixes depend on.
-- **Fix batch 3 started 19:05 UTC** (the above-line findings that need no owner ruling, and the
-  cheap ones from the follow-up audit; summary in the triage directory): `pass-fx3-a`
-  (`/home/diggz/wt/fx3-a`, D-209..214: surface split reader, American-only fit, macro damage,
-  duplicate-row volume, V03 holiday rule, negative OI), `pass-fx3-b` (`/home/diggz/wt/fx3-b`,
-  D-215..220: company and EVC01 split readers, FIELD panel, D-203 in production, company SHARES
-  and conflicted quarter), core `pass-core-fix` (C-042: hand publish). Held for the owner: Greek
-  exposure totals, Treasury zero curve, the below-line pull-ins. Follow-up audit (2b) triaged:
-  nothing above the line. Archive scan done (`data-scans.md`): no latent condition occurs in it.
-- **Fix batch 3 written, 19:20 UTC:** `pass-fx3-a` (D-209..214) and `pass-fx3-b` (D-215 and
-  amendments) merged into `pass-fx3-all` (worktree `/home/diggz/wt/fx3-all`), no conflicts; full
-  suite 19:30 UTC: 1,152 passed, 11 failed (the known ones); release build done (a58bced0, which
-  has D-213's fetched OCC citation); pushed. Its audit (three scopes: options, daycompany,
-  corepublish) runs, reports in `~/claude-artifacts/audits/2026-11-15-fix-round-c/`. Core: C-042 on `pass-core-fix` (hand publish needs `--vouch`
-  for a history bundle; gzip read to its end); its database tests NOT run (Docker is down).
-  Left by the agents: style 3 to 7; a newly listed asset (under about 150 sessions) may fault in
-  P03/PD01/W21/PATH (read, not run: IBIT from 2024-01-11, ETHA from 2024-07-23); V03 moving to
-  the next monthly when a non-holiday third Friday is missing (D-029 says withhold on a tenor
-  switch?).
-- **Audit of batch 3 triaged 19:55 UTC** (`~/claude-artifacts/audits/2026-11-15-fix-round-c/triage/`,
-  `SUMMARY.md`): nothing needs a rebuild; one above the line in kind (stale EOD volume under
-  conflicting duplicate rows, never seen); the monthly rule made exact to the OCC By-Laws; and one
-  with real data: a newly listed asset (IBIT to about 2024-08, ETHA to about 2025-03) faults in
-  five price sensors instead of stating a short history. **Fix batch 4 started 19:57 UTC:**
-  `pass-fx4-a` (`/home/diggz/wt/fx4-a`, D-216..219), `pass-fx4-b` (`/home/diggz/wt/fx4-b`,
-  D-220..224), core on `pass-core-fix` (trailer bound, `--vouch` parsing). Open design choice
-  (core): a leased day-local bundle can rebind to a base replaced by hand between a worker's two
-  bundles; until decided, pause the queue before a hand publish of a base.
-- **Owner rulings, 2026-11-15 20:25 UTC:** (1) Greek exposure totals: publish the unsolved
-  count and the solved open-interest share as support now, no gate; a tolerance later from build
-  evidence. (2) Treasury: bootstrap a zero curve before the build. (3) All seven below-line
-  pull-ins go in (tape-cache upload retry; macro 429; one asset's inventory aborting every ACT01
-  job; a missing bar withholding ~750 sessions of surface; META's ACT01 family 2022-06-06..15;
-  m0 1 and m0 4). **Fix batch 5:** `pass-fx5-curve` (`/home/diggz/wt/fx5-curve`, D-225..227)
-  started 20:22; `pass-fx5-pull` (`/home/diggz/wt/fx5-pull`, D-231..238, the seven pull-ins) and
-  `pass-fx5-greek` (`/home/diggz/wt/fx5-greek`) started 20:35 to 20:45, all from `pass-fx4-all`
-  (abf1ae22: batch 4 merged, pushed; its suite and audit still to run with batch 5's).
-- Core `pass-core-fix` (C-042 with its two follow-ups): all 40 database tests pass on PostgreSQL
-  16 (20:28 UTC); pushed.
-- **Real day `r2` (test-1, e9cce438) finished 19:53 UTC, exit 0, no faults.** Against `p1`
-  (pre-fix): 4,679 slots, no state change; D-183 verified by hand from the bodies. Report:
-  `~/claude-artifacts/audits/2026-11-15-fix-round-a/day-r2-vs-p1.md` (8 explained, 11 to check,
-  4 unexplained). **Both unexplained items are defects of the new build, root-caused 20:40 UTC**
-  (`day-r2-unexplained.md`): the ledger rule of audit 9 (30c68c20, `frozen_by_adjustment`) drops
-  six live contracts expiring 2025-07-18 (a wrong number: BABA -5,725 of 2,667,522, MSTR -1,838
-  of 2,614,287; the only wrong drops in 367 sessions of the 11 ledger assets); an SQL alias bug
-  (f79c7af2, `load_events`) loses the earnings anchor on the store path. Both being fixed on
-  `pass-fx5-greek` with the Greek support roles (D-228..230). Originally listed as: DLM-EVENT-WINDOW's
-  earnings_date reason on BABA and TSM (NO_UPCOMING_EARNINGS_DATE became DEPENDENCY_WITHHELD,
-  against D-173); VS-O02/O04/OIJ01 on BABA and MSTR, history session 2025-07-18 only (OI total
-  -0.215% and -0.070%, undeclared). M0 values were not compared (not in the dumps).
-- **Real day `m4` (test-2, e9cce438, ETHA not listed) finished 20:47 UTC, exit 0, no faults,**
-  4,608 slots (ETHA's 71 absent). Against `r2` (test-1, same build, all 64): every per-asset slot
-  of the other 63 assets is equal in every non-identity leaf; only the 12 FIELD slots differ (63
-  members). So the membership day holds on the merged round and the two machines agree.
-- `pass-fx5-curve` done 20:50 UTC (D-225, H5-SURFACE@21: 1Y, 2Y, 3Y bootstrapped as par bonds;
-  equals QuantLib to 2e-13 on four 2026-11 curves; +0.1 to +0.7 bp at 1Y to 3Y; D-183 amended:
-  the 1-year yield is a par yield). No 2022-2024 curve is in any archive: measure on the first
-  cluster day there (`python -m refcheck.options.zero_curve <H.15 csv>`).
-- **Fix batch 5 written and merged 20:50 UTC** into `pass-fx5-all` (worktree
-  `/home/diggz/wt/fx5-all`, 497c1608, pushed): the zero curve (D-225), the seven pull-ins (D-231
-  and amendments), the ledger and SQL defects of the real day and the exposure cover roles
-  (D-228, D-170 and D-173 amended); batch 4 is under it. Release build then full suite running;
-  audits of batches 4 and 5 (five scopes) running, reports in
-  `~/claude-artifacts/audits/2026-11-15-fix-round-d/`. Next: deploy to both test droplets and
-  re-run 2025-12-10 (the two totals must return to 2,667,522 and 2,614,287; BABA and TSM
-  earnings reason). Open from the agents: the provider's per-contract option intervals start
-  about 2022-12-08 (D-036; an empty response for SPY in 2022-06 confirmed by MCP) and the engine
-  has no coverage start for that source; a missing daily bar still withholds an asset's surface
-  for three years (label fixed; owner: leave until the build shows one); an `unknown` ledger
-  entry (D-176's 2020-01-02) may make dead listings' open interest unknown on 2022-05..2023-04.
-- **Candidate `pass-fx5-all` 497c1608:** suite 21:05 UTC 1,178 passed, 10 failed (known: 8
-  `option_field`, 2 tape-cache); deployed to both droplets 21:07 (build `497c1608+55b96cfbd3ee`).
-  Terms rewrite (12,864 files) and rebind (59) fine on both. **`m5` (test-2, ETHA unlisted)
-  running since 21:35 UTC. `r3` (test-1) refused by the disk guard: 45 GB free, 60 needed; old
-  run directories there need deleting (asked the owner; keep `p1` and `r2`).**
-- **Audit of batches 4 and 5 triaged 21:35 UTC** (`~/claude-artifacts/audits/2026-11-15-fix-round-d/triage/`):
-  above the line: the exposure cover's denominator leaves out adjusted-root contracts (BABA since
-  2024-06-13: real data); adjusted roots treated as each other's images in the ledger (BABA1/BABA2;
-  OCC #56575, #56574; not shown in data). Certain mislabel: before the option intervals' start
-  (2022-12-08, confirmed by MCP: empty 12-07, rows 12-08) the ACT01 family says
-  NO_GOVERNED_COHORT_CERTIFICATE on about 128 sessions. **Fix batch 6 started 21:30 UTC:**
-  `pass-fx6-a` (`/home/diggz/wt/fx6-a`, D-232..235) and `pass-fx6-b` (`/home/diggz/wt/fx6-b`,
-  D-236..240: the interval coverage start, company guards). Core's C-042 rule corrected (pause,
-  wait for leased day blocks, publish, resume). Left as design choices: a corrected official daily
-  volume between two workers' tape captures; a missing macro capture's containment; overlay 3, 5, 6, 7.
-- **Fix batch 6 written and merged 21:53 UTC** into `pass-fx6-all` (worktree
-  `/home/diggz/wt/fx6-all`, 5afdde54, pushed): adjusted roots never dropped as frozen and counted
-  in the exposure cover (DLM-GREEK-EXPOSURE@2.2.0, overlay rules D-170c), the option-interval
-  coverage start (D-236: PROVIDER_COVERAGE_START while T-5 < 2022-12-08), company guards, P01's
-  factor terminal. Suite 22:05 UTC: 1,190 passed, 10 failed (known); release build done; store-reader
-  test passes on a scratch Postgres; reference suite 6 passed, 105 skipped (no captures here). Its audit (two scopes,
-  `~/claude-artifacts/audits/2026-11-15-fix-round-e/`) is back and being triaged. Owner to say: D-236 withholds the
-  whole ACT01 family on 2022-12-08..12-14, including readings that need only T's intervals.
-- **Audit of batch 6 triaged 22:10 UTC** (`.../2026-11-15-fix-round-e/triage/SUMMARY.md`): none
-  of the auditor's findings above the line; a few listed for after the build. The verifier found
-  one that is: the provider's option-interval `trade_count` is null until 2024-11-25 and present
-  from 2024-11-26 (bisected by MCP on one SPY contract), so ACT01's count readings would publish
-  a SUPPORTED 0 and ZERO_DENOMINATOR on about 2022-12-15..2024-11-25. **Fix 7 started 22:13 UTC:**
-  `pass-fx7-counts` (`/home/diggz/wt/fx7-counts`, D-237). After it: one audit, then the
-  final-candidate days; further edge refinements are listed, not fixed (C-041).
-- **Fix 7 done and merged 22:28 UTC** into `pass-fx7-all` (worktree `/home/diggz/wt/fx7-all`,
-  703bade8, pushed): D-237, a session whose delivered interval rows carry no trade count has an
-  unknown count total; ACT01, ACT01-INTRADAY and TV15 count readings WITHHELD
-  MISSING_REQUIRED_INPUT (not PROVIDER_COVERAGE_START on the roles: it is a containment reason;
-  the plan and log state the coverage start 2024-11-26). Nothing changes from 2024-12-04. Build,
-  suite and its audit (`.../2026-11-15-fix-round-f/`) running. **This is the final candidate for
-  the real days** unless that audit finds something above the line. Listed, not fixed: the
-  reference suite's ACT01 checkers still apply D-037 without the guard; core has no
-  `source_coverage` rows for `option_intervals` and `option_interval_trade_counts` (compiled
-  dates apply).
-- **Final candidate: `pass-fx8` (worktree `/home/diggz/wt/fx8`, 99d79488, pushed 22:49 UTC)** =
-  `pass-fx7-all` (suite 22:40 UTC: 1,195 passed, 10 failed, known) plus the three findings of
-  fix 7's audit (`.../2026-11-15-fix-round-f/counts.md`): SAI-ACT01-INTRADAY's four copies of
-  SAI-ACT01 scalars score once (DLM-UNUSUALNESS@1.5.0; 232 copies on 2025-12-10), a summary array
-  with no supported cell is withheld (also EMB's untraded cohort: ZERO_DENOMINATOR), the reference
-  checkers follow D-237. Suite 23:00 UTC: 1,198 passed, 10 failed (known); release build done. **From here: no more fix batches before the
-  real days; new findings are listed here unless above the cut line with data behind them.**
-  Next: deploy `pass-fx8` to the droplets when `m5` ends (about 00:40 UTC) and test-1 has disk.
-- 2c: 2025-12-10 runs on both test droplets under e9cce438 since 16:52 UTC (`r2` on 137.184.61.134,
-  `m4` on 192.241.147.166, after `act01_auto_source --rebind`, 59 cohorts each); due about 19:25 UTC.
-- To check on a droplet before the final-candidate day: whether captured dividend adjustment records
-  carry `split_ratio` (D-206: without it every automatic cash root turns pending), and how many
-  root-days state no exercise style at all (D-199: now withheld).
+## Now (2026-11-16 00:00 UTC)
+**Final candidate: engine `pass-fx8` (99d79488, worktree `/home/diggz/wt/fx8`, pushed).** Release
+build done; its suite fails only the known tests (8 `option_field`, 2 tape-cache fixture). No more
+fix batches before the real days: a new finding is listed unless it is above the cut line with data
+behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it holds, by subject:
+- *Surface and pricing:* Treasury par yields bootstrapped to a zero curve (D-225, H5-SURFACE@21);
+  exercise style (D-199/200); an American-only fit; split readers (surface, company, EVC01).
+- *Open interest and the ledger:* adjusted roots never dropped as frozen and counted in the
+  exposure cover (DLM-GREEK-EXPOSURE@2.2.0, D-170c); the ledger defect `r2` found; negative OI;
+  duplicate-row volume; Greek exposure totals publish the unsolved count and the solved
+  open-interest share as support, no gate (D-228).
+- *Activity (ACT01 family):* PROVIDER_COVERAGE_START while T-5 is before 2022-12-08 (D-236); count
+  readings withheld MISSING_REQUIRED_INPUT before trade counts exist, 2024-11-26 (D-237);
+  SAI-ACT01-INTRADAY's copies score once (DLM-UNUSUALNESS@1.5.0); a summary array with no supported
+  cell withheld; one asset's inventory aborting every ACT01 job; META's family 2022-06-06..15.
+- *Listings, company, macro, day:* a newly listed asset's short history in five price sensors and
+  V03's monthly rule exact to the OCC By-Laws (batch 4); company shares and guards; macro damage
+  and 429; the FIELD panel; the earnings-anchor SQL defect `r2` found; wall-clock out of receipts
+  (D-201); tape-cache upload retry; m0 1 and 4; under all of it the first round's seven fix tracks.
+- *Core, `pass-core-fix`* (worktree `/home/diggz/wt/fx-core`, pushed, not merged): C-037 on; C-042:
+  a hand publish of a history bundle needs `--vouch`. A hand publish of a base: pause the queue,
+  wait for leased day blocks, publish, resume.
 
-## Where things stand (2026-11-10)
-- Engine: `engine-v1` tagged (vyreon-engine a046bf54). A fresh 2025-12-10 agrees laptop vs droplet to
-  within 1e-11 (2026-11-09). The droplet is authoritative: Postgres, the daily capture, health checks.
-- Design accepted by the owner (`docs/ARCHITECTURE.md`, design pass 2); decisions C-001 to C-018.
-- Kept inputs: the droplet archives prints, ACT01 pulls and company captures nightly to the volume and
-  the Spaces bucket `vyreon-data` (C-004).
-- Repo renamed from vyreon-manager (2026-11-10).
-- The historical database build waits for the cluster (owner, 2026-11-08). Go-live is on the fixed 64.
+**Proven on real days (2025-12-10, both on `pass-fx-all` e9cce438):**
+- `r2` (137.184.61.134, all 64): exit 0, no faults, 4,679 slots, no state change against pre-fix `p1`. It
+  found two defects of the new build: the ledger rule (30c68c20, `frozen_by_adjustment`) dropped
+  six live contracts expiring 2025-07-18 (BABA -5,725 of 2,667,522; MSTR -1,838 of 2,614,287); an
+  SQL alias bug (f79c7af2, `load_events`) lost the earnings anchor on the store path (BABA, TSM).
+  Both are fixed from `pass-fx5-all` on; **the fix awaits a re-run** (the totals must return; BABA
+  and TSM state NO_UPCOMING_EARNINGS_DATE). Reports: `.../2026-11-15-fix-round-a/day-r2-*.md`.
+- `m4` (192.241.147.166, ETHA not listed): exit 0, no faults, 4,608 slots. Against `r2` every per-asset slot
+  of the other 63 assets is equal in every non-identity leaf; only the 12 FIELD slots differ. The
+  membership day holds and the two machines agree.
 
-## Plan (ARCHITECTURE §8)
-1. **Core service** (this repo): schema, universe for the 64, worker API, publish through core,
-   scheduler, budget, then the reader API (C-020). Exit: a droplet-published day goes through core and
-   reads back identical. **Done.**
-2. **Engine as worker** (engine v1.x: E1–E5, ranged bars, E10–E13), alongside 1. Exit:
-   golden days through the worker path; the block-start test.
-3. **Cluster:** DOKS, CloudNativePG, KEDA; build admission; a 2-node trial on a recent week with the
-   measurements (C-006).
-4. **First build:** the tape job for every session since 2023-05-24, day blocks from ~2025-03 on the
-   fixed 64, the ordered pass behind them.
-5. **Rebuilds and recomputes** exercised for real.
-6. **After:** backups (C-013); the reader API for vyreon-reporter; N assets (E6–E9) and the backfill to 2021-09-27;
-   the droplet retired.
+**Running or waiting:**
+- `m5` (192.241.147.166, `pass-fx5-all` 497c1608, ETHA unlisted) running since 2026-11-15 21:35
+  UTC; in its history stage at 23:53. `r3` (137.184.61.134) refused by the disk guard (45 GB
+  free, 60 needed).
+- Next: deploy `pass-fx8` to both test droplets when `m5` ends and test-1 has disk; a clean day, a
+  membership day, an early date; regenerate the AAPL tape-cache fixture from a droplet's raw tape.
+- Before that day, check on a droplet: whether captured dividend adjustment records carry
+  `split_ratio` (D-206), and how many root-days state no exercise style (D-199).
 
-Plan approved by the owner 2026-11-10 (audited: engine track 4–6 weeks, first database January 2027,
-first build $200–350; of ~420 sessions the last ~170 carry full 252-session context).
+**Audit rounds** (Codex, read-only; tool in `tools/audit/`; under `~/claude-artifacts/audits/`):
+- a, `pass-fx-all` and `pass-core-fix`: `2026-11-15-fix-round-a/triage/SUMMARY.md` (and
+  `data-scans.md`: the archive scan on test-2 found no latent condition).
+- b, the follow-ups: `2026-11-15-fix-round-b/triage/`; nothing above the line.
+- c, batch 3: `2026-11-15-fix-round-c/triage/SUMMARY.md`. d, batches 4 and 5:
+  `2026-11-15-fix-round-d/triage/`. e, batch 6: `2026-11-15-fix-round-e/triage/SUMMARY.md`.
+- f, fix 7: `2026-11-15-fix-round-f/counts.md` (three findings, all fixed in `pass-fx8`). g, those
+  three changes: `2026-11-15-fix-round-g/` (started 2026-11-16 00:02 UTC).
 
-Done:
-- A1–A2: the workspace and the migration runner (`vyreon-core migrate`; tested on PostgreSQL 16:
-  repeat runs, four concurrent runners, a changed file refused, a failing migration rolled back).
-- A3: the store schema (C-021): the engine's tables partitioned by month, each row's date tied to
-  its revision's, partitions made by `vyreon.ensure_months`, the reader views and read-only role.
-  Tested with a real slice of 2025-12-10 from the droplet (AAPL, six sensors, both revisions): it
-  lands in its month, bodies re-hash to their digests, a date filter reads one partition.
-- A4, first part: engine builds and their slot inventories; a revision needs a registered build.
-  The other core tables land with the steps that use them (C-022).
+**Branches and worktrees** (`/home/diggz/wt/<name>`; cargo target deleted when a branch is merged):
+- Merged batches, oldest first, pushed: `pass-fx-all` e9cce438 (`fx-all`), `pass-fx2-all` db15396f
+  (`fx2-all`), `pass-fx3-all` a58bced0 (`fx3-all`), `pass-fx4-all` abf1ae22, `pass-fx5-all` 497c1608
+  (`fx5-all`), `pass-fx6-all` 5afdde54 (`fx6-all`), `pass-fx7-all` 703bade8 (`fx7-all`), `pass-fx8`
+  99d79488 (`fx8`). Parts: `fx3-a`, `fx3-b`, `fx4-a`, `fx4-b`, `fx5-curve`, `fx5-pull`, `fx5-greek`,
+  `fx6-a`, `fx6-b`, `fx7-counts`.
+- `pass` d028637a and `pass-s3i` 286f5c68 (plus D-162, cluster only), pushed. Core: `pass-core`,
+  `pass-core-fix`. Engine `worker` checkout: `/home/diggz/vyreon-engine-worker`.
 
-- A5: the universe for the 64 (C-023), from real Intrinio responses. `vyreon-core universe on
-  FREE_REPORT_64 2022-06-08` lists the 64 with META as FB and IBIT, ETHA not listed; from 2024-07-23
-  nothing changes, as the plan assumed. New fact: IBIT was a Defiance ETF's ticker 2022-09-08 to
-  2023-05-01 (matters for the backfill, not the first build).
+## Decisions waiting on the owner
+- Delete ten old run directories on 137.184.61.134 (`vyreon-test-2`) to free about 142 GB: `a3`,
+  `a4`, `d1`, `i1`, `l1`, `s1` and the empty `k1`, `q1`, `r1`, `r3`; keep `p1` and `r2`. Asked
+  2026-11-15.
+- D-236 withholds the whole ACT01 family on 2022-12-08..12-14, including readings that need only
+  T's intervals: keep or narrow.
+- The production store's 2025-12-10 still carries 177 withheld activity slots; it needs the rebind
+  and a republish. Owner's word before touching production (2026-11-14).
+- The rule for the pooled quantities (financing spread, activity feed check, unusualness line:
+  pooled over the assets present) was "owner to confirm" on 2026-11-14; no answer is recorded.
+- With exactly one visible share report the company unit guard has nothing to compare and the
+  metrics publish: leave it until the build shows how often (recommended), or treat as unevaluated.
+- Answered, not waiting: a missing daily bar withholding an asset's surface for about three years
+  is left until the build shows one (2026-11-15; its label is fixed).
 
-- A6: publish through core (C-024). **Milestone 1's exit is met:** the droplet's published
-  2025-12-10 went through core into an empty database in 17.6 s and reads back identical (18,724
-  lines compared: every slot, stream, scalar and revision). A wrong bundle (eighteen kinds tested)
-  is refused and leaves nothing.
+## Listed, not fixed
+- Style items 3 to 7 (round a triage directory). Findings for after the build (round e summary).
+- Overlay 3, 5, 6, 7; a corrected official daily volume between two workers' tape captures; a
+  missing macro capture's containment (design choices; round d triage).
+- An `unknown` ledger entry (D-176's 2020-01-02) may make dead listings' open interest unknown on
+  2022-05..2023-04; core has no `source_coverage` rows for `option_intervals` and
+  `option_interval_trade_counts`, the engine's compiled dates apply (tag: batch 5, fix 7 entries).
+- `r2` against `p1`: 11 items to check; M0 values were not compared (`day-r2-vs-p1.md`).
+- First cluster days: the zero curve on a 2022-2024 date (`python -m refcheck.options.zero_curve
+  <H.15 csv>`); the hold for a tenth of slots lacking a provider input (owner 2026-11-13).
+- From the build: a tolerance for the Greek exposure's unsolved share (owner 2026-11-15); the
+  unusualness line and `unusual_score`, which have never run on real rows.
 
-- A7: the queue, the budget, tape caches and the worker API (C-025). `vyreon-core serve` runs the
-  service. Over real HTTP, a tape worker, a day worker and the ordered pass did 2025-12-10 with the
-  real slice, a real AAPL tape cache, the engine's calendar and the real universe; a refused bundle
-  paused the queue; a failing worker's log was kept. `vyreon-core schedule day-block FREE_REPORT_64
-  <build> 2025-03-03 2026-11-10` makes the first build's 15 blocks over 427 sessions.
+## Standing owner rulings that still govern the work
+- Spend ceiling: $200 in total over about a month (owner, 2026-11-14, from the session's notes;
+  the old file's newest figure was $100 of 2026-11-13; droplet limit 30).
+- Spend rules (2026-11-12): the worker pool is deleted after every run; the cluster and registry
+  only on the owner's word; ask before exceeding the ceiling; new spend for 2.5 and the build goes
+  to the owner first. Test machines are deleted when the step's tests are done (2026-11-13).
+- Order: the database before general rules, no rule tuned on the golden dates (2026-11-11);
+  sensor-level withholding and a changing universe before the build (2026-11-12).
+- Build: newest first (2026-11-12), back to 2022-05-27 (step list), sized and approved by the
+  owner. Kept over "back to 2021-09-27" (2026-11-14) and "pause at lookback depth" (2026-11-12).
+- Universe (2026-11-14): the 64 stay for a long time (64 slots, the date's members from the
+  claim), robust to what can happen to them: a ticker change above all, a delisting by design.
+  Scale and a general FIELD are deferred. Kept over "N assets in full" (2026-11-12).
+- After the build: the FIELD campaign, only structural changes before it (2026-11-14); Reporter
+  and web, then judging the reports (2026-11-14); single-sensor compute when a real snag needs it
+  and the full range for analysis after revenue (2026-11-12). After step 2 (2026-11-12): the daily
+  capture moves to a small droplet or the cluster's core node; the 8 vCPU droplet is deleted.
+- Cut line, C-041 (2026-11-15): the audit loop exits on no verified finding above the cut line (a
+  wrong number in the database, or only a full rebuild corrects it); a real day after each merged
+  batch. Kept over "two consecutive clean audits" (06:30 UTC the same day).
+- Audits (2026-11-15): one after each of 2a to 2e and one on the merged whole. At most three
+  agents at once on the laptop. `pass-s3i` by merge, not rebase (kept over the 08:45 UTC note).
+- Standards (2026-11-14): the published standard first; an owner decision is the last resort.
+  Go-live (2026-11-14): Intrinio's Startup tier; free and paid together, free first if need be.
 
-- A8: the reader API (C-026). With a key, `GET /v1/assets/AAPL/history?from=…&to=…` returns every
-  session of the range, published or explicitly not, with each measurement's body or headline
-  scalars; bodies and streams are served byte for byte. Tested over HTTP on the published real slice.
+## Machines and money
+- **Droplet `ssh vyreon-engine`** (authoritative, 8 vCPU): Postgres, the daily capture, health
+  checks; nightly archive to its 250 GB volume `vyreon-engine-v1` and the Spaces bucket
+  `vyreon-data` (C-004). $112 a month. Not looked at on 2026-11-15: whether
+  `/root/vyreon-engine-worker` and `/root/worker-proof` (57 GB) are still on it.
+- **Test droplets** (8 vCPU, $0.167/h each, $112 a month; no timers, key or webhook; each holds
+  the 2025-12-10 archive and a scratch store). By their DigitalOcean names (checked 2026-11-16):
+  `vyreon-test-1` is 192.241.147.166 (runs `g3`, `j1`, `u1`, `m3`, `m4`, `m5`); `vyreon-test-2` is
+  137.184.61.134 (runs `p1`, `r1`, `r2`, `r3` and older; 45 GB free). **The 2026-11-15 entries of
+  the old file and the audit notes call 137.184.61.134 "test-1" and 192.241.147.166 "test-2":
+  go by the address.** Both carry build `497c1608+55b96cfbd3ee`. No third test droplet exists.
+- **Kubernetes cluster `vyreon`** (nyc1, created 2026-11-11): pool `core`, 1 x `s-4vcpu-8gb-amd`
+  ($0.083/h), with CloudNativePG, a 60 GB database volume and core. Pool `day` was deleted
+  2026-11-13 00:35 UTC; "the core node stays". Registry `vyreon` (Basic, nyc3, $5 a month) holds
+  worker images up to `0ca127ea`, older than the pass. About $67 a month while they stay.
+  All four exist (checked through the DigitalOcean API 2026-11-16 00:00 UTC; registry 0.97 GB).
+- **A real day on a test droplet:** `tools/testbed/tb` (needs `TB_KEY`, `TB_ENGINE`, `TB_OUT`):
+  `tb deploy IP` (the clean tree's release build; refuses while a day runs), `tb run IP DATE NAME`,
+  `tb wait IP NAME`, `tb status IP NAME`, `tb dump IP DATE BUILD NAME`, `tb compare BASE NAME
+  [SYM,..]`, `tb hide IP PATH`, `tb restore IP`. After a deploy that changes quote-file terms the
+  day is refused until `terms-rebind-day.sh DATE NAME` runs on the droplet: `vyreon-inputs terms`
+  (no provider call), `act01_auto_source --rebind`, then `run-day.sh`. The disk guard wants 60 GB.
+  The script is `tools/testbed/terms-rebind-day.sh` (copy it to `/opt/vyreon-test`).
 
-- A9: notices to the Discord channel through an outbox (C-027): queue paused and resumed, blocks
-  done, builds admitted, the calendar nearing its end; silent, naming no one.
+## Proven so far (on real data)
+- 2026-11-09: a fresh 2025-12-10 agrees laptop against droplet to within 1e-11 (`engine-v1`).
+- 2026-11-10: the droplet's published day goes through core and reads back identical; a wrong
+  bundle is refused; the reader API returns every session, published or explicitly not.
+- 2026-11-11: ranged daily bars equal the single-day bars; a day through the worker path equals
+  the droplet's (2,853 slots, no numeric difference), and with the day-local bundle and the
+  ordered pass all 1,826 derived slots too.
+- 2026-11-13: the two-day cluster trial: 2025-12-10 and 2025-12-11 each from an empty disk, tape
+  jobs before, the ordered pass after; 6 h 57 min cold, 1.24 GB peak memory, 26,795 requests.
+- 2026-11-13/14: a failed history export or surface, or a missing options capture, tape or daily
+  bar, withholds only its readers and dependants; the other assets are identical.
+- 2026-11-14/15: slots by date membership (D-164); split stages 1 and 2 (D-161, D-163, recomputed
+  independently); a member unlisted; the gap-only day `g3`; the ACT01 rebind (59 cohorts).
+- 2026-11-15: `r2` and `m4` above; the zero curve equals QuantLib to 2e-13 on four 2026-11 curves;
+  the q = 0 default measured (35 of 23,104 asset-sessions).
 
-**Track A is complete** (2026-11-10, 32 tests on PostgreSQL 16 with real data). Not in it, on
-purpose: automated admission (track B's proof harness writes the evidence; C-027), Parquet output,
-core's own Intrinio fetch, Kubernetes manifests (milestone 3).
-
-Now: track B, the engine as a stateless worker, on a branch off `engine-v1` in vyreon-engine
-(B1–B7 in the plan; the items collected for it are under Open). Its proofs run on the droplet
-outside 02:00 and 12:00 UTC, from a separate checkout.
-
-Owner (2026-11-10): tracks A and B are both completed before any new DigitalOcean spend, then we
-evaluate together. Spend is approved in principle (be mindful of costs), but nothing is created until
-that evaluation. Track B's golden proofs use the droplet we already pay for.
-
-## Track B work list (engine branch off `engine-v1`; plan B1–B7, ARCHITECTURE §7)
-Each change is proven on the golden days: values equal `engine-v1` except what is declared.
-1. B1: one declared input-window list for the plan and every reader (E12); a missing input withholds
-   the assets it touches, not the day (E11).
-2. B2: daily bars as one ranged request per asset (E7′, values identical); the determinism rules
-   (E4: 200 option sessions, `last_adjusted` bounded, a fixed bar origin, one tape-history start),
-   each value change declared. E4's exact rules are step 0 and need the owner where values move.
-3. B3: the 18 day-local derived sensors computed in the day (E10); the OCC ex-date published as a
-   base value; the ordered pass reads only the database, with parent revision ids from core.
-4. B4: the budget drawn from core's leases; the five unmetered call sites behind the same gate;
-   429 retried (E3).
-5. B5: tape caches read from and written to core; a tape entrypoint (E2). The engine defines the
-   cache's packing and `method_version`.
-6. B6: `vyreon-worker`: claim, heartbeat, compute, bundle each day with `core-contract` (the day's
-   reader scalars in the bundle, its identity check before bundling), publish, finish or fail with
-   the log; stage timings and request counts with every day (E13).
-7. B7: the container image, build identity baked in, disk guard by env, no git at runtime (E5).
-Also: an inventory document per build for `vyreon-core build register`; the evidence file for
-`build admit`.
-
-Started 2026-11-10 in the worktree `/home/diggz/vyreon-engine-worker` (branch `worker` off
-`engine-v1`; the main checkout is untouched). Engine tests there need
-`VYREON_FIXTURES=/home/diggz/vyreon-engine/workspace/fixtures` (the fixtures are untracked).
-- Done (8b0f183b): the readers' window lengths are `day_inputs`' declared windows, resolved at
-  compile time (B1, first part; no value changes); `list_sessions all` prints the whole calendar
-  with opens and closes (it equals core's loaded copy: 2,261 sessions, same digest).
-- Done (the commit after it): the plan's new `daily_window` entry checks every daily capture the
-  views read, per asset from its first session where the reader does (B1/E12). The droplet's archive
-  agrees with the rule (SPY 380 sessions from 2024-06-06, ETHA 349 from its listing). Its
-  real-archive test (`plan_verdicts`, ignored by default) runs with the golden proofs on the droplet.
-- E11 (a missing input withholds its assets, not the day) is studied, not started. Facts (engine
-  `worker` branch): the plan's per-asset entries already name the assets; a faulted task's slots are
-  already published as complete withheld bodies in each family's schema (`Faulted`, reason
-  `ENGINE_FAULT`; D-117 added the provider-limited `EMPTY_DELIVERED_POPULATION` the same way); h5-field
-  already treats an absent member as missing cells (owners needing all 64 withhold, the others
-  compute while 51 are eligible). What stands in the way: six stages read every asset's inputs before
-  any task runs and stop the day on the first error (surfaces at T and T−5, intent A's history rows,
-  intent B's views and sources, the trade guard, VS-IVS01's exports, the FIELD driver's missing-view
-  refusal), and there is no reason code for an absent provider input. Carry, macro and company stay
-  whole-day inputs. Design questions are with the owner (Open).
-- Done: `core-contract` copied into the engine byte for byte (it builds from vendored crates only;
-  `tar` and `filetime` vendored), and `vyreon-worker bundle` / `inventory`. The laptop's retained
-  real exports of 2025-12-10 (448 slots, 128 streams of 200 MB, 625 reader scalars) were bundled by
-  the engine in 1 s and published through core: every stored body hashes to its digest. The export
-  loading moved from the store's binary to its library, unchanged.
-- Done (B6, first form): `vyreon-worker run day-block` claims a block, runs each session with the
-  engine's multi-day runner (download ahead, prune behind), bundles the day and publishes it through
-  core, then finishes, or fails with the day's logs. The day has a publish-through-core mode beside
-  its store path, which is unchanged. The client was run against a live local core: claim,
-  heartbeat, publish of the engine-written bundle, the refusal of a second copy, finish.
-  Not yet exercised: a whole computed day through the loop (it needs the droplet), stage timings and
-  request counts in the bundle (E13), the build identity without git (B7).
-- B5 (tape caches through core) is studied, not started. Facts: a day needs, per asset-session, only
-  `capture/manifest.json` and `capture/derived/{derived.json, body.json, body-5m.json}` (the raw
-  per-security files are read only to derive); a session without a tape is itself a small cache
-  (`withheld_session`), not an absence. Three bindings decide the design:
-  (1) a cache is valid only for the build's `READER_IDENTITY` (a hash of eight source files): that
-  is core's `method_version`, and a build that touches those files recomputes every tape (~$15);
-  (2) a cache names the daily attempt directory it was derived against and is re-derived (which
-  needs the raw files) when the local name differs or the day's daily bar is absent;
-  (3) so the day needs the daily bar of **every** session whose cache it reads, back to 2023-05-24,
-  while it downloads only 380 sessions of bars. A full tape history has never run with a short bar
-  window. Ranged bars (B2, done) supply them cheaply: 31 months an asset back to 2023-05.
-  Later, for daily operation: a recent session's bar is re-captured for three sessions and its cache
-  re-derived, which core's write-once rule does not allow yet.
-- Done (B2, engine f71c2ae4..054189cf): daily bars are one ranged request per asset per calendar
-  month (`INTRINIO-CI-DAILY-RANGE-1@1`, page of 100, so one page). The capture is published as the
-  month's last missing session; every other session gets its own copy of the pages (hard links) under
-  a manifest naming its date, and the verified decode reads exactly that date's row after the same
-  URL, chain, clock and digest checks. So each session keeps its own capture root and every reader
-  and view works unchanged; single-day captures still read. A fresh worker's 380-session window is
-  19 requests an asset instead of 760 (1,216 for the 64, was 48,640).
-  Proven on real data: AAPL's November 2025 captured through `h2-engine live-capture-batch` (frozen
-  as the test's fixture), each bar equal to the single-day request's. On the droplet (read-only,
-  2026-11-11): every archived single-day bar of the 64 assets, 39,009 bars from 2024-06 to
-  2026-11, compared with ranged responses: 38,882 identical in every field, 127 recent bars differ
-  only in `adj_volume`, which the engine does not read; no row missing, none without `factor`
-  (P01's adjusted-price fallback does not arise), no response paged.
-  Declared changes for the golden comparison: the daily sensors' binding statement (so their
-  receipts' `binding_checksum`), every ranged session's capture root, and with it
-  `current_daily_capture_sha256` and `source_input_set_sha256`.
-  Not changed: T's own bar is still superseded by a single-day re-capture (128 requests a day).
-  Left for the golden run: a whole day computed from ranged bars.
-- Done (B4, engine 88bad073, b9046fb5): every Intrinio API request in the engine (the capture
-  engine's transport, macro, replay listing, carry, company, closing-quote listing: seven crates)
-  asks a request gate first. `vyreon-worker run day-block` serves the gate on a socket in its home
-  from core's budget leases (100 requests at a time, given back when used, idle or near expiry)
-  and prints requests by category at the end. Without `VYREON_BUDGET_GATE` nothing changes, so the
-  droplet's daily operation is as it was. Against a running core: 150 permits from three threads
-  were four leases, all released, and `core.request_usage` holds 100 and 50 by category.
-  Not done: file downloads from presigned URLs are not gated (the open Intrinio question); the
-  engine's own per-stream pacing is still on underneath; each site's handling of a 429 is not yet
-  audited (E3); the counts are printed, not yet in the bundle (E13).
-- Done (contract 2, C-030; core ecf69fa, engine the two commits after b9046fb5): the bundle carries
-  each body-projected slot's coordinates view and the run's report (E13: stage seconds, requests by
-  category). Core stores both and serves `GET /v1/assets/{object}/history?...&detail=coordinates`:
-  every coordinate with its value, state, reason, unit and quality, exactly as the engine projected
-  it (tested on a real engine-written bundle of AAPL's five body slots). Stream-backed M0 slots
-  carry no view (it would double stream storage); their coordinates are in the stream core serves.
-- B7 in code (engine 36b2def2 and the commit before): a build record beside the binaries
-  (`build-record.json`: the commit and its code identity) gives the build identity where there is
-  no checkout; the binaries' own compiled identity still decides clean or dirty, so a record cannot
-  vouch for other sources (tested against the built binaries). `vyreon-worker` is now a stamped
-  binary. `deploy/worker/Dockerfile` builds from `git archive HEAD` with the droplet's pinned
-  libraries (MKL 2022.1.0, MPFR, GMP, the SQLite library's bytes) and runs
-  `vyreon-worker run day-block`; the disk guard's second path is off by env. Built on the laptop
-  (`vyreon-worker:36b2def2`, 1.5 GB): no git inside, every library resolves, the record's code
-  identity is the one compiled into h3-asset, and the worker reaches its claim call. Its values
-  against the droplet's binaries belong to the golden run.
-- B5, the day-block side, done (engine 454e35d2 and the commit after): a cache is packed as the
-  capture's facts and derivation (AAPL 2025-12-10: under 64 KB, the same bytes every time) and
-  unpacked only after it reads as a day would read it. `vyreon-worker run day-block` first fetches
-  from core every cache its archive lacks for the tape history, then the fill captures what core
-  does not hold, as before. The reader's identity is unchanged from `engine-v1`, so caches derived
-  by the droplet are valid for this build. Against a running core: a tape job stored AAPL's real
-  cache once (a second put is not new, another session's is refused, the session is not done with
-  63 members missing) and an empty archive got it back byte for byte.
-  Two rules that make a cache current on every worker, both outside the reader's sources:
-  a daily bar first captured after its day (UTC) is settled and keeps its attempt name (no
-  superseding re-capture; also 128 fewer requests a day in a historical build); and the bar of each
-  cached session before the 380-session window is captured too (ranged).
-  **A value question for E4:** the droplet derived its oldest tape sessions with no daily bar
-  (official volume unavailable); a tape worker always has the bar, so those sessions' volume
-  reconciliation gate will run where `engine-v1` withheld. It is declared with E4.
-  The tape entrypoint (`vyreon-worker run tape`) claims a tape job and, per session, captures the
-  session's bar and its round-lot evaluation month (ranged) for every member trading by then,
-  captures the tapes, derives and stores each cache, and marks the session done; it draws the
-  budget and heartbeats as a day block does.
-  **Proven on the droplet, 2026-11-11** (branch built clean there in 6 min, separate checkout and
-  binaries; core on the laptop through an SSH tunnel): the tape job of 2025-12-10 took 6 minutes
-  (tapes 330 s, 1.5 GB peak memory), stored 64 caches (1.3 MB in all) and finished. Against the
-  droplet's own caches of that session all 64 fifteen-minute and 64 five-minute bodies are
-  byte-identical; only provenance differs (the ranged bar's page digest, clocks, tape object
-  records). The run found that the capture child, started with a cleared environment, did not
-  see the request gate: fixed (engine f4dad345).
-  Known limits: the droplet's existing caches cannot seed core (they name its superseding daily
-  attempts, which a ranged-bar worker does not have), so the first build recomputes the tape
-  history as planned; a build that changes the reader's eight source files recomputes every tape;
-  a member core lists on a session that the engine's security record does not is refused at done.
-- **The golden day through the worker, proven on the droplet 2026-11-11** (engine f4dad345, clean
-  build `f4dad345+175685379b31`): `vyreon-worker run day-block` claimed 2025-12-10 from core (on the
-  laptop, through an SSH tunnel), computed it on a copy of the droplet's home and published it:
-  2,853 slots, 2,529 coordinate views, the run report, job done, 155 minutes (history nodes 37 min,
-  the day's assets 54 min). Compared slot by slot with the day the droplet published
-  (`71f3fe5d`): every slot state, version and event stream is equal, **no numeric value differs
-  anywhere**, 1,573 bodies are byte-identical, and the other 1,280 differ only in the run's cutoff
-  clock, the calendar digest (the frozen calendar grew to 2020–2028 in `engine-v1`, after that day
-  was published) and the provenance digests the golden comparison already names.
-  What this run did not exercise: ranged bars and core's tape caches inside a whole day (the copy
-  already held the droplet's single-day bars and its caches; a ranged-bar day needs the tape
-  history recomputed first), a block of more than one day, and the container image's binaries.
-  A copied home is refused by the input plan at another path (its documents name absolute
-  paths), so the proof mounted the copy at the home's own path in a private mount namespace; the
-  real home was never visible to the run. Left on the droplet for further proofs: the checkout
-  `/root/vyreon-engine-worker` and `/root/worker-proof` (binaries, the 57 GB home copy).
-- E3 audited (2026-11-11), no code needed: of the seven request sites, replay listing, the JSON
-  provider calls, company and carry retry a 429 themselves with backoff; the capture engine's
-  transport and the macro capture fail the chain, and the fill retries the step after 60 s and
-  300 s (three tries of 30 s for macro). A retry inside the capture engine's transport would send
-  requests its account ledger does not record as attempts, so it stays at the step. With the gate
-  holding all workers under core's ceiling, a 429 is the exception this handles.
-- E11 mapped for coding (engine `worker`, 2026-11-11; decided in C-029). The work, in order:
-  1. **The reason.** `h1-contract/src/lib.rs` `mod fault` (lines 32-58): `REASONS` (ENGINE_FAULT,
-     PARENT_ENGINE_FAULT), `EMPTY_DELIVERED_POPULATION`, `SLOT_REASONS`, `is_reason`,
-     `is_slot_reason`. Add `PROVIDER_INPUT_MISSING` to `SLOT_REASONS`. About 28 family validators use
-     `is_reason` (two fault reasons only; only v03, v03-matched, g01 and m0-contract use
-     `is_slot_reason`), so each family's withheld-body builder and validator must accept it;
-     `h3-asset/src/node.rs` `fault_receipt` (961) and `fault_receipt_ok` (1041) check the closed list;
-     `vyreon-coordinates/tests/faulted_bodies.rs:39` and `tools/reference/refcheck/causes.py` name the
-     reasons; `h5-field/src/option_field.rs:41` `REASON_PRECEDENCE` ranks an unknown reason last.
-  2. **The executor** (`h3-asset/src/h4_run.rs`): a missing-input marker on the intent's asset
-     (`load_intent` 449 requires `option_eod` 503 and `daily_bar` 527 for every asset; the canonical
-     re-serialisation check at 459 needs a struct field); `slot_reason` (994) returns the new reason
-     for that asset's tasks (the D-117 template: `empty_slot` 958, `reads_empty_population` 966,
-     `FaultQueue::push` 949, `fault_job` in catalogue.rs 1386, `execute_faulted` node.rs 1081);
-     `outcome_of` (2503) and `summarize` (2519-2558) get a new outcome kept out of `faulted`
-     (the 10% hold, `hold_threshold` 2478), and a hold when more than 6 of 64 assets are withheld.
-  3. **The six stages** (`vyreon-cli/src/day.rs`, `views.rs`, `guards.rs`, `exports.rs`), easiest
-     first: FIELD (day.rs 612-622: pass the present symbols; h5-field already treats the rest as
-     missing members, `tests/fault_members.rs`); `surface_exports` (day.rs 591, exports.rs 370);
-     `equity_trade_guard` (guards.rs 111; intent B must then not bind `security_interval`,
-     views.rs 730); intent A `history_rows` (views.rs 235-268, 325); intent B `asset_views`,
-     `evc_history`, `intent_b_sources` (day.rs 510-522; views.rs 482-563, 728-764, `act01_route`
-     678-699); the surfaces (`surface_identity` views.rs 369-375; one `h5_surface` process for all
-     assets, and its identity names every asset, so the directory key changes).
-  4. **The plan** (`vyreon-cli/src/plan.rs`): per-asset blocking entries already name the assets
-     (`Entry.assets`, lines 204-574); the day stops at day.rs 270 on any refusal. Per-asset absences
-     must become withholding instead, up to the limit; `carry`, `macro` and `company` stay day-wide.
-  Step 1 is done (engine 17202e14): the reason exists and all the families' containment bodies
-  build and validate with it (their own tests now run over it); nothing produces it yet. Steps 2
-  to 4 remain.
-  **A smaller design for steps 2 to 4, chosen 2026-11-11 after reading the executor** (4,266 lines,
-  its intent canonical and versioned): do not teach the executor about a withheld asset. The day
-  driver leaves such an asset out of the intent (the executor already accepts 2 to 64 assets), so
-  an ordinary day's intent, tasks and bodies are byte for byte what they were. The driver then
-  commits the left-out asset's slots as containment bodies through a new `h3-asset` command built
-  on `fault_job` and `execute_faulted` (they need no sources and no parents; D-113's
-  `fault-export` is the precedent, but it looks the task up in the intent). Each stage loops over
-  the present assets instead of handling an error per site; FIELD gets the present assets and
-  treats the rest as missing members; the more-than-6 hold and the plan's per-asset refusals
-  become the driver's rule. The fault count never sees these assets, so the 10% hold is
-  untouched.
-  Done (engine, the commit after 17202e14): `h3-asset contain-slot MEASUREMENT SYMBOL DATE CUTOFF
-  MESSAGE DEST` commits and verifies the slot (VS-P01 for ETHA: all 16 roles WITHHELD,
-  PROVIDER_INPUT_MISSING). Every owner the executor runs for an asset has such a slot (42 for SPY,
-  42 of AAPL's 47). The other five are the company family, which h5-company computes from the
-  day's company capture and which does not depend on the asset's option, bar or tape inputs, so a
-  left-out asset keeps them. VS-IVS01 (from `h5_surface`) still needs its withheld export.
-  Done (engine 773f93b1): the driver. When all that refuses the day is some assets' own Missing
-  provider input (`options`, `daily`, `consolidated`, `option_history`, `daily_window`), those
-  assets are left out, logged with what each lacks, and kept in `withheld-assets.json` for a
-  resume; more than 6 holds the day; a stale input, a day-wide one, an absence naming no asset or
-  any other input still refuses it. The stages run over the remaining assets; after the export
-  index the left-out assets' slots are written as containment exports, and VS-IVS01 as the
-  surface's own body with every reading withheld. Tested: the rule over plan entries, the slot
-  coverage per asset, the withheld surface body through the coordinates projection.
-  **Proven on a real day (droplet, 2026-11-11, build `c676d944+9f32b85c5a6a`):** 2025-12-10 in the
-  home copy with UNG's option chain of the day set aside and filling off, published through core in
-  166 min. The plan left UNG out (`PROVIDER_INPUT_MISSING`: options, option_history) and the day
-  ran over 63 assets. Against the golden worker run: all 2,853 slots present; UNG's 43 slots are
-  all withheld bodies naming the new reason; every other asset's per-asset slot has no numeric or
-  state difference (differences are the cutoff clock and digests that cover the 64-asset input
-  set; no stream's events differ). FIELD followed h5-field's own rules: breadth, distribution and
-  concentration computed over 63 of 64; every pair without UNG kept its pearson, spearman and
-  concordance exactly (only `common_scale_pearson` moved, 4th decimal), UNG's 63 pairs withheld
-  `INCOMPATIBLE_COMMON_SUPPORT`; the owners that need all 64 (DIM01, RMT01, SUB01, SYNC01) withheld,
-  with their existing reasons `NO_PRIOR_HISTORY` / `INCOMPATIBLE_COMMON_SUPPORT`.
-  **Two things for the owner to judge:** (1) the driver withholds the whole asset, so UNG's price
-  and tape sensors (VS-P01, PATH-*, …) were withheld although only its chain was missing, and that
-  is also what costs FIELD its four all-64 owners; withholding only the slots that read the
-  missing input is possible but is a larger change (the executor's intent requires every asset's
-  chain). (2) `NO_PRIOR_HISTORY` is a misleading reason for "a member is missing today".
-  Found on the way: the proof home lacked carry 2025-12-03 (the golden run's prune removed it); a
-  one-day rerun needs T-5's carry kept or fetched.
-  None of it is in the tape reader's eight source files. Tests need a real day with one asset's
-  real input left out (as `h5-field/tests/fault_members.rs` does), and the golden days must be
-  unchanged when nothing is missing.
-- B3 mapped, not started (engine `worker`, 2026-11-11; an agent's read, unverified where marked).
-  The derived layer is `vyreon-cli/src/derive/{mod,archive}.rs` (I/O) over `h5-derived` (science); it
-  writes straight to Postgres as its own profile `VYREON-DLM-PROFILE-2.0.0` (1,826 slots) and the
-  worker path calls none of it. What the 18 read from Postgres today, each of which has a file in the
-  run's exports: T's VS-O02/VS-P01/VS-IVS01 bodies (`load_with`), the surface digest from the
-  VS-IVS01 receipt (`surface_file`), M0-GAMMA's stream (`gamma_stream`; the export's is not gzipped),
-  FIELD-DEP01 for BETA (`spy_pairs`), the 8-K ledger over all published days (`load_events`; T's own
-  CDD-EVENTS01 carries it, equality unverified), the object lists (`expected_slot`). To change in
-  the science crate: `event_records` returns EVENT-WINDOW and IV-CRUSH together (split);
-  `greek_records` takes IV30 from the DLM-IV30 record (read VS-IVS01's `iv30`); the graph's parents
-  follow. **Body identity changes:** every derived body hashes the list of published revision ids
-  (`History::digest`) into `result_id` and names the base revision id in `parents[]`; a worker knows
-  neither, so the 18's bodies and result ids will differ from `engine-v1` while their roles must
-  not. Two things to settle before coding: (1) one profile or two (core takes a bundle only when
-  its slots are exactly the build's inventory for that profile, so either the 18 join the base
-  profile or the derived profile is split in two); (2) the technical seven run over every bar on
-  disk, so their values depend on where the bars start: that is E4's fixed bar origin, an owner
-  ruling. Also found: the ex-date scan reads 260 sessions of close-quote files but retention keeps
-  200, and a missing file reads as "no ex-date" silently (unverified whether it has moved a value).
-- B3 started (shape decided, C-031: a second profile and bundle). Steps: (1) science: EVENT-WINDOW
-  split from IV-CRUSH (done, engine 3a000f2a; `greek_records` already takes IV30 as a value), a
-  day-local body builder; (2) `vyreon-sensors`: a day-local flag, the two profiles, slots,
-  inventory, graph; (3) `vyreon-cli`: inputs from the run's exports, the 18 computed per asset, an
-  export set, the second bundle, a DayRun stage, E11's withheld assets; (4) core: contract 3 and
-  the supersede rule; (5) the ordered pass and the ex-date as a base value. Proof on the droplet.
-  Step 2 done (engine 7a3e603b): `DAY_DERIVED_PROFILE` (1,105 slots) and `HISTORY_DERIVED_PROFILE`
-  (721) beside the old derived profile, which the old derive still writes; the worker's inventory
-  lists base + these two. Step 3 next, as `vyreon-cli/src/derive/local.rs`, copying the day-local
-  branches of `derive_day` (mod.rs 611-837) over file inputs: a one-day `Store` from the run's
-  `exports/<OBJ>--<MID>/body.json` (roles filtered as `PARENT_ROLES`, `body_sha256` = digest of the
-  file, `population_root_sha256`), the surface digest from the VS-IVS01 export's receipt, the
-  M0-GAMMA export's plain `events/` (`gamma::read_central` reads gzip: add a plain reader),
-  FIELD-DEP01's body for `spy_pairs`, CDD-EVENTS01's body for the events, `iv_today` = VS-IVS01's
-  supported `iv30`. The laptop's frozen exports hold only VS-O02/O06/P01/L01/V02 and two M0 owners,
-  so a laptop test can cover the chain sensors for DBA and VGK at most; the proof is the droplet's.
-  **Step 3's computation proven (droplet, 2026-11-11, engine 64c1988d):** `vyreon-worker
-  derive-local` over the droplet store's published base day 2025-12-10 written out as export
-  directories (274: VS-O02, VS-P01, VS-IVS01, M0-GAMMA with its stream, FIELD-DEP01, CDD-EVENTS01)
-  and the droplet home's archive and surfaces: 1,105 slots in 61 s, 0.4 GB; every role of every
-  slot equals the droplet's published derived day (1,105 of 1,105, all 18 sensors, same method
-  versions). So the event window from T's own ledger equals the one read over published days, on
-  this day. Proof scripts: `/root/worker-proof/b3/` on the droplet.
-  **Steps 3 and 4 done (engine 99a9ddbe, core b6b3490):** the day computes the 18 after its base
-  bundle and sends a second bundle on it (`day_local` in the header; core keeps the flag, migration
-  0010, and an earlier day's republished base no longer supersedes a later day's day-local
-  revision). Checked on real data without a whole day: (a) with UNG's four parents replaced by the
-  E11 run's withheld bodies, UNG's 18 slots withhold every measured role as `DEPENDENCY_WITHHELD`
-  / `PROVIDER_INPUT_MISSING` and the other 1,088 bodies are byte-identical; (b) the droplet's
-  exported base day and the derived bundle published into a scratch core: revision 2 bound to
-  base 1, day-local, 1,105 slots each with its coordinates view, 5,528 reader scalars equal to the
-  droplet's for these sensors. **Not yet proven:** the stage inside a real day run (it has only
-  been built and unit-compiled there), the cross-day supersede rule (needs two real days: the
-  multi-day block proof), and no laptop test from a frozen slice exists for `derive::local` (the
-  laptop has no surfaces, populations or bar archive). Left in B3: step 5, the ordered pass over
-  core's database for the 12 history sensors (C-020: a read-only database role).
-  **Step 5 scoped (2026-11-11).** The ex-date needs no new published value: T's VS-O04 body (and
-  VS-OIJ01's) already states `history_terminal: "CORPORATE_ACTION <date>"`, the latest OCC
-  ex-date in [T-200, T] (`views.rs` `history_rows`; 2025-12-10: BABA 2025-06-12, XLB/XLE/XLK
-  2025-12-05), which is the derive's `action` with a 200-session lookback instead of 260. Only
-  OI-CHANGE and OPTIONS-VOLUME read it. **A value question for the owner (E4):** an ex-date 201 to
-  252 sessions back restarts OPTIONS-VOLUME's 252-session window in the old derive when the files
-  are still on disk, and would not under the 200 rule; a worker's home keeps 200, so the old derive
-  already behaves that way on any pruned home. The work: `derive_day` computes only the 12, reads
-  the 18's bodies it needs (UNUSUALNESS scores them) from the day's day-local revision, reads no
-  archive, bounds its loads to the windows (252 sessions), writes exports and a bundle
-  (`HISTORY_DERIVED_PROFILE`, naming core's base revision id) instead of inserting, and runs as
-  `vyreon-worker run ordered-pass` under an ordered-pass lease; core's `vyreon.*` views must match
-  the queries it makes (`accepted_measurement`, `reader_scalar`, `unusual_score`). The body's
-  history digest then lists core's revision ids.
-  **Step 5's computation done and proven on one day (engine 6ee28e14, 2026-11-11):**
-  `derive::ordered` and `vyreon-worker ordered-day <date> <out>` (connection from
-  `VYREON_CORE_PG_RO[_FILE]`, one read-only repeatable-read snapshot). Against a scratch core
-  holding the droplet's exported base day 2025-12-10 and the day-local revision: 721 slots in 10 s
-  (debug build, 0.6 GB); every role value of all 12 sensors equals the droplet's published derived
-  day; 686 bodies have the same role order too, and 35 DLM-UNUSUALNESS bodies list the same roles
-  in another order (the old derive read the base bodies in whatever order Postgres returned them;
-  the pass reads them by measurement id). Bundled and published through core as revision 3 on base
-  1: 636 reader scalars, and with the day-local 5,528 that is the droplet's 6,164. The bundle now
-  carries the unusualness scores (none on a first day, as on the droplet). DLM-IV-CRUSH keeps the
-  old derive's coupling (withheld with the event window when the day's chain, spot or surface is).
-  **Not proven: any history.** 2025-12-10 is the first published day, so every window was empty;
-  the droplet has no second derived day to compare with. A real check needs several days through
-  the worker path (the multi-day block proof) against the old derive run on the same days.
-  **The worker entry done (engine ce3c50b9, core 73f5a91):** `vyreon-worker run ordered-pass`
-  claimed the 2025-12-10 job from a scratch core over HTTP, computed from its database, published
-  revision 3 on base 1 (naming it) and finished the job. Writing it showed core would have refused
-  a day's second bundle (the base publish moved the block on): a day block now posts
-  `days/{date}/done` after its bundles (C-031).
-  **B3 proven on a whole real day (droplet, 2026-11-11, build `ce3c50b9+25c5107c2761`):**
-  2025-12-10 through `vyreon-worker run day-block` on the home copy, filling off, in 175 min (the
-  day-local stage 67 s): base bundle published as revision 1, the day-local bundle as revision 2
-  on it, `done`, job finished; then `run ordered-pass` (laptop build, core's database) published
-  revision 3 and finished. Against the droplet's own published day: base 2,853 slots, no numeric
-  difference, no slot or stream difference, 1,573 bodies byte-identical (the rest differ in the
-  cutoff clock, the calendar digest and provenance digests, as in the earlier golden run);
-  derived 1,826 of 1,826 slots present, every role value equal, 1,791 with the same role order
-  and 35 DLM-UNUSUALNESS bodies in another order (explained above). One heartbeat request failed
-  in transit during the publish and the next succeeded.
-  **Left in B3:** the pass's base load bounded to its windows (it loads every published day);
-  history, which only several days can prove (the two-node run's adjacent days are the first).
-- Remaining in track B, each a multi-day change proven on golden days: B3 (the 18 day-local
-  derived sensors into the day), E11 (decided, C-029), E4 (owner decisions
-  first).
-
-## Open
-- Before the first build (ARCHITECTURE §8 step 0): E4's rules; stated absences on historical dates
-  and expected coverage.
-- Intrinio: do presigned file downloads count against the 2,000 a minute (per account).
-- `unusual_score` is untested with real rows: the droplet has none yet (one derived day).
-- Publish memory, measured on the full day: the core process peaks at ~0.7 GB and its database
-  backend at ~0.6 GB. Not yet bounded; A7 runs one publish at a time (a day takes ~18 s).
-- **E4 started: what each rule touches (engine `worker`, 2026-11-11).**
-  (1) *Option sessions, 200:* the windows are declared once (`day_inputs.rs` `WINDOWS`:
-  close_quotes 200, option_history 200, daily_captures 379, field_panel 376, ...); the one reader
-  outside them was the derive's 260-session ex-date scan, which the ordered pass no longer makes
-  (it reads T's VS-O04).
-  (2) *`last_adjusted`* (`occ.rs:151`): the latest OCC-adjustment date before T "over every session
-  with a daily capture", so it depends on how many daily sessions the disk holds, and mid-block a
-  worker holds more than at a block's start. It feeds the quote overlay
-  (`quote_overlay.rs` `frozen_by_adjustment`: a dead contract still holding open interest is dropped
-  when its last trade predates the last adjustment, "whatever its distance"). **Real markers on
-  the droplet:** on 2025-12-10 NVDA 2024-06-10, AVGO 2024-07-15, MSTR 2024-08-08 (splits, 337 to
-  378 sessions back), BABA 2025-06-12, five sector funds 2025-12-05; on 2026-11-10 the same, the
-  three splits now about 600 sessions back, only because the droplet's daily archive reaches
-  2024-06-06. A worker with 380 daily sessions would drop the three splits on 2026-11-10. So the
-  plan's "bound it to the window" changes populations for NVDA, AVGO and MSTR, against the
-  overlay's stated intent. **Proposed instead (to measure, then the owner):** splits from the
-  provider's split list at any age (one request per asset), the owner-confirmed table at any age,
-  and the detections that need quote files (new roots, strike shifts) within the 200-session quote
-  window; what that drops is a non-split adjustment older than 200 sessions that is not in the
-  table. **Measured (droplet, real chains of 2025-12-10 and 2026-11-10, every asset carrying the
-  marker):** rows holding open interest whose EOD quote is stamped at or before the adjustment
-  date, the most the frozen rule could drop. Adjustments 3 sessions old (five sector funds,
-  2025-12-05): 465 to 1,137 rows each, 0.2 to 2.1 million contracts of stale open interest.
-  Every older one (BABA at 125 sessions, AVGO/MSTR/NVDA at 337 to 378, all of them again 230
-  sessions later, ETHA at 25): **0 rows**. The rule only acts in the days after an adjustment, so
-  any bound of a few weeks or more gives the same populations on those days. **But a plain
-  200-session scan is not deterministic** (C-033, corrected): a day rebuilds every quote file of
-  [T-200, T], the oldest files' markers look back past the files a worker holds, and detection by
-  new roots or strike shifts needs those files. The rule to build: a fixed lookback L per file,
-  and the quote window L+1 sessions longer. **Decay measured so far:** ETHA (adjusted 2026-10-06)
-  972, 914, 914, 850 stale rows on the next four sessions, 0 from the fifth; XLE and XLK
-  (2025-12-05) 1,137 and 1,065 through the fifth session, 1,080 and 1,003 on the sixth, then no
-  capture until 2026-10 (0). L waits for XLE's chains of the following weeks (one request a day).
-  (3) *Bar origin:* the technical seven read every daily capture on disk through T
-  (`derive/local.rs`, `ArchiveCache::load_bars`); a worker holds 380. Needs bars from a fixed
-  origin (2020-01-02 or the listing) as one ranged request per asset (C-008), read apart from the
-  per-session captures.
-  (4) *Tape-history start:* `VYREON_TAPE_HISTORY_FROM` (an environment variable, default
-  2023-05-24); to come from core's claim.
-- **Path to the MVP (owner, 2026-11-12), spend authorized up to $50 in total** (was $25; about
-  $12 spent by 16:00 UTC). After every run the worker pool is deleted; the cluster and registry
-  only on the owner's word; stop and ask before exceeding $50.
-  1. Done 2026-11-13: the two-day trial and its ordered pass (cluster confirmed working).
-  2. N assets (listings, delistings, a changing universe) and sensor-level withholding, in full
-     (owner, 2026-11-12: a rebuild deep into the build costs far more than doing it now). Sized
-     from a survey of engine 0ca127ea (estimates, about 2-3 weeks):
-     (1) sensor-level withholding: history nodes faultable, dependants withheld through
-     `vyreon-graph`, the stop-on-first-error points after the executor and in both derive passes
-     become withheld slots, a failed day does not stop its block (3-5 days);
-     (2) per-date absence: not listed, delisted or no chain withholds that asset's slots for the
-     date; the cap of 6 goes; P01/PATH windows respect the listing date (1-2 days);
-     (3) the universe per date from core, not compiled in; the slot inventory per date (3-4 days);
-     (4) renames and delistings by the permanent asset key, the ticker in force on the date
-     (2-3 days); (5) a stated rule for each pooled quantity under changing membership (the
-     surface's financing spread, the unusualness line, the activity route's volume sum), shown to
-     the owner as before/after values on a real day (2-3 days); (6) FIELD stays the core-64
-     cross-section, an absent member a missing cell, minimum 51 (about 1 day). Left out:
-     redefining FIELD for another N (a science change nothing needs yet).
-     Survey also found: no history derived sensor recurses on its own unbounded history
-     (DLM-IV-CRUSH's event search is uncapped; the day-local technical sensors smooth from an
-     asset's first bar: check for the newest-first build).
-  2.5. Verify step 2: (a) tests on frozen real slices (ETHA's listing week withholds only ETHA's
-     open-interest sensors and their dependants); (b) a cluster trial of four single days, each a
-     real case: 2025-12-10 again (regression: nothing withheld, values as this trial's apart from
-     provider revisions), ETHA's option listing day 2025-04-11 (only its open-interest sensors
-     withheld, the day publishes), a day before ETHA existed (before 2024-07-23; fewer assets),
-     a day around the FB to META rename (June 2022; also before the tapes start, so
-     provider-limited absences). Dates may shift to what the universe and provider hold.
-     Functional checks only: no rule is tuned on these dates. (c) The build's first tranche,
-     the newest two weeks on two nodes, checked before scaling to eight.
-     Node type measured here too (owner, 2026-11-12): one day each on the regular shared plans
-     `s-2vcpu-4gb`, `s-4vcpu-8gb`, `s-8vcpu-16gb` ($0.018 per vCPU-hour) against the AMD 8 vCPU
-     in use ($0.021); choose by cost per published day. Needed first: the worker's real peak
-     memory (sampled on the 2025-12-11 run) and the Intrinio requests by category (which could
-     be asked as date ranges). The account's limit is 15 droplets, a count: smaller nodes mean
-     less total CPU unless the limit is raised.
-  3. The newest-first build to lookback depth (sized first: every sensor's lookback, what
-     Reporter reads, and whether any of the 12 history derived sensors carries unbounded state).
-  4. Reporter and web (owner, 2026-11-14: Reporter mostly exists and has produced sample
-     reports on incomplete data; this step is pointing it at core's API and the built history,
-     to be sized then).
-  5. (owner, 2026-11-14) Generate the reports and judge them, the FIELD sensors above all: a
-     campaign on FIELD's numerical stability and generalization (science changes, from the
-     built history; no published reference exists for them). FIELD is a large part of the paid
-     product and must be useful and defensible. Going live needs Intrinio's Startup tier for
-     both free and paid reports: ideally both together, free first if the paid side needs long work.
-- **Step 2 progress (2026-11-12):** engine 0c4e7c18 (a failed
-  history export leaves `history-fault.json`, day T binds it, the sensors reading that history
-  are withheld by the executor); engine 3441a441 (one object's failure in the day-local derive
-  withholds its records, ENGINE_FAULT); core C-035 (a day out of attempts is set aside, its
-  block goes on, three failed days pause the queue; tested). Predictable failures get handlers
-  too (owner: the overfit caution is about rules tuned on the census dates, not robustness):
-  still to do are surface preparation, company, FIELD and the ordered pass, one asset's failure
-  withholding its own slots.
-  **Test bed on the droplet (2026-11-13):** `/opt/vyreon-test` holds the e8aad4e0 binaries (with
-  the production runpaths for the pinned SQLite and MKL, which cost three failed attempts), a
-  scratch store `vyreon_test`, and `run-day.sh`. 2025-12-10 ran clean there in 130 min and was
-  compared with the cluster's (image 0ca127ea, before these changes): all 4,679 slots present on
-  both; numbers differ only in CDD-CAPVAL01 on 11 companies (provider market cap between
-  captures) and BABA's DLM-OI-CENTROID at 1e-15; the SAI-ACT01 family (59 assets) differs because
-  the test bed starts tape history at 2025-12-10 (VS-P01 for 2025-12-03 fails, SAI-ACT01 is
-  withheld PARENT_ENGINE_FAULT, the day goes on). **3441a441 proven:** `vyreon-worker
-  derive-local` on the day's exports gives 1,104 of 1,105 slots with the cluster's roles (the
-  other is BABA above); with the M0-GAMMA stream of COIN removed and XLE's corrupted, the other
-  1,070 bodies are byte-identical and those two assets' 35 records carry ENGINE_FAULT on every
-  measured role, listed in the faults file. A corrupt base parent body still stops the derive
-  (the base day itself is broken). **0c4e7c18:** when every history export failed (my library
-  mistake) 256 fault files were written and the day was held at the 10% threshold. **0c4e7c18
-  proven:** with one export forced to fail (EWY, VS-O02 history) the day published in 140 min, all
-  4,679 slots present; against the clean run only EWY and the field differ: VS-O02 ENGINE_FAULT,
-  VS-O03/VS-O04/VS-OIJ01/SAI-G01 PARENT_ENGINE_FAULT, 13 EWY derived records with the dependent
-  roles DEPENDENCY_WITHHELD, and EWY's cell withheld in FIELD-OPTBR01 and FIELD-SUP01 (63 of 64
-  eligible). Every other measured value is identical. Found on the way: on the droplet's store
-  path DLM-UNUSUALNESS lists its roles in the database's row order (34 assets' bodies differ in
-  order only between two runs); the ordered pass already sorts, the store path now does too
-  (engine `worker`, local commits from 07ac5ba3, not pushed).
-  **Surface preparation (07ac5ba3, c814a338), first cut, to be reworked:** with EWY's preparation
-  forced to fail on T and XLE's on T-5 the day published (all 4,679 slots); EWY and XLE have every
-  slot withheld (ENGINE_FAULT, derived DEPENDENCY_WITHHELD) and the other 62 assets' 4,527 slots
-  are identical to the clean run. But leaving an asset out drops its whole history from the FIELD
-  panels: FIELD-RMT01, FIELD-DIM01 and FIELD-SUB01 came out wholly withheld (NO_PRIOR_HISTORY) and
-  FIELD-SYNC01 almost wholly (INCOMPATIBLE_COMMON_SUPPORT). The same happens today when an asset
-  lacks a provider input (E11). Rework: the surface writes a fault record for the asset, day T
-  binds it as the history handler does, and only the sensors that read the surface are withheld.
-  **Reworked (7c590678, pushed), proven 2026-11-13 on 2025-12-10:** same two injected failures;
-  the day published all 4,679 slots. EWY: VS-IVS01, VS-V03-CURRENT and M0-ANALYTICS are
-  ENGINE_FAULT, their dependants PARENT_ENGINE_FAULT, eight derived records DEPENDENCY_WITHHELD
-  (18 slots); its price, tape and chain sensors are identical to the clean run. XLE (T-5): four
-  slots that read the earlier surface. The other 62 assets' slots are identical; FIELD keeps all
-  its sensors, M0-FIELD-ANALYTICS has one withheld cell (63 of 64). The first pass of this run
-  stopped on the executor's disk reserve (a fifth of the disk; the test bed held four kept runs);
-  the reserve share is now settable for a test bed (VYREON_DISK_RESERVE_PERCENT, 50918ca9).
-  **Store-path derive (650995bc, local, test running):** one object's failure in `derive_day`
-  withholds that object's derived records (ENGINE_FAULT) and the day goes on; unreadable SPY bars
-  cost only SPY. Left as stops: the ordered pass (it reads only published rows; a failure there
-  has no inputs to drop, containing it needs a stub record shape) and the day-local loads of the
-  run's own exports.
-  **2026-11-13 evening (engine `worker`, local from 0f35dd6d; pushed to 50918ca9):**
-  the store-path derive change leaves a clean day byte-identical (all 4,679 slots; its injected
-  fault missed, because the derive finds a surface by digest in any folder of the date; rerun
-  on a test droplet). **E11 narrowed (cfb7e405 and after):** an asset lacking a
-  provider input stays in the day; each view or source that cannot be built is bound as an
-  absence record (`input-absent.json`, H4-INPUT-ABSENT@1), the executor withholds its readers
-  PROVIDER_INPUT_MISSING and their dependants with them, and declares no T-5 closure from an
-  absent view; the cap of 6 is gone. A view that cannot be built for a whole asset leaves a
-  fault record instead of stopping the day. **Holds:** engine faults only count toward D-103's
-  tenth (also in both derives); a separate tenth of slots lacking a provider input holds the
-  day for a retry (owner 2026-11-13, to be reviewed on the build's days;
-  `VYREON_MISSING_HOLD_THRESHOLD`). **Second Codex audit** (report
-  `~/claude-artifacts/audits/2026-11-13-codex-failure-handlers-2.md`): 10 findings; fixed the
-  hold's counting and coverage, view-building failures, stale surface fault markers at T, the
-  made-up gamma parent. Open: the derive's fault rebuild repeats computations that can fail
-  again (needs a stub record shape, as the ordered pass does); surface identity reads before
-  containment; a company's supplement page; export failures that leave a slot missing; an
-  unreadable SPY drops roles from other assets' technical records.
-  **Proven 2026-11-14 on 2025-12-10 (three test droplets, against the clean baseline; engine
-  pushed to f76dd676):** XLE without its options capture: 43 XLE slots withheld
-  PROVIDER_INPUT_MISSING (derived ones DEPENDENCY_WITHHELD), its price, tape and company
-  sensors and the other 63 assets identical, three FIELD records differ by XLE's cell. MSFT's
-  surface hidden at the derive: its 30 derived records ENGINE_FAULT, everything else identical.
-  GLD without its tape of T and TLT without one daily bar: 7 GLD and 42 TLT slots withheld,
-  the other 62 assets identical; 11 FIELD records differ because FIELD still drops a member
-  whose daily bar is missing (item 6).
-  **The 177 withheld activity slots: cause found and fixed (984bd4b8, pushed).** The ACT01
-  cohort folder of 2025-12-10 was built 2026-11-07 under calendar registry V1.4; the registry
-  became V1.5 on 11-08 and the day reused the folder unchecked, so the executor refused its
-  T-5 P01 view ("another calendar") for 59 assets. Fresh workers have no such folder. Now the
-  plan and the route treat such a view as stale and `act01_auto_source --rebind` restates its
-  digest (same sessions, no provider request). Proven on test-1: 59 folders rebound, the clean
-  day publishes with 0 faulted slots; SAI-ACT01, SAI-ACT01-INTRADAY and INT-ACT-TV15 compute for
-  those 59 assets and DLM-UNUSUALNESS (58 slots) scores them; the other 4,444 slots are
-  identical to the baseline. The production store's 2025-12-10 still carries the 177 withheld
-  slots (its folder needs the rebind and a republish; owner's word before touching production).
-  **Third Codex audit (2026-11-14, report
-  `~/claude-artifacts/audits/2026-11-14-codex-missing-inputs-3.md`):** 10 findings, 3
-  suspicions. Fixed and pushed (9267752b, 69731ce7; proven on test-2 with AAPL's options of T
-  and NVDA's of T-5 removed: 0 faulted slots, 51 AAPL and 31 NVDA slots withheld
-  PROVIDER_INPUT_MISSING, the other 62 assets identical but three FIELD option records; a gap
-  at T-5 also withholds NVDA's O02/O04/L01/OIJ01 of T through their 200-session history): a lacking asset with a cohort no longer stops the pooled feed
-  check; the plan excuses only checks that read the missing captures; the M0 change owners take
-  an absent T-5 view's reason; FIELD skips a faulted tape; an interrupted rebind is picked up.
-  Also fixed and pushed (517a3d56): a lacking asset's failure counts as its absence only where
-  the failing piece reads the missing input, and a tape with a manifest but no raw files is
-  bound absent. Proven on test-1 (GLD tape raw files and TLT's 2025-10-15 daily bar removed):
-  0 ENGINE_FAULT, 7 GLD and 45 TLT slots withheld, the other 62 assets identical but 11 FIELD
-  records; the AAPL/NVDA day rerun on the same build is identical (4,679 slots).
-  Also pushed (64718f93; proven on test-2 with TLT's 2025-10-15 bar removed: 0 ENGINE_FAULT,
-  51 TLT slots withheld, the other 63 assets identical but 12 FIELD records): an asset missing
-  a daily bar inside the surface's 400-day split lookback has no surface (a split on that bar
-  would go unseen); cost: one missing bar withholds its option sensors for 400 days, to review
-  with the build's coverage numbers.
-  Open: the pooled financing spread changes with membership (item 5); one old daily-bar gap
-  also removes the member from the intraday panel.
-  **Item 5, financing spread measured (2025-12-03 and 2025-12-10; engine 60c459cc, local,
-  records each asset's rows of the pool in the surface's `day.json`):** the spread (92.3 and
-  88.2 bp) is pooled from 12 and 16 of the 64 assets (45 and 60 expiry rows); NVDA, AMD, QQQ,
-  TSLA, SPY and IWM carry about three quarters of the weight, all listed long before the option
-  data starts; IBIT and ETHA contribute nothing. Removing one asset changes it for 7 and 5
-  assets only, at most +6.7 bp (QQQ) and +2.8 bp (NVDA). Other assets' values under a shifted
-  spread (2025-12-10 surface recomputed): without NVDA (+2.8 bp) the median change of
-  IV30/60/90 is 0.0008 vol points, without the top five (-11.5 bp) 0.003; the largest are EMB
-  (IV60 8.76 to 6.07 without NVDA, yet 0.04 without the top five: its thin-chain fit is
-  unstable, D-095, not a spread effect) and DBA (0.03 to 0.13). Rule proposed: the spread is
-  pooled over the assets that have a surface that day, stated in the day's record; no change
-  to the estimator.
-  The other two pooled quantities are already membership-agnostic. The activity route's feed
-  check is a ratio of sums over the cohorts captured that day (a lacking asset is skipped):
-  0.9855/1.0045 with all 64, 0.9852/1.0041 without AAPL's cohort, against a 0.95 threshold.
-  The unusualness line is the 95th percentile of the scores the universe published in the
-  prior 252 sessions, no line under 500 scores; it can only be measured on a populated store
-  (the build), and its definition text says "all 64 securities" (reword with item 3). Rule
-  proposed for all three: pooled over the assets present on the date, membership stated in
-  the record, estimators unchanged; owner to confirm.
-  **Item 3 surveyed (2026-11-14, engine 60c459cc; a survey, its claims unverified):** the 64
-  are `specifications/science/PROFILE.json` plus hand copies in `vyreon-sensors`, `h5-field`,
-  `h5-company`, `vyreon-cli/acq.rs` and `h3-replay`; the slot inventory is the compiled sensor
-  table times those lists, seeded per `profile_revision` (a constant) into both stores, and
-  core refuses a bundle whose slots differ. Core's claim already carries each date's members
-  (ticker NULL when not listed); the engine reads the claim only for the tape start. Two
-  routes: (a) keep the 64 slots and the profile revision, take the date's members from the
-  claim, and publish a not-listed asset's slots as stated absences with their own reason,
-  outside the missing-input hold (small: the E11 path does the withholding); (b) an inventory
-  per date (schema, core's publish check, slot functions, bundle, API counts, the profile
-  string checks in the h3 result bodies: much deeper). Renames (item 4) are the deep part
-  either way: the asset key stays the object id and directory key, every provider request
-  takes the date's ticker (about six crates). **Owner, 2026-11-14: route (a)**; the whole
-  stock universe is an eventual goal, the 64 stay for a long time and the MVP does not need more.
-  First piece under test (engine 5bfb0132, local): the worker writes each claimed session's
-  members to `<home>/h5-universe/<session>.json`; an asset named without a ticker is carried as
-  not listed and its slots publish as stated absences with the new reason NOT_LISTED, counted
-  by neither hold. Functional test on test-2: 2025-12-10 with ETHA's archive removed and a
-  universe file naming it unlisted (a counterfactual membership over real data; the real
-  pre-listing day is step 2.5's); control on test-1 without the file (517a3d56). Not done: the
-  fill does not yet skip an unlisted asset; renames (item 4). Design for the fill (not built):
-  the planner and the fill take the session's listed assets (`Planner.symbols` and
-  `Fill.symbols` are read in about 26 loops, each given T), so the plan is whole without the
-  unlisted asset, nothing is fetched for it, and the day then adds it as not listed. Neither
-  struct can be cloned per session (the planner's listing cache), so each loop takes a
-  `listed(T)` list. It needs the provider, so its real test is step 2.5's pre-listing day.
-  Among the 64 the cases are pre-listing (COIN 2021-04, IBIT 2024-01, ETHA 2024-07; check the
-  rest against core's universe) and the FB to META rename; none is delisted.
-  **The universe pass (plan, 2026-11-14; owner: one pass that makes the system robust to what
-  can happen to the 64: a ticker change above all, a delisting by design; scale to thousands
-  and a general FIELD stay deferred; items 3 and 4 done together).** Sized by a read-only
-  survey (claims unverified except where noted). Principle: nothing stored depends on which
-  assets are in the universe.
-  (P0) The profile revision string is frozen as a label of the research profile, never bumped
-  for membership (it is inside 45 body types, receipts and, through parents, derived ids; a
-  rename would start a parallel series and republish every date). A decision record, no code.
-  (P1) The member record through the engine: the session's members with the ticker in force
-  (`h5-universe/<session>.json`, exists) read by the planner's and the fill's loops; archive
-  folders and object ids stay on the asset key, every provider request takes the date's
-  ticker (daily, tape, options root, surface inputs, security record, company capture: META
-  is a company). 4-6 days.
-  (P2) Slots from the date's members: an unlisted asset has no slots (replaces the NOT_LISTED
-  bodies of 5bfb0132); sensor-table functions take the listed members; derive passes iterate
-  the objects present; both stores check a date against template x listed members, with the
-  listed set recorded per published revision so stored days are never re-judged (core's
-  `member` has no validity dates); the APIs say "not listed" instead of NOT_PUBLISHED. 4-6 days.
-  (P3) With it: a newly listed asset's short windows are a stated absence of their own,
-  outside both holds; provider start dates per source from the claim (check what exists
-  first); the "all 64" wording. 2-3 days.
-  (P5, owner 2026-11-14: support splits properly, in the pass) Carry option history across a
-  clean whole-number split, forward or reverse (strikes, counts and premiums mapped exactly);
-  other OCC adjustments keep today's restart of the history at the ex-date (D-077). Today a
-  split blanks most history-based option readings for up to 200 sessions (XLK three sessions
-  after its 2025-12-05 split: VS-O02 15 readings supported against XLF's 277). Sized by a
-  read-only survey (unverified): the 200-session loss is the history sensors only. VS-O02's OI
-  total needs x n before the ex-date, VS-O04 and VS-OIJ01 need no arithmetic (shares, moneyness
-  grid), VS-L01 really changes at a split (tick size on the new price: XLU 0.33 before, 0.62 to
-  0.70 after, D-079) and keeps its restart. The T against T-5 sensors (O03, gamma and IV change,
-  IVSC) and the ACT01 family are challenged only while the ex-date is in [T-5, T], about six
-  sessions a split. The engine cannot yet tell a clean split from another OCC adjustment
-  (classifier from the bar's split ratio and the quote headers); codes are reused at new
-  strikes, so identity maps by expiry, right and strike x ratio; the ex-date itself stays
-  withheld; translation belongs in the h3-asset wrappers (science files feed method hashes);
-  VS-O04's terminal is how the derived layer learns the ex-date. Reverse splits in the data
-  give non-standard roots (UNG1), so they are not clean. Estimates: history sensors with
-  classifier, plumbing and tests about 4 days; the five-session sensors 2-3 more; ACT01 4-7
-  more. Real test: XLB, XLE, XLK, XLU, XLY all split 2025-12-05 on the test archive. **Owner,
-  2026-11-14: all three groups now** (history sensors, the five-session sensors, the ACT01
-  family; VS-L01 keeps its restart): about 10-14 days in all. Order: history sensors, then
-  the five-session sensors, then ACT01, each proven on the five real splits; settle OCC's
-  strike rounding for ratios of 3 or more before promising NVDA and AVGO. Of the other real events: the 2025-01-09 closure is
-  in the calendar with a test; COIN (2021-04-14) and PLTR (2020-09-30) list before option data
-  starts; new expiries to check on the build.
-  **After the WSL crash, 2026-11-15 16:45 UTC (newest; resume from here).** The session died
-  at 08:16 UTC when the WSL disk filled: every engine worktree under `/home/diggz/wt` had its
-  own cargo target (646 GB). Deleted with the owner's word: every `wt/target-*` except
-  `target-fx-all`, the worker checkout's target, old session scratch (889 GB used -> 184 GB).
-  Rule from now: a worktree's cargo target is deleted when its branch is merged (a shared
-  target saves little: each worktree vendors its own dependencies).
-  Owner, 2026-11-15 (C-041): the audit loop is in `tools/audit/`; the exit is no verified
-  finding above the cut line (a wrong number in the database, or only a full rebuild corrects
-  it), not two clean audits; a real day after each merged batch; no need to run at full
-  throttle (usage limits reset).
-  Nothing committed was lost. `pass-fx-all` e9cce438 is deployed on both test droplets (build
-  `e9cce438+29f01f9ec6a9`); the key-free marker rewrite worked there (12,864 quote files
-  requoted), then 2025-12-10 was refused on both (runs `r1`, `m3`): 58-59 ACT01 cohorts bind
-  a superseded T-5 attempt (`act01_auto_source --rebind`). Droplets idle since 08:42 UTC.
-  The three follow-up agents were killed: `pass-fx2-small` has items 1 and 2 of nine
-  committed (e6974e68, b4966f55); `fx2-style` (31 files) and `fx2-receipt` (36 files) hold
-  uncommitted edits in their worktrees, not yet compiled or reviewed. Next: finish and merge
-  fx2, the rebind and the clean day on both droplets, then the list in the note below.
-  **Fix round, 2026-11-15 08:45 UTC (newer than the note below).** All seven engine fix
-  tracks reported, are pushed (`pass-fx-{derived,overlay,tape,surface,company,field,orch}`,
-  D-171 to D-198) and are merged, in that order, into `pass-fx-all` (worktree
-  `/home/diggz/wt/fx-all`, e9cce438, local): two hand-resolved conflicts (the FIELD intraday
-  builder keeps the tape track's `session_withheld`), workspace compiles, full suite run.
-  Failing and not ours: 8 `option_field`, `a_t5_closure`, 2 h2-engine and 3 h2-q01 spill/URL
-  tests (fail on the base too); needing a droplet: `tape_cache` and
-  `a_tape_cache_without_its_daily_bar` (the AAPL cache fixture is the old tape reader's;
-  regenerate from the droplet's raw tape after a day under the new build). Core:
-  `pass-core-fix` pushed, not merged. Gap-only day `g3` (TLT bar 2025-10-15 hidden) published
-  clean: TLT's history sensors PROVIDER_INPUT_MISSING, FIELD W21 supported, W63 matrix
-  withheld whole (the all-64 rule, campaign); bar restored. Running: release build of
-  `pass-fx-all` for the droplets; follow-up agents on `pass-fx2-{style,receipt,small}`
-  (exercise style D-199/200; wall-clock out of receipts D-201/202; nine small items
-  D-203..208, list in the session). Decided by rule: Ichimoku stays 26 bars; core stores no
-  tape absences for this engine. Next: merge fx2, real days on both droplets (marker rewrite
-  with `vyreon-inputs terms`, then the clean day; then a membership day and an early date),
-  Codex audit of the merged round, `pass-s3i` rebase, merge to `worker` with core.
-  **State of the pass, 2026-11-15 06:30 UTC (handoff note; start a fresh session from here).**
-  Nothing is on `worker` or core's main. Engine candidates, pushed: `pass` (d028637a), for the
-  test droplets, and `pass-s3i` (286f5c68), the same plus D-162 (the ACT01 family across a
-  split and the rename; needs the provider, so cluster only). Core: `pass-core`. Decisions
-  D-161 to D-170 at the end of the engine's docs/DECISIONS.md, with dated amendments, are the
-  specification; nine Codex audit reports of the pass and the triage of ten subsystem audits
-  are in `~/claude-artifacts/audits/` (the pass: `2026-11-14-codex-universe-pass-4..9.md`; the
-  subsystems: `2026-11-14-baseline/` with verified lists under `triage/`).
-  Proven on real days (2025-12-10, values recomputed independently where marked): D-164 slots
-  and the store schema; D-161 and D-163 split stages 1 and 2 (recomputed); a member unlisted
-  and a member with a missing bar; no regression on clean days through `pass` 0881fb8e (audit
-  rounds 1 to 4). Not yet on a real day: audit 8's fixes, the adjustment ledger (audit 9), the
-  FIELD gap case (`g3` running on test-1, engine 8c8650ea), D-165 and D-167 on a rename date,
-  D-162, D-166 on a post-listing date, the split-basis scores (need a built history).
-  Blocked: a day on the ledger build (`pass` d028637a) is refused on a test droplet: 2,081
-  quote files need the new `adjustment=` markers, and the only command that rewrites markers
-  is the fill, which demands a provider key even though this step makes no request. Next: a
-  key-free marker rewrite (extend `vyreon-inputs terms`), then the clean day and a seventh
-  audit on the final candidate.
-  Then: fix the verified subsystem findings (below); two consecutive clean audits; merge
-  `pass-s3i` to `worker` and `pass-core` to core's main together; rebuild the images; step 2.5
-  on the cluster (2025-12-10; 2025-04-11; a day before 2024-07-23; a block over
-  2022-06-01..06-17 for the rename; a day after a 10-for-1 split); the build from 2022-05-27.
-  **Fix round started 2026-11-15 06:55 UTC (owner: fix everything now).** First wave, engine
-  worktrees under `/home/diggz/wt/` branched from `pass` d028637a: `pass-fx-derived` (daily
-  findings; decisions D-171..174), `pass-fx-overlay` (overlay and option-sensor findings, the
-  run-time fields out of hashed identities, a key-free marker rewrite in `vyreon-inputs
-  terms`; D-175..178), `pass-fx-tape` (tape findings: the pre-tape build-blocker first, EVC01
-  across splits; D-179..182); core: `/home/diggz/wt/fx-core`, branch `pass-core-fix`
-  (C-037 on). A measurement of how often no expiry identifies the carry (the q = 0 default)
-  runs on the droplets. Second wave, not yet started: surface and pricing with the M0
-  findings (the Treasury-yield convention fixed by the standard; exercise style), day
-  orchestration and the executor (including a retried `finish`), FIELD's structural
-  findings, company (share counts from reported shares and the splits known by the date;
-  the midnight cutoff; retries). Common brief: session scratchpad `audit/base/fix-common.md`.
-  Owner, 2026-11-15: the three recommendations stand: the q = 0 default is measured first and
-  withheld if rare; the Treasury-yield convention is fixed now; share counts are computed
-  from reported shares and the splits known by the date. The whole fix round stays in this
-  session for a continuous engineering log.
-  The q = 0 default measured (all 64 assets x 361 sessions; scripts and tables in the
-  scratchpad `zero-yield/`): the one-year book has no identified expiry on 35 of 23,104
-  asset-sessions (0.15%): UUP 18, EMB 4, LQD 4, DBA 3, the five split ETFs on 2025-12-05,
-  ETHA 2026-10-06; 0.06% of contracts priced at q = 0. On UUP 2025-12-03 the 30-day implied
-  volatility is 0.0521 at q = 0, 0.0546 with the q its 408-day expiry identified, 0.0451
-  with the q identified a week later. Rare, so by the owner's rule it is withheld: the
-  surface track first lets the book borrow from an identified expiry beyond a year (D-107
-  s.8; the book could not), then withholds the asset's surface when no expiry identifies the
-  carry. Also seen: UUP's projected December distribution 1.3171 against 0.9269 paid.
-  **Verified subsystem findings, to fix before the build** (triage files give file:line and
-  the smallest fix): stops a day: the ordered derive aborts for all 64 on one object's error
-  (daily 8, likely on ETHA after 2026-10-06 through an exact-equality check, daily 13); one
-  asset's bad carry page fails the surface stage for all (surface 12); one asset's missing bar
-  fails the shared quote fetch (overlay 9); carry is blocking and not withholdable
-  (orchestration 10); one member's failed view stops FIELD (field 3). Wrong numbers: q = 0
-  when no expiry identifies carry, unlabelled (m0 1 / surface 3: needs the owner, it trades
-  coverage for honesty; incidence unmeasured); 0DTE volume on an ex-date (daily 5); charm
-  totals skipping rows without charm (daily 6); derived bars admitted on a weaker test than
-  P01's (daily 3); snapshot zeros accepted against end-of-day open interest (optsensors 1 /
-  overlay 4); a null split ratio read as no split (overlay 3); the dividend projection's
-  split lookback of 400 days against eight payments (surface 5) and its holiday calendar
-  limited to 2025-2028 (surface 6); H.15 yields compounded as ln(1+y) (surface 1: small, a
-  method break, the owner's call). Mislabels: an engine state published as a provider absence
-  (orchestration 3, 4, 5; field 4, 6; daily 9); candlestick NONE with support under nine
-  bars (daily 7). The technical indicators match their standards (Wilder, Appel, Bollinger,
-  Lane and the rest); Ichimoku's spans stay displaced 26 bars: platforms split (26: TA-Lib,
-  MetaTrader, thinkorswim, StockCharts; 25: TradingView, pandas-ta, the Japanese inclusive
-  count), no single standard, and TA-Lib is the engine's referee, so no change; and moving
-  averages reseed at the archive's start: the build needs about 200 bars before its first
-  date. The engine's own `vyreon-api` is unused (core C-009): delete it rather than fix it.
-  For the FIELD campaign: the all-64 sensors are withheld from the build's start until
-  about 2024-10 to 2025-07 because IBIT and ETHA list in 2024: about half the build.
-  Core and tape (triage in `triage/core-tape.md`). Build-blockers: a tape capture withheld
-  whole has an empty source digest that the four temporal results refuse, an engine fault for
-  320 of 2,853 slots on every session before the tapes (2022-05-27 to 2023-05-23): over the
-  fault hold, about 250 days held (tape 5); in core, a job whose `finish` is lost is requeued
-  with no next session and every later claim of its kind panics (core 6), the ordered pass
-  becomes claimable while its block is still on T and fails for good after three attempts
-  (core 7), a base republish supersedes later history revisions without requeueing their
-  jobs (core 10, with 1 and 2), and the worker Job's `backoffLimit: 0` kills sibling pods
-  (core 8). Wrong number: EVC01 pools raw share volumes across splits (tape 11).
-  Company and macro (`triage/company.md`, provider format checked by read-only requests): a
-  look-ahead: `adjusted_shares_outstanding` is adjusted for splits up to today, so a build
-  now publishes NVDA at 24.7B shares for every 2023 session (2.47B then); the same for AVGO,
-  MSTR, WMT, TSLA, GOOGL and AMZN before their splits. The float ratio divides post-split
-  float by pre-split reported shares (AMZN 17.5, NVDA 9.7: withheld INVALID_REQUIRED_INPUT
-  for about a year after each split). A company capture that crosses midnight UTC exits
-  fatally, and one company's exhausted retries stop the day's company phase. The provider
-  returns no expected earnings for past windows: withheld from 2022-05-27 to about 2025-09.
-  Fundamentals (as originally reported, filtered by filing instant), daily metrics, dividends
-  and macro dating are point-in-time correct for a 2023 session.
-  Real days running, 2025-12-10 clean, each against baseline `c1`: test-2 `i1` on bc4a04b2
-  (slots and split stage 1), test-1 `j1` on 2c36aefc (plus tickers, audit fixes, split stage
-  2). Expected: every asset byte-identical but XLB, XLE, XLK, XLU, XLY, whose VS-O02/O04/OIJ01
-  (and on j1 VS-O03, M0-GAMMA-CHANGE, M0-IV-CHANGE, INT-IVSC01, VS-V03-MATCHED-NATIVE) go from
-  withheld to supported, with the records citing them. A Codex audit of `pass` is running
-  (brief and findings in the session scratchpad, `audit/brief-4.md`, `audit/findings-4.md`).
-  Then: a clean day on `pass` itself; the membership-and-gap day; merge `pass` to `worker`
-  and `pass-core` to core's main together; rebuild the images; the cluster days of step 2.5
-  (2025-12-10, 2025-04-11, a day before 2024-07-23, a block over 2022-06-01..06-17 for the
-  rename, a day after a 10-for-1 split).
-  Tools: `tools/testbed/tb`. Design notes kept in the session scratchpad: split stages 2 and
-  3, the OCC rules, the market-event rules.
-  **Published rules the pass follows (owner 2026-11-14: matching the standard is the ultimate
-  priority; an owner decision is the last resort).** Forward split: OCC By-Laws Art. VI
-  s.11A(d)(i),(h): contracts x n, same symbol, 100-share deliverable, strike / n to the nearest
-  cent, ties up (checked against the strike tables of ten OCC memos). Ticker change: OCC memo
-  #50536, FB/1FB/2FB become META/1META/2META at the open of 2022-06-09, "strike prices and
-  all other option terms will not change". Reverse split: new symbol, reduced deliverable
-  (UNG1, #53931): not a clean split. Special dividend: strikes reduced by the amount, symbol
-  unchanged (s.11A(c),(e)). Cash merger or liquidation: cash deliverable, expirations
-  accelerated (Rule 807). 2025-01-09: exchanges closed, a non-session (the calendar agrees).
-  Vendor practice (OptionMetrics): history stored as traded with a permanent security id and
-  an adjustment factor alongside, which is the asset-key design. No authority was found on
-  comparing quote width across a split; the tick rules ($0.01 below $3.00, $0.05 above for
-  penny classes) make it structurally different, so VS-L01 keeps its restart as our own rule.
-  Split stage 1 is built (branch pass-splits, D-161), stages 2 and 3 are being built.
-  **Provider evidence on the rename (Intrinio, 2026-11-14, read-only requests):** daily bars
-  for identifier FB over 2022-06-06..10 return nothing, from today's FB (a ProShares ETF);
-  for identifier META they return every session including those before 2022-06-09: equity
-  history is served under the current ticker. The option EOD chain is keyed by the ticker in
-  force: FB220617C00195000 on 2022-06-06 (open interest 11,323), an empty chain for META that
-  day, META220617C00195000 from 2022-06-09, where the provider reports open interest 0 on
-  the renamed contracts. Rule: equity-level requests use the asset's current ticker (the
-  asset key), option-level requests the ticker in force; open-interest readings touching the
-  rename date behave like an ex-date.
-  **P3 surveyed (2026-11-14, read-only, unverified; each is a way the build would stop):**
-  (i) option snapshots start 2022-05-27 and the quote window is 223 sessions, so every date
-  before about 2023-04 is refused whole (a stale option source is not withholdable); the FB to
-  META day (2022-06) is inside that. (ii) For about 152 sessions after a listing the ACT01 job
-  fails for all assets when one lacks its 147 daily bars through T-5, and the day is refused
-  (ETHA: to about 2025-02-28; IBIT: to about 2024-08). (iii) A tape job scheduled before
-  2023-05-24 makes every worker panic on its claim (an assert on the tape start). (iv) A date
-  before the tapes needs about four runs before it publishes TAPE_UNAVAILABLE; until then it
-  is a missing input that holds the day. (v) P01, PATH and the prior-5 view are not trimmed to
-  the listing (only FIELD is), and the P01 executor requires 132 captures. (vi) The rolling
-  prune (D-160) assumes days run forward; newest-first it would delete what the next, older,
-  day reads. Smallest changes sized at 3-4 days without (i); (i) is 3-5 days. **Owner,
-  2026-11-14: the build goes back to the start of option data (2021-09-27)**, so (i) is in the
-  pass: before a source's start its readers are stated absences, the day publishes. Owner's
-  rule for recommendations the same day: existing standards first (match the market's own
-  conventions so the numbers agree), then product intent.
-  (P4) Verify: tests on frozen slices; on a test droplet the same date under two memberships
-  gives byte-identical per-asset bodies; step 2.5's FB to META day and pre-listing day on the
-  cluster (the after-delisting direction rests on the pre-listing path: none of the 64 has
-  delisted). Riskiest: the cross-date validators and retained-history reuse tied to the
-  profile constant and `PROFILE.json`'s hash; membership not time-versioned in core; the
-  listed set agreeing between the claim, core's publish check and the ordered pass.
-  Not in the pass: FIELD's fixed roster (in its bodies; the campaign), a membership edit
-  still being an engine build (`PROFILE.json` is in every task's code identity).
-  **Real events register (to check as the build reaches them; dates from memory, verify):**
-  splits with option adjustment (NVDA 2024-06, AVGO 2024-07, MSTR 2024-08, WMT 2024-02, TSLA
-  2022-08, GOOGL and AMZN mid-2022, SMH 2023, XLK/XLU 2025-12), UNG's reverse split 2024-01,
-  the unscheduled closure of 2025-01-09 against the frozen calendar, daily expiries from
-  2022. Proposed for step 2.5: one real split day through the option sensors and the closure.
-  Operations risk: one capture machine collects the perishable sources (about 7 days'
-  retention at the provider).
-  **Item 6 measured (2025-12-10 with TLT absent from the field):** the day already treats an
-  absent member as missing cells; the cross-section sensors stay supported over 63 (minimum 51:
-  FIELD-BR01, DIST01, GRP01, XCONC01, OPTBR01), FIELD-DEP01 withholds TLT's 315 pairs only. The
-  whole-matrix sensors need all 64 and withhold entirely: FIELD-RMT01 (5 of 5), DIM01 (4 of 4),
-  SUB01 (29 of 29), SYNC01 (22 of 24). IBIT (listed 2024-01) and ETHA (2024-07) are members, so
-  on the historical build these four publish nothing before about mid-2025. Owner's call:
-  leave it (stated absences) or define them over the members present.
-  **FIELD panel length (2026-11-14, engine 25057c87, local):** the shortest member set every
-  member's panel length (2025-12-10: 348 sessions for all 64, not the 376 requested, because
-  ETHA listed 2024-07-23), so by the code a new listing would empty the field for every asset
-  until it built history, and a member with one capture made the panel builder fail (not run
-  on a real post-listing day). Now each member contributes the sessions it holds, its earlier
-  cells missing (h5-field keys cells by session); a member with a gap can be given its run
-  after the gap (not built yet). Measured on 2025-12-10 from the clean run's views: the panel
-  goes from 22,272 to 24,036 rows and all 13 FIELD records are identical leaf for leaf (no
-  sensor reads past 348 sessions). Owner, same day: FIELD's stability and generalization are a
-  campaign after the database is built; before it only structural changes like this one.
-  **Test machines (owner 2026-11-13: use more, limit 30 droplets, $100 total stands):**
-  `vyreon-test-1..3` (8 vCPU, $0.167/h each), no timers, key or webhook; each has the archive
-  for 2025-12-10 and a scratch store. Delete when the step's tests are done.
-  **Gamma zero count (2025-12-10, 62 assets):** 6,400,863 gamma-profile evaluations, none
-  unresolved; the silent zero is a code gap not reached on this day (owner's call to close).
-  **Codex audit (2026-11-13, gpt-6-astra, read-only; report in
-  `~/claude-artifacts/audits/2026-11-13-codex-failure-handlers.md`):** 17 findings. Fixed locally:
-  SPY's closes no longer feed other assets when SPY's archive disagrees with its published close
-  (d67059b8); the tenth-of-slots hold counts the final inventory and a republish stages left-out
-  assets (b00f0f58); a failed history export's fault record governs (ca4ee6c6). Also local: a
-  company whose capture cannot be read withholds its five sensors CONTROL_FAILED, proven on the
-  2025-12-10 capture with one JPM page corrupted, other 80 results identical (39b7dd40); a FIELD
-  member without its view is absent, not a stopped day (cba6700e). Open from the audit:
-  containment in the ordered derive; surface output and export paths;
-  narrowing the derive and history handlers; the gamma profile counts an unresolved contract
-  gamma as zero (owner's call, count above); VS-O02's body embeds a digest that includes
-  execution time, so bytes are not reproducible run to run.
-  **Next: narrow E11.** Today a missing `daily_window`, `consolidated` or `option_history`
-  leaves the whole asset out; instead bind an absence record on the roles that read the input
-  (as the history fault does), with PROVIDER_INPUT_MISSING as the slot's reason, so only those
-  sensors and their dependants are withheld. An asset with no option or daily capture at T
-  stays out whole (nothing of it is computable); an empty chain is already sensor-level
-  (EMPTY_DELIVERED_POPULATION). Then the cap of 6 goes.
-- **Droplet (2026-11-12):** the daily capture is working (each morning run ends with nothing
-  missing); its two red alerts were false. The evening run now leaves the newest session to the
-  morning run (engine `deploy/droplet/capture-recent.sh`, deployed; the old copy is kept beside
-  it), and the dead runner's state from the superseded three-day build is marked stopped. The
-  capture uses about 13 CPU-minutes and 1 GB a day; disk is what it needs (141 GB on the root
-  disk, 28 GB database volume). **After step 2 (owner): move the capture to a small droplet
-  (2 vCPU with a volume) or the cluster's core node, then delete the 8 vCPU droplet.**
-- **Build scope for the MVP (owner, 2026-11-12):** build newest-first, backwards from today, and
-  pause when the population satisfies the sensors' lookbacks (the longest known are 200 to 223
-  sessions; the exact depth is sized from what Reporter reads). Then move to Reporter and web
-  integration: the purpose is weekly reports with accurate information. The full range (back to
-  2022) is wanted eventually, for analysis, after revenue. Open: the cost of re-running the
-  ordered pass when older days are added later (unmeasured until it runs on the cluster).
-- **Order changed (owner, 2026-11-12): two things before the database build**, once the cluster
-  is confirmed working (the two-day run and its ordered pass). (1) The system handles N assets:
-  listings, delistings and a changing universe, not a fixed 64. (2) A faulty or insufficient
-  input withholds only the sensors that read it and their dependants, never the whole day (E11
-  narrowed, extended to faulted history nodes; the ETHA stops of 2026-11-12 are the case).
-  Reason: both are errors the build is bound to meet, and one faulty sensor must not cost whole
-  days. This replaces "E11's narrowing waits for the build" below; the rest of that entry stands
-  (no rules tuned on the golden dates).
-  Computing a single sensor instead of the whole day waits until the build hits a real snag
-  that needs it (owner, same day).
-- **Priority (owner, 2026-11-11): the database before general rules.** Rules tuned on the few
-  golden dates have overfitted for weeks; the built database is where they are judged, and a
-  recompute is cheap. So E4 is cut to what a distributed build needs (the same day gives the same
-  values on any node and at any place in a block), each rule a plain declared default: the
-  `last_adjusted` lookback fixed at 21 sessions with the quote window extended to match (not tuned
-  on XLE; a query over the built database shows whether stale rows outlive it), the fixed bar
-  origin, the tape-history start from the claim. E11's narrowing waits for the build to show how
-  often inputs go missing; missed values, listings and delistings handled cleanly are the eventual
-  aim (E6 to E8). The cluster is what builds the database and what keeps running costs below the
-  single-node plan. Order: today's whole-day proof, E4's three defaults, cluster setup, the
-  two-node run (spend to the owner first), the build.
-- **E4's three defaults, state (2026-11-11 evening):**
-  (a) *Tape-history start: done* (core `claims` carries `tape_history_from`, the first scheduled
-  tape session of the profile; engine `day_inputs::set_tape_history_from`, called by the day-block
-  and tape workers right after the claim; without a tape job the engine's own setting stands).
-  Not yet run on the droplet.
-  (b') **Built, untested on real data (engine 233d7670), and it found what rule (1) really
-  meant:** `engine-v1` captured 131 option chains a day and let a home accumulate the 200-session
-  history, so a worker from an empty disk would read a 131-session history and the droplet 200
-  (the golden days read 131 only because the droplet's option archive began 2025-06-04). The
-  capture window is now 223 sessions (200 + the 21-session marker lookback + 2), with quote files
-  for the same sessions; markers, identity and requotes stay on the 200 the readers read; the
-  plan requires the extra quote files. About +92 chains an asset at a block's start (~+6,000
-  requests on ~39,000). **Values will differ from `engine-v1`** wherever a history was shorter
-  than 200 sessions, the golden days included; what must hold instead is that a day is the same
-  first in a block and mid-block, and on two nodes. Not yet run on the droplet (it needs filling
-  on: 92 more sessions of chains and quote files per asset).
-  (b) *`last_adjusted`, fixed 21-session lookback: the design as first written.* Sites: `occ.rs:153`
-  (`last_adjusted` iterates `daily_dates`, every daily capture on disk: make it the 21 calendar
-  sessions before the file's date); the files a marker needs are the quote files of each of those
-  sessions and the one before (new-root and strike-shift detection, `occ.rs` `detect`), so the
-  quote files must reach 23 sessions before the 200-session `close_quotes` window. Add a window
-  rule (`day_inputs.rs` `WINDOWS`, e.g. `quote_detection`, prior 223) used where quote files are
-  fetched (`fill.rs:373`, `:556`), planned (`plan.rs:522`) and retained (`retain.rs:79`); the
-  marker check and rewrite stay on `close_quotes` (`plan.rs:595`, `fill.rs` `rewrite_markers`). A
-  quote file lives in its session's option attempt directory, so those 23 sessions need their
-  option chains too (about +1,500 requests a block): check how sessions 132 to 200 get theirs
-  (`option_captures` is 131, `option_history` 200) before choosing how. The oldest file's
-  `ex_date` and `prior_session_adjusted` have the same edge today (they read the two sessions
-  before it); the longer window cures that as well. On the golden days the markers of NVDA, AVGO,
-  MSTR and BABA go (older than 21 sessions), the sector funds' stay; headers are rewritten by the
-  fill, and a run with filling off will refuse the stale headers.
-  (c') **Bar origin built, untested on real data (engine, 2026-11-11):** the fill captures every
-  session before the 379-session daily window as well, from the calendar's first session
-  (2020-01-02) or the asset's own, as ranged months (`fill.rs`, the `earlier` sessions handed to
-  `plan_symbol`; B2's range capture and links). About 54 requests an asset at a block's start for
-  a 2025 day (~3,500), and a per-session directory for each of ~1,100 older sessions an asset:
-  the time `link_range` takes over that many is unmeasured. The technical seven will differ from
-  `engine-v1` (longer history).
-  **Dry-run fill plan of 2025-12-10 on the home copy (build `89e13c3e+be7f7dadc3b5`, no network,
-  10 s):** per asset 92 more option sessions (2025-01-22 to 2025-06-03: 5,888 chain captures in
-  all), 92 quote-snapshot sessions to fetch, 3,330 ranged daily months to link (about 52 an asset,
-  back to 2020-01), 507 quote files whose markers change (the old splits' markers go), and carry
-  for 2025-12-03 again. The quote snapshots are the slow part of a download and their count goes
-  from 132 to 224 sessions at a block's start: how long that adds is for the filled run to say.
-  Script: `/root/worker-proof/dry-fill.sh` (private mount namespace, `vyreon-inputs fill --dry-run`).
-  **All three defaults are built. Next: one run on the droplet with filling on** (the 2025-12-10
-  home copy lacks 92 sessions of chains and quote files and the bars before 2024-06), after the
-  02:00 UTC capture, to measure the added requests and time and to see the day through; then the
-  same day computed as the second day of a two-day block must equal it.
-  (c) *Bar origin, as first written:* `derive/local.rs` reads `ArchiveCache::load_bars` (every daily
-  capture through T; a missing session restarts the series). To build: one ranged request per
-  asset from 2020-01-02 (B2's `daily_range_chain` and `link_range` already fetch and verify ranged
-  bars), kept as a range of its own that the technical records read, not per-session captures.
-  Engine `worker` is at the tape-history commit, pushed.
-- **Spend authorized (owner, 2026-11-11 ~15:00 Alberta time): the two-node run, up to $25; raised to $50 on 2026-11-12 (see Path to the MVP).** Created
-  through the DigitalOcean connector; the worker pool is deleted after every run; the owner is
-  asked before the cluster or the registry is deleted. A ledger of what is created, when, and
-  what it costs is kept here as it happens.
-- **The two-node run, ledger (UTC, 2026-11-11).** The connector's token could not create
-  anything (403); the owner put a full-access token in `do-full-token.txt` (git-ignored, mode 600,
-  read by the scratch script `cluster/do.sh`, never printed).
-  21:06 registry `vyreon` (Basic, nyc3, $5 a month). 21:06 cluster `vyreon` (nyc1: nyc3 had no
-  capacity for the core size; Kubernetes 1.36.5-do.3; id `5f56e6e0-1c74-4dc9-bfdb-962ee55ebff3`)
-  with pool `core`, 1 x `s-4vcpu-8gb-amd` ($0.083 an hour), running 21:12. Both images pushed.
-  CloudNativePG 1.30.1, the database (PostgreSQL 16.15, 60 GB volume), core deployed. Found on the
-  way: core's migration cannot create its group roles as the database's owner, so the cluster
-  manifest now makes them at bootstrap (`postInitSQL`); the pull secret for the registry is a
-  step the README lacked. Universe, calendar, build `89e13c3e+ede98f764f0d` registered and
-  admitted for this trial, jobs scheduled (2 tape, 2 day blocks of one day, 2 ordered pass).
-  Core's Intrinio budget set to 1,500 a minute (the droplet's capture shares the account).
-  21:19 pool `day`, 2 x `s-8vcpu-16gb-amd` ($0.167 an hour each; id
-  `58d217bf-4c48-499a-854a-786e9734197c`), ready 21:21. 21:21 the two tape jobs started.
-  21:21 to 21:28 both tape jobs done (one session a node, 7 min, 64 caches each stored in core).
-  21:28 the two day blocks started, one a node, each from an empty disk: claim, tape-history
-  start from the claim, tape caches from core, download. By 00:01 and 00:21 each had filled
-  everything but the tapes (2 h 32 min and 2 h 53 min from cold with E4's windows: 224 option
-  sessions and quote files, bars from 2020; 38 GB; about 19,000 and 24,000 requests).
-  **00:41 stopped: a bug.** Both fills then began capturing tapes from 2023-05-24 (64 and 100
-  sessions done; all 640 would have taken about two days): the fill is a process of its own and
-  was not given the tape-history start the worker took from its claim (my change of 2026-11-11
-  replaced an environment variable with an in-process setting). Fixed with a test (engine
-  14c7846a); the image is rebuilt and the two days start again from empty disks. Cost of the
-  mistake: about 3.3 hours of the worker pool, $1.10, and ~51,000 Intrinio requests.
-  00:51 second attempt started: image `vyreon-worker:14c7846a` (build `14c7846a+feb08e5250de`,
-  registered and admitted), the first attempt's four jobs cancelled in the database by hand (core
-  had no cancel command; `vyreon-core queue cancel <job>...` now exists, in the next core image), day blocks 7 and 8 claimed, one a node; the fill process shows
-  `VYREON_TAPE_HISTORY_FROM=2025-12-10` in its environment. The stored tape caches are reused.
-  04:51 second attempt failed: day 2025-12-10 stopped an hour into compute because ETHA's
-  open-interest history view did not build (`export-h4-oij01-history` exit 2; cause not yet known:
-  the failure report lacked the tool's error and the node deleted the work directory). Both days
-  ran as one Job with `backoffLimit: 0`, so the failure killed the healthy 2025-12-11 pod too.
-  Lost: about 5 hours of two nodes ($1.70) and ~46,000 requests.
-  06:14 third attempt, one node, 2025-12-10 only: image `vyreon-worker:30303e39` (build
-  `30303e39+bc11e5e0c619`; a failed export's error and the executor logs now go to core with the
-  failure), one Job per day, and a failed pod is held for inspection so its download survives.
-  Pool `day` is at 1 node meanwhile. Jobs 7-10 cancelled; 11-12 day blocks, 13-14 ordered pass.
-  Cause found from the third attempt's download: ETHA's chain is empty until 2025-04-11 and the
-  223-session option window now reaches before it (C-034; engine 60692393 starts an asset's option
-  history at its first chain with contracts). 09:14 the old worker was stopped after its download
-  (178 min) and build `c4e58917+5b4540e07af0` started in the same pod on the same download
-  (jobs 15-16 day blocks, 17-18 ordered pass; image `vyreon-worker:c4e58917` is in the registry).
-  11:21 that build failed at the same step, and its log showed the real cause: ETHA's first chain
-  (2025-04-11) has 168 contracts and no open interest, and the open-interest history node faults
-  on it (the only fault among 11,701 history rows; history stage 70 min). The empty chains were
-  not the cause. Engine 0ca127ea starts the history at the first chain with open interest (C-034
-  amended); build `0ca127ea+4f186724913b` started 11:22 in the same pod, inputs reused at once
-  (jobs 19-20 day blocks, 21-22 ordered pass; jobs 15-18 cancelled).
-  **13:59 2025-12-10 published from the cluster** (revisions 1-2: 2,853 + 1,105 slots, 320
-  streams, 724 MB of events; no faults). Compute 157 min on the 8 vCPU node: history nodes 70,
-  exports 4, day T 66, FIELD/bundles/publish 17. 14:01 2025-12-11 started in the same pod.
-  **17:14 the 2025-12-11 run was lost, 3 h 13 min in (my error):** it ran inside the pod held
-  after the 09:14 failure, whose 8-hour hold then ended and took the worker with it. Core expired
-  the lease and re-queued job 20; a fresh Job (`day-block-c`, image `vyreon-worker:0ca127ea`)
-  claimed it 17:32 and downloads from empty. Rule: never run work inside a held pod.
-  **17:32 ordered pass on the cluster: 2025-12-10 published** (revision 3, 721 slots all
-  DELIVERED, 636 reader scalars; job 21, under a minute, database only).
-  **2026-11-13 00:28 2025-12-11 published from the cluster** (revisions 4-5: 2,853 + 1,105 slots,
-  320 streams, 741 MB of events; no faults), and its ordered pass (job 22, revision 6, 721 slots,
-  824 reader scalars). **The two-day trial is complete; step 1 is done.** From an empty disk the
-  day took 6 h 57 min: download 217 min, then 199 min of compute (surfaces 51, history nodes 67,
-  exports 3, day T 62, export index 3, FIELD 10, bundles/derive/publish 3). Engine memory
-  (cgroup `anon`, sampled each minute through the compute) peaked at 1.24 GB; the 10Gi request
-  can drop to about 3Gi. Intrinio requests 26,795: captures 23,646, company 2,563, api_json 292,
-  carry 256, macro 38. Jobs cleared and worker pool `day` deleted 00:35; the core node stays.
-- **Cluster day against the droplet's (2025-12-10, engine-v1 captured 2026-11-07):** same 2,853
-  slots, all DELIVERED on both. 478 bodies byte-identical; nearly all the rest differ only in
-  capture identity (retrieval times, capture and population digests). By design (E4): SAI-ACT01,
-  SAI-ACT01-INTRADAY and INT-ACT-TV15 now have their cohort on 59 assets, VS-O04 and VS-OIJ01
-  carry the longer history on 57. Numbers differ in 15 slots: CDD-CAPVAL01 on 11 companies
-  (Intrinio's market cap for the date moved about 0.3% between the two captures) and VS-O02 /
-  VS-O04 / VS-OIJ01 on BABA and VS-O02 on MSTR (a few open-interest grid cells; **cause not yet
-  checked**, a provider revision between captures is the guess).
-  **To delete after the run: pool `day` (always); the cluster and registry on the owner's word.**
-- **Images ready on the laptop (2026-11-11):** `vyreon-core:6e15a27` (142 MB; a later docs-only
-  commit does not change it) and `vyreon-worker:89e13c3e` (1.51 GB), whose own build identity is
-  `89e13c3e+ede98f764f0d` (clean) with an inventory of 2,853 + 1,105 + 721 slots (saved in the
-  session scratchpad as `cluster/inventory.json`; regenerate from the image, README step 2).
-- **Cluster setup written, nothing created (2026-11-11):** `deploy/core/Dockerfile` (built on the
-  laptop: 142 MB; it migrated a scratch database to 0011 and loaded the universe from its own seed
-  files), `deploy/k8s/` (namespace, the CloudNativePG database, core's Deployment and Service, the
-  three worker Jobs) and `deploy/k8s/README.md`, the runbook with every paid command marked and
-  the prices read from DigitalOcean's API: core node `s-4vcpu-8gb-amd` $0.083 an hour, worker
-  `s-8vcpu-16gb-amd` $0.167 an hour, about $10 for the two-node run torn down after (the
-  registry's $5 a month is half of it), about $67 a month if the core node, volume and registry
-  stay. Migration 0011 gives the ordered pass its read-only group role. Plain Jobs for the first
-  run; KEDA and autoscaling to zero come with the build (two things to settle are in the README).
-  The manifests have been parsed, not applied: no cluster exists to apply them to.
-  Also fixed: a claim with no tape job scheduled failed to answer (the null tape-history start).
-- **First major deliverable (owner, 2026-11-11):** two cluster nodes, each computing a golden
-  day from an empty disk (adjacent days 2025-12-10 and 2025-12-11, tape jobs before, the ordered
-  pass after, compared with the droplet's published days). No cold-start rehearsal on the droplet
-  first (a cold day already ran there on `engine-v1`, 2026-11-09) and no plain-droplet stage. Order:
-  finish B3's whole-day proof, E4, cluster setup (free until nodes exist; the spend goes to the
-  owner before anything is created), the run. E11's narrowing alongside.
-- **Decided by the owner, 2026-11-11 (C-032):** E4 goes ahead (values must not depend on the
-  disk); E11 is to withhold only the sensors that read the missing input and their dependants,
-  not the whole asset (a change to what was built and proven today); a day in two publishes is
-  fine; push freely. Next in Track B after the running whole-day proof: E11 narrowed, then E4
-  rule by rule with measured value changes.
-- **Decided by the owner, 2026-11-11 (to build in track B):** E11 as proposed: an absent provider
-  input gives its assets the new provider-limited reason `PROVIDER_INPUT_MISSING`, not counted in the
-  10% engine-fault hold; FIELD follows h5-field's existing rules for a missing member; the day is held
-  for a retry when more than 6 of 64 assets are withheld. C-026 as proposed: the engine adds its
-  coordinates projection to the day's bundle, and core stores and serves it.
-- Not built in A7, on purpose: core's own Intrinio fetch for the universe (no caller until the daily
-  chain), and Kubernetes manifests with KEDA's query on `core.claimable_job` (milestone 3).
+## Not yet proven
+- `pass-fx8` on any real day; batches 3 to 8 on a finished day; the two `r2` fixes on a re-run.
+- An early date: before the tapes (2023-05-24), option intervals (2022-12-08) or trade counts
+  (2024-11-26); a real pre-listing day (the fill skipping an unlisted asset).
+- D-165 and D-167 on a rename date; D-162; D-166 on a post-listing date; a day after a 10-for-1
+  split; the split-basis scores (need a built history).
+- History in the ordered pass over several days; the cross-day supersede rule; a block of more than
+  one day; the same day equal first in a block and mid-block; rebuilds and recomputes for real.
+- The rebuilt images; KEDA and scaling to zero; more than two nodes; the node type by cost per
+  published day; backups (C-013); whether presigned downloads count against the 2,000 a minute.
