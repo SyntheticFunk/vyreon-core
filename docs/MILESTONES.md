@@ -49,7 +49,16 @@ the cluster still runs `vyreon-core:6e15a27`.
 - `x2` (`pass-fx10` 8a40183e, 137.184.61.134, all 64): clean, 4,679 slots. Against `m6` 83 slots,
   all explained (12 FIELD for membership, 63 unusualness at 1.6.0, eight DBA and UUP slots that
   lose PROVIDER_INPUT_MISSING: D-239 proven; D-238 ran without a fault).
-- **Running on `pass-s3i` d55f6439:** `y2` (192.241.147.166, ETHA unlisted, started 06:10 UTC) and
+- **`y2` (`pass-s3i` d55f6439, 192.241.147.166, ETHA unlisted) finished clean 09:58 UTC:** both
+  summaries COMPLETE, `faulted_engine` 0, 4,608 slots, no `Connection refused`. Against `x2`
+  (ETHA left out) 110 slots differ, all as predicted: 12 FIELD (membership); the five split
+  assets' ACT01 family (30 slots) and their unusualness (5); and M0-GAMMA-CHANGE's `method_sha256`
+  on all 63 with no value change (the merge touched its method closure). **The split translation
+  is measured on real data:** XLB, XLE, XLK, XLU, XLY each publish SAI-ACT01 with 68 supported
+  roles (0 before), SAI-ACT01-INTRADAY 343, INT-ACT-TV15 14 to 98, bodies stating CLEAN_SPLIT;
+  SAI-EXQ01 6 supported with EVENT_SOURCE_NOT_RETAINED, M0-PRINT-SIZE withheld the same way.
+  No other asset moved: the pooled feed check kept its verdict. Dump `y2`. (Judged 10:00 UTC.)
+- **Still running on `pass-s3i` d55f6439:** `y2` (192.241.147.166, ETHA unlisted, started 06:10 UTC) and
   `x3` (137.184.61.134, all 64, started 08:12 UTC). Both homes got the five split assets' cohorts
   by `vyreon-inputs fill --category act01 2025-12-10` with the key passed on stdin (nothing
   stored): XLB, XLE, XLK, XLU, XLY each a translated cohort, none refused by D-246. To judge:
