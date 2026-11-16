@@ -56,10 +56,10 @@ is in `docs/ARCHITECTURE.md`.
    only at step 5. Company valuation gets a genuinely external reference: SEC EDGAR's XBRL API
    (the filers' own reported facts), pending the owner's choice of the contact SEC requires in
    the User-Agent.
-   **Process additions (owner, 2026-11-16):** (a) the sample's pass criteria written down and
+   **Process additions (owner, 2026-11-16, all approved):** (a) the sample's pass criteria written down and
    approved before it runs; (b) every new image re-runs one real day on the cluster and a script
    diffs its store against the previous image's dump, each changed value tied to a decision (the
-   laptop only diffs; it computes nothing); (c) a refusing worker uploads its full log and fault
+   laptop diffs; heavy compute stays on the cluster for disk reasons); (c) a refusing worker uploads its full log and fault
    list to core before it exits (observability; built with the image); (d) the sample's raw
    downloads kept in Spaces for fast re-runs, deleted when phase 1 starts; (e) **planned hand-off
    to a fresh session after the two-week sample**, before phase 1, recorded here first.

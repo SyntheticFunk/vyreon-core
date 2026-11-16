@@ -83,4 +83,6 @@ The engine computes; core schedules, stores and serves. The measurements are the
 - Droplet `ssh vyreon-engine` (authoritative today): DigitalOcean Premium AMD, 8 shared vCPU / 16 GB,
   Postgres 16 on the volume `/mnt/vyreon_engine_v1`, settings in `/etc/vyreon.env`, daily capture and
   health timers running. Engine checkout `/root/vyreon-engine`.
-- The laptop is a development machine only: no Vyreon compute or data.
+- The laptop is a development machine. Vyreon compute there is allowed (owner, 2026-11-16) but
+  keep its disk footprint small: WSL's virtual disk never shrinks, so prefer the cluster for
+  anything that writes tens of gigabytes.
