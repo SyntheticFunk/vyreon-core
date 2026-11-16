@@ -404,6 +404,18 @@ the cluster still runs `vyreon-core:6e15a27`.
   the day still fetches from the tape-history start (the intraday panel's own window to check
   before reducing the fetch). Core needs no change. Not verified against a running core. Round
   o's report is with a verifier (Opus); round p (provider-derived values) still running.
+- **16:39 UTC: batch 11-A landed: `pass-fx11-a` 72177277 (pushed, not merged), D-262 to D-266.**
+  The blocking finding is fixed: the fill records how it left every input
+  (`<home>/fill-outcome/<T>.json`: retryable, fatal, provider_limited, unfilled, not_attempted)
+  and the plan restates an input that is missing because OUR capture failed as ENGINE_FAULT
+  for what reads it; only an absence the provider stated stays PROVIDER_INPUT_MISSING. The
+  asset is withheld, not the day (the agent notes the alternative: refuse the day so a fresh
+  pod retries; one line in `capture_failures`). Also: a failed print capture is not "not
+  retained"; one asset's security record, bar batch or null-price bar no longer stops the
+  bootstrap or the tape job; the day's fill asks tapes only of the session's members. No
+  real day with a failed step was run. Batch 11-D (histories and reasons; the method-version
+  rule first) started in `/home/diggz/wt/fx11-d` on Opus, D-273..279. Batch 11-C (provider
+  readers) waits for the valuation agent, which is in `h5-company`.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
