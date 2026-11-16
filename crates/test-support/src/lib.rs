@@ -64,3 +64,9 @@ pub const TAPE_AAPL: &[u8] = include_bytes!("../fixtures/tape-cache-AAPL-2025-12
 /// identity is the SHA-256 of its manifest.
 pub const MACRO_CAPTURE: &[u8] = include_bytes!("../fixtures/input-capture-macro-2025-12-03.tar.gz");
 pub const MACRO_CAPTURE_IDENTITY: &str = "efc96bf3d914609ebb5cb1d2c6837976cb355071b5e7b5e5f4417ea2024a4bae";
+
+/// A real worker's log of a refused day (job 53, attempt 2, day 2024-07-16, a cluster worker on
+/// 2026-11-16): the lines of its fill log that name an error, with their line numbers (the longest
+/// cut at 500 characters by whoever kept the excerpt), then the log's tail. Checked before it was
+/// frozen: no credential in it.
+pub const WORKER_LOG_REFUSED_DAY: &str = include_str!("../fixtures/worker-fill-log-2024-07-16-refused.txt");

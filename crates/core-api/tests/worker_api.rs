@@ -252,10 +252,29 @@ async fn a_refused_bundle_pauses_the_queue_and_a_failing_worker_sends_its_log() 
     let r = s.http.post(format!("{}/worker/v1/days", s.url)).bearer_auth(token).body(big).send().await.unwrap();
     assert_eq!(r.status(), StatusCode::PAYLOAD_TOO_LARGE);
 
+    // C-049: before its fail, the worker leaves its evidence (a real worker's log of a refused
+    // day as the excerpt); a document with a credential left in it is refused and nothing stored
+    let evidence = |line: &str| {
+        let account = json!({"schema": "VYREON-JOB-EVIDENCE@1", "stage": "surfaces", "message": "no chain for XLB", "session": "2025-12-10", "refusals": null});
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        std::io::Write::write_all(&mut gz, format!("{account}\n{line}{}", test_support::WORKER_LOG_REFUSED_DAY).as_bytes()).unwrap();
+        gz.finish().unwrap()
+    };
+    let put = |body: Vec<u8>| s.http.put(format!("{}/worker/v1/evidence", s.url)).bearer_auth(token).body(body).send();
+    let r = put(evidence("GET https://api-v2.intrinio.com/x?api_key=OmRlYWRiZWVm failed\n")).await.unwrap();
+    assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(r.json::<Value>().await.unwrap()["error"].as_str().unwrap().contains("unredacted api_key="));
+    let r = put(evidence("")).await.unwrap();
+    assert_eq!((r.status(), r.json::<Value>().await.unwrap()), (StatusCode::OK, json!({"new": true})));
+    let r = s.http.put(format!("{}/worker/v1/evidence", s.url)).body(evidence("")).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::UNAUTHORIZED);
+
     // a failing worker says where it failed and sends its log
     let (status, failed) = s.post("/lease/fail", token, json!({"stage": "surfaces", "message": "no chain for XLB", "log": "the day's log"})).await;
     assert_eq!((status, &failed["requeued"]), (StatusCode::OK, &json!(true)));
     let kept = admin.query_one("SELECT failed_stage, failure, failure_log, worker FROM core.lease WHERE outcome = 'FAILED'", &[]).await.unwrap();
     assert_eq!((kept.get::<_, &str>(0), kept.get::<_, &str>(1), kept.get::<_, &str>(2), kept.get::<_, &str>(3)), ("surfaces", "no chain for XLB", "the day's log", "day-1"));
+    let (record, excerpt) = core_db::evidence::show(&admin, day["job_id"].as_i64().unwrap(), None).await.unwrap().unwrap();
+    assert_eq!((record["attempt"].as_i64(), record["worker"].as_str(), excerpt.as_str()), (Some(1), Some("day-1"), test_support::WORKER_LOG_REFUSED_DAY));
     s.scratch.drop().await;
 }
