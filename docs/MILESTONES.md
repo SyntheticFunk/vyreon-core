@@ -315,6 +315,24 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **23:39 UTC: round u (last narrow check before the build image): no findings** (no wrong
+  number, stopped day or credential path; D-354's ordinary-day frequency not establishable
+  without the sample). Converged; the image stands.
+- **Two-week sample: draft pass criteria and sizing, for the owner's approval** (process
+  addition a). Sessions 2026-11-02 to 2026-11-13 (10), two blocks of 5 on 2 nodes, with their
+  tape jobs and one history pass for the range. Pass = all of: (1) every session publishes, or a
+  refusal has its evidence in core and a cause; (2) no unexplained ENGINE_FAULT; (3) each sensor
+  on at least 80% of asset-days, or every miss diagnosed (engine → rework, provider → stated
+  absence, structural → not applicable), D-354's withheld open interest counted; (4) `refcheck`
+  (QuantLib, TA-Lib) agrees within its tolerances on every day; (5) EDGAR agrees for every
+  company's latest-quarter figures; (6) no day-over-day jump the market did not make (plots for
+  the owner's eye); (7) the image diff: one day re-run on the new image against its earlier
+  dump, every changed value tied to a decision. A failure is fixed and its days re-run.
+  Sizing: about 12 node-hours per block (first day ~5.5 h, later days ~1.6 h, measured on the
+  June block), about 25 node-hours, about $4-5; raws kept in Spaces about 450 GB, about $9 a
+  month until phase 1 starts. Spend: DigitalOcean month to date $102.53 (all of November, standing
+  infrastructure included). **Phase 1 (about 1,100 node-hours planned, about $185) would take the
+  total past $300: the owner decides at the sample's end.**
 - **23:21 UTC: images built and pushed:** `vyreon-worker:b727fc6b` (build b727fc6b+9b96b570b46b,
   inventory `cluster-scratch/inventory-b727fc6b.json`) and `vyreon-core:3e7b13e` (8 minutes on
   the laptop with the build cache). Registry login refreshed (30 days, from the DO API, never
