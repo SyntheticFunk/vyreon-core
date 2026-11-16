@@ -211,6 +211,11 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   `vyreon-pg-1` running, no `day` pool). Two hazards from the runbook to settle before
   scheduling: a tape job for an old date moves `tape_history_from` (about 640 tape sessions
   captured); republishing 2025-12-10 re-queues the 12-11 ordered pass under the old build.
+  **Core: `pass-core-fix` merged into `main` 06:30 UTC** (one conflict, the decisions file, kept in
+  number order; 8 unit and 40 database tests pass on PostgreSQL 16). Not deployed: the cluster
+  still runs `vyreon-core:6e15a27`. The worker image of `pass-s3i` d55f6439 is building on the
+  laptop (log in `~/claude-artifacts/cluster-scratch/`). Engine to `worker` (a fast-forward) waits
+  for `x2` and `y2`.
   **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
   build; its audit sends us round again only for a finding above the line. The gate left is the
   real days on `pass-fx10`.
