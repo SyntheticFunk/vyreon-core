@@ -6,3 +6,4 @@ webhook.txt
 spaces-key.txt
 # secrets kept in the checkout, never committed
 *-token.txt
+sec-contact.txt
