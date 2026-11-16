@@ -24,7 +24,7 @@ is in `docs/ARCHITECTURE.md`.
    04:00 UTC).** Runbook `~/claude-artifacts/cluster-verification-runbook.md`. Order (tape history
    only moves earlier): 2025-12-10; 2025-04-11 (ETHA's first chain); 2024-07-16 (AVGO 10-for-1,
    ex 07-15, and before ETHA); the block 2022-06-06..06-15 (FB to META). **The newest two weeks
-   on two nodes wait for the owner** (they need about 232 tape sessions: the build's tape phase).
+   on two nodes are the build's first step** (owner, 2026-11-16), not part of 2.5.
 4. **(3) The build:** newest first back to 2022-05-27, sized and approved by the owner.
 5. **(4) Reporter and web** on core's API and the built history.
 6. **(5) Judge the reports; the FIELD campaign; the go-live choice.**
@@ -299,30 +299,21 @@ worktrees can go (preview and ask: about 40 worktrees). Core: `main`; `/home/dig
 Engine `worker` checkout: `/home/diggz/vyreon-engine-worker`.
 
 ## Decisions waiting on the owner
-- **The snapshot gap of about 2023-01-18 to 2023-03-07** (the provider lists nothing): treat it
-  as a coverage terminal for option history (D-166 style: stated absence, histories restart
-  after it), or keep refusing those days? Asked 2026-11-16; bears on the build start below.
-- **Build start:** the option snapshots before 2024-05-20 need a reader the engine lacks (being
-  written). Keep 2022-05-27, or start at 2024-05-20 and add the rest later? Asked 2026-11-16.
-- **Delete the two test droplets** (137.184.61.134, 192.241.147.166; $0.334 an hour together)
-  once the fixtures are re-frozen? Their real days are done and dumped; each holds the 2025-12-10
-  archive, re-downloadable. Asked 2026-11-16.
-- **The newest two weeks on two nodes** need about 232 tape sessions (the build's own tape
-  phase): run them inside 2.5, or with the build? Asked 2026-11-16.
-- Answered 2026-11-16 03:55 UTC ("go with your recommendations"): the old run directories deleted
-  on both test droplets (137.184.61.134 keeps `p1`, `r2`; 192.241.147.166 keeps `m4`, `m5`, `m6`;
-  done 04:10 UTC: 184 and 182 GB free); D-236 stays as it is (the whole ACT01 family withheld 2022-12-08..12-14); the
-  pooled quantities stay pooled over the assets present; with exactly one visible share report the
-  company metrics publish, left until the build shows how often.
+- **How far back the build goes** (owner, 2026-11-16 15:30 UTC: undecided). The MVP is a weekly
+  report: it needs only the lookback that populates every sensor truthfully; a full database is
+  an advantage; the worry is that short histories make the unusualness and lookback sensors
+  less than truthful. Being answered with numbers: `~/claude-artifacts/lookback-inventory.md`
+  (an agent, read-only: every sensor's lookback, where its history comes from, what it states
+  when short, any path dependence). The snapshot gap of about 2023-01-18..03-07 and the old
+  layouts only matter if the build goes that far: decide with the depth.
 - The production store's 2025-12-10 (177 withheld activity slots) is not touched until the merged
   engine is deployed there; it then needs the rebind and a republish, on the owner's word.
-- A missing daily bar withholding an asset's surface for about three years is left until the build
-  shows one (2026-11-15; its label is fixed).
-- **Step 2.5 is pre-approved (owner, 2026-11-16 04:00 UTC):** if 2e closes while the owner is
-  away, start the cluster verification at once, on Fable, without waiting for the swap to Opus or
-  for a spend approval. Limits unchanged: the $200 total ceiling, idle droplets deleted; a finding
-  above the cut line or anything beyond 2.5 (the build) still goes to the owner. Write the
-  hand-off for Opus all the same, so the owner can swap when back.
+- Answered 2026-11-16 15:30 UTC: **the newest two weeks are the first step of the build** (build
+  them first to see what they reveal), not part of 2.5. **Delete unused droplets: the two test
+  droplets were deleted 15:35 UTC** (their dumps are in `~/claude-artifacts/testbed-dumps/`).
+- Answered earlier: D-236 as is; pooled quantities as built; the single share report left to
+  the build; a missing daily bar left to the build; audits converge (C-041 amended); step 2.5
+  pre-approved (running).
 
 ## Listed, not fixed
 - From rounds i to k: a faulted reading with no value in its 63-session window is not stated in
