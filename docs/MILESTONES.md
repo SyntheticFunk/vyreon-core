@@ -69,11 +69,18 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
 
 **Running or waiting:**
 - **`m5` (192.241.147.166, `pass-fx5-all` 497c1608, ETHA unlisted) finished 2026-11-16 01:28 UTC,
-  exit 0, no faults, 4,608 slots, no state change against `m4`.** Both `r2` defects are fixed on
+  exit 0, 4,608 slots, no slot state change against `m4`; **one engine fault** (corrected 02:00
+  UTC: my check grepped the day's log, which never prints it; the run's own summary
+  `h4-day-summary-*.json` says COMPLETE_WITH_FAULTS, `faulted_engine` 1; `r2` and `m4` do say 0).** Both `r2` defects are fixed on
   it: every VS-O02/O04/OIJ01 value of BABA and MSTR that moved from `p1` to `r2` equals `p1`
   again, and BABA's and TSM's earnings reason is NO_UPCOMING_EARNINGS_DATE. Full comparison with
-  `m4` being written (`.../2026-11-15-fix-round-d/day-m5-vs-m4.md`; to explain: XLB's unusualness
-  `scored_count` 194 to 187).
+  `m4`: `.../2026-11-15-fix-round-d/day-m5-vs-m4.md` (22 explained, 9 to check, 2 unexplained).
+  **Two findings, being root-caused and fixed on `pass-fx9` (`/home/diggz/wt/fx9`, D-238..239):**
+  XLB's VS-OIJ01 is an ENGINE_FAULT body (`source oij01_history ... No such file or directory`;
+  XLB only, not under `m4`'s build); DBA and UUP's four five-session-change sensors are
+  PROVIDER_INPUT_MISSING because no macro capture exists for T-5 (2025-12-03) and the plan asks
+  for T's only (D-154 amended), which a build day would also hit. Rule from now: a day is clean
+  only if its summary says `faulted_engine` 0, not if the log lacks the word.
 - **`m6` (192.241.147.166, the final candidate `pass-fx8` 99d79488) started 2026-11-16 01:30 UTC**
   (terms, rebind, day; due about 05:30 UTC). After it that droplet has about 44 GB free, under
   the guard's 60. `r3` (137.184.61.134) refused by the disk guard (45 GB free, 60 needed). So
