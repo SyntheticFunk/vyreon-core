@@ -250,6 +250,18 @@ the cluster still runs `vyreon-core:6e15a27`.
 - 14:14 UTC: 2022-06-06's first half (intent A) COMPLETE, 496 of 496, `faulted_engine` 0
   (`summaries-2206e/`); its second half started 14:03 UTC. `v-day-1210` and `v-day-0411`
   accepted their inputs 13:48 and 13:52 UTC and are in intent A; `v-day-0716c` downloading.
+- **2022-06-06 PUBLISHED on the cluster, about 14:40 UTC (build 518faf7e):** both summaries
+  COMPLETE, `faulted_engine` 0 (496 of 496; 2,232 of 2,604 with 372 withheld for absent input);
+  2,767 base and 1,071 day-local slots for 62 members (IBIT and ETHA not listed), no ENGINE_FAULT
+  body. Stated as the decisions require: SAI-ACT01, SAI-ACT01-INTRADAY, INT-ACT-TV15, SAI-EXQ01,
+  SAI-EXQ01-TEMPORAL, M0-PRINT-SIZE PROVIDER_COVERAGE_START for all 62 (D-236); D111-TEMP01,
+  INT-TEMP-EVC01, PCR-UACT/UPATH/UQTR-I01 and four FIELD records TAPE_UNAVAILABLE (D-166,
+  D-249). **The first session before the tapes, the intervals and the trade counts, from an
+  empty disk.** Not yet looked at: the option values themselves from the old-layout quotes
+  (dump and inspect), META's FB-era bodies. The block went on to 2022-06-07 (download 14
+  minutes, computing since 14:53 UTC). `v-day-1210` and `v-day-0411` are in intent B (first
+  halves: 512 of 512 each; 2025-04-11 says COMPLETE_WITH_FAULTS with `failed_other_tasks` 1 and
+  no measure fault: to read when it ends). `v-day-0716c` still downloading (14:55 UTC).
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
