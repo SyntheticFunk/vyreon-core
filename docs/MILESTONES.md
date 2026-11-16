@@ -121,6 +121,9 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   companies the FND02 as-reported roles go (never scored there, unconditionally: the agent's
   choice, as for `VS-P01/raw_r1`). Left: a faulted reading with no value in its 63-session window
   is still not stated; FND02's standardized roles equal FND01's on 72 of 81 pairs and both score.
+  **`x1` (137.184.61.134, `pass-fx10` 37d18b51, clean 2025-12-10, terms + rebind + day) started
+  04:24 UTC**, the candidate's first real day; compare with `m5`/`m6` (dumps under the earlier
+  session's scratchpad `7c0b3d3b-.../scratchpad/golden`). Full suite running on the laptop.
   **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
   build; its audit sends us round again only for a finding above the line. The gate left is the
   real days on `pass-fx10`.
