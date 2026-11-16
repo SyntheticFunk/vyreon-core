@@ -378,6 +378,21 @@ the cluster still runs `vyreon-core:6e15a27`.
   60 GB and the cluster's volume is 60 GB (55 GB free): grow it before the build** (the plan in
   ARCHITECTURE.md was 250 GB). **Owner, 2026-11-16: grow it for the build (approved); do it in
   the build's preparation, with a dump of the store first.**
+- **16:30 UTC: the valuation fix is written (D-259, `pass-s3i` e1d52317, NOT pushed yet: its tests
+  held two remembered figures, against D-102; the agent is re-sourcing them from the real day
+  dumps).** CDD-CAPVAL01, method H5-COMPANY@3: market cap = T's raw close x the visible,
+  class-summed share count on T's split basis; earnings yield = four fiscal quarters' net
+  income to common / market cap; price to book = market cap / (total equity - preferred);
+  **enterprise value WITHHELD for all 17** (the engine selects no debt, preferred or minority
+  facts: a listed item, and a coverage loss to weigh). BABA and TSM: the receipt ratio is the
+  whole number implied by the provider's market cap that session (within 1e-4), recorded as
+  provider-implied; TSM gives 5 on the 2026-11-16 vintage and 5.05 on the 11-07 one (withheld
+  then). AAPL and LLY: the cover count is kept (the other 15 match it exactly; no one visible
+  rule gives both); the body records the provider's implied count and any filed share fact
+  equal to it, so the first real day shows which it is. Found on the way: the provider's row
+  for AVGO used fiscal-2025 results reported on 2025-12-11 (a second look-ahead in that row).
+  Expected withholdings to check on a real day: JPM, MSTR, GOOGL earnings yield or price to
+  book. Not run through a real company phase.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
