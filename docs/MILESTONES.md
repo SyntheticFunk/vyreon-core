@@ -234,6 +234,11 @@ the cluster still runs `vyreon-core:6e15a27`.
   within about 200 sessions after it run with every asset's option-history readers withheld:
   the 2023-01-18..03-07 gap is not crossable with option readings; whether such a session ends
   the option history like a coverage terminal (D-166) is the owner's call.**
+- 13:19 UTC: the tape regression fixed on `pass-s3i` f4b0b62a (pushed; D-249 amended): the tape job lists
+  the claim's members for the session less any asset before its own first session; cause as
+  suspected (with a universe in the home ETHA's record was skipped and "no record" counted as
+  listed). Not on the cluster yet: the next image waits for what `v-day-0716c` and `v-day-2206e`
+  show.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
