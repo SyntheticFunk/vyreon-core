@@ -315,6 +315,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **23:21 UTC: images built and pushed:** `vyreon-worker:b727fc6b` (build b727fc6b+9b96b570b46b,
+  inventory `cluster-scratch/inventory-b727fc6b.json`) and `vyreon-core:3e7b13e` (8 minutes on
+  the laptop with the build cache). Registry login refreshed (30 days, from the DO API, never
+  printed). **Core deploys when the June 2022 block ends** (job 55, on 06-14, 06-15 downloading,
+  about 2 hours): it uses core and must not lose it mid-day. Then register the build, re-run
+  2025-04-11 and 2024-07-16, diff against the earlier dumps, history passes.
 - **23:11 UTC: candidate final: `pass-s3i` b727fc6b (D-355: one selection rule for every FND01
   cell; a newer unreadable statement withholds, no older figure stands in); suite 1,347 passed,
   8 failed (`option_field`). `worker` fast-forwarded to it (pushed). Images building on the
