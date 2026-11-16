@@ -132,6 +132,18 @@ the cluster still runs `vyreon-core:6e15a27`.
   not needed (new jobs). 2022-06-06 and 06-07 are FAILED days of the old build; the fourth
   node idles meanwhile. Also asked of the agent: why every macro capture states INDPRO
   WITHHELD_WRONG_UNIT. (12:04 UTC)
+- **Fixed 12:14 UTC on `pass-s3i` 5f5f90b9 (pushed): two independent defects, not one (my 12:05 reading
+  was wrong: quotes run before consolidated and a Fatal ends only its own category).** D-249: before
+  the replay source's first session `replay_capture --before-coverage` records TAPE_UNAVAILABLE
+  with no request. D-250: an option snapshot in several part files is admitted (2022: eight
+  parts; the code required exactly one); requote runs only on sources with a quote file, so a
+  failed quote fetch keeps its reason and retries. Ordinary day: identical bytes. **Not proven
+  without a real run:** that the 2022 parts are separate gzip streams with today's header, that
+  no contract sits in two parts, that the listing's order is stable, that META's FB-rooted rows
+  land in META's file. INDPRO's WITHHELD_WRONG_UNIT is the raw gate, expected (D-044: the
+  effective gate overrides; D-110 item 2 wrongly says the override is retired).
+  Building the worker image of 5f5f90b9 and auditing the four changes (round l,
+  `2026-11-16-cluster-round-l`). Job 42 (2022-06-08..06-15, old build) cancelled 12:10 UTC.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
