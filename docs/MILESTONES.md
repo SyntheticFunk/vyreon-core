@@ -129,7 +129,7 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   `pass-core-fix`. Engine `worker` checkout: `/home/diggz/vyreon-engine-worker`.
 
 ## Decisions waiting on the owner
-- None open. New spend for step 2.5 comes to the owner when 2e closes.
+- None open.
 - Answered 2026-11-16 03:55 UTC ("go with your recommendations"): the old run directories deleted
   on both test droplets (137.184.61.134 keeps `p1`, `r2`; 192.241.147.166 keeps `m4`, `m5`, `m6`;
   started 03:57 UTC); D-236 stays as it is (the whole ACT01 family withheld 2022-12-08..12-14); the
@@ -139,8 +139,11 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   engine is deployed there; it then needs the rebind and a republish, on the owner's word.
 - A missing daily bar withholding an asset's surface for about three years is left until the build
   shows one (2026-11-15; its label is fixed).
-- Step 2.5 is to be run by Opus: write a hand-off (state, commands, what each cluster day must
-  show) when 2e closes. Fable until then (owner 2026-11-16).
+- **Step 2.5 is pre-approved (owner, 2026-11-16 04:05 UTC):** if 2e closes while the owner is
+  away, start the cluster verification at once, on Fable, without waiting for the swap to Opus or
+  for a spend approval. Limits unchanged: the $200 total ceiling, idle droplets deleted; a finding
+  above the cut line or anything beyond 2.5 (the build) still goes to the owner. Write the
+  hand-off for Opus all the same, so the owner can swap when back.
 
 ## Listed, not fixed
 - CDD-FND02's `*.as_reported` repeats five CDD-FND01 readings when the standardized and reported
