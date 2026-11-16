@@ -184,6 +184,24 @@ the cluster still runs `vyreon-core:6e15a27`.
   through the MCP and fetch the signed files. Image `ed66a433` (pushed) stays unused.
   **Owner's choice, asked 12:40 UTC:** keep the start at 2022-05-27 (my plan: the reader) or
   start the build at 2024-05-20 and add the earlier two years later.
+- **Reader written, 13:00 UTC: `pass-s3i` 518faf7e (pushed), D-251 to D-253; tested on real slices
+  only, no whole session fetched yet.** Three layouts, from real files: (1) 2022-05-27 to
+  2023-01-17: eight parts "0".."7", 20 columns, padded ids; every part holds every root, contracts
+  dealt across parts, none twice (2022-06-07: 1,458,015 rows); **each part is cut at a multiple
+  of 1,024 decompressed bytes and the cut contracts are in no other part** (HOOD lost 28 that
+  day, none of the 64; the cut root moves by session: IBB on 2023-01-17). (2) 2023-03-08 to
+  2024-05-17: one file numbered 1, 20 columns, modern ids, rows ending early, 7-digit
+  timestamps, `Max` for some asks. (3) from 2024-05-20: 14 columns. All normalised at ingestion;
+  old-layout quote files state `provider_layout=`, `provider_ids=`, `provider_cut=N`; FB rows
+  renamed to META; the modern path's bytes unchanged. **Risks for the owner:** (a) **no listing
+  for about 2023-01-18 to 2023-03-07** (service errors; two dates answer a garbled listing):
+  those sessions cannot fetch quotes as the endpoint answers today; (b) a cut can hit one of
+  the 64: its contracts get no quote, stated, unrecoverable; (c) the middle era lists far fewer
+  contracts (2023-03-15: 637,567 rows; EMB 161 against 1,316 in 2022): the coverage gate may
+  withhold thin chains; (d) 2022 files hold FLEX-named roots (`2SPY`, `1FB`: 1,885 unquoted
+  rows, 48 roots) filed as adjusted roots: about 48 adjustment requests a session; (e) `Max` read
+  as no ask is the agent's reading; (f) 2024-05-20 itself carries few trades (34,970 rows with
+  one against 220,553 on 05-17). Image of 518faf7e building; round m audits the reader.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
