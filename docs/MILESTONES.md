@@ -433,6 +433,17 @@ the cluster still runs `vyreon-core:6e15a27`.
   to-common and preferred paths, the `evaluate` wiring. **To check: that core and Reporter
   carry `EXPORT_SUPPORT` company roles; labels still say H5-COMPANY@3 and /D-259.** Batch 11-C
   (provider readers, D-280..289) started in `/home/diggz/wt/fx11-c` on Opus.
+- **Round o triaged (16:46 UTC; `.../cluster-round-o/triage/day0411.md`): 7 real; one above the
+  line, settled with real data.** EMB's zero open-interest session was not a plain outage: the
+  provider's EOD chains (read through the MCP) show EMB's contracts RE-STRUCK on 2024-12-30:
+  2025-01-17 calls at 86.50..91.50 on 12-27 (open interest 869 at 91.00, 168 at 90.00) become
+  86.25..91.75 on 12-30, every strike 0.25 lower, every open interest 0: the OCC adjustment
+  for a special cash distribution, which the engine does not detect (no adjustment marker in
+  that session's quote file). D-255's marker needs the same contract codes, so it would not
+  fire: VS-O02 would publish 0 and DLM-OI-CHANGE about -60,951 and +60,929. A fix agent (Fable,
+  in `/home/diggz/wt/s3i`, D-290..294) is making the outage test match by root, expiry and
+  right, detecting and stating a uniform strike reduction by the OCC rule, and doing the six
+  smaller findings. **Phase 1 should expect this at every year-end special distribution.**
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
