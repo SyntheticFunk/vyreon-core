@@ -34,7 +34,8 @@ engine's `docs/DECISIONS.md` (D-numbers); the plan is in `docs/ARCHITECTURE.md`.
 Working practice: at most three agents at once on the laptop; an audit after every landed step.
 
 ## Now (2026-11-16 00:00 UTC)
-**Final candidate: engine `pass-fx8` (99d79488, worktree `/home/diggz/wt/fx8`, pushed).** Release
+**Final candidate: engine `pass-fx9` (d83c3a8d, worktree `/home/diggz/wt/fx9`, pushed) = `pass-fx8`
+(99d79488) plus D-238 and D-239 (below).** For `pass-fx8`: Release
 build done; its suite fails only the known tests (8 `option_field`, 2 tape-cache fixture). No more
 fix batches before the real days: a new finding is listed unless it is above the cut line with data
 behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it holds, by subject:
@@ -79,7 +80,17 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   XLB's VS-OIJ01 is an ENGINE_FAULT body (`source oij01_history ... No such file or directory`;
   XLB only, not under `m4`'s build); DBA and UUP's four five-session-change sensors are
   PROVIDER_INPUT_MISSING because no macro capture exists for T-5 (2025-12-03) and the plan asks
-  for T's only (D-154 amended), which a build day would also hit. Rule from now: a day is clean
+  for T's only (D-154 amended), which a build day would also hit. **Root-caused and fixed
+  02:00 UTC, `pass-fx9` b1cd1c2d and d83c3a8d (pushed; build and suite running):** the XLB fault
+  is a startup race, not data: a history export connected to its worker between `bind` and
+  `listen` (`Connection refused`; 1 failure in the 1,780 exports of the seven runs kept there);
+  the socket name now exists only once the worker accepts (D-238), and a failed view build's
+  fault names its file and cause. The plan now requires, and the fill captures, the macro
+  capture of T-5 (D-239; 38 requests a capture, 190 a block). **`pass-fx9` is the final
+  candidate**; `m6` is running `pass-fx8`, which still has both. Neither fix has run on a real
+  day. Noticed, not changed: a transient export failure is not retried and the day publishes
+  with the fault; XLB's unusualness drops the faulted sensor's roles instead of stating them
+  absent. Rule from now: a day is clean
   only if its summary says `faulted_engine` 0, not if the log lacks the word.
 - **`m6` (192.241.147.166, the final candidate `pass-fx8` 99d79488) started 2026-11-16 01:30 UTC**
   (terms, rebind, day; due about 05:30 UTC). After it that droplet has about 44 GB free, under
