@@ -216,6 +216,17 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   still runs `vyreon-core:6e15a27`. The worker image of `pass-s3i` d55f6439 is building on the
   laptop (log in `~/claude-artifacts/cluster-scratch/`). Engine to `worker` (a fast-forward) waits
   for `x2` and `y2`.
+  **Ready for 2.5 (06:36 UTC), nothing pushed or deployed:** images built on the laptop,
+  `vyreon-worker:d55f6439` (build identity `d55f6439+62fb506e43f3`, inventory in
+  `~/claude-artifacts/cluster-scratch/inventory-d55f6439.json`) and `vyreon-core:f491ea9`.
+  **Plan for 2.5 (mine, from the code):** the claim's tape history starts at the earliest TAPE
+  job that is not cancelled, and a DONE job cannot be cancelled (`work.rs` `cancel`), so on this
+  database it is 2025-12-10 and only moves earlier. Order, each older tape job scheduled only
+  after the later days have been claimed: 2025-12-10; 2025-04-11; 2024-07-16 (AVGO's 10-for-1,
+  ex 07-15, and before ETHA: items 3 and 5 in one day); the block 2022-06-06..06-15 (before
+  tapes: no tape job). **Item 6, the newest two weeks, needs every tape session from 2025-12-10
+  to today (about 232, some 27 node-hours): that is the first quarter of the build's own tape
+  phase, so it waits for the owner** (the build is the owner's to size).
   **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
   build; its audit sends us round again only for a finding above the line. The gate left is the
   real days on `pass-fx10`.
