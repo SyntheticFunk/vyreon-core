@@ -38,8 +38,10 @@ is in `docs/ARCHITECTURE.md`.
    ratio, bank not-applicable, refused snapshot rows, capture failures, the provider comparison
    classes), how often it fired, on which assets and dates, and every withheld state by reason;
    the rules are judged on that population, not on the one case that prompted each.
-5. **(3.5) Examine the built database (owner, 2026-11-16).** Its own step, after phase 1 and
-   before Reporter: go through the rules and decisions against the built store and ask of each
+5. **(3.5) Examine the built database (owner, 2026-11-16).** Done twice: **a first pass after the
+   two-week sample** (thin: about ten sessions, so it can show a rule that misfires or never
+   fires on ordinary days, not how one generalises; anything it changes is fixed before going
+   back to 2025-04-10), and **the full pass after phase 1**, before Reporter: go through the rules and decisions against the built store and ask of each
    whether it **generalises cleanly**: from the census (how often each rule fired, on what, and
    what was published), which rules are doing real work, which over-fire, which never fired,
    which rest on one case and should be retired or restated, and where a missing threshold
