@@ -85,8 +85,12 @@ first publication of either; ideally free and paid are ready together. Google Ad
    force: how often it fired, on which assets and dates, what it changed (value or absence),
    and what evidence it was written from. Never fired, fired only on its origin case, or
    contradicted by the population → retire or merge; the agents' instructions are pruned the same
-   way. Needs each published value or absence to name the rule that decided it: check before the
-   build whether reason codes already do.
+   way. **No rule tracking is added (owner, 2026-11-16: "feels like complexity that will cause
+   problems ... If rules are being applied on some days but not others then we shouldnt be doing
+   it").** The census reads the outputs instead: absences by reason code, per sensor, asset and
+   date; continuity of each series. Rules required by a published standard for real events (OCC
+   adjustments, splits, filing dates) fire only on those events by nature; a science rule or
+   heuristic that changes some days and not others is a candidate for retirement.
 5. **(3.5) Examine the built database (owner, 2026-11-16).** Done twice: **a first pass after the
    two-week sample** (thin: about ten sessions, so it can show a rule that misfires or never
    fires on ordinary days, not how one generalises; anything it changes is fixed before going
