@@ -247,6 +247,9 @@ the cluster still runs `vyreon-core:6e15a27`.
   intervals and the trade counts. `v-day-0716c` (job 53) is downloading. On the old build
   `v-day-1210` (computing since 13:04 UTC) and `v-day-0411` (13:09 UTC) passed their plans after
   about three hours of download.
+- 14:14 UTC: 2022-06-06's first half (intent A) COMPLETE, 496 of 496, `faulted_engine` 0
+  (`summaries-2206e/`); its second half started 14:03 UTC. `v-day-1210` and `v-day-0411`
+  accepted their inputs 13:48 and 13:52 UTC and are in intent A; `v-day-0716c` downloading.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
