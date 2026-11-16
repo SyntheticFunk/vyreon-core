@@ -132,6 +132,13 @@ behind it. Nothing is on `worker` or core's `main`. Over `pass` (d028637a) it ho
   patched commit. **Both fixed 04:37 UTC: `pass-fx10` 8a40183e (pushed; D-244 and D-240 amended;
   no ordinary-day byte change, label stays 1.6.0); release build running.** The merged audit of
   2e covers these two commits.
+  **`x1` was refused by its plan (04:46 UTC): `macro 2025-12-03 Missing`** (D-239 doing its job:
+  the test droplets' homes had no T-5 macro capture, and they hold no provider key, so no fill).
+  The capture was made on the laptop with the candidate's `capture_source` (38 requests) and
+  copied to both droplets' `h5-macro/2025-12-03`. **`x2` (137.184.61.134, `pass-fx10` 8a40183e,
+  clean 2025-12-10) started 04:50 UTC, plan ok.** It started 2 minutes before that capture's
+  snapshot cutoff (04:52:17Z); only the T-5 surface's FEDFUNDS reads it. For an early date or
+  any day whose T-5 macro is absent on a test droplet: capture it the same way first.
   **Converged (owner, 2026-11-16 03:50 UTC; C-041 amended):** fix 10 is the last batch before the
   build; its audit sends us round again only for a finding above the line. The gate left is the
   real days on `pass-fx10`.
