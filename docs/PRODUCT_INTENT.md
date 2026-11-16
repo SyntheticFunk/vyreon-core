@@ -303,19 +303,10 @@ Enterprise upgrade) plus the AI subscriptions that build it (~USD 400/month),
 with margin. At those costs 100 payers leave roughly USD 500–750/month: upside,
 not an income (Codex economics, `commercial-research/2026-10-05/13_*` §6). The Enterprise upgrade itself is a data-driven decision at that point.
 No unrealistic growth assumptions; the kill criteria in MILESTONES.md still bind.
-Same targets, current assumptions (owner, 2026-11-16):
-- **Price:** try USD 49 a month (four weekly issues) if the paid reports support
-  it. USD 29 was a felt price, not a measured one; the first real paid issues
-  decide.
-- **Running cost:** Intrinio Startup is USD 333 a month for four months, USD 666
-  for four, then USD 999 for four, so about USD 550–800 a month all in at first.
-  Conservative steady state, rounded up: about USD 1,500 a month (DigitalOcean
-  about USD 250, Intrinio up to about USD 1,250 with the Enterprise upgrade,
-  which adds indices and more content and is taken once profitable). Ads
-  (USD 0–500 a month) are meant to pay for themselves.
-- **Revenue:** about USD 2,000 a month and the business floats; about USD 5,000 a
-  month (about 100 subscribers at USD 49) and it is a full-time job covering
-  living expenses.
+Facts and pricing (owner, 2026-11-16): Intrinio Startup is billed USD 333 a month
+for four months, USD 666 for four, then USD 999 for four. The paid price is not
+decided: it is set once real paid issues exist, by comparing them with similar
+quantitative products (several sell at about USD 49 a month or more).
 Scale rule (owner, 2026-10-04): the goal is eventually the full optionable
 market, but the 64-security system must be profitable first. Additions are
 chosen by reader demand (coverage requests from signups and pilot
