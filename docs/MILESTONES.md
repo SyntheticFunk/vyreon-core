@@ -161,6 +161,21 @@ the cluster still runs `vyreon-core:6e15a27`.
   ignore a claim's earlier source start (latent: core sends none). **The block running under
   5f5f90b9 (`v-day-2206d`, job 43, downloading since 12:22 UTC) is therefore evidence for values
   but not for 2022 quote-file identities: the part order will change.** A third image follows.
+- **THE FINDING OF 2.5 (12:38 UTC): the engine cannot read the provider's option snapshots before
+  about May 2024.** Real files looked at today (samples in the session scratchpad `snap2022/`):
+  2022-06-07 19:50 is eight part files (`part` "0".."7", listed 7 to 0), each with its own
+  header of **20 columns** (the engine's `HEADER` has 14: the old files add TOTAL ASK VOLUME, ASK
+  HIGH/LOW PRICE, TOTAL BID VOLUME, BID HIGH/LOW PRICE, so ask and bid sit in other columns),
+  contract ids in padded OSI form (`FB____220610C00110000`, today `XLE_270617C95.00`), and the
+  last row of a part cut mid-line. 2023-06-15 and 2024-03-15 are one file (`part` the number
+  **1**), still 20 columns, modern ids. `close_quotes.rs` requires the 14-column header exactly
+  (`v-day-2206d`: `snapshot header CONTRACT ID,...`). The days that work fetch quote files from
+  2024-05-20 on. So the build cannot fetch closing quotes for roughly 2022-05-27 to spring 2024
+  until a reader for the old layout exists; where exactly the layout changes is not yet found.
+  **Do not use image `ed66a433`: its rule "parts are 0..n-1" refuses a single file numbered 1,
+  i.e. every modern day.** The 2022 block is stopped (Job deleted, jobs 43 to 51 cancelled); the
+  idle fourth node was deleted 12:37 UTC (pool `day` is 3 nodes, $0.50 an hour). The three later
+  days go on under d55f6439; watch what `v-day-0716` does with its sessions before 2024-05-20.
 - (Order rule used) each older tape job was scheduled only after the later days had claimed: 2025-04-11 (as soon
   as `v-day-1210` has claimed), 2024-07-16, then the block 2022-06-06..06-15.
 - **`x3` (`pass-s3i` d55f6439, 137.184.61.134, all 64) finished clean 11:18 UTC:** both summaries
