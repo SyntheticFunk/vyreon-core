@@ -137,7 +137,7 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   itself is to be judged by the real build (step 5), as every rule built on sparse data is.
 - **17:34 UTC: all four fix batches merged: `pass-s3i` 7e19fe90 (fx11-a, -b, -c pushed at 1dcb939d
   after a suite of 1,282 passed, 8 failed: only the known `option_field`; fx11-d merged clean on
-  top, suite re-running; log `/home/diggz/wt/s3i-suite4.log`, totals in `s3i-suite4.sum`).** The
+  top: suite 1,292 passed, 8 failed (only the known `option_field`); pushed 17:56 UTC).** The
   fx11 worktrees and build directories are deleted (disk 774 GB free). **Batch 12 started in
   `/home/diggz/wt/fx12` (`pass-fx12`, D-295..305):** the six M0 hand-set labels with a guard
   against shipping a method change without a bump; round o finding 5; provider-eras 10 (macro
