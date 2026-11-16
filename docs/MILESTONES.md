@@ -118,7 +118,18 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   what reads it; reasons carried.
 - **17:30 UTC: fx11-a, -b, -c merged into `pass-s3i` (1dcb939d, not pushed; one conflict in
   `vyreon-worker.rs` run_tape, both behaviours kept); full suite running; round p with a
-  verifier.** Still to merge: fx11-d (agent running).
+  verifier.** fx11-d landed 17:29 UTC (`pass-fx11-d` 53cac957, pushed, D-273..277): **a history
+  counts an earlier session only if the measurement and every sensor it reads (the lineage)
+  carry the same science and method version on both; otherwise OTHER_METHOD_VERSION, and below
+  the minimum the reading is withheld HISTORY_OF_ANOTHER_METHOD_VERSION**; one bad bar costs only
+  the references it touches (P01/P03/W21 rank fewer than 126 and say so: owner may prefer
+  withholding; longer views listed); an unreadable earlier capture is a gap; inherited reasons
+  carried; a faulted object's records carry the error. Checked on the real dumps: no sensor
+  carries two version labels within a day (x3, y2, c-1210). **Caution: 6 of 94 sensors use a code
+  hash as `method_version` (M0-GAMMA-CHANGE's changed between pass-fx10 and the merge with no
+  value change), so a code edit in their closure restarts every history that reads them until
+  republished: phase 1 must be built from one image, and a later image bump needs a check of
+  which labels moved.** Merge fx11-d after the suite now running.
 - **Next for the engine:** merge fx11-a, -b, -c, -d into `pass-s3i` (merge, not rebase; expect
   only docs/DECISIONS.md and small `views.rs`/`vyreon-worker.rs` overlaps); full suite (known
   failures: eight h5-field `option_field` only); ONE Codex audit of the merged result with a
