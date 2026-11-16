@@ -15,3 +15,9 @@ name=$(basename "$file" .md); mkdir -p "$out"
 echo "candidate: $(git -C "$repo" rev-parse --short=8 HEAD) $(git -C "$repo" branch --show-current)" > "$out/$name.log"
 codex exec -s read-only -C "$repo" -o "$out/$name.md" - < "$out/$name.brief.md" >> "$out/$name.log" 2>&1
 echo "$name: $(wc -l < "$out/$name.md") lines in $out/$name.md"
+# Codex's allowance after this audit, from its newest session log (the owner asked to see it, 2026-11-16)
+f=$(ls -t ~/.codex/sessions/*/*/*/*.jsonl 2>/dev/null | head -1)
+[ -n "$f" ] && grep -o '"primary":{"used_percent":[0-9.]*,"window_minutes":[0-9]*,"resets_at":[0-9]*' "$f" | tail -1 | python3 -c "
+import sys,re,datetime
+m=re.search(r'used_percent\":([0-9.]+),\"window_minutes\":([0-9]+),\"resets_at\":([0-9]+)',sys.stdin.read())
+if m: print('codex allowance: %s%% of the %s-day window used; resets %s UTC' % (m.group(1), int(m.group(2))//1440, datetime.datetime.utcfromtimestamp(int(m.group(3))).strftime('%Y-%m-%d %H:%M')))" || true
