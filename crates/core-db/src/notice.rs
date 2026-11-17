@@ -43,13 +43,55 @@ pub async fn unsent(db_client: &impl GenericClient, limit: i64) -> Result<Vec<(i
     Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
 }
 
-pub async fn sent(db_client: &impl GenericClient, id: i64) -> Result<(), String> {
-    db_client.execute("UPDATE core.notice SET sent_at = now(), attempts = attempts + 1, last_error = NULL WHERE notice_id = $1", &[&id]).await.map_err(db)?;
-    Ok(())
+/// A post claimed for sending (migration 0021): its id, its text, and the claim it was taken
+/// under, which its outcome is recorded with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Claimed {
+    pub id: i64,
+    pub message: String,
+    pub claim: String,
 }
 
-pub async fn not_sent(db_client: &impl GenericClient, id: i64, error: &str) -> Result<(), String> {
-    db_client.execute("UPDATE core.notice SET attempts = attempts + 1, last_error = $2 WHERE notice_id = $1", &[&id, &error]).await.map_err(db)?;
+/// Claims the oldest post not sent yet, unless another sender's claim on it is live (younger than
+/// `claim_seconds`): then nothing, so no post overtakes it and none goes twice at once. The row is
+/// locked while it is claimed, so two senders never take the same post.
+pub async fn claim_next(db_client: &impl GenericClient, claim_seconds: i32) -> Result<Option<Claimed>, String> {
+    let row = db_client
+        .query_opt(
+            "UPDATE core.notice SET sending_since = clock_timestamp()
+             WHERE notice_id = (SELECT notice_id FROM core.notice WHERE post AND sent_at IS NULL ORDER BY notice_id LIMIT 1 FOR UPDATE)
+               AND post AND sent_at IS NULL
+               AND (sending_since IS NULL OR sending_since < clock_timestamp() - make_interval(secs => $1::int))
+             RETURNING notice_id, message, sending_since::text",
+            &[&claim_seconds],
+        )
+        .await
+        .map_err(db)?;
+    Ok(row.map(|r| Claimed { id: r.get(0), message: r.get(1), claim: r.get(2) }))
+}
+
+/// Records a claimed post as sent. False when the claim was no longer this sender's.
+pub async fn sent(db_client: &impl GenericClient, c: &Claimed) -> Result<bool, String> {
+    let n = db_client
+        .execute(
+            "UPDATE core.notice SET sent_at = now(), attempts = attempts + 1, last_error = NULL, sending_since = NULL
+             WHERE notice_id = $1 AND sending_since = $2::text::timestamptz",
+            &[&c.id, &c.claim],
+        )
+        .await
+        .map_err(db)?;
+    Ok(n == 1)
+}
+
+/// Records a claimed post as not sent (it is claimed again at the next send).
+pub async fn not_sent(db_client: &impl GenericClient, c: &Claimed, error: &str) -> Result<(), String> {
+    db_client
+        .execute(
+            "UPDATE core.notice SET attempts = attempts + 1, last_error = $3, sending_since = NULL WHERE notice_id = $1 AND sending_since = $2::text::timestamptz",
+            &[&c.id, &c.claim, &error],
+        )
+        .await
+        .map_err(db)?;
     Ok(())
 }
 

@@ -51,6 +51,11 @@ pub const DEADLINE_HOUR: i32 = 20;
 /// Sunday's report is at risk this many hours after Friday's deadline (Saturday).
 pub const AT_RISK_AFTER_HOURS: i32 = 2;
 
+/// Taken, for the transaction, by whatever opens or resolves a problem and by the digest and the
+/// weekly check while they read the open problems and queue their post: a post that says what is
+/// open is never queued beside a problem opening at the same moment (round v, 7).
+const PROBLEM_LOCK: &str = "SELECT pg_advisory_xact_lock(hashtextextended('core.problem check', 0))";
+
 fn db(e: tokio_postgres::Error) -> String {
     e.as_db_error().map_or_else(|| e.to_string(), |d| d.message().to_owned())
 }
@@ -279,16 +284,22 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open])
             detail: None,
         });
     }
-    // what no job derives again stays a problem until each of its days has its job
+    // what no job derives again stays a problem until each of its days is derived again (a
+    // published revision of its kind) or a live job will derive it (round v, 4: a job created
+    // after the problem but cancelled or failed derives nothing)
     for o in open.iter().filter(|o| o.kind == "NOT_DERIVED") {
         let owned: Option<bool> = c
             .query_one(
-                "SELECT bool_and(EXISTS (
+                "SELECT bool_and(
+                     EXISTS (SELECT FROM vyreon.day_revision r
+                             WHERE r.profile_id = d->>'profile_id' AND r.represented_date = (d->>'day')::date AND r.state = 'PUBLISHED'
+                               AND r.base_revision IS NOT NULL AND r.day_local = (d->>'day_local')::boolean)
+                     OR EXISTS (
                      SELECT FROM core.job j
                      WHERE j.profile_id = d->>'profile_id'
                        AND CASE WHEN (d->>'day_local')::boolean THEN j.kind = 'DAY_BLOCK' AND (d->>'day')::date BETWEEN j.first_session AND j.last_session
                                 ELSE j.kind = 'ORDERED_PASS' AND j.first_session = (d->>'day')::date END
-                       AND (j.state IN ('QUEUED', 'LEASED') OR j.created_at > p.opened_at OR (j.state = 'DONE' AND j.finished_at > p.opened_at))))
+                       AND j.state IN ('QUEUED', 'LEASED')))
                  FROM core.problem p, jsonb_array_elements(p.detail->'days') d WHERE p.problem_id = $1",
                 &[&o.id],
             )
@@ -468,6 +479,8 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
 
 /// Opens a problem in the caller's transaction (with its alert), unless it is open already.
 async fn open_one(c: &impl GenericClient, f: &Found, now: Option<&str>) -> Result<bool, String> {
+    // a publish opens NOT_DERIVED in its own transaction: it waits for a digest being composed
+    c.execute(PROBLEM_LOCK, &[]).await.map_err(db)?;
     let n = c
         .execute(
             "INSERT INTO core.problem (kind, key, opened_at, summary, command, detail)
@@ -495,7 +508,7 @@ pub fn resolved_text(summary: &str, age_seconds: i64) -> String {
 /// with their posts, in one transaction.
 pub async fn check(client: &mut Client, s: &Settings, now: &str) -> Result<Change, String> {
     let tx = client.transaction().await.map_err(db)?;
-    tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.problem check', 0))", &[]).await.map_err(db)?;
+    tx.execute(PROBLEM_LOCK, &[]).await.map_err(db)?;
     let open = open(&tx, now).await?;
     let found = current(&tx, s, now, &open).await?;
     let mut change = Change::default();
@@ -705,8 +718,7 @@ fn day_of(expr: &str) -> String {
 }
 
 /// The daily digest at `now`, from the problems as last checked.
-pub async fn digest(client: &Client, s: &Settings, now: &str) -> Result<String, String> {
-    let c = client;
+pub async fn digest(c: &impl GenericClient, s: &Settings, now: &str) -> Result<String, String> {
     let open = open(c, now).await?;
     let today: String = c.query_one("SELECT to_char($1::text::timestamptz AT TIME ZONE $2, 'Dy Mon FMDD')", &[&now, &ZONE]).await.map_err(db)?.get(0);
     let mut lines = Vec::new();
@@ -886,9 +898,9 @@ pub async fn digest(client: &Client, s: &Settings, now: &str) -> Result<String, 
 }
 
 /// The Saturday check at `now`: this week's sessions (Monday to the day before), each published
-/// or not with its coverage, for Sunday's report.
-pub async fn weekly(client: &Client, s: &Settings, now: &str) -> Result<String, String> {
-    let c = client;
+/// or not with its coverage and its history pass, for Sunday's report. Green only with every
+/// watched session's base and history pass published (or due later) and no problem open.
+pub async fn weekly(c: &impl GenericClient, s: &Settings, now: &str) -> Result<String, String> {
     let open = open(c, now).await?;
     let rows = c
         .query(
@@ -897,7 +909,9 @@ pub async fn weekly(client: &Client, s: &Settings, now: &str) -> Result<String, 
                         EXISTS (SELECT FROM vyreon.day_revision d WHERE d.represented_date = s.session AND d.profile_id = $2
                                 AND d.state = 'PUBLISHED' AND d.base_revision IS NULL),
                         ((s.session + 1) + make_time($4, 0, 0)) AT TIME ZONE 'America/Edmonton' <= $1::text::timestamptz,
-                        to_char(s.session + 1, 'Dy')
+                        to_char(s.session + 1, 'Dy'),
+                        EXISTS (SELECT FROM vyreon.day_revision d WHERE d.represented_date = s.session AND d.profile_id = $2
+                                AND d.state = 'PUBLISHED' AND d.base_revision IS NOT NULL AND NOT d.day_local)
                  FROM core.session s,
                       (SELECT ($1::text::timestamptz AT TIME ZONE 'America/Edmonton')::date AS today) t
                  WHERE s.session >= date_trunc('week', t.today)::date AND s.session < t.today
@@ -908,33 +922,48 @@ pub async fn weekly(client: &Client, s: &Settings, now: &str) -> Result<String, 
         )
         .await
         .map_err(db)?;
-    // (session, words, watched, published, its deadline passed, its deadline's day)
-    let week: Vec<(String, String, bool, bool, bool, String)> = rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5))).collect();
+    // (session, words, watched, published, its deadline passed, its deadline's day, its history
+    // pass published)
+    let week: Vec<(String, String, bool, bool, bool, String, bool)> = rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6))).collect();
     let dates: Vec<String> = week.iter().map(|w| w.0.clone()).collect();
     let tallies = session_tallies(c, &s.profile, &dates).await?;
     let watched: Vec<_> = week.iter().filter(|w| w.2).collect();
     // C-051: a session whose deadline is still ahead (Friday's, on Saturday morning) is due, not missing
     let missing: Vec<&str> = watched.iter().filter(|w| !w.3 && w.4).map(|w| w.1.as_str()).collect();
     let due: Vec<&str> = watched.iter().filter(|w| !w.3 && !w.4).map(|w| w.1.as_str()).collect();
+    // round v, 6: Sunday's report reads the history-reading sensors too (the ordered pass, C-051)
+    let no_history: Vec<&str> = watched.iter().filter(|w| w.3 && w.4 && !w.6).map(|w| w.1.as_str()).collect();
     let first = if week.is_empty() {
         "🟡 Weekly check: no trading session this week".to_string()
     } else if watched.is_empty() {
         "🟡 Weekly check: this week's sessions have no publishing deadline yet, so Sunday's report is not checked".to_string()
-    } else if missing.is_empty() && due.is_empty() {
-        format!("🟢 Weekly check: all {} of this week's sessions published; Sunday's report has what it needs", watched.len())
-    } else if missing.is_empty() {
-        format!("🟢 Weekly check: on time; {} of {} sessions published, {} due later ({})", watched.len() - due.len(), watched.len(), due.len(), due.join(", "))
-    } else {
+    } else if !missing.is_empty() {
         format!("🔴 Weekly check: Sunday's report at risk, {} of {} sessions not published ({})", missing.len(), watched.len(), missing.join(", "))
+    } else if let Some(oldest) = open.first() {
+        // round v, 6: an open problem is never green
+        let more = if open.len() > 1 { format!(" (and {} more)", open.len() - 1) } else { String::new() };
+        format!("🔴 Weekly check: Sunday's report is not cleared while a problem is open: {}{more}", one_line(&oldest.summary, 200))
+    } else if !no_history.is_empty() {
+        format!(
+            "🟡 Weekly check: Sunday's report waits for the history pass of {} of {} sessions ({})",
+            no_history.len(),
+            watched.len(),
+            no_history.join(", ")
+        )
+    } else if due.is_empty() {
+        format!("🟢 Weekly check: all {} of this week's sessions published with their history pass; Sunday's report has what it needs", watched.len())
+    } else {
+        format!("🟢 Weekly check: on time; {} of {} sessions published, {} due later ({})", watched.len() - due.len(), watched.len(), due.len(), due.join(", "))
     };
     let mut lines = Vec::new();
-    for (date, words, watched, published, passed, by) in &week {
+    for (date, words, watched, published, passed, by, history) in &week {
+        let history = if *history { "history pass published" } else { "history pass not published" };
         lines.push(match (published, tallies.get(date)) {
             (true, Some(t)) => {
                 let share = t.measured().map_or("no measurements".into(), |v| format!("{} of its measurements have a value", pct(v)));
-                format!("{words}: published · {share} · {}", faults(t.engine_faults))
+                format!("{words}: published · {share} · {} · {history}", faults(t.engine_faults))
             }
-            (true, None) => format!("{words}: published"),
+            (true, None) => format!("{words}: published · {history}"),
             (false, _) if *watched && !*passed => format!("{words}: not published yet, due by {by} {:02}:00 MT", s.deadline_hour),
             (false, _) => format!("{words}: not published"),
         });
@@ -963,18 +992,25 @@ pub async fn tick(client: &mut Client, s: &Settings, now: &str) -> Result<Change
         .map_err(db)?;
     let (date, nine, saturday): (String, bool, bool) = (row.get(0), row.get(1), row.get(2));
     if nine {
-        let key = format!("digest {date}");
-        if !notice::queued(&*client, &key).await? {
-            let text = digest(client, s, now).await?;
-            notice::alert_once(&*client, &key, &text).await?;
-        }
-        let key = format!("weekly {date}");
-        if saturday && !notice::queued(&*client, &key).await? {
-            let text = weekly(client, s, now).await?;
-            notice::alert_once(&*client, &key, &text).await?;
+        post_once(client, &format!("digest {date}"), s, now, false).await?;
+        if saturday {
+            post_once(client, &format!("weekly {date}"), s, now, true).await?;
         }
     }
     checked
+}
+
+/// Composes the digest (or the weekly check) and queues it once under `key`, in one transaction
+/// holding the problems' lock: no problem opens between reading what is open and queuing the post,
+/// so a post saying nothing is open never follows an alert of a problem still open (round v, 7).
+async fn post_once(client: &mut Client, key: &str, s: &Settings, now: &str, weekly_check: bool) -> Result<(), String> {
+    let tx = client.transaction().await.map_err(db)?;
+    tx.execute(PROBLEM_LOCK, &[]).await.map_err(db)?;
+    if !notice::queued(&tx, key).await? {
+        let text = if weekly_check { weekly(&tx, s, now).await? } else { digest(&tx, s, now).await? };
+        notice::alert_once(&tx, key, &text).await?;
+    }
+    tx.commit().await.map_err(db)
 }
 
 #[cfg(test)]

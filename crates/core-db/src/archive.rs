@@ -265,21 +265,23 @@ pub async fn request(client: &mut Client, spaces: &Spaces, token: &str, r: &Requ
     let id: i64 = match held {
         Some(row) => tx
             .query_one(
-                "UPDATE core.perishable_archive SET state = 'REQUESTED', urls_issued = urls_issued + 1, requested_at = $2::text::timestamptz,
+                // `requested_at` stays the first request's: the age a missing archive is counted
+                // from (round v, 5); the row moves to the place this URL is signed for (round v, 3)
+                "UPDATE core.perishable_archive SET state = 'REQUESTED', urls_issued = urls_issued + 1,
                         url_expires_at = $2::text::timestamptz + make_interval(secs => $3::int), failure = NULL,
-                        job_id = $4, engine_build = $5, worker = $6
+                        job_id = $4, engine_build = $5, worker = $6, endpoint = $7, bucket = $8
                  WHERE archive_id = $1 RETURNING archive_id",
-                &[&row.get::<_, i64>(0), &now, &URL_SECONDS, &lease.job_id, &lease.engine_build, &lease.worker],
+                &[&row.get::<_, i64>(0), &now, &URL_SECONDS, &lease.job_id, &lease.engine_build, &lease.worker, &spaces.endpoint(), &spaces.bucket()],
             )
             .await
             .map_err(failed)?
             .get(0),
         None => tx
             .query_one(
-                "INSERT INTO core.perishable_archive (session, category, sha256, md5, bytes, bucket, object_key, state, requested_at, url_expires_at, job_id, engine_build, worker)
-                 VALUES ($1::text::date, $2, $3, $4, $5, $6, $7, 'REQUESTED', $8::text::timestamptz, $8::text::timestamptz + make_interval(secs => $9::int), $10, $11, $12)
+                "INSERT INTO core.perishable_archive (session, category, sha256, md5, bytes, endpoint, bucket, object_key, state, requested_at, url_expires_at, job_id, engine_build, worker)
+                 VALUES ($1::text::date, $2, $3, $4, $5, $13, $6, $7, 'REQUESTED', $8::text::timestamptz, $8::text::timestamptz + make_interval(secs => $9::int), $10, $11, $12)
                  RETURNING archive_id",
-                &[&r.session, &r.category, &r.sha256, &r.md5, &r.bytes, &spaces.bucket(), &key, &now, &URL_SECONDS, &lease.job_id, &lease.engine_build, &lease.worker],
+                &[&r.session, &r.category, &r.sha256, &r.md5, &r.bytes, &spaces.bucket(), &key, &now, &URL_SECONDS, &lease.job_id, &lease.engine_build, &lease.worker, &spaces.endpoint()],
             )
             .await
             .map_err(failed)?
@@ -299,6 +301,10 @@ pub async fn request(client: &mut Client, spaces: &Spaces, token: &str, r: &Requ
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Target {
     pub archive_id: i64,
+    /// Where its URL was signed for: the endpoint (None: a row from before migration 0022) and
+    /// the bucket.
+    pub endpoint: Option<String>,
+    pub bucket: String,
     pub key: String,
     pub bytes: i64,
     pub sha256: String,
@@ -310,11 +316,26 @@ pub struct Target {
 pub async fn target(client: &impl GenericClient, token: &str, archive_id: i64) -> Result<Target, LeaseError> {
     let lease = work::identify(client, token).await?;
     let row = client
-        .query_opt("SELECT object_key, bytes, sha256, md5, state FROM core.perishable_archive WHERE archive_id = $1 AND job_id = $2", &[&archive_id, &lease.job_id])
+        .query_opt("SELECT object_key, bytes, sha256, md5, state, endpoint, bucket FROM core.perishable_archive WHERE archive_id = $1 AND job_id = $2", &[&archive_id, &lease.job_id])
         .await
         .map_err(|e| LeaseError::Failed(db(e)))?
         .ok_or_else(|| LeaseError::Refused(format!("archive {archive_id} is not one job {} requested", lease.job_id)))?;
-    Ok(Target { archive_id, key: row.get(0), bytes: row.get(1), sha256: row.get(2), md5: row.get(3), state: row.get(4) })
+    Ok(Target { archive_id, endpoint: row.get(5), bucket: row.get(6), key: row.get(0), bytes: row.get(1), sha256: row.get(2), md5: row.get(3), state: row.get(4) })
+}
+
+/// Whether `spaces` (what core signs for now) is the place the archive's URL was signed for: the
+/// object is read back only there, never in another bucket (round v, 3). Err: why not.
+pub fn same_place(t: &Target, spaces: &Spaces) -> Result<(), String> {
+    if t.endpoint.as_deref() == Some(spaces.endpoint()) && t.bucket == spaces.bucket() {
+        return Ok(());
+    }
+    Err(format!(
+        "its upload URL was signed for {}/{}, and core now signs for {}/{}: not read back (ask again for a URL)",
+        t.endpoint.as_deref().unwrap_or("(an endpoint not recorded)"),
+        t.bucket,
+        spaces.endpoint(),
+        spaces.bucket()
+    ))
 }
 
 /// What reading the object back (a HEAD) answered.
@@ -400,7 +421,7 @@ pub async fn list(client: &impl GenericClient, session: Option<&str>, limit: i64
         .query(
             "SELECT session::text, category, state, bytes, sha256, bucket, object_key, urls_issued,
                     to_char(requested_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'),
-                    to_char(kept_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), failure, job_id, worker, archive_id
+                    to_char(kept_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), failure, job_id, worker, archive_id, endpoint
              FROM core.perishable_archive WHERE $1::text IS NULL OR session = $1::text::date
              ORDER BY session DESC, category, requested_at, archive_id LIMIT $2",
             &[&session, &limit],
@@ -415,6 +436,7 @@ pub async fn list(client: &impl GenericClient, session: Option<&str>, limit: i64
                 "sha256": r.get::<_, String>(4), "bucket": r.get::<_, String>(5), "key": r.get::<_, String>(6), "urls_issued": r.get::<_, i32>(7),
                 "requested_at": r.get::<_, String>(8), "kept_at": r.get::<_, Option<String>>(9), "failure": r.get::<_, Option<String>>(10),
                 "job_id": r.get::<_, i64>(11), "worker": r.get::<_, String>(12), "archive_id": r.get::<_, i64>(13),
+                "endpoint": r.get::<_, Option<String>>(14),
             })
         })
         .collect())
@@ -425,7 +447,8 @@ pub async fn list(client: &impl GenericClient, session: Option<&str>, limit: i64
 pub struct Missing {
     pub session: String,
     pub category: String,
-    /// Seconds since it was first requested, or since its day was published.
+    /// Seconds since it was first requested, or since its day was published (a request sent
+    /// again does not reset it).
     pub age: i64,
 }
 
@@ -501,7 +524,7 @@ mod tests {
 
     #[test]
     fn a_read_back_is_kept_only_when_it_is_the_archive_requested() {
-        let t = Target { archive_id: 1, key: "k".into(), bytes: 42, sha256: "b".repeat(64), md5: "c".repeat(32), state: "REQUESTED".into() };
+        let t = Target { archive_id: 1, endpoint: None, bucket: "b".into(), key: "k".into(), bytes: 42, sha256: "b".repeat(64), md5: "c".repeat(32), state: "REQUESTED".into() };
         let head = Head { status: 200, bytes: Some(42), etag: Some(format!("\"{}\"", "C".repeat(32))), sha256: Some("b".repeat(64)) };
         assert_eq!(verify(&t, &head), Ok(()));
         assert!(verify(&t, &Head { status: 404, ..head.clone() }).unwrap_err().contains("not in the bucket"));

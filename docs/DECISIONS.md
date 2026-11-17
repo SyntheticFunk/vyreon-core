@@ -805,6 +805,40 @@ published for a week. Migration 0018; `crates/core-db/src/watch.rs`.
   is switched on with `vyreon-core notices mark-sent`, or in SQL:
   `UPDATE core.notice SET sent_at = now(), last_error = 'marked sent without posting (C-050)' WHERE post AND sent_at IS NULL;`
   Times are the owner's (Mountain Time), computed by PostgreSQL's zone rules.
+- **Amended 2026-11-17 (audit round v, coreops 2, 4, 6, 7, 8; migration 0021).**
+  - *The watch and the sender are separate tasks* (`notices::spawn_watch`, once a minute;
+    `notices::spawn_sender`, every 15 s, only with a webhook). They shared one loop, so a backlog
+    of posts (20 a pass, up to 20 s each) delayed the watch, which also queues the daily runs
+    (C-051), by tens of minutes.
+  - *Delivery is claimed (0021, `core.notice.sending_since`).* The sender claims the oldest
+    unsent post under a row lock before posting it (`notice::claim_next`); a post another sender
+    holds stops this one, so two services never post the same notice and none overtakes another;
+    `sent` is recorded under the claim. A claim lapses after `CLAIM_SECONDS` (120 s, longer than a
+    post's 20 s timeout plus a rate limit's 30 s wait), and the post is sent again. **Residual
+    (at least once):** a process stopped between Discord accepting a post and core recording it
+    posts it once more after 120 s; the window is that one round trip. Discord's Execute Webhook
+    (`POST /webhooks/{id}/{token}`, https://discord.com/developers/docs/resources/webhook#execute-webhook)
+    lists no idempotency key; the `nonce` with `enforce_nonce` of Create Message
+    (https://discord.com/developers/docs/resources/message#create-message) needs a bot token,
+    which core does not hold (read from the documentation as known; not re-read online this round).
+    The earlier claim "a second service never alerts twice" held for opening problems, not for
+    delivery; it now holds for both, but for that window.
+  - *`NOT_DERIVED` resolves only when each day's revision of its kind (history, or day-local) is
+    published again, or a QUEUED or LEASED job will derive it.* A job created after the problem
+    counted whatever its state, so a cancelled repair job resolved it.
+  - *The weekly check reads the open problems and the history pass.* Any open problem makes it
+    🔴 ("Sunday's report is not cleared while a problem is open"); a session past its deadline
+    with its base but without its history pass (a published derived revision, not day-local) makes
+    it 🟡; 🟢 only with every watched session's base and history pass published or due. Each
+    published session's line says whether its history pass is published. During the backfill
+    (C-051: T's history sensors follow the backfill) the check is therefore 🟡, which is true.
+  - *The digest and the weekly check are composed and queued in one transaction holding the
+    problems' advisory lock*, which every problem opening (`open_one`, including a publish's
+    `NOT_DERIVED`) now takes too: a post saying what is open is never queued while a problem is
+    opening, so a green digest never follows a red alert of a problem still open. A publish that
+    opens a problem waits for a digest being composed (a second at most), and the reverse.
+  - Ordinary day: nothing posted changes but the weekly check's lines (" · history pass
+    published") and its first line when a history pass is missing or a problem is open.
 
 ## C-051 Daily runs: core queues each session the morning after; a CronJob starts the worker; the pool scales to zero (owner-approved goal, 2026-11-17)
 Goal (owner): from the day the system is declared ready, each new session is computed and
@@ -868,6 +902,22 @@ published with nobody starting anything; nodes exist only while there is work. M
   about $120 a month) or the pool created and deleted around each run as today.
 - **Ordinary day:** about one worker node for 6 to 7 hours a session (about $1.10; the owner's
   spend).
+- **Amended 2026-11-17 (audit round v, coreops 9): a worker node only when there is work.** The
+  CronJob ran its worker pods on schedule whatever core held, so every empty morning (the Saturday
+  after Good Friday; a session done by hand) brought up a worker node. Now CronJob `daily` (07:45
+  New York, Tuesday to Saturday) runs a gate on the core node (the core image, no worker
+  toleration): `vyreon-core daily start-worker` counts the daily jobs waiting
+  (`daily::waiting`: priority 1, QUEUED, build admitted and not withdrawn, queue not paused) and,
+  only when there is one and no Job labelled `work=daily` is unfinished, creates the worker Job
+  from the template of the suspended CronJob `daily-worker` (as `kubectl create job --from`
+  does: the template's spec, labels and annotations, `cronjob.kubernetes.io/instantiate: manual`;
+  `ttlSecondsAfterFinished` a week, since a suspended CronJob's history limits do not apply).
+  RBAC (`40-daily.yaml`, README "Daily runs"): ServiceAccount, Role and RoleBinding `daily-gate`
+  in `vyreon` only: `get` on CronJob `daily-worker`, `list` and `create` on Jobs. The gate reads
+  core's database with core's login. Ordinary day: the same worker run, started by the gate's
+  pod (seconds on the core node) instead of directly; an empty morning starts nothing. Not
+  verified: the Kubernetes API itself (the tests run the gate against a local stand-in) and the
+  Role on the cluster; the first morning is the check (`kubectl -n vyreon logs job/<daily-…>`).
 
 ## C-052 The cluster archives the perishable inputs to Spaces through upload URLs core signs (owner-approved design, 2026-11-17)
 The owner (2026-11-17): workers stay stateless and hold no storage credential; core alone holds the
@@ -942,3 +992,20 @@ is the worker's side. Migration 0020; `crates/core-db/src/archive.rs`.
   signature with the bucket's key, checks the signed headers, the expiry and `Content-MD5`
   (`core-api/tests/archive_api.rs`), with the engine's packing of the real ACT01 pulls of
   2025-12-19 (`perishable-act01-auto-2025-12-19.tar.zst`). The first real day is the check.
+- **Amended 2026-11-17 (audit round v, coreops 3 and 5; migration 0022).**
+  - *An archive is read back only where its URL was signed for.* A row not kept, asked for again
+    after the settings moved to another bucket, kept its old bucket while the URL and the HEAD
+    used the new one, so it could be marked KEPT against a place never checked. Now the row holds
+    the endpoint beside the bucket (0022); a request sent again moves a row not kept to the place
+    its new URL is signed for; a `done` for a row whose place is not what core signs for now is
+    recorded FAILED ("signed for … and core now signs for …: not read back"), never verified
+    elsewhere. `archive list` shows the endpoint. Rows from before 0022 have none and count as
+    another place (none are expected: the archive was off on the cluster).
+  - *A missing archive's age counts from the first request.* A request sent again set
+    `requested_at` to now, so with `VYREON_CORE_ARCHIVE_FROM` unset each retry took the archive
+    out of the missing list for the grace hour and reset its age: `ARCHIVE_MISSING` resolved, and
+    repeated retries kept it under the alert age for ever. `requested_at` is now the first
+    request's (the latest URL's time is `url_expires_at` less 600 s; `urls_issued` counts them).
+  - Ordinary day: unchanged (one request per archive; core gains the endpoint on each row).
+  - Engine side: D-360 amended the same day (packing is inside the archive's deadline: a stalled
+    compressor is killed, the archive is not made, the day's outcome unchanged).
