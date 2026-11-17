@@ -286,7 +286,7 @@ async fn the_ordered_pass_follows_the_published_days_one_at_a_time() {
 }
 
 async fn notices(client: &Client) -> Vec<String> {
-    client.query("SELECT message FROM core.notice ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect()
+    client.query("SELECT message FROM core.notice WHERE NOT post ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect()
 }
 
 async fn pass_jobs(client: &Client) -> Vec<(String, String, i32)> {
@@ -517,7 +517,7 @@ async fn a_done_job_whose_finish_is_lost_is_done_and_one_bad_lease_stops_no_clai
     let second = work::claim(&mut client, Kind::DayBlock, &b, "w2", HOUR).await.unwrap().unwrap();
     assert_eq!(second.sessions, ["2025-12-11", "2025-12-12"]);
     assert_eq!(job_state(&client, first.job_id).await, "DONE");
-    let said: String = client.query_one("SELECT message FROM core.notice ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    let said: String = client.query_one("SELECT message FROM core.notice WHERE NOT post ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
     assert_eq!(said, "Day block 2025-12-10 to 2025-12-10 done by its worker, whose finish never arrived (1 blocks to go).");
     // its finish arriving late, or twice, is answered as done
     assert_eq!(work::finish(&mut client, &first.token).await, Ok(first.job_id));

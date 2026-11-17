@@ -1,6 +1,8 @@
-//! Sends the queued notices to the owner's Discord channel (C-014; AGENTS.md: the channel only,
-//! never a phone ping). Each post is silent and names no one. The webhook URL is a secret: it is
-//! read from a file, never logged, and stripped from any error text.
+//! The owner's Discord channel (C-014, C-050; AGENTS.md: the channel only, never a phone ping):
+//! the watch (`core_db::watch`: problems opened and resolved, the 09:00 digest, the Saturday
+//! check) once a minute, and the sender, which posts what the watch queued. Each post is silent
+//! and names no one. The webhook URL is a secret: it is read from a file, never logged, and
+//! stripped from any error text.
 use crate::App;
 use core_db::notice;
 use serde_json::{Value, json};
@@ -49,22 +51,40 @@ pub async fn send_unsent(app: &App, http: &reqwest::Client, webhook: &str) -> Re
     Ok(sent)
 }
 
-/// Sends notices every quarter minute and checks the calendar's end once an hour.
-pub fn spawn_sender(app: Arc<App>, webhook: String) -> tokio::task::JoinHandle<()> {
+/// Runs the watch once a minute and, with a webhook, sends what is queued every quarter minute.
+/// Without one the posts wait unsent (`vyreon-core notices mark-sent` clears them before the
+/// sender is switched on).
+pub fn spawn_watch(app: Arc<App>, settings: core_db::watch::Settings, webhook: Option<String>) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let http = reqwest::Client::builder().timeout(Duration::from_secs(20)).build().expect("http client");
         let mut tick = tokio::time::interval(Duration::from_secs(15));
         let mut ticks = 0u64;
         loop {
             tick.tick().await;
-            if ticks.is_multiple_of(240)
-                && let Ok(client) = app.pool.get().await
+            if ticks.is_multiple_of(4)
+                && let Ok(mut client) = app.pool.get().await
             {
-                let client: &tokio_postgres::Client = &client;
-                let _ = notice::calendar_check(client, 45).await;
+                let client: &mut tokio_postgres::Client = &mut client;
+                let watched = match core_db::watch::now(&*client).await {
+                    Ok(now) => core_db::watch::tick(client, &settings, &now).await,
+                    Err(e) => Err(e),
+                };
+                match watched {
+                    Ok(change) => {
+                        for s in &change.opened {
+                            println!("vyreon-core: problem opened: {s}");
+                        }
+                        for s in &change.resolved {
+                            println!("vyreon-core: problem resolved: {s}");
+                        }
+                    }
+                    Err(e) => eprintln!("vyreon-core: watch: {e}"),
+                }
             }
             ticks += 1;
-            if let Err(e) = send_unsent(&app, &http, &webhook).await {
+            if let Some(webhook) = &webhook
+                && let Err(e) = send_unsent(&app, &http, webhook).await
+            {
                 eprintln!("vyreon-core: notices: {e}");
             }
         }

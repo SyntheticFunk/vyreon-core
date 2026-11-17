@@ -323,6 +323,8 @@ history pages at 20 sessions, headline at 260. No Parquet yet (no reader has ask
   one transaction with their notice by every caller (the refused-bundle path and `queue pause` /
   `resume` used two autocommitted statements, so a restart between them left the queue paused with
   no notice, and a second pause changed nothing). The lease sweep's own transactions are C-038.
+- *Superseded in part by C-050 (2026-11-17):* the events above are logged, not posted; the channel
+  carries problems (opened once, resolved once), the 09:00 digest and the Saturday check.
 
 ## C-028 A day sent twice is answered, not refused (2026-11-10)
 A worker whose publish succeeded but whose answer was lost will send the day again. Core answers
@@ -733,3 +735,73 @@ Engine D-351 is the worker's side.
   loses its lease.
 - **Deploying:** the core image (migration 0017, applied by the `migrate` init container) and the
   engine's worker image; no new secret, setting or service.
+
+## C-050 The owner's channel carries problems, a daily verdict and a weekly check (owner-approved design, 2026-11-17)
+The owner: "I want to open it and immediately know if i gotta go look at it or its running ok." The
+droplet's alerts failed at that: normal states raised as alarms ("provider not published yet"), 64
+tickers per alert, the same stop re-alerted every 12 hours for days, "all well" while nothing had
+published for a week. Migration 0018; `crates/core-db/src/watch.rs`.
+- **Problems, not events.** `core.problem` holds one row per problem: kind, a stable key, opened,
+  a one-line summary in plain words, the command that shows more, resolved. A partial unique index
+  keeps a (kind, key) from being open twice. The service's watch runs once a minute and finds
+  every problem from core's own rows (state, not events), so a restart, a missed minute or a second
+  service never alerts twice: an alert post when a problem opens, one "Resolved" post when it
+  clears, nothing in between. The problem, its post and its resolution are one transaction (C-027's
+  outbox). Every other notice is now only logged (`core.notice.post` false; `vyreon-core log`):
+  blocks done, every scheduled job done, builds admitted or withdrawn, the queue paused or resumed,
+  a day set aside, a republish's re-derivation. Notices written before 0018 stay as the log.
+- **The kinds (v1), from what core holds:**
+  (a) `SESSION_LATE`: each session from `VYREON_CORE_DEADLINES_FROM` must have its profile's base
+  revision PUBLISHED by 10:00 America/Edmonton on the next calendar day (Friday's is due Saturday;
+  a session the calendar lacks has no deadline). Unset, no deadline is checked and the digest says
+  so: the backfill's historical sessions never alert. `REPORT_AT_RISK`: the week's last session
+  (Friday, or Thursday before a Friday holiday) still missing at Saturday 12:00, raised only before
+  that week's Sunday is over, open until it publishes.
+  (b) `QUEUE_PAUSED`, with `core.queue_control`'s reason (keyed by when it paused).
+  (c) `JOB_FAILED`: a job out of attempts, with its latest evidence's stop message (C-049; else its
+  lease's failure) and `vyreon-core evidence show <job>`; it clears when retried or cancelled.
+  (d) `PROVIDER_AUTH`: an evidence record of the last 7 days whose stop message or refusals carry
+  the engine's provider transport error `HttpStatus(401)` or `HttpStatus(403)` (h2-engine
+  `transport.rs`, the client every Intrinio request goes through) with nothing published or done
+  since. `PROVIDER_ERRORS`: provider errors (`HttpStatus(429)` or 5xx) on **more than 2 attempts in
+  30 minutes** (several at once look like the provider, not a day; the same reasoning as C-035's
+  3); it clears after 2 hours without one. Only the decisive text is read, never the log excerpt,
+  where a good attempt's retried requests also show. A 401 in a form other than the engine's
+  transport error is not recognised.
+  (e) `DATABASE_FULL`: `pg_database_size` above 80% of `VYREON_CORE_VOLUME_GIB` (clears below 78%).
+  It is the database's size, not the volume's use (WAL and other files are on it too).
+  Also: `CALENDAR_END` (the calendar within 45 days of its end, C-014f; was a weekly notice) and
+  `NOT_DERIVED` (a republish left days no job derives again, C-037; opened by the publish, open
+  until each day has its job).
+  Not alerts: a session not yet published before its deadline, an attempt retried that later
+  succeeds, a provider absence stated by the engine or a worker, a build admitted, a block done.
+- **The digest, 09:00 America/Edmonton, always sent** (the heartbeat; once a day by its key). First
+  line the verdict: `🟢 Running fine` (nothing open, nothing handled), `🟡 Running; handled: …`
+  (provider gaps recorded or attempts retried in the last 24 hours, nothing open), `🔴 Needs you:
+  <the oldest open problem>`. Then: the latest session stored, the share of its measurements with a
+  value and the typical share (median of the 20 published sessions before it), its engine faults;
+  sessions published in the last 24 hours; provider gaps recorded in the last 24 hours (tape and
+  input-capture absences, and slots withheld whole for the provider, as sessions, never tickers);
+  the work queue by kind; during a backfill, sessions done of total and an estimate from the last
+  24 hours' rate; the database's size; "Open problems (n):" one line each with its age and command.
+  Cut to 1,900 characters (Discord's limit is 2,000): the problems that do not fit are counted, with
+  `vyreon-core problems`.
+- **What "has a value" means, without science:** the engine's own whole-slot convention (R7.1,
+  `exports::hold_final`): a slot withheld whole has the result id `<measurement>/<object>/<date>/
+  engine-fault`; it is an engine fault when its body states `ENGINE_FAULT` or
+  `PARENT_ENGINE_FAULT`, else a provider absence. Counted once per published revision
+  (`core.revision_tally`). A derived record withheld for a dependency is not withheld whole by that
+  convention, so it counts as a slot with a value; its fault is still counted.
+- **The weekly check, Saturday 09:00:** the week's sessions, each published or not with its share
+  and engine faults, and a verdict for Sunday's report (sessions before the first deadline are not
+  judged). The week's unusual-reading flag count is left out: the flag line is calibrated by the
+  engine's science (D-069), and core does not compute it. Reporter's dry run is a placeholder line.
+- **v2 (seam in `watch.rs`):** spend against the budget (needs a DigitalOcean billing-read token)
+  and idle worker nodes (needs Kubernetes read access): each is one more source of problems.
+- **Deploying:** migration 0018; `deploy/k8s/20-core.yaml` mounts Secret `vyreon-core-webhook`
+  (key `webhook`) read-only and sets `VYREON_CORE_WEBHOOK_FILE`; absent, the posts wait unsent. The
+  watch runs either way. The channel starts clean by itself: every notice written before 0018 is
+  log, never posted. Posts queued while the webhook was off (or any backlog) are cleared before it
+  is switched on with `vyreon-core notices mark-sent`, or in SQL:
+  `UPDATE core.notice SET sent_at = now(), last_error = 'marked sent without posting (C-050)' WHERE post AND sent_at IS NULL;`
+  Times are the owner's (Mountain Time), computed by PostgreSQL's zone rules.

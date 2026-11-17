@@ -1,0 +1,947 @@
+//! The owner's channel (C-050): "I want to open it and immediately know if I have to go look at it
+//! or it's running ok." Three kinds of post, nothing else:
+//!
+//!   * an alert when a problem opens, and one "resolved" when it clears; nothing in between. A
+//!     problem is a row of `core.problem` (migration 0018), found by `check` from the state core
+//!     already holds, so a restart, a missed minute or a second service never alerts twice;
+//!   * the digest, every day at 09:00 in the owner's zone, always sent (it is the heartbeat):
+//!     a verdict first (🟢 / 🟡 / 🔴), then counts, never ticker lists;
+//!   * the weekly check, Saturday at 09:00: the week's sessions and what Sunday's report has.
+//!
+//! What is normal is not alerted: a session not published before its deadline, an attempt
+//! retried that then succeeds, a provider absence the engine states, a build admitted, a block
+//! done. Those go to the log (`notice::log`) and into the digest's counts.
+//!
+//! Times are computed by PostgreSQL in `ZONE` (Mountain Time, with its daylight saving), from a
+//! `now` the caller passes, so a check can be run for any moment.
+//!
+//! Not here (v2, they need credentials core does not hold): spend against the budget (a
+//! DigitalOcean billing-read token) and idle worker nodes (Kubernetes read access). Each will be
+//! one more function returning `Found` rows into `current`, with its kind added to
+//! `core.problem`'s check; nothing else changes.
+use crate::{evidence, notice};
+use serde_json::{Value, json};
+use std::collections::BTreeMap;
+use tokio_postgres::{Client, GenericClient};
+
+/// The owner's zone: Calgary, Mountain Time (UTC−7, UTC−6 in summer).
+pub const ZONE: &str = "America/Edmonton";
+/// What a post may hold: Discord's limit is 2,000 characters; this leaves a margin.
+pub const LIMIT: usize = 1900;
+/// The provider is failing when more than this many attempts stop on a provider error (HTTP 429
+/// or 5xx) within `PROVIDER_WINDOW_MINUTES`; several at once look like the provider, not a day.
+pub const PROVIDER_ERROR_ATTEMPTS: usize = 2;
+pub const PROVIDER_WINDOW_MINUTES: f64 = 30.0;
+/// An open provider-errors problem clears after this long without a provider error.
+pub const PROVIDER_QUIET_HOURS: f64 = 2.0;
+/// The database is too full above this share of its volume, and clears below the second.
+pub const DATABASE_FULL: f64 = 0.80;
+pub const DATABASE_CLEAR: f64 = 0.78;
+/// The trading calendar must reach this many days ahead (C-014f).
+pub const CALENDAR_DAYS: i32 = 45;
+/// The digest's typical coverage is the median over this many earlier published sessions.
+pub const TYPICAL_SESSIONS: i64 = 20;
+
+fn db(e: tokio_postgres::Error) -> String {
+    e.as_db_error().map_or_else(|| e.to_string(), |d| d.message().to_owned())
+}
+
+/// What the checks are told.
+#[derive(Debug, Clone)]
+pub struct Settings {
+    /// The profile whose sessions must publish (`FREE_REPORT_64`).
+    pub profile: String,
+    /// The first session that has a publishing deadline; None: no deadline is checked (the
+    /// backfill's historical sessions never alert).
+    pub deadlines_from: Option<String>,
+    /// The database volume's size; None: the database's size is reported, not checked.
+    pub volume_bytes: Option<i64>,
+}
+
+/// A problem as a check finds it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Found {
+    pub kind: &'static str,
+    pub key: String,
+    pub summary: String,
+    pub command: String,
+    pub detail: Option<Value>,
+}
+
+/// An open problem.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Open {
+    pub id: i64,
+    pub kind: String,
+    pub key: String,
+    pub summary: String,
+    pub command: String,
+    /// Seconds since it opened, at the `now` it was read for.
+    pub age: i64,
+}
+
+/// What a check changed.
+#[derive(Debug, Default, PartialEq)]
+pub struct Change {
+    pub opened: Vec<String>,
+    pub resolved: Vec<String>,
+}
+
+/// One line of at most `max` characters, with nothing a credential pattern matches (a stop
+/// message is the worker's text; the evidence was checked when stored, a lease's failure was not).
+pub fn one_line(text: &str, max: usize) -> String {
+    if evidence::unredacted(text).is_some() {
+        return "(its message is not shown: it may hold a credential)".into();
+    }
+    let line = text.lines().map(str::trim).find(|l| !l.is_empty()).unwrap_or("").to_owned();
+    if line.chars().count() > max { line.chars().take(max.saturating_sub(1)).chain(['…']).collect() } else { line }
+}
+
+/// How long, in words: "12 min", "5 h", "3 days".
+pub fn age(seconds: i64) -> String {
+    let minutes = seconds.max(0) / 60;
+    if minutes < 60 {
+        format!("{minutes} min")
+    } else if minutes < 48 * 60 {
+        format!("{} h", minutes / 60)
+    } else {
+        format!("{} days", minutes / (24 * 60))
+    }
+}
+
+/// The HTTP statuses the engine's provider transport reports in a text (`HttpStatus(502)`,
+/// h2-engine `transport.rs`, the client every Intrinio request goes through).
+pub fn provider_statuses(text: &str) -> Vec<u16> {
+    let mut found = Vec::new();
+    let mut from = 0;
+    while let Some(i) = text[from..].find("HttpStatus(") {
+        let start = from + i + "HttpStatus(".len();
+        let digits: String = text[start..].chars().take_while(char::is_ascii_digit).collect();
+        if let Ok(code) = digits.parse::<u16>()
+            && text[start + digits.len()..].starts_with(')')
+        {
+            found.push(code);
+        }
+        from = start;
+    }
+    found
+}
+
+fn is_auth(code: u16) -> bool {
+    code == 401 || code == 403
+}
+
+fn is_provider_error(code: u16) -> bool {
+    code == 429 || code >= 500
+}
+
+/// The open problems, oldest first, with their ages at `now`.
+pub async fn open(c: &impl GenericClient, now: &str) -> Result<Vec<Open>, String> {
+    let rows = c
+        .query(
+            "SELECT problem_id, kind, key, summary, command, GREATEST(extract(epoch FROM $1::text::timestamptz - opened_at), 0)::bigint
+             FROM core.problem WHERE resolved_at IS NULL ORDER BY opened_at, problem_id",
+            &[&now],
+        )
+        .await
+        .map_err(db)?;
+    Ok(rows.iter().map(|r| Open { id: r.get(0), kind: r.get(1), key: r.get(2), summary: r.get(3), command: r.get(4), age: r.get(5) }).collect())
+}
+
+/// The database's own clock, as `now` for a check.
+pub async fn now(c: &impl GenericClient) -> Result<String, String> {
+    Ok(c.query_one("SELECT now()::text", &[]).await.map_err(db)?.get(0))
+}
+
+fn is_open(open: &[Open], kind: &str, key: &str) -> bool {
+    open.iter().any(|o| o.kind == kind && o.key == key)
+}
+
+/// Every problem that holds at `now`.
+async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open]) -> Result<Vec<Found>, String> {
+    let mut found = Vec::new();
+    if let Some(from) = &s.deadlines_from {
+        deadlines(c, s, from, now, open, &mut found).await?;
+    }
+    if let Some(row) = c
+        .query_opt("SELECT reason, to_char(changed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM core.queue_control WHERE paused", &[])
+        .await
+        .map_err(db)?
+    {
+        let reason: String = row.get(0);
+        found.push(Found {
+            kind: "QUEUE_PAUSED",
+            key: row.get(1),
+            summary: format!("Work queue paused, nothing is handed out: {}", one_line(&reason, 160)),
+            command: "vyreon-core queue".into(),
+            detail: None,
+        });
+    }
+    failed_jobs(c, &mut found).await?;
+    provider(c, now, open, &mut found).await?;
+    if let Some(volume) = s.volume_bytes.filter(|v| *v > 0) {
+        let size: i64 = c.query_one("SELECT pg_database_size(current_database())", &[]).await.map_err(db)?.get(0);
+        let share = size as f64 / volume as f64;
+        let line = if is_open(open, "DATABASE_FULL", "volume") { share > DATABASE_CLEAR } else { share > DATABASE_FULL };
+        if line {
+            found.push(Found {
+                kind: "DATABASE_FULL",
+                key: "volume".into(),
+                summary: format!("Database is {:.0}% of its volume: {} of {}", share * 100.0, gigabytes(size), gigabytes(volume)),
+                command: "vyreon-core digest".into(),
+                detail: None,
+            });
+        }
+    }
+    let row = c
+        .query_one(
+            "SELECT max(session)::text, (max(session) - ($1::text::timestamptz AT TIME ZONE $2)::date)::int FROM core.session",
+            &[&now, &ZONE],
+        )
+        .await
+        .map_err(db)?;
+    if let (Some(last), Some(left)) = (row.get::<_, Option<String>>(0), row.get::<_, Option<i32>>(1))
+        && left < CALENDAR_DAYS
+    {
+        found.push(Found {
+            kind: "CALENDAR_END",
+            key: last.clone(),
+            summary: format!("The trading calendar ends on {last}, in {left} days: daily runs stop there until the engine's later calendar is loaded"),
+            command: "vyreon-core calendar load <sessions.json>".into(),
+            detail: None,
+        });
+    }
+    // what no job derives again stays a problem until each of its days has its job
+    for o in open.iter().filter(|o| o.kind == "NOT_DERIVED") {
+        let owned: Option<bool> = c
+            .query_one(
+                "SELECT bool_and(EXISTS (
+                     SELECT FROM core.job j
+                     WHERE j.profile_id = d->>'profile_id'
+                       AND CASE WHEN (d->>'day_local')::boolean THEN j.kind = 'DAY_BLOCK' AND (d->>'day')::date BETWEEN j.first_session AND j.last_session
+                                ELSE j.kind = 'ORDERED_PASS' AND j.first_session = (d->>'day')::date END
+                       AND (j.state IN ('QUEUED', 'LEASED') OR j.created_at > p.opened_at OR (j.state = 'DONE' AND j.finished_at > p.opened_at))))
+                 FROM core.problem p, jsonb_array_elements(p.detail->'days') d WHERE p.problem_id = $1",
+                &[&o.id],
+            )
+            .await
+            .map_err(db)?
+            .get(0);
+        if owned != Some(true) {
+            found.push(Found { kind: "NOT_DERIVED", key: o.key.clone(), summary: o.summary.clone(), command: o.command.clone(), detail: None });
+        }
+    }
+    Ok(found)
+}
+
+/// In GiB, the unit the volume is sized in (`120Gi`).
+fn gigabytes(bytes: i64) -> String {
+    format!("{:.1} GiB", bytes as f64 / (1u64 << 30) as f64)
+}
+
+/// (a) Each session from `from` must have its profile's base revision published by 10:00 in the
+/// owner's zone on the next calendar day; the week's last session (Friday, or the day before a
+/// Friday holiday) is also Sunday's report at risk if still missing at 12:00 on Saturday. The
+/// at-risk problem is raised only before the week's Sunday is over; once raised it stays until
+/// the session publishes.
+async fn deadlines(c: &impl GenericClient, s: &Settings, from: &str, now: &str, open: &[Open], found: &mut Vec<Found>) -> Result<(), String> {
+    const PUBLISHED: &str = "EXISTS (SELECT FROM vyreon.day_revision d WHERE d.represented_date = s.session AND d.profile_id = $3
+                                             AND d.state = 'PUBLISHED' AND d.base_revision IS NULL)";
+    let late = c
+        .query(
+            &format!(
+                "SELECT s.session::text, to_char(s.session, 'Dy Mon FMDD'), to_char(s.session + 1, 'Dy')
+                 FROM core.session s
+                 WHERE s.session >= $1::text::date AND ((s.session + 1) + time '10:00') AT TIME ZONE $4 <= $2::text::timestamptz
+                   AND NOT {PUBLISHED}
+                 ORDER BY 1"
+            ),
+            &[&from, &now, &s.profile, &ZONE],
+        )
+        .await
+        .map_err(db)?;
+    for r in &late {
+        let (session, day, next): (String, String, String) = (r.get(0), r.get(1), r.get(2));
+        found.push(Found {
+            kind: "SESSION_LATE",
+            key: session,
+            summary: format!("{day} not published by its {next} 10:00 MT deadline"),
+            command: "vyreon-core queue".into(),
+            detail: None,
+        });
+    }
+    let at_risk = c
+        .query(
+            &format!(
+                "SELECT s.session::text, to_char(s.session, 'Dy Mon FMDD'),
+                        $2::text::timestamptz < ((date_trunc('week', s.session)::date + 7)::timestamp AT TIME ZONE $4)
+                 FROM core.session s
+                 WHERE s.session >= $1::text::date
+                   AND date_trunc('week', s.session) < date_trunc('week', COALESCE((SELECT min(n.session) FROM core.session n WHERE n.session > s.session), s.session + 7))
+                   AND ((date_trunc('week', s.session)::date + 5) + time '12:00') AT TIME ZONE $4 <= $2::text::timestamptz
+                   AND NOT {PUBLISHED}
+                 ORDER BY 1"
+            ),
+            &[&from, &now, &s.profile, &ZONE],
+        )
+        .await
+        .map_err(db)?;
+    for r in &at_risk {
+        let (session, day, before_monday): (String, String, bool) = (r.get(0), r.get(1), r.get(2));
+        if before_monday || is_open(open, "REPORT_AT_RISK", &session) {
+            found.push(Found {
+                kind: "REPORT_AT_RISK",
+                key: session,
+                summary: format!("Sunday's report at risk: {day} still not published at Sat 12:00 MT"),
+                command: "vyreon-core queue".into(),
+                detail: None,
+            });
+        }
+    }
+    Ok(())
+}
+
+/// (c) A job out of attempts: its last stop message, from its evidence (C-049) or its lease.
+async fn failed_jobs(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(), String> {
+    let rows = c
+        .query(
+            "SELECT j.job_id, j.kind, j.first_session::text, j.last_session::text,
+                    (SELECT e.message FROM core.job_evidence e WHERE e.job_id = j.job_id ORDER BY e.attempt DESC LIMIT 1),
+                    (SELECT COALESCE(l.failed_stage || ': ', '') || COALESCE(l.failure, 'no reason given') FROM core.lease l
+                     WHERE l.job_id = j.job_id AND l.outcome IN ('FAILED', 'EXPIRED') ORDER BY l.lease_id DESC LIMIT 1),
+                    (SELECT count(*) FROM core.lease l WHERE l.job_id = j.job_id)
+             FROM core.job j WHERE j.state = 'FAILED' ORDER BY j.job_id",
+            &[],
+        )
+        .await
+        .map_err(db)?;
+    for r in &rows {
+        let (job, kind, first, last, evidence, lease, leases): (i64, String, String, String, Option<String>, Option<String>, i64) =
+            (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6));
+        let what = match kind.as_str() {
+            "DAY_BLOCK" if first == last => format!("Day {first}"),
+            "DAY_BLOCK" => format!("Days {first} to {last}"),
+            "TAPE" => format!("Tape job for {first}"),
+            _ => format!("Ordered pass for {first}"),
+        };
+        let why = evidence.or(lease).unwrap_or_else(|| "no reason recorded".into());
+        found.push(Found {
+            kind: "JOB_FAILED",
+            key: format!("job {job} after {leases} attempts"),
+            summary: format!("{what} failed for the last time (job {job}): {}", one_line(&why, 160)),
+            command: format!("vyreon-core evidence show {job}"),
+            detail: None,
+        });
+    }
+    Ok(())
+}
+
+/// (d) The provider failing, from the failure evidence's decisive text (its stop message and the
+/// input plan's refusals, never the log excerpt, where retried requests of good attempts also
+/// show): an authentication refusal (HTTP 401 or 403) not followed by any success, or provider
+/// errors on more than `PROVIDER_ERROR_ATTEMPTS` attempts in `PROVIDER_WINDOW_MINUTES`.
+async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut Vec<Found>) -> Result<(), String> {
+    let rows = c
+        .query(
+            "SELECT e.job_id, e.lease_id, extract(epoch FROM $1::text::timestamptz - e.stored_at)::float8, e.message, COALESCE(e.refusals::text, ''),
+                    to_char(e.stored_at AT TIME ZONE $2, 'Dy HH24:MI'),
+                    EXISTS (SELECT FROM vyreon.day_revision d WHERE d.published_at > e.stored_at AND d.published_at <= $1::text::timestamptz)
+                    OR EXISTS (SELECT FROM core.job j WHERE j.state = 'DONE' AND j.finished_at > e.stored_at AND j.finished_at <= $1::text::timestamptz)
+             FROM core.job_evidence e
+             WHERE e.stored_at > $1::text::timestamptz - interval '7 days' AND e.stored_at <= $1::text::timestamptz
+             ORDER BY e.stored_at DESC, e.job_evidence_id DESC",
+            &[&now, &ZONE],
+        )
+        .await
+        .map_err(db)?;
+    let mut auth = None;
+    let mut errors = std::collections::BTreeSet::new();
+    let mut codes = std::collections::BTreeSet::new();
+    let mut quiet = true;
+    for r in &rows {
+        let (job, lease, ago, message, refusals, at, after): (i64, i64, f64, String, String, String, bool) =
+            (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6));
+        let statuses = provider_statuses(&format!("{message}\n{refusals}"));
+        if auth.is_none() && !after && let Some(code) = statuses.iter().copied().find(|c| is_auth(*c)) {
+            auth = Some((job, code, at));
+        }
+        if statuses.iter().any(|c| is_provider_error(*c)) {
+            if ago <= PROVIDER_QUIET_HOURS * 3600.0 {
+                quiet = false;
+            }
+            if ago <= PROVIDER_WINDOW_MINUTES * 60.0 {
+                errors.insert(lease);
+                codes.extend(statuses.iter().copied().filter(|c| is_provider_error(*c)));
+            }
+        }
+    }
+    if let Some((job, code, at)) = auth {
+        found.push(Found {
+            kind: "PROVIDER_AUTH",
+            key: "intrinio".into(),
+            summary: format!("The provider (Intrinio) refuses our API key: HTTP {code} on job {job} at {at} MT, and nothing has succeeded since"),
+            command: format!("vyreon-core evidence show {job}"),
+            detail: None,
+        });
+    }
+    let was_open = is_open(open, "PROVIDER_ERRORS", "intrinio");
+    if errors.len() > PROVIDER_ERROR_ATTEMPTS || (was_open && !quiet) {
+        let codes: Vec<String> = codes.iter().map(u16::to_string).collect();
+        let summary = if errors.len() > PROVIDER_ERROR_ATTEMPTS {
+            format!("Provider (Intrinio) errors stopped {} attempts in the last 30 minutes (HTTP {})", errors.len(), codes.join(", "))
+        } else {
+            "Provider (Intrinio) errors are still stopping attempts".into()
+        };
+        found.push(Found { kind: "PROVIDER_ERRORS", key: "intrinio".into(), summary, command: "vyreon-core evidence list".into(), detail: None });
+    }
+    Ok(())
+}
+
+/// Opens a problem in the caller's transaction (with its alert), unless it is open already.
+async fn open_one(c: &impl GenericClient, f: &Found, now: Option<&str>) -> Result<bool, String> {
+    let n = c
+        .execute(
+            "INSERT INTO core.problem (kind, key, opened_at, summary, command, detail)
+             VALUES ($1, $2, COALESCE($3::text::timestamptz, now()), $4, $5, $6::text::jsonb)
+             ON CONFLICT (kind, key) WHERE resolved_at IS NULL DO NOTHING",
+            &[&f.kind, &f.key, &now, &f.summary, &f.command, &f.detail.as_ref().map(Value::to_string)],
+        )
+        .await
+        .map_err(db)?;
+    if n == 1 {
+        notice::alert(c, &alert_text(&f.summary, &f.command)).await?;
+    }
+    Ok(n == 1)
+}
+
+pub fn alert_text(summary: &str, command: &str) -> String {
+    format!("🔴 {summary}\nTo see more: `{command}`")
+}
+
+pub fn resolved_text(summary: &str, age_seconds: i64) -> String {
+    format!("✅ Resolved: {summary} (it was open {})", age(age_seconds))
+}
+
+/// Finds the problems that hold at `now`, opens the new ones and resolves the ones that cleared,
+/// with their posts, in one transaction.
+pub async fn check(client: &mut Client, s: &Settings, now: &str) -> Result<Change, String> {
+    let tx = client.transaction().await.map_err(db)?;
+    tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.problem check', 0))", &[]).await.map_err(db)?;
+    let open = open(&tx, now).await?;
+    let found = current(&tx, s, now, &open).await?;
+    let mut change = Change::default();
+    for f in &found {
+        if !is_open(&open, f.kind, &f.key) && open_one(&tx, f, Some(now)).await? {
+            change.opened.push(f.summary.clone());
+        }
+    }
+    for o in &open {
+        if !found.iter().any(|f| f.kind == o.kind && f.key == o.key) {
+            tx.execute("UPDATE core.problem SET resolved_at = GREATEST($2::text::timestamptz, opened_at) WHERE problem_id = $1", &[&o.id, &now])
+                .await
+                .map_err(db)?;
+            notice::alert(&tx, &resolved_text(&o.summary, o.age)).await?;
+            change.resolved.push(o.summary.clone());
+        }
+    }
+    tx.commit().await.map_err(db)?;
+    Ok(change)
+}
+
+/// A publish left days that no job derives again (C-037): a problem, opened in the publish's
+/// transaction, until each day has its job. `days`: (day, profile, day-local).
+pub async fn not_derived(c: &impl GenericClient, days: &[(String, String, bool)]) -> Result<(), String> {
+    if days.is_empty() {
+        return Ok(());
+    }
+    let mut listed: Vec<String> = days.iter().map(|(day, _, local)| if *local { format!("{day} (day-local)") } else { day.clone() }).collect();
+    listed.sort();
+    listed.dedup();
+    let shown = listed.iter().take(5).cloned().collect::<Vec<_>>().join(", ");
+    let more = if listed.len() > 5 { format!(" and {} more", listed.len() - 5) } else { String::new() };
+    let found = Found {
+        kind: "NOT_DERIVED",
+        key: format!("{} {}", days[0].1, listed.join(",")),
+        summary: format!("A republish left {} days that no job derives again: {shown}{more}", listed.len()),
+        command: "vyreon-core log 20".into(),
+        detail: Some(json!({"days": days.iter().map(|(day, profile, local)| json!({"day": day, "profile_id": profile, "day_local": local})).collect::<Vec<_>>()})),
+    };
+    open_one(c, &found, None).await.map(|_| ())
+}
+
+/// Counts what each published revision holds, once (a published revision never changes).
+async fn tally(c: &impl GenericClient, revisions: &[i64]) -> Result<(), String> {
+    if revisions.is_empty() {
+        return Ok(());
+    }
+    c.execute(
+        "INSERT INTO core.revision_tally (revision_id, slots, withheld, provider_withheld, engine_faults)
+         SELECT d.revision_id, count(m.measurement_id)::int, (count(*) FILTER (WHERE m.whole))::int,
+                (count(*) FILTER (WHERE m.whole AND NOT m.fault))::int, (count(*) FILTER (WHERE m.fault))::int
+         FROM vyreon.day_revision d
+         LEFT JOIN LATERAL (
+             SELECT m.measurement_id,
+                    strpos(m.body_text, m.measurement_id || '/' || m.object_id || '/' || d.represented_date::text || '/engine-fault\"') > 0 AS whole,
+                    strpos(m.body_text, '\"ENGINE_FAULT\"') > 0 OR strpos(m.body_text, '\"PARENT_ENGINE_FAULT\"') > 0 AS fault
+             FROM vyreon.measurement m WHERE m.revision_id = d.revision_id AND m.represented_date = d.represented_date) m ON true
+         WHERE d.revision_id = ANY($1) AND d.published_at IS NOT NULL
+         GROUP BY d.revision_id
+         ON CONFLICT (revision_id) DO NOTHING",
+        &[&revisions],
+    )
+    .await
+    .map_err(db)?;
+    Ok(())
+}
+
+/// A session's published revisions of the profile, counted: slots, withheld whole, withheld for
+/// the provider, slots with an engine fault.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct Tally {
+    pub slots: i64,
+    pub withheld: i64,
+    pub provider_withheld: i64,
+    pub engine_faults: i64,
+}
+
+impl Tally {
+    /// The share of slots with a measurement (not withheld whole), in percent.
+    pub fn measured(&self) -> Option<f64> {
+        (self.slots > 0).then(|| 100.0 * (self.slots - self.withheld) as f64 / self.slots as f64)
+    }
+}
+
+/// The tallies of the profile's sessions, by date (only sessions with a published revision).
+pub async fn session_tallies(c: &impl GenericClient, profile: &str, sessions: &[String]) -> Result<BTreeMap<String, Tally>, String> {
+    let missing: Vec<i64> = c
+        .query(
+            "SELECT d.revision_id FROM vyreon.day_revision d
+             WHERE d.profile_id = $1 AND d.state = 'PUBLISHED' AND d.represented_date = ANY($2::text[]::date[])
+               AND NOT EXISTS (SELECT FROM core.revision_tally t WHERE t.revision_id = d.revision_id)",
+            &[&profile, &sessions],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    tally(c, &missing).await?;
+    // a session counts once its base revision is published; its derived revisions add their slots
+    let rows = c
+        .query(
+            "SELECT d.represented_date::text, sum(t.slots)::bigint, sum(t.withheld)::bigint, sum(t.provider_withheld)::bigint, sum(t.engine_faults)::bigint
+             FROM vyreon.day_revision d JOIN core.revision_tally t USING (revision_id)
+             WHERE d.profile_id = $1 AND d.state = 'PUBLISHED' AND d.represented_date = ANY($2::text[]::date[])
+               AND EXISTS (SELECT FROM vyreon.day_revision b WHERE b.represented_date = d.represented_date AND b.profile_id = d.profile_id
+                             AND b.state = 'PUBLISHED' AND b.base_revision IS NULL)
+             GROUP BY 1",
+            &[&profile, &sessions],
+        )
+        .await
+        .map_err(db)?;
+    Ok(rows.iter().map(|r| (r.get(0), Tally { slots: r.get(1), withheld: r.get(2), provider_withheld: r.get(3), engine_faults: r.get(4) })).collect())
+}
+
+/// The verdict: 🔴 when anything is open (the oldest named), else 🟡 naming what was handled,
+/// else 🟢.
+pub fn verdict(open: &[Open], handled: &[String]) -> String {
+    match open {
+        [first] => format!("🔴 Needs you: {}", first.summary),
+        [first, rest @ ..] => format!("🔴 Needs you: {} (and {} more)", first.summary, rest.len()),
+        [] if !handled.is_empty() => format!("🟡 Running; handled: {}", handled.join(", ")),
+        [] => "🟢 Running fine".into(),
+    }
+}
+
+/// A post of a first line, the lines, and the open problems, cut to `LIMIT` characters: the
+/// problems that do not fit are counted, with the command that lists them all.
+pub fn compose(first: &str, lines: &[String], open: &[Open]) -> String {
+    let first = if first.chars().count() > 300 { one_line(first, 300) } else { first.to_owned() };
+    let mut text = first;
+    for l in lines {
+        text.push('\n');
+        text.push_str(l);
+    }
+    if open.is_empty() {
+        text.push_str("\nOpen problems: none");
+        return text;
+    }
+    text.push_str(&format!("\nOpen problems ({}):", open.len()));
+    for (i, o) in open.iter().enumerate() {
+        let line = format!("\n• {} · open {} · `{}`", one_line(&o.summary, 220), age(o.age), o.command);
+        let rest = open.len() - i - 1;
+        let tail = format!("\n• … and {} more: `vyreon-core problems`", rest + 1);
+        let room = if rest == 0 { 0 } else { tail.chars().count() };
+        if text.chars().count() + line.chars().count() + room > LIMIT {
+            text.push_str(&tail);
+            return text;
+        }
+        text.push_str(&line);
+    }
+    text
+}
+
+fn kind_words(kind: &str) -> &'static str {
+    match kind {
+        "DAY_BLOCK" => "day blocks",
+        "ORDERED_PASS" => "ordered passes",
+        _ => "tape jobs",
+    }
+}
+
+/// "2025-01-10 and 2025-01-13 tapes", "tapes on 12 sessions, 2025-01-02 to 2025-01-17".
+pub fn gaps_words(gaps: &[(String, String)]) -> String {
+    let mut by: BTreeMap<&str, Vec<&str>> = BTreeMap::new();
+    for (session, what) in gaps {
+        by.entry(what.as_str()).or_default().push(session.as_str());
+    }
+    let parts: Vec<String> = by
+        .into_iter()
+        .map(|(what, mut days)| {
+            days.sort();
+            days.dedup();
+            match days.as_slice() {
+                [one] => format!("{one} {what}"),
+                [a, b] => format!("{a} and {b} {what}"),
+                _ => format!("{what} on {} sessions, {} to {}", days.len(), days[0], days[days.len() - 1]),
+            }
+        })
+        .collect();
+    parts.join("; ")
+}
+
+fn faults(n: i64) -> String {
+    if n == 1 { "1 engine fault".into() } else { format!("{n} engine faults") }
+}
+
+fn pct(v: f64) -> String {
+    format!("{v:.1}%")
+}
+
+fn median(mut v: Vec<f64>) -> Option<f64> {
+    if v.is_empty() {
+        return None;
+    }
+    v.sort_by(f64::total_cmp);
+    let n = v.len();
+    Some(if n % 2 == 1 { v[n / 2] } else { (v[n / 2 - 1] + v[n / 2]) / 2.0 })
+}
+
+/// A session's date as the owner reads it: "Mon Nov 16" (with the year when it is not this year's).
+const DAY: &str = "CASE WHEN extract(year FROM $D) = extract(year FROM ($1::text::timestamptz AT TIME ZONE 'America/Edmonton'))
+                        THEN to_char($D, 'Dy Mon FMDD') ELSE to_char($D, 'Dy Mon FMDD, YYYY') END";
+
+fn day_of(expr: &str) -> String {
+    DAY.replace("$D", expr)
+}
+
+/// The daily digest at `now`, from the problems as last checked.
+pub async fn digest(client: &Client, s: &Settings, now: &str) -> Result<String, String> {
+    let c = client;
+    let open = open(c, now).await?;
+    let today: String = c.query_one("SELECT to_char($1::text::timestamptz AT TIME ZONE $2, 'Dy Mon FMDD')", &[&now, &ZONE]).await.map_err(db)?.get(0);
+    let mut lines = Vec::new();
+
+    // the newest published session, and the typical share before it
+    let recent: Vec<(String, String)> = c
+        .query(
+            &format!(
+                "SELECT DISTINCT represented_date::text, {} FROM vyreon.day_revision
+                 WHERE profile_id = $2 AND state = 'PUBLISHED' AND base_revision IS NULL ORDER BY 1 DESC LIMIT $3",
+                day_of("represented_date")
+            ),
+            &[&now, &s.profile, &(TYPICAL_SESSIONS + 1)],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+    let dates: Vec<String> = recent.iter().map(|(d, _)| d.clone()).collect();
+    let tallies = session_tallies(c, &s.profile, &dates).await?;
+    match recent.first() {
+        None => lines.push("Latest session stored: none yet".into()),
+        Some((date, words)) => {
+            let t = tallies.get(date).copied().unwrap_or_default();
+            let typical = median(dates[1..].iter().filter_map(|d| tallies.get(d).and_then(Tally::measured)).collect());
+            let typical = typical.map_or("no earlier sessions to compare".into(), |v| format!("typical {}", pct(v)));
+            let share = t.measured().map_or("no measurements".into(), |v| format!("{} of its measurements have a value", pct(v)));
+            lines.push(format!("Latest session stored: {words} · {share} ({typical}) · {}", faults(t.engine_faults)));
+        }
+    }
+
+    let published = c
+        .query_one(
+            "SELECT count(DISTINCT represented_date), min(represented_date)::text, max(represented_date)::text FROM vyreon.day_revision
+             WHERE profile_id = $2 AND base_revision IS NULL AND published_at > $1::text::timestamptz - interval '24 hours' AND published_at <= $1::text::timestamptz",
+            &[&now, &s.profile],
+        )
+        .await
+        .map_err(db)?;
+    let (n, first, last): (i64, Option<String>, Option<String>) = (published.get(0), published.get(1), published.get(2));
+    lines.push(match (n, first, last) {
+        (0, _, _) => "Sessions published in the last 24 hours: 0".into(),
+        (1, Some(d), _) => format!("Sessions published in the last 24 hours: 1 ({d})"),
+        (n, Some(a), Some(z)) => format!("Sessions published in the last 24 hours: {n} ({a} to {z})"),
+        (n, _, _) => format!("Sessions published in the last 24 hours: {n}"),
+    });
+
+    // what was handled: provider gaps the engine or the workers stated, attempts retried
+    let fresh: Vec<i64> = c
+        .query(
+            "SELECT d.revision_id FROM vyreon.day_revision d WHERE d.profile_id = $2 AND d.published_at > $1::text::timestamptz - interval '24 hours'
+               AND d.published_at <= $1::text::timestamptz AND NOT EXISTS (SELECT FROM core.revision_tally t WHERE t.revision_id = d.revision_id)",
+            &[&now, &s.profile],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    tally(c, &fresh).await?;
+    let gaps: Vec<(String, String)> = c
+        .query(
+            "SELECT session::text, 'tapes' FROM core.tape_cache
+             WHERE absence IS NOT NULL AND stored_at > $1::text::timestamptz - interval '24 hours' AND stored_at <= $1::text::timestamptz
+             UNION SELECT session::text, kind || ' captures' FROM core.input_capture
+             WHERE absence IS NOT NULL AND stored_at > $1::text::timestamptz - interval '24 hours' AND stored_at <= $1::text::timestamptz
+             UNION SELECT d.represented_date::text, 'measurements' FROM vyreon.day_revision d JOIN core.revision_tally t USING (revision_id)
+             WHERE d.profile_id = $2 AND t.provider_withheld > 0
+               AND d.published_at > $1::text::timestamptz - interval '24 hours' AND d.published_at <= $1::text::timestamptz
+             ORDER BY 1, 2",
+            &[&now, &s.profile],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+    lines.push(if gaps.is_empty() {
+        "Provider gaps recorded in the last 24 hours: none".into()
+    } else {
+        format!("Provider gaps recorded in the last 24 hours: {} ({})", gaps.len(), gaps_words(&gaps))
+    });
+    let retried: i64 = c
+        .query_one(
+            "SELECT count(*) FROM core.lease l JOIN core.job j USING (job_id)
+             WHERE l.outcome IN ('FAILED', 'EXPIRED') AND l.ended_at > $1::text::timestamptz - interval '24 hours' AND l.ended_at <= $1::text::timestamptz
+               AND j.state NOT IN ('FAILED', 'CANCELLED')",
+            &[&now],
+        )
+        .await
+        .map_err(db)?
+        .get(0);
+    if retried > 0 {
+        lines.push(format!("Attempts retried in the last 24 hours: {retried}"));
+    }
+
+    // the queue, and a backfill's progress
+    let kinds = c
+        .query(
+            "SELECT kind, count(*) FILTER (WHERE state = 'QUEUED'), count(*) FILTER (WHERE state = 'LEASED'), count(*) FILTER (WHERE state = 'FAILED')
+             FROM core.job GROUP BY kind ORDER BY CASE kind WHEN 'DAY_BLOCK' THEN 0 WHEN 'TAPE' THEN 1 ELSE 2 END",
+            &[],
+        )
+        .await
+        .map_err(db)?;
+    let parts: Vec<String> = kinds
+        .iter()
+        .filter_map(|r| {
+            let (kind, q, l, f): (String, i64, i64, i64) = (r.get(0), r.get(1), r.get(2), r.get(3));
+            let counts: Vec<String> = [(q, "waiting"), (l, "running"), (f, "failed")].iter().filter(|(n, _)| *n > 0).map(|(n, w)| format!("{n} {w}")).collect();
+            (!counts.is_empty()).then(|| format!("{} {}", kind_words(&kind), counts.join(", ")))
+        })
+        .collect();
+    lines.push(if parts.is_empty() { "Work queue: nothing waiting or running".into() } else { format!("Work queue: {}", parts.join(" · ")) });
+    let backfill = c
+        .query_one(
+            "WITH b AS (SELECT DISTINCT engine_build FROM core.job WHERE kind = 'DAY_BLOCK' AND profile_id = $2 AND state IN ('QUEUED', 'LEASED', 'FAILED')),
+                  j AS (SELECT * FROM core.job WHERE kind = 'DAY_BLOCK' AND profile_id = $2 AND state <> 'CANCELLED' AND engine_build IN (SELECT engine_build FROM b))
+             SELECT count(*), count(*) FILTER (WHERE j.next_session IS NULL OR s.session < j.next_session),
+                    (SELECT count(DISTINCT d.represented_date) FROM vyreon.day_revision d
+                     WHERE d.profile_id = $2 AND d.base_revision IS NULL AND d.engine_build IN (SELECT engine_build FROM b)
+                       AND d.published_at > $1::text::timestamptz - interval '24 hours' AND d.published_at <= $1::text::timestamptz)
+             FROM j JOIN core.session s ON s.session BETWEEN j.first_session AND j.last_session",
+            &[&now, &s.profile],
+        )
+        .await
+        .map_err(db)?;
+    let (total, done, rate): (i64, i64, i64) = (backfill.get(0), backfill.get(1), backfill.get(2));
+    if total > done {
+        let eta = if rate > 0 {
+            let hours = (total - done) as f64 * 24.0 / rate as f64;
+            let at: String = c
+                .query_one(
+                    "SELECT CASE WHEN $2::float8 <= 144 THEN to_char(t, 'Dy HH24:MI') || ' MT' ELSE to_char(t, 'Mon FMDD') END
+                     FROM (SELECT ($1::text::timestamptz + make_interval(secs => $2::float8 * 3600)) AT TIME ZONE 'America/Edmonton' AS t) x",
+                    &[&now, &hours],
+                )
+                .await
+                .map_err(db)?
+                .get(0);
+            format!("expected to finish about {at}")
+        } else {
+            "no session finished in the last 24 hours, so no estimate".into()
+        };
+        lines.push(format!("Backfill progress: {done} of {total} sessions done · {eta}"));
+    }
+
+    let size: i64 = c.query_one("SELECT pg_database_size(current_database())", &[]).await.map_err(db)?.get(0);
+    lines.push(match s.volume_bytes.filter(|v| *v > 0) {
+        Some(v) => format!("Database size: {} of {} ({:.0}%)", gigabytes(size), gigabytes(v), 100.0 * size as f64 / v as f64),
+        None => format!("Database size: {} (its volume's size is not set, so it is not checked)", gigabytes(size)),
+    });
+    if s.deadlines_from.is_none() {
+        lines.push("Publishing deadlines: not checked yet (no first session is set)".into());
+    }
+
+    let mut handled = Vec::new();
+    if !gaps.is_empty() {
+        handled.push(format!("{} provider {}", gaps.len(), if gaps.len() == 1 { "gap" } else { "gaps" }));
+    }
+    if retried > 0 {
+        handled.push(format!("{retried} retried {}", if retried == 1 { "attempt" } else { "attempts" }));
+    }
+    Ok(compose(&format!("{} · {today}", verdict(&open, &handled)), &lines, &open))
+}
+
+/// The Saturday check at `now`: this week's sessions (Monday to the day before), each published
+/// or not with its coverage, for Sunday's report.
+pub async fn weekly(client: &Client, s: &Settings, now: &str) -> Result<String, String> {
+    let c = client;
+    let open = open(c, now).await?;
+    let rows = c
+        .query(
+            &format!(
+                "SELECT s.session::text, {}, $3::text IS NOT NULL AND s.session >= $3::text::date,
+                        EXISTS (SELECT FROM vyreon.day_revision d WHERE d.represented_date = s.session AND d.profile_id = $2
+                                AND d.state = 'PUBLISHED' AND d.base_revision IS NULL)
+                 FROM core.session s,
+                      (SELECT ($1::text::timestamptz AT TIME ZONE 'America/Edmonton')::date AS today) t
+                 WHERE s.session >= date_trunc('week', t.today)::date AND s.session < t.today
+                 ORDER BY 1",
+                day_of("s.session")
+            ),
+            &[&now, &s.profile, &s.deadlines_from],
+        )
+        .await
+        .map_err(db)?;
+    let week: Vec<(String, String, bool, bool)> = rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3))).collect();
+    let dates: Vec<String> = week.iter().map(|w| w.0.clone()).collect();
+    let tallies = session_tallies(c, &s.profile, &dates).await?;
+    let watched: Vec<&(String, String, bool, bool)> = week.iter().filter(|w| w.2).collect();
+    let missing: Vec<&str> = watched.iter().filter(|w| !w.3).map(|w| w.1.as_str()).collect();
+    let first = if week.is_empty() {
+        "🟡 Weekly check: no trading session this week".to_string()
+    } else if watched.is_empty() {
+        "🟡 Weekly check: this week's sessions have no publishing deadline yet, so Sunday's report is not checked".to_string()
+    } else if missing.is_empty() {
+        format!("🟢 Weekly check: all {} of this week's sessions published; Sunday's report has what it needs", watched.len())
+    } else {
+        format!("🔴 Weekly check: Sunday's report at risk, {} of {} sessions not published ({})", missing.len(), watched.len(), missing.join(", "))
+    };
+    let mut lines = Vec::new();
+    for (date, words, _, published) in &week {
+        lines.push(match (published, tallies.get(date)) {
+            (true, Some(t)) => {
+                let share = t.measured().map_or("no measurements".into(), |v| format!("{} of its measurements have a value", pct(v)));
+                format!("{words}: published · {share} · {}", faults(t.engine_faults))
+            }
+            (true, None) => format!("{words}: published"),
+            (false, _) => format!("{words}: not published"),
+        });
+    }
+    lines.push("Unusual-reading flags this week: not counted here; the flag threshold is calibrated by the engine's science, not by core".into());
+    lines.push("Reporter dry run: not connected yet".into());
+    Ok(compose(&first, &lines, &open))
+}
+
+/// One minute of the watch: the check, then the digest when it is due (09:00 in the owner's zone,
+/// once a day) and the weekly check (Saturday, 09:00). A failed check does not stop the digest.
+pub async fn tick(client: &mut Client, s: &Settings, now: &str) -> Result<Change, String> {
+    let checked = check(client, s, now).await;
+    let row = client
+        .query_one(
+            "SELECT to_char(t, 'YYYY-MM-DD'), extract(hour FROM t) >= 9, extract(isodow FROM t) = 6
+             FROM (SELECT $1::text::timestamptz AT TIME ZONE 'America/Edmonton' AS t) x",
+            &[&now],
+        )
+        .await
+        .map_err(db)?;
+    let (date, nine, saturday): (String, bool, bool) = (row.get(0), row.get(1), row.get(2));
+    if nine {
+        let key = format!("digest {date}");
+        if !notice::queued(&*client, &key).await? {
+            let text = digest(client, s, now).await?;
+            notice::alert_once(&*client, &key, &text).await?;
+        }
+        let key = format!("weekly {date}");
+        if saturday && !notice::queued(&*client, &key).await? {
+            let text = weekly(client, s, now).await?;
+            notice::alert_once(&*client, &key, &text).await?;
+        }
+    }
+    checked
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn problem(i: i64, summary: &str) -> Open {
+        Open { id: i, kind: "SESSION_LATE".into(), key: format!("{i}"), summary: summary.into(), command: "vyreon-core queue".into(), age: 3 * 3600 + 60 * i }
+    }
+
+    #[test]
+    fn the_verdict_says_first_whether_to_look() {
+        assert_eq!(verdict(&[], &[]), "🟢 Running fine");
+        assert_eq!(verdict(&[], &["2 provider gaps".into(), "1 retried attempt".into()]), "🟡 Running; handled: 2 provider gaps, 1 retried attempt");
+        let late = problem(1, "Mon Nov 16 not published by its Tue 10:00 MT deadline");
+        assert_eq!(verdict(std::slice::from_ref(&late), &["2 provider gaps".into()]), "🔴 Needs you: Mon Nov 16 not published by its Tue 10:00 MT deadline");
+        assert_eq!(verdict(&[late.clone(), problem(2, "x"), problem(3, "y")], &[]), "🔴 Needs you: Mon Nov 16 not published by its Tue 10:00 MT deadline (and 2 more)");
+    }
+
+    #[test]
+    fn a_post_stays_under_discords_limit_with_many_problems() {
+        let open: Vec<Open> = (0..200).map(|i| problem(i, &format!("Day 2025-01-{:02} failed for the last time (job {i}): {}", i % 28 + 1, "x".repeat(150)))).collect();
+        let lines = vec!["Latest session stored: Mon Nov 16 · 98.4% of its measurements have a value (typical 98.1%) · 0 engine faults".to_string(); 6];
+        let text = compose(&verdict(&open, &[]), &lines, &open);
+        assert!(text.chars().count() <= LIMIT && LIMIT < 2000, "{}", text.chars().count());
+        assert!(text.contains("Open problems (200):"));
+        let shown = text.lines().filter(|l| l.starts_with("• Day ")).count();
+        assert!(text.ends_with(&format!("• … and {} more: `vyreon-core problems`", 200 - shown)), "{text}");
+        // a few fit whole
+        let few = compose("🔴 x", &lines, &open[..2]);
+        assert_eq!(few.lines().filter(|l| l.starts_with("• ")).count(), 2);
+        assert!(!few.contains("more:"));
+        assert!(compose("🟢 Running fine · Tue Nov 17", &lines, &[]).ends_with("\nOpen problems: none"));
+    }
+
+    #[test]
+    fn ages_and_lines_read_plainly() {
+        assert_eq!((age(59), age(600), age(3 * 3600 + 5), age(47 * 3600), age(5 * 86400)), ("0 min".into(), "10 min".into(), "3 h".into(), "47 h".into(), "5 days".into()));
+        assert_eq!(one_line("\n  stop: 2024-07-16 not published\nmore", 100), "stop: 2024-07-16 not published");
+        assert_eq!(one_line("abcdef", 4), "abc…");
+        assert!(one_line("GET https://x/?api_key=abc", 100).contains("not shown"), "a credential is never posted");
+    }
+
+    /// The engine's provider transport error as the real worker log of 2024-07-16 shows it
+    /// (`test_support::WORKER_LOG_REFUSED_DAY`, line 169).
+    #[test]
+    fn provider_statuses_are_read_from_the_engines_transport_error() {
+        let real = r#"options 2024-07-16 GLD: Retryable("exit 3: == failed capture /work/h5-acq/GLD/options/2023-12-19/capture: option acquisition:Transport(\"HttpStatus(502)\")")"#;
+        assert_eq!(provider_statuses(real), [502]);
+        assert_eq!(provider_statuses("HttpStatus(401) and HttpStatus(4x) HttpStatus(429)"), [401, 429]);
+        assert!(provider_statuses("prepare:Science(\"close quotes cover under half of the population\")").is_empty());
+    }
+
+    #[test]
+    fn provider_gaps_are_counted_by_session_not_listed_by_ticker() {
+        let g = |s: &str, w: &str| (s.to_owned(), w.to_owned());
+        assert_eq!(gaps_words(&[g("2025-01-10", "tapes"), g("2025-01-13", "tapes")]), "2025-01-10 and 2025-01-13 tapes");
+        assert_eq!(
+            gaps_words(&[g("2025-01-02", "tapes"), g("2025-01-03", "tapes"), g("2025-01-06", "tapes"), g("2025-01-06", "company captures")]),
+            "2025-01-06 company captures; tapes on 3 sessions, 2025-01-02 to 2025-01-06"
+        );
+    }
+}

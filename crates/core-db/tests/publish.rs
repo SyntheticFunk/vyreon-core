@@ -581,8 +581,15 @@ async fn a_replaced_day_local_or_history_revision_takes_down_what_read_it() {
     let again = send(&mut client, &day_local, days[0]).await;
     assert_eq!(again.superseded, 3, "the old day-local revision, and the history revisions of the 10th and the 11th");
     assert_eq!(published(&client).await, [ids[0], ids[3], ids[4], again.revision_id]);
-    let said: String = client.query_one("SELECT message FROM core.notice ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    let said: String = client.query_one("SELECT message FROM core.notice WHERE NOT post ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
     assert!(said.contains("no job derives these again, schedule them: 2025-12-10, 2025-12-11"), "{said}");
+    // and it needs the owner: a problem, posted once, open until each day has its job (C-050)
+    let open = client.query("SELECT kind, summary FROM core.problem WHERE resolved_at IS NULL", &[]).await.unwrap();
+    assert_eq!(open.len(), 1);
+    assert_eq!(open[0].get::<_, String>(0), "NOT_DERIVED");
+    assert_eq!(open[0].get::<_, String>(1), "A republish left 2 days that no job derives again: 2025-12-10, 2025-12-11");
+    let posted: Vec<String> = client.query("SELECT message FROM core.notice WHERE post", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
+    assert_eq!(posted, ["🔴 A republish left 2 days that no job derives again: 2025-12-10, 2025-12-11\nTo see more: `vyreon-core log 20`"]);
 
     // the history derived again in order; then the 10th's history alone again takes the 11th's down
     let tenth = send(&mut client, &history, days[0]).await;

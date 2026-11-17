@@ -19,6 +19,11 @@
 //!   vyreon-core evidence list [<job>]                 the failure evidence workers left (C-049), newest first
 //!   vyreon-core evidence show <job> [--attempt N]     one attempt's evidence in full (the latest by default):
 //!                                                     its stop message, the input plan's refusals and its log excerpt
+//!   vyreon-core problems                              the open problems (C-050), oldest first, and the last resolved
+//!   vyreon-core digest [weekly]                       print the 09:00 digest (or the Saturday check) as it would be posted now
+//!   vyreon-core log [n]                               the newest n (20) logged events, which are not posted
+//!   vyreon-core notices mark-sent                     mark every post not sent yet as sent, without posting it (run once
+//!                                                     before the webhook is first switched on, so the channel starts clean)
 //!   vyreon-core api-key create <holder> <read[,admin]>   make a reader API key (printed once; only its digest is kept)
 //!   vyreon-core api-key revoke <holder>
 //!   vyreon-core serve                                 the HTTP service (the worker and reader APIs). Settings:
@@ -26,14 +31,18 @@
 //!                                                     workers' shared token), VYREON_CORE_LISTEN (0.0.0.0:8080),
 //!                                                     VYREON_CORE_SPOOL (the temp dir), VYREON_CORE_LEASE_SECONDS (300),
 //!                                                     VYREON_CORE_INTRINIO_PER_MINUTE (1800), VYREON_CORE_WEBHOOK_FILE
-//!                                                     (a file holding the Discord webhook URL; without it notices wait)
+//!                                                     (a file holding the Discord webhook URL; without it the posts wait).
+//!                                                     The watch (C-050), also read by `problems` and `digest`:
+//!                                                     VYREON_CORE_WATCH_PROFILE (FREE_REPORT_64), VYREON_CORE_DEADLINES_FROM
+//!                                                     (the first session with a publishing deadline; unset: none),
+//!                                                     VYREON_CORE_VOLUME_GIB (the database volume's size; unset: not checked)
 //!   vyreon-core engine-store export <date> <dir>      bundles and inventories of a day from a store in
 //!                                                     the engine's schema (VYREON_ENGINE_PG[_FILE]; read-only)
 //!
 //! The database connection string comes from `VYREON_CORE_PG`, or from the file named by
 //! `VYREON_CORE_PG_FILE`. It is a secret and is never printed.
 mod engine_store;
-use core_db::{build, evidence, migrate, publish, universe, work};
+use core_db::{build, evidence, migrate, notice, publish, universe, watch, work};
 use std::path::Path;
 use tokio_postgres::Client;
 use std::process::ExitCode;
@@ -161,6 +170,66 @@ fn setting<T: std::str::FromStr>(name: &str, default: T) -> Result<T, String> {
     }
 }
 
+/// The watch's settings (C-050).
+fn watch_settings() -> Result<watch::Settings, String> {
+    let deadlines_from = std::env::var("VYREON_CORE_DEADLINES_FROM").ok().filter(|v| !v.trim().is_empty());
+    if let Some(d) = &deadlines_from
+        && !core_contract::is_date(d)
+    {
+        return Err(format!("VYREON_CORE_DEADLINES_FROM: {d} is not a date written YYYY-MM-DD"));
+    }
+    let volume: Option<f64> = match std::env::var("VYREON_CORE_VOLUME_GIB") {
+        Ok(v) if !v.trim().is_empty() => Some(v.trim().parse().map_err(|_| format!("VYREON_CORE_VOLUME_GIB: cannot read {v}"))?),
+        _ => None,
+    };
+    Ok(watch::Settings {
+        profile: setting("VYREON_CORE_WATCH_PROFILE", "FREE_REPORT_64".to_string())?,
+        deadlines_from,
+        volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64),
+    })
+}
+
+/// `problems`: what is open, oldest first, and the ten last resolved.
+async fn problems() -> Result<(), String> {
+    let client = connect().await?;
+    let now = watch::now(&client).await?;
+    let open = watch::open(&client, &now).await?;
+    if open.is_empty() {
+        println!("no open problem");
+    }
+    for o in &open {
+        println!("open {}: {} · `{}`", watch::age(o.age), o.summary, o.command);
+    }
+    let rows = client
+        .query(
+            "SELECT to_char(resolved_at AT TIME ZONE 'America/Edmonton', 'Dy Mon FMDD HH24:MI'), summary FROM core.problem
+             WHERE resolved_at IS NOT NULL ORDER BY resolved_at DESC, problem_id DESC LIMIT 10",
+            &[],
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    for r in &rows {
+        println!("resolved {} MT: {}", r.get::<_, String>(0), r.get::<_, String>(1));
+    }
+    Ok(())
+}
+
+async fn digest(weekly: bool) -> Result<(), String> {
+    let client = connect().await?;
+    let now = watch::now(&client).await?;
+    let text = if weekly { watch::weekly(&client, &watch_settings()?, &now).await? } else { watch::digest(&client, &watch_settings()?, &now).await? };
+    println!("{text}");
+    Ok(())
+}
+
+async fn log(n: &str) -> Result<(), String> {
+    let n: i64 = n.parse().map_err(|_| format!("how many: {n}"))?;
+    for (at, message) in notice::recent_log(&connect().await?, n).await?.iter().rev() {
+        println!("{at} {message}");
+    }
+    Ok(())
+}
+
 async fn serve() -> Result<(), String> {
     let digest = std::env::var("VYREON_CORE_WORKER_TOKEN_SHA256").map_err(|_| "set VYREON_CORE_WORKER_TOKEN_SHA256".to_string())?;
     if digest.len() != 64 || !digest.bytes().all(|b| b.is_ascii_hexdigit()) {
@@ -182,13 +251,21 @@ async fn serve() -> Result<(), String> {
     let listen: String = setting("VYREON_CORE_LISTEN", "0.0.0.0:8080".to_string())?;
     let listener = tokio::net::TcpListener::bind(&listen).await.map_err(|e| format!("{listen}: {e}"))?;
     core_api::spawn_sweeper(app.clone());
-    match std::env::var("VYREON_CORE_WEBHOOK_FILE") {
-        Ok(file) => {
-            let webhook = std::fs::read_to_string(&file).map_err(|e| format!("{file}: {e}"))?.trim().to_owned();
-            core_api::notices::spawn_sender(app.clone(), webhook);
+    // the webhook's file may be absent (the Secret not created yet): the posts then wait unsent
+    let webhook = match std::env::var("VYREON_CORE_WEBHOOK_FILE") {
+        Ok(file) => match std::fs::read_to_string(&file) {
+            Ok(text) if !text.trim().is_empty() => Some(text.trim().to_owned()),
+            _ => {
+                println!("{file} is absent or empty: the channel's posts are kept unsent");
+                None
+            }
+        },
+        Err(_) => {
+            println!("VYREON_CORE_WEBHOOK_FILE is not set: the channel's posts are kept unsent");
+            None
         }
-        Err(_) => println!("VYREON_CORE_WEBHOOK_FILE is not set: notices are kept unsent"),
-    }
+    };
+    core_api::notices::spawn_watch(app.clone(), watch_settings()?, webhook);
     println!("vyreon-core listening on {listen}");
     axum::serve(listener, core_api::router(app)).await.map_err(|e| e.to_string())
 }
@@ -321,6 +398,15 @@ async fn main() -> ExitCode {
         ["evidence", "list", job] => evidence_list(Some(job)).await,
         ["evidence", "show", job] => evidence_show(job, None).await,
         ["evidence", "show", job, "--attempt", attempt] => evidence_show(job, Some(attempt)).await,
+        ["problems"] => problems().await,
+        ["digest"] => digest(false).await,
+        ["digest", "weekly"] => digest(true).await,
+        ["log"] => log("20").await,
+        ["log", n] => log(n).await,
+        ["notices", "mark-sent"] => match connect().await {
+            Ok(client) => notice::mark_all_sent(&client).await.map(|n| println!("{n} notices marked sent without posting")),
+            Err(e) => Err(e),
+        },
         ["serve"] => serve().await,
         ["months", first, last] => months(first, last).await,
         ["publish", ref rest @ ..] => match publish_args(rest) {
