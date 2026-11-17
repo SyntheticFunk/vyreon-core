@@ -51,6 +51,11 @@ pub const DEADLINE_HOUR: i32 = 20;
 /// Sunday's report is at risk this many hours after Friday's deadline (Saturday).
 pub const AT_RISK_AFTER_HOURS: i32 = 2;
 
+/// Taken, for the transaction, by whatever opens or resolves a problem and by the digest and the
+/// weekly check while they read the open problems and queue their post: a post that says what is
+/// open is never queued beside a problem opening at the same moment (round v, 7).
+const PROBLEM_LOCK: &str = "SELECT pg_advisory_xact_lock(hashtextextended('core.problem check', 0))";
+
 fn db(e: tokio_postgres::Error) -> String {
     e.as_db_error().map_or_else(|| e.to_string(), |d| d.message().to_owned())
 }
@@ -474,6 +479,8 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
 
 /// Opens a problem in the caller's transaction (with its alert), unless it is open already.
 async fn open_one(c: &impl GenericClient, f: &Found, now: Option<&str>) -> Result<bool, String> {
+    // a publish opens NOT_DERIVED in its own transaction: it waits for a digest being composed
+    c.execute(PROBLEM_LOCK, &[]).await.map_err(db)?;
     let n = c
         .execute(
             "INSERT INTO core.problem (kind, key, opened_at, summary, command, detail)
@@ -501,7 +508,7 @@ pub fn resolved_text(summary: &str, age_seconds: i64) -> String {
 /// with their posts, in one transaction.
 pub async fn check(client: &mut Client, s: &Settings, now: &str) -> Result<Change, String> {
     let tx = client.transaction().await.map_err(db)?;
-    tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.problem check', 0))", &[]).await.map_err(db)?;
+    tx.execute(PROBLEM_LOCK, &[]).await.map_err(db)?;
     let open = open(&tx, now).await?;
     let found = current(&tx, s, now, &open).await?;
     let mut change = Change::default();
@@ -711,8 +718,7 @@ fn day_of(expr: &str) -> String {
 }
 
 /// The daily digest at `now`, from the problems as last checked.
-pub async fn digest(client: &Client, s: &Settings, now: &str) -> Result<String, String> {
-    let c = client;
+pub async fn digest(c: &impl GenericClient, s: &Settings, now: &str) -> Result<String, String> {
     let open = open(c, now).await?;
     let today: String = c.query_one("SELECT to_char($1::text::timestamptz AT TIME ZONE $2, 'Dy Mon FMDD')", &[&now, &ZONE]).await.map_err(db)?.get(0);
     let mut lines = Vec::new();
@@ -894,8 +900,7 @@ pub async fn digest(client: &Client, s: &Settings, now: &str) -> Result<String, 
 /// The Saturday check at `now`: this week's sessions (Monday to the day before), each published
 /// or not with its coverage and its history pass, for Sunday's report. Green only with every
 /// watched session's base and history pass published (or due later) and no problem open.
-pub async fn weekly(client: &Client, s: &Settings, now: &str) -> Result<String, String> {
-    let c = client;
+pub async fn weekly(c: &impl GenericClient, s: &Settings, now: &str) -> Result<String, String> {
     let open = open(c, now).await?;
     let rows = c
         .query(
@@ -987,18 +992,25 @@ pub async fn tick(client: &mut Client, s: &Settings, now: &str) -> Result<Change
         .map_err(db)?;
     let (date, nine, saturday): (String, bool, bool) = (row.get(0), row.get(1), row.get(2));
     if nine {
-        let key = format!("digest {date}");
-        if !notice::queued(&*client, &key).await? {
-            let text = digest(client, s, now).await?;
-            notice::alert_once(&*client, &key, &text).await?;
-        }
-        let key = format!("weekly {date}");
-        if saturday && !notice::queued(&*client, &key).await? {
-            let text = weekly(client, s, now).await?;
-            notice::alert_once(&*client, &key, &text).await?;
+        post_once(client, &format!("digest {date}"), s, now, false).await?;
+        if saturday {
+            post_once(client, &format!("weekly {date}"), s, now, true).await?;
         }
     }
     checked
+}
+
+/// Composes the digest (or the weekly check) and queues it once under `key`, in one transaction
+/// holding the problems' lock: no problem opens between reading what is open and queuing the post,
+/// so a post saying nothing is open never follows an alert of a problem still open (round v, 7).
+async fn post_once(client: &mut Client, key: &str, s: &Settings, now: &str, weekly_check: bool) -> Result<(), String> {
+    let tx = client.transaction().await.map_err(db)?;
+    tx.execute(PROBLEM_LOCK, &[]).await.map_err(db)?;
+    if !notice::queued(&tx, key).await? {
+        let text = if weekly_check { weekly(&tx, s, now).await? } else { digest(&tx, s, now).await? };
+        notice::alert_once(&tx, key, &text).await?;
+    }
+    tx.commit().await.map_err(db)
 }
 
 #[cfg(test)]
