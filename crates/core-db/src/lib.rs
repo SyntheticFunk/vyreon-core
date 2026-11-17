@@ -10,4 +10,5 @@ pub mod notice;
 pub mod publish;
 pub mod tape;
 pub mod universe;
+pub mod watch;
 pub mod work;

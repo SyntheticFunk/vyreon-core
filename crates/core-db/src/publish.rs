@@ -814,17 +814,19 @@ async fn rederive(tx: &Transaction<'_>, header: &Header, same_day: bool, fallen:
         .iter()
         .map(|r| r.get(0))
         .collect();
-    let mut orphans: Vec<String> = tx
-        .query(&format!("WITH {FALLEN} SELECT DISTINCT f.day::text FROM fallen f WHERE NOT EXISTS ({UNFINISHED}) ORDER BY 1"), &[&days, &profiles, &builds])
+    // (day, profile, day-local): what no job derives again
+    let mut unowned: Vec<(String, String, bool)> = tx
+        .query(&format!("WITH {FALLEN} SELECT DISTINCT f.day::text, f.profile_id FROM fallen f WHERE NOT EXISTS ({UNFINISHED}) ORDER BY 1, 2"), &[&days, &profiles, &builds])
         .await
         .map_err(db)?
         .iter()
-        .map(|r| r.get(0))
+        .map(|r| (r.get(0), r.get(1), false))
         .collect();
     // a day block publishes its day's day-local revision again on the base it is publishing
     if lease.is_none_or(|l| l.kind != "DAY_BLOCK") {
-        orphans.extend(fallen.iter().filter(|f| f.day_local).map(|f| format!("{} (day-local)", f.day)));
+        unowned.extend(fallen.iter().filter(|f| f.day_local).map(|f| (f.day.clone(), f.profile_id.clone(), true)));
     }
+    let orphans: Vec<String> = unowned.iter().map(|(day, _, local)| if *local { format!("{day} (day-local)") } else { day.clone() }).collect();
     if stopped.is_empty() && requeued.is_empty() && orphans.is_empty() {
         return Ok(());
     }
@@ -840,5 +842,7 @@ async fn rederive(tx: &Transaction<'_>, header: &Header, same_day: bool, fallen:
         let more = if orphans.len() > 10 { format!(" and {} more", orphans.len() - 10) } else { String::new() };
         text.push_str(&format!("; no job derives these again, schedule them: {shown}{more}"));
     }
-    crate::notice::post(tx, &text).await.map_err(Error::Failed)
+    crate::notice::log(tx, &text).await.map_err(Error::Failed)?;
+    // what no job derives again needs the owner: a problem until each day has its job (C-050)
+    crate::watch::not_derived(tx, &unowned).await.map_err(Error::Failed)
 }

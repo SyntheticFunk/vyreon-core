@@ -244,7 +244,7 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
     if kind == "ORDERED_PASS" {
         // the later days' passes wait on this one by themselves (`core.claimable_job`); the day
         // blocks do not read it, and a pass is seconds to run again once its cause is fixed
-        notice::post(db_client, &format!("Ordered pass failed for the last time (job {job}): {why}. Later passes wait for it; the day blocks go on.")).await?;
+        notice::log(db_client, &format!("Ordered pass failed for the last time (job {job}): {why}. Later passes wait for it; the day blocks go on.")).await?;
         return Ok(false);
     }
     if kind != "DAY_BLOCK" {
@@ -283,7 +283,7 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         pause(db_client, &format!("{failed} days stand failed; the last, job {job} ({day}): {why}")).await?;
     } else {
         let after = if rest == 1 { "; the rest of its block is queued again" } else { "" };
-        notice::post(db_client, &format!("Day {day} failed for the last time and is set aside (job {job}): {why}{after}. The build goes on.")).await?;
+        notice::log(db_client, &format!("Day {day} failed for the last time and is set aside (job {job}): {why}{after}. The build goes on.")).await?;
     }
     Ok(false)
 }
@@ -518,15 +518,15 @@ pub async fn finish(client: &mut Client, token: &str) -> Result<i64, LeaseError>
 const FINISHED: &str = "kind, first_session::text, last_session::text,
     (SELECT count(*) FROM core.job o WHERE o.kind = core.job.kind AND o.job_id <> core.job.job_id AND o.state IN ('QUEUED', 'LEASED', 'FAILED'))";
 
-/// The notice of a finished job: one line per day block; for the many small jobs, only when the
-/// last one is in.
+/// The log line of a finished job (C-050: logged, not posted): one per day block; for the many
+/// small jobs, only when the last one is in.
 async fn finished(db_client: &impl GenericClient, job: &tokio_postgres::Row, by: &str) -> Result<(), String> {
     let (kind, first, last, remaining): (String, String, String, i64) = (job.get(0), job.get(1), job.get(2), job.get(3));
     if kind == "DAY_BLOCK" {
-        notice::post(db_client, &format!("Day block {first} to {last} done by {by} ({remaining} blocks to go).")).await
+        notice::log(db_client, &format!("Day block {first} to {last} done by {by} ({remaining} blocks to go).")).await
     } else if remaining == 0 {
         let what = if kind == "TAPE" { "tape" } else { "ordered pass" };
-        notice::post(db_client, &format!("Every scheduled {what} job is done (the last: {last}).")).await
+        notice::log(db_client, &format!("Every scheduled {what} job is done (the last: {last}).")).await
     } else {
         Ok(())
     }
@@ -559,7 +559,7 @@ pub async fn pause(db_client: &impl GenericClient, reason: &str) -> Result<(), S
         .await
         .map_err(db)?;
     if paused == 1 {
-        notice::post(db_client, &format!("Queue paused: {reason}. No work is handed out until `vyreon-core queue resume`.")).await?;
+        notice::log(db_client, &format!("Queue paused: {reason}. No work is handed out until `vyreon-core queue resume`.")).await?;
     }
     Ok(())
 }
@@ -570,7 +570,7 @@ pub async fn resume(db_client: &impl GenericClient) -> Result<Option<String>, St
     let was: Option<String> = db_client.query_one("SELECT reason FROM core.queue_control", &[]).await.map_err(db)?.get(0);
     let resumed = db_client.execute("UPDATE core.queue_control SET paused = false, reason = NULL, changed_at = now() WHERE paused", &[]).await.map_err(db)?;
     if resumed == 1 {
-        notice::post(db_client, "Queue resumed.").await?;
+        notice::log(db_client, "Queue resumed.").await?;
     }
     Ok(was)
 }
