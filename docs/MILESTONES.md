@@ -315,6 +315,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **09:56 UTC: day re-runs started on 1a532d8b** (jobs 1377 2024-07-16, 1378 2025-04-11, 1379
+  2025-12-10; all claimable, their tape history cached), Job `v-day-1a53`, 3 pods; pool `day` at 10
+  nodes (about $1.67/h) while tapes finish (519 of 654; the rest are after 2025-12-10). 2022-06-15
+  still computing (job 68).
 - **08:54 UTC: 2022-06-14 PUBLISHED on 2967d2cb** (the day the old build lost to META's history is
   now published, META contained); 06-15 computing. D-358 worked on real data: 2025-01-10 and
   01-13 recorded as 128 stated tape absences after their retries. Tape history 385 of 654; late-2025
