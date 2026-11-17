@@ -254,9 +254,9 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
     // the days before the failed one: a finished job of their own
     db_client
         .execute(
-            "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, state, attempts, max_attempts, finished_at)
+            "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, state, attempts, max_attempts, finished_at, priority)
              SELECT kind, profile_id, engine_build, first_session,
-                    (SELECT max(session) FROM core.session WHERE session < j.next_session), NULL, scope, 'DONE', attempts, max_attempts, now()
+                    (SELECT max(session) FROM core.session WHERE session < j.next_session), NULL, scope, 'DONE', attempts, max_attempts, now(), priority
              FROM core.job j WHERE job_id = $1 AND next_session > first_session",
             &[&job],
         )
@@ -265,8 +265,8 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
     // the days after it: queued afresh
     let rest = db_client
         .execute(
-            "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, max_attempts)
-             SELECT kind, profile_id, engine_build, n.session, last_session, n.session, scope, max_attempts
+            "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, max_attempts, priority)
+             SELECT kind, profile_id, engine_build, n.session, last_session, n.session, scope, max_attempts, priority
              FROM core.job j, LATERAL (SELECT min(session) AS session FROM core.session WHERE session > j.next_session) n
              WHERE job_id = $1 AND next_session < last_session",
             &[&job],
@@ -293,7 +293,8 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
 /// what it published), never in between (`publish`).
 pub const PUBLISH_LOCK: &str = "SELECT pg_advisory_xact_lock(hashtextextended('vyreon publish', 0))";
 
-/// Claims the earliest claimable job of `kind` for the worker's own build, if there is one.
+/// Claims the earliest claimable job of `kind` for the worker's own build, if there is one; a daily
+/// run's job (priority 1, C-051) before any other.
 pub async fn claim(client: &mut Client, kind: Kind, build: &str, worker: &str, lease_seconds: f64) -> Result<Option<Claim>, String> {
     // expired leases end first, each in its own transaction; one that cannot be ended is reported
     // by the service's sweeper every half minute and does not stop this claim
@@ -307,7 +308,7 @@ pub async fn claim(client: &mut Client, kind: Kind, build: &str, worker: &str, l
             "UPDATE core.job SET state = 'LEASED', attempts = attempts + 1
              WHERE job_id = (SELECT j.job_id FROM core.job j
                              WHERE j.job_id IN (SELECT job_id FROM core.claimable_job WHERE kind = $1 AND engine_build = $2 AND next_session IS NOT NULL)
-                             ORDER BY j.first_session, j.job_id LIMIT 1 FOR UPDATE SKIP LOCKED)
+                             ORDER BY j.priority DESC, j.first_session, j.job_id LIMIT 1 FOR UPDATE SKIP LOCKED)
                AND state = 'QUEUED'
              RETURNING job_id, profile_id, scope::text, attempts, next_session::text, last_session::text",
             &[&kind.name(), &build],
