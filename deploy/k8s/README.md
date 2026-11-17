@@ -138,7 +138,101 @@ Deleting the cluster deletes the database: export what is to be kept first.
   ScaledObject. A ScaledJob starts one Kubernetes Job per unit of work; keep each of those Jobs at
   one pod, or use the per-index retry limit of `30-workers.yaml`: never a Job-wide `backoffLimit`
   over several pods, which terminates the healthy pods when one fails (C-040).
-- **Node autoscaling to zero:** DigitalOcean's autoscaler page says a pool can scale to zero; its
-  `doctl` reference says it cannot. Until that is settled on the live API, the worker pool is
-  created for a run and deleted after it.
+- **Node autoscaling to zero:** see "Daily runs" below (the pool `day`, min 0).
 - Backups to Spaces (C-013) once a database is worth keeping.
+
+## Daily runs (C-051)
+
+From the session the owner names, each trading session is computed and published with nobody
+starting anything, and worker nodes exist only while there is work:
+
+- **Core queues** session T at **07:30 New York on the calendar day after T** (a Friday's on
+  Saturday; weekends and holidays are not sessions): one tape job, one day block and one ordered
+  pass, claimed before any backfill work, each only if not already queued by hand, none if T is
+  already published, never twice (`core.daily_session`). Settings on core (`20-core.yaml`):
+  `VYREON_CORE_DAILY_FROM` (the first session queued by core) and `VYREON_CORE_DAILY_BUILD` (an
+  admitted build). Unset: nothing is queued. A build not admitted or withdrawn is the problem
+  `DAILY_STOPPED` on the channel. The publishing deadline (C-050) then starts at the same session,
+  each due by **20:00 MT** the next calendar day (`VYREON_CORE_DEADLINE_HOUR`).
+- **The cluster starts the worker:** CronJob `daily` (`40-daily.yaml`) at 07:45 New York,
+  Tuesday to Saturday: one pod runs the tape, the day and the ordered pass in order, up to three
+  pods one after another. Every worker pod carries `cluster-autoscaler.kubernetes.io/safe-to-evict:
+  "false"`, so the autoscaler never removes a node under a running day.
+- **The pool scales:** pool `day` autoscaled with min 0; the CronJob's pending pod brings up one
+  node; the node is removed after it has been unneeded for the autoscaler's unneeded time
+  (10 minutes by the upstream default).
+
+Cost (the owner's): about one `s-8vcpu-16gb-amd` node for 6 to 7 hours a session, about $1.10 a
+session at $0.167 an hour, about $24 a month; more for a retried day.
+
+### What DigitalOcean's documentation says about scaling to zero (read 2026-11-17)
+
+- Autoscaler page (https://docs.digitalocean.com/products/kubernetes/how-to/autoscale/): "The
+  Cluster Autoscaler supports scaling a given node pool down to zero"; `min-nodes` "must be greater
+  than or equal to `0`"; it recommends "at least one fixed node pool of the smallest size with one
+  node" (our pool `core`) and, for larger pools, autoscaling "and set the minimum number of nodes
+  to zero".
+- Contradiction: the `doctl ... node-pool create` reference
+  (https://docs.digitalocean.com/reference/doctl/reference/kubernetes/cluster/node-pool/create/)
+  says of `--min-nodes` "Scale-to-zero is not supported"; the `node-pool update` reference says
+  only "Default: `0`". The API is what decides: the GET after the PUT below must show
+  `"min_nodes": 0`. If the API refuses 0, the smallest alternative is min 1 (one idle node, about
+  $120 a month) or keeping today's practice: a script or the owner creates the pool for a run and
+  deletes it after.
+- The API (https://docs.digitalocean.com/reference/api/digitalocean/#tag/Kubernetes/operation/kubernetes_update_nodePool):
+  `PUT /v2/kubernetes/clusters/{cluster_id}/node_pools/{node_pool_id}` requires `name` and `count`;
+  `auto_scale`, `min_nodes`, `max_nodes`, `labels`, `taints` are optional. Send the labels and the
+  taint again: an update may clear what it leaves out (doctl states this for taints).
+- Scale-down: DigitalOcean publishes no default timings; the cluster's
+  `cluster_autoscaler_configuration` (`scale_down_unneeded_time`, `scale_down_utilization_threshold`)
+  can set them. Upstream (https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md,
+  "What types of pods can prevent CA from removing a node?"): a pod annotated
+  `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"` keeps its node; "If a node is
+  unneeded for more than 10 minutes, it will be terminated." Pods of completed Jobs (Succeeded or
+  Failed with `restartPolicy: Never`) do not keep a node: no documentation page says so; the
+  autoscaler's source treats such terminal pods as drainable, before it reads the annotation.
+  Check it on the first run: the node goes within about 10 minutes of the run's end.
+- Scale-up from zero: the upstream DigitalOcean provider builds an empty pool's node template from
+  the pool's own labels and taints (`cloudprovider/digitalocean/digitalocean_node_group.go`), so
+  the pods' `nodeSelector: {vyreon: worker}` and toleration bring up a node. Not stated by
+  DigitalOcean: check it on the first run.
+
+### Apply, in order (the owner)
+
+1. **Core image** with migration 0019 (build, push, `sed ... 20-core.yaml | kubectl apply -f -`
+   as above), the daily settings still commented out: nothing is queued. Check:
+   `kubectl -n vyreon exec deploy/vyreon-core -- vyreon-core daily` says "daily runs are off".
+2. **Annotate the running Jobs' successors:** `30-workers.yaml` now carries the annotation on all
+   three Jobs; it applies to the next Jobs created from it (a running Job's pods keep theirs).
+3. **Pool `day` to autoscaling ($ while nodes run).** With no worker running, read the pool, then
+   set it (DigitalOcean token from a file, never printed; `count` = the pool's current node count,
+   so the call itself removes nothing; `max_nodes` is the owner's ceiling):
+   ```sh
+   C=5f56e6e0-1c74-4dc9-bfdb-962ee55ebff3 P=5b683697-6614-4a62-9fb9-315a10a840a3
+   curl -sS -H "Authorization: Bearer $(tr -d '\n' < <token file>)" \
+     https://api.digitalocean.com/v2/kubernetes/clusters/$C/node_pools/$P
+   curl -sS -X PUT -H "Content-Type: application/json" -H "Authorization: Bearer $(tr -d '\n' < <token file>)" \
+     -d '{"name":"day","count":<current>,"auto_scale":true,"min_nodes":0,"max_nodes":<max>,
+          "labels":{"vyreon":"worker"},"taints":[{"key":"vyreon","value":"worker","effect":"NoSchedule"}]}' \
+     https://api.digitalocean.com/v2/kubernetes/clusters/$C/node_pools/$P
+   ```
+   The answer must show `"auto_scale": true, "min_nodes": 0`, the label and the taint. Idle nodes
+   then go after about 10 minutes. (If the pool was deleted, create it with
+   `doctl kubernetes cluster node-pool create vyreon --name day --size s-8vcpu-16gb-amd --count 0
+   --auto-scale --min-nodes 0 --max-nodes <max> --label vyreon=worker --taint "vyreon=worker:NoSchedule"`
+   and use the new id.)
+4. **The CronJob:** `sed "s#VYREON_WORKER_IMAGE#registry.digitalocean.com/vyreon/vyreon-worker:<tag>#" deploy/k8s/40-daily.yaml | kubectl apply -f -`.
+   Its image must be the build named in step 5. Nothing is queued yet, so its runs end in a minute.
+5. **Switch on** (the owner's word that the system is ready): the build admitted
+   (`vyreon-core build admit`), then in `20-core.yaml` uncomment `VYREON_CORE_DAILY_FROM` (the
+   first session to compute by itself: normally the session after the last one scheduled by hand)
+   and `VYREON_CORE_DAILY_BUILD`, and apply. Check: `vyreon-core daily` shows the settings, "due
+   now" and the next session's time; it queues within a minute of 07:30 New York.
+6. **First morning:** `kubectl -n vyreon get cronjob,jobs,pods -o wide` (a node comes up, the pod
+   runs `tape`, `day-block`, `ordered-pass`), `vyreon-core queue`, the 09:00 digest's "Daily runs"
+   line; after the run, the node is gone within about 10 minutes
+   (`kubectl get nodes -l vyreon=worker`). To run at once instead of waiting:
+   `kubectl -n vyreon create job daily-now --from=cronjob/daily`.
+
+**Off:** comment out the two daily settings and apply (core queues nothing more), and
+`kubectl -n vyreon patch cronjob daily -p '{"spec":{"suspend":true}}'`.

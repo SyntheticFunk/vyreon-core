@@ -27,6 +27,9 @@ spec:
   template:
     metadata:
       labels: {app: vyreon-worker, work: tape}
+      annotations:
+        # the autoscaler never removes a node under a running worker (C-051)
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
     spec:
       restartPolicy: Never
       nodeSelector: {vyreon: worker}
@@ -125,6 +128,9 @@ spec:
   template:
     metadata:
       labels: {app: vyreon-worker, work: ordered-pass}
+      annotations:
+        # the autoscaler never removes a node under a running worker (C-051)
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
     spec:
       restartPolicy: Never
       nodeSelector: {vyreon: worker}

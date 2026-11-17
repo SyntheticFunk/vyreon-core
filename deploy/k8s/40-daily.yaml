@@ -1,0 +1,126 @@
+# Daily runs (C-051): core queues each trading session at 07:30 New York the next calendar day
+# (`core_db::daily`); this CronJob starts a worker a quarter of an hour later, Tuesday to Saturday
+# (the mornings after Monday to Friday), so the queued session is claimed with nobody starting
+# anything. On the autoscaled pool `day` (min 0) its pod brings up one node, which the autoscaler
+# removes about ten minutes after the run ends (README, "Daily runs").
+#
+# One pod runs a day's three kinds in order, each a container with its own empty home, as the
+# separate Jobs of 30-workers.yaml do: the tape job (init container), the day block (init
+# container: it starts only after the tape container exited 0, and a day block waits for its
+# session's tape anyway), then the ordered pass. A container that finds nothing to claim exits 0
+# at once, so a pod with nothing queued ends in a minute. The pod's request is its largest
+# container's (the day block's 6 CPUs): one pod per 8-vCPU node.
+#
+# `completions: 3`, one pod at a time (`parallelism: 1`): an ordinary morning's first pod does the
+# session, the other two find nothing and exit in seconds on the same node; when more sessions are
+# queued (a missed morning, a retried day) each pod takes the next, up to three a run. A failed pod
+# is replaced once (`backoffLimitPerIndex: 1`, C-040), so a refused day is tried again at once; the
+# job's own attempts and evidence are core's (C-035, C-049). No `backoffLimit`: see 30-workers.yaml.
+# While the backfill shares the build, a pod with no daily session left claims the backfill's
+# earliest work of its kind (daily jobs are claimed first, C-051): set `completions: 1` to keep the
+# daily run to its own session.
+#
+# Secret `vyreon-worker` (README): each container mounts only the keys it reads (C-016, C-020).
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: daily
+  namespace: vyreon
+spec:
+  schedule: "45 7 * * 2-6"
+  timeZone: America/New_York
+  # never two runs at once; a start missed (control plane busy, an upgrade) still runs within 6 h
+  concurrencyPolicy: Forbid
+  startingDeadlineSeconds: 21600
+  successfulJobsHistoryLimit: 7
+  failedJobsHistoryLimit: 7
+  jobTemplate:
+    spec:
+      completions: 3
+      parallelism: 1
+      completionMode: Indexed
+      backoffLimitPerIndex: 1
+      # a run that has not ended by the next morning is stopped (its lease then expires and core
+      # queues the job again), so a stuck pod cannot keep a node for ever
+      activeDeadlineSeconds: 82800
+      template:
+        metadata:
+          labels: {app: vyreon-worker, work: daily}
+          annotations:
+            # a day is hours of work: the autoscaler never removes the node under it
+            cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+        spec:
+          restartPolicy: Never
+          nodeSelector: {vyreon: worker}
+          tolerations:
+            - {key: vyreon, operator: Equal, value: worker, effect: NoSchedule}
+          initContainers:
+            - name: tape
+              image: VYREON_WORKER_IMAGE
+              args: ["run", "tape", "--bin", "/opt/vyreon/bin", "--repo", "/opt/vyreon/bin"]
+              env:
+                - {name: VYREON_HOME, value: /work}
+                - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
+                - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
+                - {name: VYREON_KEY_FILE, value: /secrets/intrinio-key}
+                - name: VYREON_WORKER_NAME
+                  valueFrom: {fieldRef: {fieldPath: metadata.name}}
+              resources:
+                requests: {cpu: "2", memory: 3Gi}
+              volumeMounts:
+                - {name: work-tape, mountPath: /work}
+                - {name: provider, mountPath: /secrets, readOnly: true}
+            - name: day-block
+              image: VYREON_WORKER_IMAGE
+              args: ["run", "day-block", "--bin", "/opt/vyreon/bin", "--repo", "/opt/vyreon/bin"]
+              env:
+                - {name: VYREON_HOME, value: /work}
+                - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
+                - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
+                - {name: VYREON_KEY_FILE, value: /secrets/intrinio-key}
+                - name: VYREON_WORKER_NAME
+                  valueFrom: {fieldRef: {fieldPath: metadata.name}}
+              resources:
+                requests: {cpu: "6", memory: 10Gi}
+              volumeMounts:
+                - {name: work-day, mountPath: /work}
+                - {name: provider, mountPath: /secrets, readOnly: true}
+          containers:
+            - name: ordered-pass
+              image: VYREON_WORKER_IMAGE
+              args: ["run", "ordered-pass", "--bin", "/opt/vyreon/bin", "--repo", "/opt/vyreon/bin"]
+              env:
+                - {name: VYREON_HOME, value: /work}
+                - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
+                - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
+                - {name: VYREON_CORE_PG_RO_FILE, value: /secrets/ordered-pass-pg}
+                - name: VYREON_WORKER_NAME
+                  valueFrom: {fieldRef: {fieldPath: metadata.name}}
+              resources:
+                requests: {cpu: "1", memory: 2Gi}
+              volumeMounts:
+                - {name: work-pass, mountPath: /work}
+                - {name: pass, mountPath: /secrets, readOnly: true}
+          volumes:
+            - name: work-tape
+              emptyDir: {}
+            - name: work-day
+              emptyDir: {}
+            - name: work-pass
+              emptyDir: {}
+            # the tape and the day call the provider and never see the database login
+            - name: provider
+              secret:
+                secretName: vyreon-worker
+                defaultMode: 0400
+                items:
+                  - {key: worker-token, path: worker-token}
+                  - {key: intrinio-key, path: intrinio-key}
+            # the ordered pass reads the database and calls no provider
+            - name: pass
+              secret:
+                secretName: vyreon-worker
+                defaultMode: 0400
+                items:
+                  - {key: worker-token, path: worker-token}
+                  - {key: ordered-pass-pg, path: ordered-pass-pg}
