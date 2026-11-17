@@ -315,6 +315,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **06:55 UTC: 2022-06-13 PUBLISHED on 2967d2cb** (company fix confirmed on a real day; META
+  contained); job 68 on 06-14. **Tape history stalled at 214 of 654:** Intrinio answers HTTP 500
+  for the replay files of 2025-01-10 and 2025-01-13 (three attempts each; Intrinio's own MCP fails
+  the same way for cta_a and utp on both dates; 2025-01-08 is served, 1.6 GB). The failed jobs
+  (259, 260) block every later tape claim, so pods found nothing and the Job ran out. Evidence:
+  `~/claude-artifacts/provider-evidence/tape-500-2025-01-10.txt`. Fix running (`/home/diggz/wt/fx24`,
+  D-358): a session the provider refuses on a job's last attempt becomes a stated provider-
+  unavailable absence in core's tape cache, so later sessions proceed. Tape Job deleted, its 3
+  nodes deleted; resumes on the next build.
 - **06:46 UTC: 2024-07-16 refused a third time on the old build (job 65, now cancelled); the cause
   is still unseen:** `requote` prints its per-source FAILED lines to a log the evidence does not
   read, and the worker's error message keeps only the first 500 characters of the child's
