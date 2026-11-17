@@ -4,6 +4,8 @@
 #             (NAME.md, kept outside OUT_DIR: the report is written to OUT_DIR/NAME.md)
 #   REPO      the checkout to audit (the candidate branch's worktree)
 #   OUT_DIR   where the report goes (OUT_DIR/SCOPE.md); the brief sent and Codex's log are kept beside it
+#   Model: gpt-6.2-astra (owner, 2026-11-17); VYREON_AUDIT_MODEL overrides it. Reasoning effort comes from
+#   ~/.codex/config.toml.
 #   NOTE_FILE optional text appended to the brief (what earlier audits found, which commits claim to fix them)
 # Codex only reads (-s read-only). Its findings are claims: verify each with briefs/triage.md before fixing.
 set -euo pipefail
@@ -13,7 +15,7 @@ file=$scope; [ -f "$file" ] || file="$here/scopes/$scope.md"
 name=$(basename "$file" .md); mkdir -p "$out"
 { cat "$here/briefs/audit-common.md"; echo; cat "$file"; if [ -n "$note" ]; then echo; cat "$note"; fi; } > "$out/$name.brief.md"
 echo "candidate: $(git -C "$repo" rev-parse --short=8 HEAD) $(git -C "$repo" branch --show-current)" > "$out/$name.log"
-codex exec -s read-only -C "$repo" -o "$out/$name.md" - < "$out/$name.brief.md" >> "$out/$name.log" 2>&1
+codex exec -m "${VYREON_AUDIT_MODEL:-gpt-6.2-astra}" -s read-only -C "$repo" -o "$out/$name.md" - < "$out/$name.brief.md" >> "$out/$name.log" 2>&1
 echo "$name: $(wc -l < "$out/$name.md") lines in $out/$name.md"
 # Codex's allowance after this audit, from its newest session log (the owner asked to see it, 2026-11-16)
 f=$(ls -t ~/.codex/sessions/*/*/*/*.jsonl 2>/dev/null | head -1)
