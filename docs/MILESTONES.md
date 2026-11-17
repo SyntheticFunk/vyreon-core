@@ -91,6 +91,13 @@ first publication of either; ideally free and paid are ready together. Google Ad
    date; continuity of each series. Rules required by a published standard for real events (OCC
    adjustments, splits, filing dates) fire only on those events by nature; a science rule or
    heuristic that changes some days and not others is a candidate for retirement.
+   **Security before launch (owner, 2026-11-17), part of step 7:** least-privilege tokens replace the
+   full-access DigitalOcean token once the system's shape is settled (it stays for now); the
+   reader API stays inside the cluster (Reporter runs as a container beside core; its output is
+   pushed out, nothing is called in); backups to Spaces with one tested restore; a read-only
+   exposure check (public ports, token scopes, secrets in git history, dependencies) and an
+   attack-surface audit before launch. Owner's phone is the one recovery factor: offline backup
+   codes and port-out protection are the owner's to set.
 5. **(3.5) Examine the built database (owner, 2026-11-16).** Done twice: **a first pass after the
    two-week sample** (thin: about ten sessions, so it can show a rule that misfires or never
    fires on ordinary days, not how one generalises; anything it changes is fixed before going
