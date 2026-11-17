@@ -27,6 +27,9 @@ what is published now (C-042), which an exported day's derived bundle needs.
 `vyreon-core calendar load`, `schedule` and `queue` manage work. Every command and setting is listed
 at the top of `crates/vyreon-core/src/main.rs`.
 
+The perishable archive (C-052): workers upload a published day's cohort prints and ACT01 pulls to
+Spaces through upload URLs core signs (core alone holds the key); `vyreon-core archive list [date]`.
+
 The owner's Discord channel (C-050) carries problems (one alert when one opens, one "Resolved"),
 a 09:00 MT digest led by its verdict and a Saturday check; `vyreon-core problems`, `digest
 [weekly]` and `log` show the same from the command line.

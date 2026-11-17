@@ -347,7 +347,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   session. Autoscaling the pool to 0: DigitalOcean's pages disagree; the API decides when applied
   (min 1 would cost about $120 a month: owner's call then). **Applied after the sample, in the
   runbook's order (deploy/k8s/README.md).** Open before the droplet retires: the cluster does not
-  yet archive the perishable option prints to Spaces (C-004); the droplet still does. **Design
+  yet archive the perishable option prints to Spaces (C-004); the droplet still does. **Built
+  2026-11-17 (C-052, engine D-360; branches `core-archive` and engine `pass-fx26`, not merged, not
+  deployed): migration 0020, upload URLs signed by core, read back before kept; `vyreon-core archive
+  list`; runbook `deploy/k8s/README.md` "Perishable archive". Owner: a Spaces key limited to
+  `vyreon-data`, Secret `vyreon-core-spaces`, then the images and the settings.** **Design
   (owner, 2026-11-17): workers stay stateless and credential-free; core alone holds the Spaces key
   and hands a worker a pre-signed upload URL for one named object, valid for minutes (the standard
   S3 pattern); the worker uploads directly to Spaces and reports it; core records what was kept per
