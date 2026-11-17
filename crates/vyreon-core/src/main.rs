@@ -27,6 +27,9 @@
 //!   vyreon-core daily [queue]                         the daily runs (C-051): their settings, the sessions
 //!                                                     handled and the next due; `queue` queues what is due now
 //!                                                     (the service does it every minute by itself)
+//!   vyreon-core daily start-worker [<cronjob>]        the daily CronJob's gate (in a pod): start a worker Job from
+//!                                                     the template of <cronjob> (daily-worker) only when a daily job
+//!                                                     is waiting and no daily Job is still running
 //!   vyreon-core notices mark-sent                     mark every post not sent yet as sent, without posting it (run once
 //!                                                     before the webhook is first switched on, so the channel starts clean)
 //!   vyreon-core api-key create <holder> <read[,admin]>   make a reader API key (printed once; only its digest is kept)
@@ -290,6 +293,22 @@ async fn archive_list(session: Option<&str>) -> Result<(), String> {
 
 /// `daily [queue]`: the daily runs' settings, the sessions handled, and (with `queue`) what is due
 /// now queued, as the service does every minute.
+/// The daily CronJob's gate (round v, 9): the worker Job is created from `cronjob`'s template
+/// only when a daily job is waiting, so a morning with nothing queued starts no worker node.
+async fn daily_start_worker(cronjob: &str) -> Result<(), String> {
+    let client = connect().await?;
+    let waiting = daily::waiting(&client).await?;
+    if waiting == 0 {
+        println!("no daily job is waiting: no worker started");
+        return Ok(());
+    }
+    match core_api::gate::start(&core_api::gate::Kube::in_cluster()?, cronjob).await? {
+        core_api::gate::Started::AlreadyRunning(job) => println!("{waiting} daily jobs waiting; the daily runs' Job {job} is still running: none started"),
+        core_api::gate::Started::Created(job) => println!("{waiting} daily jobs waiting: started {job} from {cronjob}"),
+    }
+    Ok(())
+}
+
 async fn daily_runs(queue: bool) -> Result<(), String> {
     let s = watch_settings()?;
     let Some(d) = &s.daily else {
@@ -554,6 +573,8 @@ async fn main() -> ExitCode {
         ["digest", "weekly"] => digest(true).await,
         ["daily"] => daily_runs(false).await,
         ["daily", "queue"] => daily_runs(true).await,
+        ["daily", "start-worker"] => daily_start_worker("daily-worker").await,
+        ["daily", "start-worker", cronjob] => daily_start_worker(cronjob).await,
         ["log"] => log("20").await,
         ["log", n] => log(n).await,
         ["notices", "mark-sent"] => match connect().await {
