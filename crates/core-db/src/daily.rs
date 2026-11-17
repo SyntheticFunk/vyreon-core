@@ -75,22 +75,6 @@ pub async fn due(c: &impl GenericClient, d: &Daily, now: &str) -> Result<Vec<Str
     Ok(rows.iter().map(|r| r.get(0)).collect())
 }
 
-/// Daily jobs waiting for a worker (round v, 9): queued (priority 1, C-051), of a build that may
-/// be given work, while the queue is not paused. The daily CronJob's gate starts a worker node
-/// only when this is above zero, so a morning with nothing queued starts no node.
-pub async fn waiting(c: &impl GenericClient) -> Result<i64, String> {
-    Ok(c
-        .query_one(
-            "SELECT count(*) FROM core.job j JOIN core.engine_build b USING (engine_build)
-             WHERE j.priority >= 1 AND j.state = 'QUEUED' AND b.admitted_at IS NOT NULL AND b.withdrawn_at IS NULL
-               AND NOT EXISTS (SELECT FROM core.queue_control WHERE paused)",
-            &[],
-        )
-        .await
-        .map_err(db)?
-        .get(0))
-}
-
 /// Queues every session due at `now`. Does nothing while none is due; refuses (and queues
 /// nothing) while the build cannot be given work.
 pub async fn queue_due(client: &mut Client, d: &Daily, now: &str) -> Result<Vec<Queued>, String> {
