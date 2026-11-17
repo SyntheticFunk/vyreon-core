@@ -279,16 +279,22 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open])
             detail: None,
         });
     }
-    // what no job derives again stays a problem until each of its days has its job
+    // what no job derives again stays a problem until each of its days is derived again (a
+    // published revision of its kind) or a live job will derive it (round v, 4: a job created
+    // after the problem but cancelled or failed derives nothing)
     for o in open.iter().filter(|o| o.kind == "NOT_DERIVED") {
         let owned: Option<bool> = c
             .query_one(
-                "SELECT bool_and(EXISTS (
+                "SELECT bool_and(
+                     EXISTS (SELECT FROM vyreon.day_revision r
+                             WHERE r.profile_id = d->>'profile_id' AND r.represented_date = (d->>'day')::date AND r.state = 'PUBLISHED'
+                               AND r.base_revision IS NOT NULL AND r.day_local = (d->>'day_local')::boolean)
+                     OR EXISTS (
                      SELECT FROM core.job j
                      WHERE j.profile_id = d->>'profile_id'
                        AND CASE WHEN (d->>'day_local')::boolean THEN j.kind = 'DAY_BLOCK' AND (d->>'day')::date BETWEEN j.first_session AND j.last_session
                                 ELSE j.kind = 'ORDERED_PASS' AND j.first_session = (d->>'day')::date END
-                       AND (j.state IN ('QUEUED', 'LEASED') OR j.created_at > p.opened_at OR (j.state = 'DONE' AND j.finished_at > p.opened_at))))
+                       AND j.state IN ('QUEUED', 'LEASED')))
                  FROM core.problem p, jsonb_array_elements(p.detail->'days') d WHERE p.problem_id = $1",
                 &[&o.id],
             )
