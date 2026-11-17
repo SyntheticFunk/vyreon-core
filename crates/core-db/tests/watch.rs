@@ -437,7 +437,7 @@ async fn a_failed_check_posts_no_digest() {
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn a_problem_opens_while_the_digest_counts() {
-    let (scratch, mut client, b) = ready("digest_counting").await;
+    let (scratch, client, b) = ready("digest_counting").await;
     let s = settings(None);
     // a published revision not yet counted: the digest's count reads its measurements
     published(&client, &b, "2025-12-10", "2025-12-11 20:00-07").await;

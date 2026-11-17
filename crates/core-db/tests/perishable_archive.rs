@@ -188,8 +188,13 @@ async fn a_published_days_perishables_are_requested_verified_kept_and_frozen() {
 
 /// A day block of the real slice of 2025-12-10 that has published its base: its lease token.
 async fn published_block(scratch: &Scratch, test: &str) -> (Client, String) {
+    published_block_at(scratch, test, migrate::embedded().unwrap().len()).await
+}
+
+/// `published_block` on a database brought to its first `migrations` migrations.
+async fn published_block_at(scratch: &Scratch, test: &str, migrations: usize) -> (Client, String) {
     let mut client = scratch.client().await;
-    migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
+    migrate::apply(&mut client, &migrate::embedded().unwrap()[..migrations]).await.unwrap();
     work::load_calendar(&mut client, &serde_json::from_str(test_support::CALENDAR).unwrap()).await.unwrap();
     let fixtures = test_support::fixtures();
     let doc = universe::read_responses(&fixtures.join("engine-v1-PROFILE.json"), &fixtures.join("intrinio-universe")).unwrap();
@@ -280,6 +285,62 @@ async fn asking_again_does_not_reset_a_missing_archives_age() {
     // kept: no longer missing, resolved
     assert!(archive::record(&mut client, &token, archive_id, &Ok(()), day_later).await.unwrap());
     assert_eq!(archive_lines(watch::check(&mut client, &settings, day_later).await.unwrap().resolved).len(), 1);
+    drop(client);
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-17 round w, 17: a row KEPT before migration 0022 names no endpoint, so where it
+/// was read back is not recorded: migration 0023 counts it as not kept (missing, and asked again
+/// it is given a URL), and no row can be KEPT without its endpoint from then on.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_row_kept_before_its_endpoint_was_recorded_is_not_counted_as_kept() {
+    let scratch = Scratch::new("archive_legacy").await;
+    let (mut client, token) = published_block_at(&scratch, "legacy", 22).await;
+    let s = spaces();
+    let r = request("act01-auto", "2025-12-10", TAPE_AAPL);
+    let Answer::Upload { archive_id, .. } = archive::request(&mut client, &s, &token, &r, "2025-12-11 13:00:00+00").await.unwrap() else { panic!("an upload") };
+    // as a row kept before 0022 was: KEPT, its endpoint never recorded
+    client
+        .execute("UPDATE core.perishable_archive SET state = 'KEPT', kept_at = '2025-12-11 13:01:00+00', endpoint = NULL WHERE archive_id = $1", &[&archive_id])
+        .await
+        .unwrap();
+    let later = "2025-12-11 15:00:00+00";
+    migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
+    let missing: Vec<(String, String)> = archive::missing(&client, PROFILE, None, later).await.unwrap().into_iter().map(|m| (m.session, m.category)).collect();
+    assert_eq!(missing, [("2025-12-10".to_owned(), "act01-auto".to_owned())]);
+    let listed = archive::list(&client, Some("2025-12-10"), 10).await.unwrap();
+    assert_eq!(listed[0]["state"], "FAILED");
+    assert!(listed[0]["failure"].as_str().unwrap().contains("not counted as kept"));
+    let again = archive::request(&mut client, &s, &token, &r, later).await.unwrap();
+    assert!(matches!(again, Answer::Upload { archive_id: id, .. } if id == archive_id), "{again:?}");
+    let refused = client.execute("UPDATE core.perishable_archive SET state = 'KEPT', kept_at = now(), endpoint = NULL WHERE archive_id = $1", &[&archive_id]).await;
+    assert!(refused.is_err(), "no row is KEPT without its endpoint");
+    drop(client);
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-17 round w, 7: a category the worker could not pack is reported, so it is counted
+/// missing although nothing was requested and no expected-from session is set; only a day block
+/// that published the day may report it.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_category_not_packed_is_counted_missing() {
+    let scratch = Scratch::new("archive_unpacked").await;
+    let (mut client, token) = published_block(&scratch, "unpacked").await;
+    let now = "2025-12-11 13:00:00+00";
+    let why = "not packed: not packed by the archive's deadline: the tar was still being written (zstd killed)";
+    archive::unpacked(&mut client, &token, "exq01-events", "2025-12-10", why, now).await.unwrap();
+    for (category, session, says) in [("exq01-events", "2025-12-11", "has published"), ("company", "2025-12-10", "not a perishable category"), ("act01-auto", "12/10/2025", "not a date")] {
+        let r = archive::unpacked(&mut client, &token, category, session, why, now).await;
+        assert!(matches!(r, Err(LeaseError::Refused(ref m)) if m.contains(says)), "{r:?}");
+    }
+    assert!(archive::missing(&client, PROFILE, None, "2025-12-11 13:30:00+00").await.unwrap().is_empty(), "inside the grace hour");
+    let missing: Vec<(String, String, i64)> = archive::missing(&client, PROFILE, None, "2025-12-11 14:00:00+00").await.unwrap().into_iter().map(|m| (m.session, m.category, m.age)).collect();
+    assert_eq!(missing, [("2025-12-10".to_owned(), "exq01-events".to_owned(), 3600)]);
+    let listed = archive::unpacked_list(&client, Some("2025-12-10"), 10).await.unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!((listed[0].1.as_str(), listed[0].2.as_str(), listed[0].4.as_str()), ("exq01-events", why, "w1"));
     drop(client);
     scratch.drop().await;
 }
