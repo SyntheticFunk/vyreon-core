@@ -119,8 +119,9 @@ first publication of either; ideally free and paid are ready together. Google Ad
    **Weekly comparison idea (owner, 2026-11-17):** per sensor, plot this week against last week on
    one chart. State readings (IV term structure, skew, open interest by strike, levels) compare the
    week's closing reading (Friday against last Friday); flow readings (volume, activity, intraday
-   profiles) compare the week's total or daily mean. The weekly aggregates are computed by the
-   engine's derived layer or served by core, each method stated, never by Reporter.
+   profiles) compare the week's total or daily mean. The weekly aggregates are **derived-layer
+   measurements** (owner: that is why the derived layer exists), each method stated, computed from
+   stored readings in the history pass; Reporter only draws them.
    yet: it needed the database) beside the free one (all there, a lot of numbers); then **a
    significant body of iteration on the reports themselves** (owner, 2026-11-16) until free and
    paid are generated with confidence.
