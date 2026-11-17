@@ -315,6 +315,21 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **04:11 UTC: re-runs on b727fc6b, first results (failure evidence in core worked on first use).**
+  (1) **2022-06-13: every company's CDD-FND01/02 FAILED (`SCHEMA:next_page_absent`), so the day
+  refused to stage.** Intrinio's `/companies/{id}/fundamentals` returns an EMPTY list with no
+  `next_page` key; D-281 (round n, 2026-11-16) made that an incomplete capture. Real response
+  kept in `~/claude-artifacts/provider-evidence/2026-11-17-empty-fundamentals/`. Fix running
+  (`/home/diggz/wt/fx22`, D-356: an empty page without `next_page` ends the request; a capture's
+  schema terminal is a provider absence, never a stopped day). Job 64 cancelled until then.
+  (2) META's VS-P01 on 2022-06-13 is now contained (ENGINE_FAULT for META and its dependants,
+  the day not stopped): cold start after the FB→META rename, likely a price history split across
+  Intrinio's two security records; outside phase 1's range (no rename among the 64 since); fix
+  before any deeper history. (3) **2024-07-16 refused again at the requote of middle-layout
+  sources (2023-09-27 and similar)**: the requote binary's per-source FAILED lines are not in the
+  log the evidence reads; a catcher reads them from the live retry pod
+  (`cluster-scratch/catch-requote.sh`). Also seen: HTTP 429 from Intrinio with four nodes
+  running (retryable). 2025-04-11 and 2025-12-10 still computing.
 - **00:14 UTC: sample criteria APPROVED by the owner; spend is evaluated after the sample, before
   phase 1.** June 2022 block (old build 518faf7e) ended: 06-06..06-13 published; **2022-06-14
   failed twice at intent B: `META:2022-06-14 VS-P01 fault: daily_history: H3 asset failed: P01
