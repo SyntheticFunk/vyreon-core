@@ -417,11 +417,15 @@ async fn archive_done(State(app): Shared, headers: HeaderMap, Path(id): Path<i64
     let outcome = match d.failed {
         Some(why) => Err(format!("the worker: {why}")),
         None if target.state == "KEPT" => Ok(()),
-        None => {
-            let at = archive::signing_time(&**client, &now).await.map_err(failed)?;
-            let head = head_object(spaces, &target.key, at).await.map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("reading the object back from the bucket: {e}")))?;
-            archive::verify(&target, &head)
-        }
+        // read back only where its URL was signed for (round v, 3)
+        None => match archive::same_place(&target, spaces) {
+            Err(e) => Err(e),
+            Ok(()) => {
+                let at = archive::signing_time(&**client, &now).await.map_err(failed)?;
+                let head = head_object(spaces, &target.key, at).await.map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("reading the object back from the bucket: {e}")))?;
+                archive::verify(&target, &head)
+            }
+        },
     };
     let kept = archive::record(&mut client, token, id, &outcome, &now).await?;
     ok(json!({"archive_id": id, "kept": kept, "why": outcome.err().map(|e| archive::failure_text(&e))}))
