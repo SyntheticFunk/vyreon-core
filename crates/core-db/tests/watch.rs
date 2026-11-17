@@ -350,6 +350,35 @@ async fn the_weekly_check_needs_the_history_pass_and_no_open_problem() {
     scratch.drop().await;
 }
 
+/// Audit 2026-11-17 round v, 7: a problem a publish opens while the 09:00 digest is composed is
+/// in the digest, or its alert follows the digest; never a green digest after its alert. Here the
+/// publish's transaction (which opens NOT_DERIVED with its alert) is still open when the watch's
+/// minute starts: the watch waits for it and the digest says it is open.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_digest_never_says_nothing_is_open_after_an_alert() {
+    let (scratch, mut publishing, _) = ready("digest_race").await;
+    let s = settings(None);
+    let tx = publishing.transaction().await.unwrap();
+    watch::not_derived(&tx, &[("2025-12-11".into(), PROFILE.into(), false)]).await.unwrap();
+    let mut watching = scratch.client().await;
+    let (s2, nine) = (s.clone(), "2025-12-12 09:30:00-07");
+    let minute = tokio::spawn(async move {
+        watch::tick(&mut watching, &s2, nine).await.unwrap();
+        watching
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(!minute.is_finished(), "the watch waits for the publish that is opening a problem");
+    tx.commit().await.unwrap();
+    let watching = minute.await.unwrap();
+    let posts: Vec<(i64, String)> =
+        watching.query("SELECT notice_id, message FROM core.notice WHERE post ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| (r.get(0), r.get(1))).collect();
+    assert_eq!(posts.len(), 2, "{posts:?}");
+    assert!(posts[0].1.starts_with("🔴 A republish left 1 days that no job derives again: 2025-12-11"), "{posts:?}");
+    assert!(posts[1].1.starts_with("🔴 Needs you: A republish left 1 days"), "the digest after the alert says it is open: {posts:?}");
+    scratch.drop().await;
+}
+
 /// Weeks of missed deadlines: one alert each, and a digest that stays under Discord's limit.
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
