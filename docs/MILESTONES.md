@@ -315,6 +315,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **05:51 UTC: tape history first, as D-310 planned.** A day job without core's tape caches
+  captures its 252 prior tape sessions inline, about a minute each, and does NOT upload them
+  (core held 319 entries over 4 sessions; unchanged after 5.5 hours of inline captures). So
+  2025-04-11 and 2025-12-10 (old build, their company data doomed anyway) were stopped (jobs 66,
+  67 cancelled) and **654 tape jobs queued for 2024-04-09..2026-11-13 on 2967d2cb** (phase 1's whole
+  tape range, the sample's included), Job `v-tape-2967`, 4 pods (2 CPU each) on the 2 freed nodes,
+  about 4 hours. Then the day re-runs and the sample read core's caches. Still running: job 68
+  (2022-06-13..15 on 2967d2cb), job 65 (2024-07-16, old build, for the requote catcher).
+  **Lesson for the plan: a day job must never be started before its tape history is cached.**
 - **04:40 UTC: D-356 merged; build 2967d2cb+32d87d91c30e registered, admitted, image pushed.**
   The real capture showed the defect was wider than an empty page: every fundamentals listing
   page with fewer rows than its page size carries no `next_page` key, so since D-281 EVERY
