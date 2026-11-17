@@ -315,6 +315,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **04:40 UTC: D-356 merged; build 2967d2cb+32d87d91c30e registered, admitted, image pushed.**
+  The real capture showed the defect was wider than an empty page: every fundamentals listing
+  page with fewer rows than its page size carries no `next_page` key, so since D-281 EVERY
+  day's company capture failed. Now: a short page without the key ends its request (a full one
+  still fails), and a schema terminal withholds the reading (MISSING_REQUIRED_INPUT, the
+  terminal stated) instead of FAILED, so it never stops a day. A test bound to the date
+  2026-11-17 fixed. 2022-06-13..15 re-queued on 2967d2cb (Job `v-day-2967`, the freed node).
+  2025-04-11 and 2025-12-10 (b727fc6b) keep running for their other evidence; their company
+  readings will fail staging, so both re-run on 2967d2cb afterwards.
 - **04:11 UTC: re-runs on b727fc6b, first results (failure evidence in core worked on first use).**
   (1) **2022-06-13: every company's CDD-FND01/02 FAILED (`SCHEMA:next_page_absent`), so the day
   refused to stage.** Intrinio's `/companies/{id}/fundamentals` returns an EMPTY list with no
