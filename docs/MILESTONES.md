@@ -315,6 +315,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **13:03 UTC: 2024-07-16's cause found (D-357's evidence worked): `requote` rejects 111 sources with
+  `close quotes cover under half of the population`: 41 on 2023-10-30, 59 on 2023-11-17, and
+  1-4 on seven other dates up to 2024-06-10 (61 assets).** The provider's closing snapshot was
+  partial on those dates; the gate is right, but one rejected source refuses the whole day.
+  2025-04-11 and 2025-12-10 (windows back to mid-2024) hit none, so phase 1 looks clear; the
+  containment is fixed anyway (`/home/diggz/wt/fx25`, D-359: such a source is a stated provider
+  absence for that asset and session, the day proceeds). Job 1377 cancelled; its node deleted.
+  Evidence: `~/claude-artifacts/provider-evidence/requote-partial-snapshots-2023.txt`.
 - **11:29 UTC: TAPE HISTORY COMPLETE for phase 1: 654 of 654 sessions (2024-04-09..2026-11-13) in core's
   tape cache, 128 entries stated absences (2025-01-10 and 01-13, provider-refused).** About 5.5
   hours from first start, most of it on 6-18 pods; idle nodes deleted (pool down to the 3 day
