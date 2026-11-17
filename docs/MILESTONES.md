@@ -315,6 +315,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **13:27 UTC: D-359 merged (`pass-s3i` 05837898; suite 1,362 passed, 8 known failures).** A source the
+  provider's partial closing snapshot fails (under half its chain, counts now stated) is a stated
+  absence: that session's option readings and every option-history reading reaching it are
+  withheld PROVIDER_INPUT_MISSING; the day proceeds. Open for the deeper-history phase, not
+  phase 1 (its windows start after mid-2024): a partial session withholds those assets'
+  option-history readings for the ~200 sessions after it (to about August 2024), and the 10%
+  missing-input hold will probably hold such days. Choice deferred to build evidence, per the
+  owner's rule that computing over gaps waits for the build: change the hold, or end the history
+  at the partial session.
 - **13:03 UTC: 2024-07-16's cause found (D-357's evidence worked): `requote` rejects 111 sources with
   `close quotes cover under half of the population`: 41 on 2023-10-30, 59 on 2023-11-17, and
   1-4 on seven other dates up to 2024-06-10 (61 assets).** The provider's closing snapshot was
