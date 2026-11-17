@@ -329,6 +329,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
   label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
   when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
+- **17:54 UTC: the droplet's old Discord alerts retired (owner's word):** `vyreon-health.timer` and
+  `vyreon-heartbeat.timer` stopped and disabled; `vyreon-capture` and `vyreon-archive` keep running
+  (they save the option-trade cohort prints the provider will not serve again, to the volume and
+  Spaces, until the cluster runs daily) with their notices muted to
+  `/var/log/vyreon-notices-muted.log` (systemd drop-ins `mute-notices.conf`). The droplet itself
+  (`vyreon-engine-shared-8vcpu-amd`) retires once the cluster's daily runs keep those prints:
+  owner's call then.
 - **17:48 UTC: notices design APPROVED; webhook stored as cluster Secret `vyreon-core-webhook`** (new
   channel; file gitignored, mode 600, never printed). Owner: "I want to open it and immediately
   know if i gotta go look at it or its running ok." Building in core (`/home/diggz/wt/core-notices`):
