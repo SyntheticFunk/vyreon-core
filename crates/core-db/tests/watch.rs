@@ -11,7 +11,7 @@ use core_db::{build, migrate, universe};
 use flate2::{Compression, write::GzEncoder};
 use serde_json::{Value, json};
 use std::io::Write;
-use test_support::slice::{BASE, bundle, inventories, listed_2025_12_10, parts};
+use test_support::slice::{BASE, DERIVED, bundle, inventories, listed_2025_12_10, parts};
 use test_support::{ENGINE_FAULT_BODY_XLB, Scratch, WORKER_LOG_REFUSED_DAY};
 use tokio_postgres::Client;
 
@@ -283,8 +283,8 @@ async fn the_digest_leads_with_its_verdict() {
     assert_eq!(lines[0], "🟡 Weekly check: this week's sessions have no publishing deadline yet, so Sunday's report is not checked");
     assert_eq!(lines[1..6], [
         "Mon Dec 8: not published",
-        "Tue Dec 9: published · 100.0% of its measurements have a value · 0 engine faults",
-        "Wed Dec 10: published · 80.0% of its measurements have a value · 1 engine fault",
+        "Tue Dec 9: published · 100.0% of its measurements have a value · 0 engine faults · history pass not published",
+        "Wed Dec 10: published · 80.0% of its measurements have a value · 1 engine fault · history pass not published",
         "Thu Dec 11: not published",
         "Fri Dec 12: not published"
     ]);
@@ -292,6 +292,61 @@ async fn the_digest_leads_with_its_verdict() {
     // C-051: Friday's deadline (Saturday 10:00 here) is still ahead at 09:00: due, not missing
     assert!(watched.starts_with("🔴 Weekly check: Sunday's report at risk, 2 of 5 sessions not published (Mon Dec 8, Thu Dec 11)\n"), "{watched}");
     assert!(watched.contains("\nFri Dec 12: not published yet, due by Sat 10:00 MT\n"), "{watched}");
+    scratch.drop().await;
+}
+
+/// The history pass of `day` (a derived revision on the day's base, not day-local), published at
+/// `at`, written as core writes one, without its slots.
+async fn history_published(client: &Client, day: &str, at: &str) {
+    // the slice's derived revision header: its profile revision and build
+    let (h, _, _) = parts(DERIVED);
+    client
+        .execute(
+            "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, state, published_at, listed_members, base_revision)
+             SELECT $1::text::date, $2, $6, $3, '2026-11-08T13:49:56.940739Z', 'PUBLISHED', $4::text::timestamptz, $5, revision_id
+             FROM vyreon.day_revision WHERE represented_date = $1::text::date AND profile_id = $2 AND base_revision IS NULL AND state = 'PUBLISHED'",
+            &[&day, &PROFILE, &h.engine_build, &at, &listed_2025_12_10(), &h.profile_revision],
+        )
+        .await
+        .unwrap();
+}
+
+/// Audit 2026-11-17 round v, 6: the weekly check is green only when every session's base and
+/// history pass are published and no problem is open. The week of 2025-12-08, Saturday after
+/// Friday's deadline.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn the_weekly_check_needs_the_history_pass_and_no_open_problem() {
+    let (scratch, mut client, b) = ready("weekly").await;
+    let s = settings(Some("2025-12-08"));
+    let days = ["2025-12-08", "2025-12-09", "2025-12-10", "2025-12-11", "2025-12-12"];
+    for day in days {
+        published(&client, &b, day, &format!("{day} 20:00-07")).await;
+    }
+    for day in &days[..4] {
+        history_published(&client, day, &format!("{day} 22:00-07")).await;
+    }
+    let saturday = "2025-12-13 11:00:00-07";
+    check(&mut client, &s, saturday).await;
+    let weekly = watch::weekly(&client, &s, saturday).await.unwrap();
+    let lines: Vec<&str> = weekly.lines().collect();
+    assert_eq!(lines[0], "🟡 Weekly check: Sunday's report waits for the history pass of 1 of 5 sessions (Fri Dec 12)");
+    assert_eq!(lines[4..6], [
+        "Thu Dec 11: published · no measurements · 0 engine faults · history pass published",
+        "Fri Dec 12: published · no measurements · 0 engine faults · history pass not published"
+    ]);
+    history_published(&client, days[4], "2025-12-13 10:30:00-07").await;
+    let weekly = watch::weekly(&client, &s, saturday).await.unwrap();
+    assert!(weekly.starts_with("🟢 Weekly check: all 5 of this week's sessions published with their history pass; Sunday's report has what it needs\n"), "{weekly}");
+    // a problem open (the queue paused): never green
+    work::pause(&client, "a pass refused its bundle").await.unwrap();
+    check(&mut client, &s, saturday).await;
+    let weekly = watch::weekly(&client, &s, saturday).await.unwrap();
+    assert!(
+        weekly.starts_with("🔴 Weekly check: Sunday's report is not cleared while a problem is open: Work queue paused, nothing is handed out: a pass refused its bundle\n"),
+        "{weekly}"
+    );
+    assert!(weekly.contains("\nOpen problems (1):\n"), "{weekly}");
     scratch.drop().await;
 }
 
