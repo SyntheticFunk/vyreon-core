@@ -27,6 +27,10 @@ what is published now (C-042), which an exported day's derived bundle needs.
 `vyreon-core calendar load`, `schedule` and `queue` manage work. Every command and setting is listed
 at the top of `crates/vyreon-core/src/main.rs`.
 
+The owner's Discord channel (C-050) carries problems (one alert when one opens, one "Resolved"),
+a 09:00 MT digest led by its verdict and a Saturday check; `vyreon-core problems`, `digest
+[weekly]` and `log` show the same from the command line.
+
 `vyreon-core migrate` brings a database to the current migrations (`VYREON_CORE_PG` or
 `VYREON_CORE_PG_FILE`). Migrations are `crates/core-db/migrations/NNNN_name.sql`; an applied one is
 never edited.
