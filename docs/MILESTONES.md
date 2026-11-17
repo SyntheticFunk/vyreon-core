@@ -315,6 +315,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **13:42 UTC: STEP 4a STARTED: the two-week sample, 2026-11-02..2026-11-13 (10 sessions) as two blocks
+  of 5 on build 05837898+3d485555ec3d** (image pushed, registered 4,679 slots, admitted), Job
+  `v-sample`, 2 pods; pool `day` at 4 nodes (2 more for 2025-04-11, computing, and 2025-12-10,
+  downloading, on 1a532d8b). Judged against the approved pass criteria when done; history passes
+  then scheduled once for the range (C-046). **Not yet built: process addition (d), keeping the
+  sample's raw downloads in Spaces** (needs a worker upload step and a Spaces credential in the
+  cluster); without it a sample re-run downloads again (about 3.5 hours). Built only if the sample
+  needs re-runs.
 - **13:27 UTC: D-359 merged (`pass-s3i` 05837898; suite 1,362 passed, 8 known failures).** A source the
   provider's partial closing snapshot fails (under half its chain, counts now stated) is a stated
   absence: that session's option readings and every option-history reading reaching it are
