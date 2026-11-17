@@ -315,6 +315,17 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **00:14 UTC: sample criteria APPROVED by the owner; spend is evaluated after the sample, before
+  phase 1.** June 2022 block (old build 518faf7e) ended: 06-06..06-13 published; **2022-06-14
+  failed twice at intent B: `META:2022-06-14 VS-P01 fault: daily_history: H3 asset failed: P01
+  retained history does not close eligible CAP126; older input required`** (META renamed from
+  FB on 06-09), and that one asset stopped the whole day (a containment gap). Evidence kept in
+  `cluster-scratch/summaries-2206e/`. Old jobs 55-63 and 25 cancelled; node deleted. **New core
+  deployed (3e7b13e; migrations 0016, 0017 applied); build b727fc6b+9b96b570b46b registered (4,679
+  slots) and admitted.** Re-runs queued as jobs 64-67: 2022-06-13..06-15 (the META case),
+  2024-07-16, 2025-04-11, 2025-12-10 (image diff against `testbed-dumps/c-1210`); pool `day` at 4
+  nodes ($0.67/h), Job `v-day-b727`, watcher `cluster-scratch/watch-job.sh`. Tape history is
+  sparse (319 cached entries), so tape-history readers may be withheld on these days.
 - **23:39 UTC: round u (last narrow check before the build image): no findings** (no wrong
   number, stopped day or credential path; D-354's ordinary-day frequency not establishable
   without the sample). Converged; the image stands.
