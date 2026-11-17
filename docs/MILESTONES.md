@@ -315,6 +315,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **11:29 UTC: TAPE HISTORY COMPLETE for phase 1: 654 of 654 sessions (2024-04-09..2026-11-13) in core's
+  tape cache, 128 entries stated absences (2025-01-10 and 01-13, provider-refused).** About 5.5
+  hours from first start, most of it on 6-18 pods; idle nodes deleted (pool down to the 3 day
+  re-runs). This is phase 1's whole tape need: no day job will download tape history again.
 - **10:09 UTC: June 2022 block DONE on 2967d2cb: 2022-06-13, 06-14 and 06-15 all PUBLISHED from an
   empty disk.** Each day: 2,604 measure slots, 2,218 complete, 1 engine fault (META VS-P01, the
   rename-era price history; contained) and its 13 dependants, no failed measure; the field/day
