@@ -20,7 +20,8 @@
 //!   vyreon-core evidence show <job> [--attempt N]     one attempt's evidence in full (the latest by default):
 //!                                                     its stop message, the input plan's refusals and its log excerpt
 //!   vyreon-core archive list [<date>]                 the perishable archive (C-052): each object requested, kept or
-//!                                                     failed (the newest sessions, or one session), and what is missing
+//!                                                     failed with its endpoint, bucket and key (the newest sessions, or
+//!                                                     one session), each category a worker could not pack, and what is missing
 //!   vyreon-core problems                              the open problems (C-050), oldest first, and the last resolved
 //!   vyreon-core digest [weekly]                       print the 09:00 digest (or the Saturday check) as it would be posted now
 //!   vyreon-core log [n]                               the newest n (20) logged events, which are not posted
@@ -257,6 +258,19 @@ fn spaces_settings() -> Result<Option<archive::Spaces>, String> {
     Ok(Some(spaces))
 }
 
+/// One archive object as `archive list` prints it: where it is (endpoint, bucket, key: round w,
+/// 18, C-052) and its state.
+fn archive_line(r: &serde_json::Value) -> String {
+    let text = |k: &str| r[k].as_str().unwrap_or_default().to_owned();
+    let state = match text("state").as_str() {
+        "KEPT" => format!("KEPT {}", text("kept_at")),
+        "FAILED" => format!("FAILED: {}", text("failure")),
+        other => format!("{other} {} (not kept yet)", text("requested_at")),
+    };
+    let endpoint = r["endpoint"].as_str().unwrap_or("(endpoint not recorded)");
+    format!("{} {:<12} {} bytes {endpoint}/{}/{} job {} by {}: {state}", text("session"), text("category"), r["bytes"], text("bucket"), text("key"), r["job_id"], text("worker"))
+}
+
 /// `archive list [<date>]`: one line per archive object, newest session first, then what is missing.
 async fn archive_list(session: Option<&str>) -> Result<(), String> {
     let client = connect().await?;
@@ -265,13 +279,11 @@ async fn archive_list(session: Option<&str>) -> Result<(), String> {
         println!("no perishable archive{}", session.map_or(String::new(), |s| format!(" for {s}")));
     }
     for r in &rows {
-        let text = |k: &str| r[k].as_str().unwrap_or_default().to_owned();
-        let state = match text("state").as_str() {
-            "KEPT" => format!("KEPT {}", text("kept_at")),
-            "FAILED" => format!("FAILED: {}", text("failure")),
-            other => format!("{other} {} (not kept yet)", text("requested_at")),
-        };
-        println!("{} {:<12} {} bytes {}/{} job {} by {}: {state}", text("session"), text("category"), r["bytes"], text("bucket"), text("key"), r["job_id"], text("worker"));
+        println!("{}", archive_line(r));
+    }
+    // round w, 7: what a worker could not pack is never silent
+    for (session_, category, why, job, worker, at) in archive::unpacked_list(&client, session, 200).await? {
+        println!("{session_} {category:<12} not packed at {at}, job {job} by {worker}: {why}");
     }
     let s = watch_settings()?;
     let now = watch::now(&client).await?;
@@ -603,7 +615,21 @@ async fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::publish_args;
+    use super::{archive_line, publish_args};
+
+    /// Audit 2026-11-17 round w, 18: `archive list` names the endpoint the object is kept at.
+    #[test]
+    fn an_archive_line_names_its_endpoint_bucket_and_key() {
+        let row = serde_json::json!({
+            "session": "2025-12-10", "category": "act01-auto", "state": "KEPT", "bytes": 4242, "bucket": "vyreon-data",
+            "key": "perishables/act01-auto/2025-12-10/4ef2e745.tar.zst", "kept_at": "2025-12-11T13:06:00Z", "job_id": 7, "worker": "w1",
+            "endpoint": "https://nyc3.digitaloceanspaces.com",
+        });
+        assert_eq!(
+            archive_line(&row),
+            "2025-12-10 act01-auto   4242 bytes https://nyc3.digitaloceanspaces.com/vyreon-data/perishables/act01-auto/2025-12-10/4ef2e745.tar.zst job 7 by w1: KEPT 2025-12-11T13:06:00Z"
+        );
+    }
 
     /// Fix round C (corepublish.md, noticed by the verifier): `publish a --vouch b` published `a`
     /// unvouched and then failed opening a file named `--vouch`. The command line is now read
