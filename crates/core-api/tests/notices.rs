@@ -35,7 +35,7 @@ async fn problems_are_posted_once_in_order_silently_and_events_only_logged() {
     migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
     work::load_calendar(&mut client, &serde_json::from_str(CALENDAR).unwrap()).await.unwrap();
     let b = build::register(&mut client, &inventories()[0]).await.unwrap().engine_build;
-    let settings = watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None };
+    let settings = watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None };
 
     // the events: a build admitted, a block done, the queue paused and resumed: logged, not posted (C-050)
     build::admit(&client, &b, &json!({"checklist": "notice test"})).await.unwrap();

@@ -805,3 +805,66 @@ published for a week. Migration 0018; `crates/core-db/src/watch.rs`.
   is switched on with `vyreon-core notices mark-sent`, or in SQL:
   `UPDATE core.notice SET sent_at = now(), last_error = 'marked sent without posting (C-050)' WHERE post AND sent_at IS NULL;`
   Times are the owner's (Mountain Time), computed by PostgreSQL's zone rules.
+
+## C-051 Daily runs: core queues each session the morning after; a CronJob starts the worker; the pool scales to zero (owner-approved goal, 2026-11-17)
+Goal (owner): from the day the system is declared ready, each new session is computed and
+published with nobody starting anything; nodes exist only while there is work. Migration 0019;
+`crates/core-db/src/daily.rs`; `deploy/k8s/40-daily.yaml`; runbook in `deploy/k8s/README.md`.
+- **When a session's inputs are ready: 07:30 New York on the calendar day after T.** Evidence:
+  (1) the closing option snapshot (engine `close_quotes::admit`, D-072: taken 15 to 2 minutes
+  before the close) was not listed at 21:00 ET on T: the droplet's 02:00 UTC captures of
+  2026-11-10, 11-11 and 11-12 (sessions 11-09 to 11-11) each got T−1's snapshot ("snapshot at <T−1> 21:05Z, not 15 to 2
+  minutes before the close"), which is why engine e8aad4e0 left the newest session to the morning
+  run; (2) the next 12:00 UTC (07:00 EST) runs, 2026-11-10 to 11-12, captured every input of those
+  sessions ("still missing: nothing"; from 11-13 the evening run no longer takes T, and the
+  morning run's only remainder is the daily bar's re-capture, planned before its first capture in
+  the same run); (3) Intrinio: "OPRA finalizes open interest after 12:00 AM, EST.
+  Intrinio pushes that out starting at 4:00 AM EST" (FAQ, engine D-026); EOD stock prices around
+  17:00 ET, adjusted around 19:00, "if all of the prices are not present at 7pm ... again around
+  9pm" (FAQ); (4) the engine takes T's daily bars as settled only when captured on a UTC day after
+  T (`acquire::daily_settled`, B5), so nothing before 00:00 UTC on T+1; (5) replay files close at
+  23:31 UTC (2026-11-04 reading). Last observed-ready point 07:00 ET; 30 minutes' margin. Only
+  winter mornings were observed: summer's 07:30 EDT is one hour earlier in UTC than any observed
+  run (to watch on the first summer mornings; the setting to move is `daily::READY_AT`).
+  The cohort prints (EXQ01) are kept by the provider for five sessions: the morning after is
+  inside that.
+- **What is queued:** for each session from `VYREON_CORE_DAILY_FROM`, for
+  `VYREON_CORE_DAILY_BUILD` (both or neither), one TAPE, one DAY_BLOCK and one ORDERED_PASS, not
+  only the day block: without its tape job T's tape cache never reaches core and every later day
+  would download T's tapes again (a day fetches 252 sessions' caches, D-310); without the pass the
+  history-reading sensors (the paid issue's unusual readings) are never computed. A kind already
+  covered by a job not cancelled is skipped; a session already published gets nothing;
+  `core.daily_session` records the session in the same transaction, so it is never queued twice
+  (a cancelled daily job stays cancelled). The service does it once a minute in the watch's tick;
+  `vyreon-core daily [queue]` shows (or does) it by hand. A build not registered, not admitted or
+  withdrawn queues nothing and is the problem `DAILY_STOPPED` until it can.
+- **Daily jobs first (`core.job.priority`, 1 for a daily run):** the claim took the earliest
+  session, so during the backfill a daily session would wait behind every older block, past its
+  perishable prints' five sessions. The claim now orders by priority, then session. Two waits
+  remain by the existing rules and are not changed here: a day block waits for every unfinished
+  tape job up to its session (C-025: so the backfill's current tranche of tapes), and the ordered
+  pass of T waits for every earlier pass and block (C-039: history order), so during the backfill
+  T's base publishes on time and its history-reading sensors follow the backfill.
+- **Deadline (C-050) consistent with readiness:** `VYREON_CORE_DEADLINE_HOUR`, default **20:00 MT**
+  the next calendar day (was a fixed 10:00, which falls before a day queued at 05:30 MT could
+  finish: one day measured 5 h 50 min from an empty disk on the cluster). 13 h 30 min (New
+  York's winter, Alberta on UTC−6) to 14 h 30 min after the session is queued: the tape job and
+  two attempts fit before a late session is alerted (C-050: a retried attempt that succeeds is not
+  an alert). Sunday's report at risk moves with it (Saturday, deadline + 2 h, 22:00 MT). The
+  deadlines start at `VYREON_CORE_DAILY_FROM` unless `VYREON_CORE_DEADLINES_FROM` is set. The
+  Saturday 09:00 check now counts a session whose deadline is still ahead (Friday's) as due, not
+  missing: it read every Friday as missing.
+- **The cluster:** CronJob `daily`, 07:45 New York, Tuesday to Saturday, `concurrencyPolicy:
+  Forbid`, Indexed, `completions: 3`, `parallelism: 1`, `backoffLimitPerIndex: 1`, 23 h
+  `activeDeadlineSeconds`. One pod runs tape, day block and ordered pass in order (two init
+  containers and the main one, each its own empty home and only the keys it reads). Parallelism
+  cannot follow the queue without KEDA (README, "After this run"); a run takes up to three queued
+  sessions one after another, and a longer catch-up is the existing Jobs by hand. Every worker pod
+  (the CronJob's and the three Jobs of `30-workers.yaml`) carries
+  `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"`.
+- **The pool:** `day` autoscaled with min 0 (the owner applies it; README). DigitalOcean's
+  autoscaler page supports zero; its doctl `node-pool create` reference says it does not; the
+  API's answer settles it. If 0 is refused, the smallest alternative is min 1 (one idle node,
+  about $120 a month) or the pool created and deleted around each run as today.
+- **Ordinary day:** about one worker node for 6 to 7 hours a session (about $1.10; the owner's
+  spend).

@@ -35,7 +35,8 @@ async fn ready(test: &str) -> (Scratch, Client, String) {
 }
 
 fn settings(from: Option<&str>) -> Settings {
-    Settings { profile: PROFILE.into(), deadlines_from: from.map(str::to_owned), volume_bytes: None }
+    // the deadline hour of C-050 (10:00 MT): the mechanism is the same at any hour
+    Settings { profile: PROFILE.into(), deadlines_from: from.map(str::to_owned), volume_bytes: None, deadline_hour: 10, daily: None }
 }
 
 /// The slice's base revision header (2025-12-10) as the published revision of `day`, written as
@@ -288,7 +289,9 @@ async fn the_digest_leads_with_its_verdict() {
         "Fri Dec 12: not published"
     ]);
     let watched = watch::weekly(&client, &settings(Some("2025-12-08")), "2025-12-13 09:00:00-07").await.unwrap();
-    assert!(watched.starts_with("🔴 Weekly check: Sunday's report at risk, 3 of 5 sessions not published (Mon Dec 8, Thu Dec 11, Fri Dec 12)\n"), "{watched}");
+    // C-051: Friday's deadline (Saturday 10:00 here) is still ahead at 09:00: due, not missing
+    assert!(watched.starts_with("🔴 Weekly check: Sunday's report at risk, 2 of 5 sessions not published (Mon Dec 8, Thu Dec 11)\n"), "{watched}");
+    assert!(watched.contains("\nFri Dec 12: not published yet, due by Sat 10:00 MT\n"), "{watched}");
     scratch.drop().await;
 }
 

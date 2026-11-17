@@ -14,7 +14,9 @@ security's typical level AND in the top or bottom tenth of its last 63 sessions 
 `unusual.rs` WINDOW = 63, robust z: matches); "what could not be measured, and why"; data
 through the latest session; no signals or forecasts. So by 2027-01-09 we need: (1) history
 back at least 63 sessions before 2027-01-08 (phase 1 covers it); (2) **daily go-forward runs**
-computing each new session from the build onward; (3) Reporter producing the paid issue from
+computing each new session from the build onward (built 2026-11-17, branch `core-daily`, C-051:
+core queues T at 07:30 New York the next day, CronJob `daily`, pool `day` to min 0; not deployed;
+runbook `deploy/k8s/README.md` "Daily runs"); (3) Reporter producing the paid issue from
 core's API, sent through beehiiv. **Owner, 2026-11-16:** the deadline will be met; target free
 reports live in **December 2026**. Intrinio's Startup tier (USD 333 a month, scaling to USD 999)
 is required for redistribution rights and covers free and paid reports, so it starts before the

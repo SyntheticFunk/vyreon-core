@@ -22,6 +22,9 @@
 //!   vyreon-core problems                              the open problems (C-050), oldest first, and the last resolved
 //!   vyreon-core digest [weekly]                       print the 09:00 digest (or the Saturday check) as it would be posted now
 //!   vyreon-core log [n]                               the newest n (20) logged events, which are not posted
+//!   vyreon-core daily [queue]                         the daily runs (C-051): their settings, the sessions
+//!                                                     handled and the next due; `queue` queues what is due now
+//!                                                     (the service does it every minute by itself)
 //!   vyreon-core notices mark-sent                     mark every post not sent yet as sent, without posting it (run once
 //!                                                     before the webhook is first switched on, so the channel starts clean)
 //!   vyreon-core api-key create <holder> <read[,admin]>   make a reader API key (printed once; only its digest is kept)
@@ -34,15 +37,20 @@
 //!                                                     (a file holding the Discord webhook URL; without it the posts wait).
 //!                                                     The watch (C-050), also read by `problems` and `digest`:
 //!                                                     VYREON_CORE_WATCH_PROFILE (FREE_REPORT_64), VYREON_CORE_DEADLINES_FROM
-//!                                                     (the first session with a publishing deadline; unset: none),
-//!                                                     VYREON_CORE_VOLUME_GIB (the database volume's size; unset: not checked)
+//!                                                     (the first session with a publishing deadline; unset: the daily
+//!                                                     runs' first session, else none), VYREON_CORE_DEADLINE_HOUR (20:
+//!                                                     the deadline's hour, MT, the next calendar day), VYREON_CORE_VOLUME_GIB
+//!                                                     (the database volume's size; unset: not checked).
+//!                                                     Daily runs (C-051), both or neither: VYREON_CORE_DAILY_FROM (the first
+//!                                                     session core queues by itself; unset: none) and VYREON_CORE_DAILY_BUILD
+//!                                                     (the admitted engine build they are queued for)
 //!   vyreon-core engine-store export <date> <dir>      bundles and inventories of a day from a store in
 //!                                                     the engine's schema (VYREON_ENGINE_PG[_FILE]; read-only)
 //!
 //! The database connection string comes from `VYREON_CORE_PG`, or from the file named by
 //! `VYREON_CORE_PG_FILE`. It is a secret and is never printed.
 mod engine_store;
-use core_db::{build, evidence, migrate, notice, publish, universe, watch, work};
+use core_db::{build, daily, evidence, migrate, notice, publish, universe, watch, work};
 use std::path::Path;
 use tokio_postgres::Client;
 use std::process::ExitCode;
@@ -170,23 +178,82 @@ fn setting<T: std::str::FromStr>(name: &str, default: T) -> Result<T, String> {
     }
 }
 
-/// The watch's settings (C-050).
+/// A setting that is set and not blank.
+fn set(name: &str) -> Option<String> {
+    std::env::var(name).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
+}
+
+fn date_setting(name: &str) -> Result<Option<String>, String> {
+    match set(name) {
+        Some(d) if !core_contract::is_date(&d) => Err(format!("{name}: {d} is not a date written YYYY-MM-DD")),
+        d => Ok(d),
+    }
+}
+
+/// The watch's settings (C-050) and the daily runs' (C-051).
 fn watch_settings() -> Result<watch::Settings, String> {
-    let deadlines_from = std::env::var("VYREON_CORE_DEADLINES_FROM").ok().filter(|v| !v.trim().is_empty());
-    if let Some(d) = &deadlines_from
-        && !core_contract::is_date(d)
-    {
-        return Err(format!("VYREON_CORE_DEADLINES_FROM: {d} is not a date written YYYY-MM-DD"));
+    let profile = setting("VYREON_CORE_WATCH_PROFILE", "FREE_REPORT_64".to_string())?;
+    let daily = match (date_setting("VYREON_CORE_DAILY_FROM")?, set("VYREON_CORE_DAILY_BUILD")) {
+        (Some(from), Some(build)) => Some(daily::Daily { profile: profile.clone(), build, from }),
+        (None, None) => None,
+        _ => return Err("VYREON_CORE_DAILY_FROM and VYREON_CORE_DAILY_BUILD are set together or not at all".into()),
+    };
+    // a deadline from the first session core queues by itself, unless one is set
+    let deadlines_from = date_setting("VYREON_CORE_DEADLINES_FROM")?.or_else(|| daily.as_ref().map(|d| d.from.clone()));
+    let deadline_hour: i32 = setting("VYREON_CORE_DEADLINE_HOUR", watch::DEADLINE_HOUR)?;
+    if !(0..=21).contains(&deadline_hour) {
+        return Err(format!("VYREON_CORE_DEADLINE_HOUR: {deadline_hour} is not an hour from 0 to 21"));
     }
     let volume: Option<f64> = match std::env::var("VYREON_CORE_VOLUME_GIB") {
         Ok(v) if !v.trim().is_empty() => Some(v.trim().parse().map_err(|_| format!("VYREON_CORE_VOLUME_GIB: cannot read {v}"))?),
         _ => None,
     };
-    Ok(watch::Settings {
-        profile: setting("VYREON_CORE_WATCH_PROFILE", "FREE_REPORT_64".to_string())?,
-        deadlines_from,
-        volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64),
-    })
+    Ok(watch::Settings { profile, deadlines_from, volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64), deadline_hour, daily })
+}
+
+/// `daily [queue]`: the daily runs' settings, the sessions handled, and (with `queue`) what is due
+/// now queued, as the service does every minute.
+async fn daily_runs(queue: bool) -> Result<(), String> {
+    let s = watch_settings()?;
+    let Some(d) = &s.daily else {
+        println!("daily runs are off: VYREON_CORE_DAILY_FROM and VYREON_CORE_DAILY_BUILD are not set");
+        return Ok(());
+    };
+    let mut client = connect().await?;
+    let now = watch::now(&client).await?;
+    println!(
+        "daily runs: profile {}, build {}, from {}; a session is due at {} {} the next calendar day; deadline {:02}:00 MT the next calendar day",
+        d.profile,
+        d.build,
+        d.from,
+        daily::READY_AT,
+        daily::READY_ZONE,
+        s.deadline_hour
+    );
+    if let Some(why) = daily::build_stopped(&client, d).await? {
+        println!("the build {why}: nothing is queued until it is admitted");
+    }
+    if queue {
+        for q in daily::queue_due(&mut client, d, &now).await? {
+            println!("queued {}: jobs {:?}", q.session, q.jobs);
+        }
+    } else {
+        let due = daily::due(&client, d, &now).await?;
+        println!("due now and not queued yet: {}", if due.is_empty() { "none".to_string() } else { due.join(" ") });
+    }
+    let rows = client
+        .query(
+            "SELECT session::text, engine_build, to_char(queued_at AT TIME ZONE 'America/Edmonton', 'Dy Mon FMDD HH24:MI'), jobs::text
+             FROM core.daily_session WHERE profile_id = $1 ORDER BY session DESC LIMIT 10",
+            &[&d.profile],
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    for r in rows.iter().rev() {
+        println!("{} queued {} MT for {}: jobs {}", r.get::<_, String>(0), r.get::<_, String>(2), r.get::<_, String>(1), r.get::<_, String>(3));
+    }
+    println!("{}", daily::digest_line(&client, Some(d), &now, watch::ZONE).await?);
+    Ok(())
 }
 
 /// `problems`: what is open, oldest first, and the ten last resolved.
@@ -401,6 +468,8 @@ async fn main() -> ExitCode {
         ["problems"] => problems().await,
         ["digest"] => digest(false).await,
         ["digest", "weekly"] => digest(true).await,
+        ["daily"] => daily_runs(false).await,
+        ["daily", "queue"] => daily_runs(true).await,
         ["log"] => log("20").await,
         ["log", n] => log(n).await,
         ["notices", "mark-sent"] => match connect().await {

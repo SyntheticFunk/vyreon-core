@@ -19,6 +19,7 @@
 //! DigitalOcean billing-read token) and idle worker nodes (Kubernetes read access). Each will be
 //! one more function returning `Found` rows into `current`, with its kind added to
 //! `core.problem`'s check; nothing else changes.
+use crate::daily::{self, Daily};
 use crate::{evidence, notice};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
@@ -41,6 +42,14 @@ pub const DATABASE_CLEAR: f64 = 0.78;
 pub const CALENDAR_DAYS: i32 = 45;
 /// The digest's typical coverage is the median over this many earlier published sessions.
 pub const TYPICAL_SESSIONS: i64 = 20;
+/// A session's publishing deadline: this hour in the owner's zone on the next calendar day
+/// (`VYREON_CORE_DEADLINE_HOUR`). C-051: a session is queued at 07:30 New York the next day
+/// (05:30 MT, or 06:30 in New York's winter now that Alberta stays on UTC−6); one clean day on
+/// the cluster measured 5 h 50 min from an empty disk, so 20:00 MT (13 h 30 min or more later)
+/// leaves room for the tape job and two attempts before a late session is alerted.
+pub const DEADLINE_HOUR: i32 = 20;
+/// Sunday's report is at risk this many hours after Friday's deadline (Saturday).
+pub const AT_RISK_AFTER_HOURS: i32 = 2;
 
 fn db(e: tokio_postgres::Error) -> String {
     e.as_db_error().map_or_else(|| e.to_string(), |d| d.message().to_owned())
@@ -56,6 +65,17 @@ pub struct Settings {
     pub deadlines_from: Option<String>,
     /// The database volume's size; None: the database's size is reported, not checked.
     pub volume_bytes: Option<i64>,
+    /// The deadline's hour in the owner's zone, the next calendar day (0 to 21; `DEADLINE_HOUR`).
+    pub deadline_hour: i32,
+    /// The daily runs (C-051); None: core queues nothing by itself.
+    pub daily: Option<Daily>,
+}
+
+impl Settings {
+    /// Sunday's report's at-risk hour on Saturday.
+    pub fn at_risk_hour(&self) -> i32 {
+        (self.deadline_hour + AT_RISK_AFTER_HOURS).min(23)
+    }
 }
 
 /// A problem as a check finds it.
@@ -179,6 +199,18 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open])
     }
     failed_jobs(c, &mut found).await?;
     provider(c, now, open, &mut found).await?;
+    // C-051: daily runs that cannot be given work are a problem until they can
+    if let Some(d) = &s.daily
+        && let Some(why) = daily::build_stopped(c, d).await?
+    {
+        found.push(Found {
+            kind: "DAILY_STOPPED",
+            key: d.build.clone(),
+            summary: format!("Daily runs stopped: build {} {why}, so no new session is queued", d.build),
+            command: "vyreon-core daily".into(),
+            detail: None,
+        });
+    }
     if let Some(volume) = s.volume_bytes.filter(|v| *v > 0) {
         let size: i64 = c.query_one("SELECT pg_database_size(current_database())", &[]).await.map_err(db)?.get(0);
         let share = size as f64 / volume as f64;
@@ -239,9 +271,10 @@ fn gigabytes(bytes: i64) -> String {
     format!("{:.1} GiB", bytes as f64 / (1u64 << 30) as f64)
 }
 
-/// (a) Each session from `from` must have its profile's base revision published by 10:00 in the
-/// owner's zone on the next calendar day; the week's last session (Friday, or the day before a
-/// Friday holiday) is also Sunday's report at risk if still missing at 12:00 on Saturday. The
+/// (a) Each session from `from` must have its profile's base revision published by the deadline
+/// hour in the owner's zone on the next calendar day; the week's last session (Friday, or the day
+/// before a Friday holiday) is also Sunday's report at risk if still missing on Saturday two hours
+/// after that (the deadline hour of Friday's session, plus `AT_RISK_AFTER_HOURS`). The
 /// at-risk problem is raised only before the week's Sunday is over; once raised it stays until
 /// the session publishes.
 async fn deadlines(c: &impl GenericClient, s: &Settings, from: &str, now: &str, open: &[Open], found: &mut Vec<Found>) -> Result<(), String> {
@@ -252,11 +285,11 @@ async fn deadlines(c: &impl GenericClient, s: &Settings, from: &str, now: &str, 
             &format!(
                 "SELECT s.session::text, to_char(s.session, 'Dy Mon FMDD'), to_char(s.session + 1, 'Dy')
                  FROM core.session s
-                 WHERE s.session >= $1::text::date AND ((s.session + 1) + time '10:00') AT TIME ZONE $4 <= $2::text::timestamptz
+                 WHERE s.session >= $1::text::date AND ((s.session + 1) + make_time($5, 0, 0)) AT TIME ZONE $4 <= $2::text::timestamptz
                    AND NOT {PUBLISHED}
                  ORDER BY 1"
             ),
-            &[&from, &now, &s.profile, &ZONE],
+            &[&from, &now, &s.profile, &ZONE, &s.deadline_hour],
         )
         .await
         .map_err(db)?;
@@ -265,7 +298,7 @@ async fn deadlines(c: &impl GenericClient, s: &Settings, from: &str, now: &str, 
         found.push(Found {
             kind: "SESSION_LATE",
             key: session,
-            summary: format!("{day} not published by its {next} 10:00 MT deadline"),
+            summary: format!("{day} not published by its {next} {:02}:00 MT deadline", s.deadline_hour),
             command: "vyreon-core queue".into(),
             detail: None,
         });
@@ -278,11 +311,11 @@ async fn deadlines(c: &impl GenericClient, s: &Settings, from: &str, now: &str, 
                  FROM core.session s
                  WHERE s.session >= $1::text::date
                    AND date_trunc('week', s.session) < date_trunc('week', COALESCE((SELECT min(n.session) FROM core.session n WHERE n.session > s.session), s.session + 7))
-                   AND ((date_trunc('week', s.session)::date + 5) + time '12:00') AT TIME ZONE $4 <= $2::text::timestamptz
+                   AND ((date_trunc('week', s.session)::date + 5) + make_time($5, 0, 0)) AT TIME ZONE $4 <= $2::text::timestamptz
                    AND NOT {PUBLISHED}
                  ORDER BY 1"
             ),
-            &[&from, &now, &s.profile, &ZONE],
+            &[&from, &now, &s.profile, &ZONE, &s.at_risk_hour()],
         )
         .await
         .map_err(db)?;
@@ -292,7 +325,7 @@ async fn deadlines(c: &impl GenericClient, s: &Settings, from: &str, now: &str, 
             found.push(Found {
                 kind: "REPORT_AT_RISK",
                 key: session,
-                summary: format!("Sunday's report at risk: {day} still not published at Sat 12:00 MT"),
+                summary: format!("Sunday's report at risk: {day} still not published at Sat {:02}:00 MT", s.at_risk_hour()),
                 command: "vyreon-core queue".into(),
                 detail: None,
             });
@@ -791,8 +824,12 @@ pub async fn digest(client: &Client, s: &Settings, now: &str) -> Result<String, 
         Some(v) => format!("Database size: {} of {} ({:.0}%)", gigabytes(size), gigabytes(v), 100.0 * size as f64 / v as f64),
         None => format!("Database size: {} (its volume's size is not set, so it is not checked)", gigabytes(size)),
     });
-    if s.deadlines_from.is_none() {
-        lines.push("Publishing deadlines: not checked yet (no first session is set)".into());
+    if s.daily.is_some() {
+        lines.push(daily::digest_line(c, s.daily.as_ref(), now, ZONE).await?);
+    }
+    match &s.deadlines_from {
+        None => lines.push("Publishing deadlines: not checked yet (no first session is set)".into()),
+        Some(from) => lines.push(format!("Publishing deadlines: from {from}, each session by {:02}:00 MT the next day", s.deadline_hour)),
     }
 
     let mut handled = Vec::new();
@@ -815,39 +852,47 @@ pub async fn weekly(client: &Client, s: &Settings, now: &str) -> Result<String, 
             &format!(
                 "SELECT s.session::text, {}, $3::text IS NOT NULL AND s.session >= $3::text::date,
                         EXISTS (SELECT FROM vyreon.day_revision d WHERE d.represented_date = s.session AND d.profile_id = $2
-                                AND d.state = 'PUBLISHED' AND d.base_revision IS NULL)
+                                AND d.state = 'PUBLISHED' AND d.base_revision IS NULL),
+                        ((s.session + 1) + make_time($4, 0, 0)) AT TIME ZONE 'America/Edmonton' <= $1::text::timestamptz,
+                        to_char(s.session + 1, 'Dy')
                  FROM core.session s,
                       (SELECT ($1::text::timestamptz AT TIME ZONE 'America/Edmonton')::date AS today) t
                  WHERE s.session >= date_trunc('week', t.today)::date AND s.session < t.today
                  ORDER BY 1",
                 day_of("s.session")
             ),
-            &[&now, &s.profile, &s.deadlines_from],
+            &[&now, &s.profile, &s.deadlines_from, &s.deadline_hour],
         )
         .await
         .map_err(db)?;
-    let week: Vec<(String, String, bool, bool)> = rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3))).collect();
+    // (session, words, watched, published, its deadline passed, its deadline's day)
+    let week: Vec<(String, String, bool, bool, bool, String)> = rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5))).collect();
     let dates: Vec<String> = week.iter().map(|w| w.0.clone()).collect();
     let tallies = session_tallies(c, &s.profile, &dates).await?;
-    let watched: Vec<&(String, String, bool, bool)> = week.iter().filter(|w| w.2).collect();
-    let missing: Vec<&str> = watched.iter().filter(|w| !w.3).map(|w| w.1.as_str()).collect();
+    let watched: Vec<_> = week.iter().filter(|w| w.2).collect();
+    // C-051: a session whose deadline is still ahead (Friday's, on Saturday morning) is due, not missing
+    let missing: Vec<&str> = watched.iter().filter(|w| !w.3 && w.4).map(|w| w.1.as_str()).collect();
+    let due: Vec<&str> = watched.iter().filter(|w| !w.3 && !w.4).map(|w| w.1.as_str()).collect();
     let first = if week.is_empty() {
         "🟡 Weekly check: no trading session this week".to_string()
     } else if watched.is_empty() {
         "🟡 Weekly check: this week's sessions have no publishing deadline yet, so Sunday's report is not checked".to_string()
-    } else if missing.is_empty() {
+    } else if missing.is_empty() && due.is_empty() {
         format!("🟢 Weekly check: all {} of this week's sessions published; Sunday's report has what it needs", watched.len())
+    } else if missing.is_empty() {
+        format!("🟢 Weekly check: on time; {} of {} sessions published, {} due later ({})", watched.len() - due.len(), watched.len(), due.len(), due.join(", "))
     } else {
         format!("🔴 Weekly check: Sunday's report at risk, {} of {} sessions not published ({})", missing.len(), watched.len(), missing.join(", "))
     };
     let mut lines = Vec::new();
-    for (date, words, _, published) in &week {
+    for (date, words, watched, published, passed, by) in &week {
         lines.push(match (published, tallies.get(date)) {
             (true, Some(t)) => {
                 let share = t.measured().map_or("no measurements".into(), |v| format!("{} of its measurements have a value", pct(v)));
                 format!("{words}: published · {share} · {}", faults(t.engine_faults))
             }
             (true, None) => format!("{words}: published"),
+            (false, _) if *watched && !*passed => format!("{words}: not published yet, due by {by} {:02}:00 MT", s.deadline_hour),
             (false, _) => format!("{words}: not published"),
         });
     }
@@ -856,10 +901,15 @@ pub async fn weekly(client: &Client, s: &Settings, now: &str) -> Result<String, 
     Ok(compose(&first, &lines, &open))
 }
 
-/// One minute of the watch: the check, then the digest when it is due (09:00 in the owner's zone,
-/// once a day) and the weekly check (Saturday, 09:00). A failed check does not stop the digest.
+/// One minute of the watch: the daily runs' due sessions queued (C-051), the check, then the
+/// digest when it is due (09:00 in the owner's zone, once a day) and the weekly check (Saturday,
+/// 09:00). A failed step does not stop the next; the first failure is returned.
 pub async fn tick(client: &mut Client, s: &Settings, now: &str) -> Result<Change, String> {
-    let checked = check(client, s, now).await;
+    let queued = match &s.daily {
+        Some(d) => daily::queue_due(client, d, now).await.map(|_| ()),
+        None => Ok(()),
+    };
+    let checked = check(client, s, now).await.and_then(|c| queued.map(|()| c));
     let row = client
         .query_one(
             "SELECT to_char(t, 'YYYY-MM-DD'), extract(hour FROM t) >= 9, extract(isodow FROM t) = 6

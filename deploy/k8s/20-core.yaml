@@ -51,10 +51,20 @@ spec:
               value: /etc/vyreon-core/webhook/webhook
             - name: VYREON_CORE_VOLUME_GIB      # 10-postgres.yaml's storage size
               value: "120"
-            # the first session with a publishing deadline (10:00 MT the next day): set when daily
-            # runs go live; unset, no deadline is checked and the digest says so
+            # Daily runs (C-051): core queues each session from VYREON_CORE_DAILY_FROM by itself, at
+            # 07:30 New York the next calendar day, for the admitted build VYREON_CORE_DAILY_BUILD
+            # (both or neither; unset, nothing is queued and the backfill is scheduled by hand).
+            # The publishing deadlines (C-050) then start at the same session unless
+            # VYREON_CORE_DEADLINES_FROM says otherwise; each session is due by
+            # VYREON_CORE_DEADLINE_HOUR (20:00 MT) the next calendar day.
+            # - name: VYREON_CORE_DAILY_FROM
+            #   value: "YYYY-MM-DD"
+            # - name: VYREON_CORE_DAILY_BUILD
+            #   value: "<engine build, as `build register` printed it>"
             # - name: VYREON_CORE_DEADLINES_FROM
             #   value: "YYYY-MM-DD"
+            - name: VYREON_CORE_DEADLINE_HOUR
+              value: "20"
           ports:
             - containerPort: 8080
           readinessProbe:
