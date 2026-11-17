@@ -1,6 +1,8 @@
 # vyreon-core: one replica (it is the only writer and publishes one bundle at a time). It migrates
 # the database before it serves. Reachable only inside the cluster, as http://vyreon-core:8080.
-# Secret `vyreon-core` (made by hand, see README): `worker-token-sha256`.
+# Secret `vyreon-core` (made by hand, see README): `worker-token-sha256`. Secret `vyreon-core-webhook`
+# (key `webhook`: the Discord channel's webhook URL, made by hand from a file, never printed) is
+# mounted read-only; while it is absent the channel's posts wait unsent (C-050).
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -16,6 +18,8 @@ spec:
     metadata:
       labels: {app: vyreon-core}
     spec:
+      # the image's user (deploy/core/Dockerfile): the webhook's file is readable by its group only
+      securityContext: {fsGroup: 10001}
       initContainers:
         - name: migrate
           image: VYREON_CORE_IMAGE
@@ -42,6 +46,15 @@ spec:
               valueFrom: {secretKeyRef: {name: vyreon-core, key: worker-token-sha256}}
             - name: VYREON_CORE_LEASE_SECONDS
               value: "600"
+            # the owner's channel (C-050)
+            - name: VYREON_CORE_WEBHOOK_FILE
+              value: /etc/vyreon-core/webhook/webhook
+            - name: VYREON_CORE_VOLUME_GIB      # 10-postgres.yaml's storage size
+              value: "120"
+            # the first session with a publishing deadline (10:00 MT the next day): set when daily
+            # runs go live; unset, no deadline is checked and the digest says so
+            # - name: VYREON_CORE_DEADLINES_FROM
+            #   value: "YYYY-MM-DD"
           ports:
             - containerPort: 8080
           readinessProbe:
@@ -51,7 +64,10 @@ spec:
             requests: {cpu: "500m", memory: 1Gi}
           volumeMounts:
             - {name: spool, mountPath: /var/spool/vyreon-core}
+            - {name: webhook, mountPath: /etc/vyreon-core/webhook, readOnly: true}
       volumes:
+        - name: webhook
+          secret: {secretName: vyreon-core-webhook, optional: true, defaultMode: 0440}
         # a day's bundle while it is checked: about 200 MB, one at a time
         - name: spool
           emptyDir: {sizeLimit: 4Gi}
