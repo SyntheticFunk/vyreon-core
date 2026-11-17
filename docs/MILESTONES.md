@@ -315,6 +315,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **07:31 UTC: the queue had paused itself** when old tape job 259 failed for the last time
+  (core's safety stop: `queue_control` paused with that reason), so the first 654 tape pods found
+  nothing to claim and exited. Resumed (`vyreon-core queue resume`) now that D-358 handles the
+  cause; Job `v-tape-1a53b` restarted, cached sessions skipping in seconds (47 done in 90 s).
+  **Practice for the build: after any job fails for the last time, read the evidence, fix or
+  accept the cause, then resume; check `core.queue_control` whenever pods find nothing to claim.**
 - **07:21 UTC: build 1a532d8b+c17a5feae181 registered and admitted (image pushed): D-357 (a failing
   child's error lines lead its message; evidence reads every run log) and D-358 (a replay
   session the provider refuses on a job's last attempt is a stated TAPE_PROVIDER_REFUSED absence
