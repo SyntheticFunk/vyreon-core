@@ -19,6 +19,8 @@
 //!   vyreon-core evidence list [<job>]                 the failure evidence workers left (C-049), newest first
 //!   vyreon-core evidence show <job> [--attempt N]     one attempt's evidence in full (the latest by default):
 //!                                                     its stop message, the input plan's refusals and its log excerpt
+//!   vyreon-core archive list [<date>]                 the perishable archive (C-052): each object requested, kept or
+//!                                                     failed (the newest sessions, or one session), and what is missing
 //!   vyreon-core problems                              the open problems (C-050), oldest first, and the last resolved
 //!   vyreon-core digest [weekly]                       print the 09:00 digest (or the Saturday check) as it would be posted now
 //!   vyreon-core log [n]                               the newest n (20) logged events, which are not posted
@@ -43,14 +45,23 @@
 //!                                                     (the database volume's size; unset: not checked).
 //!                                                     Daily runs (C-051), both or neither: VYREON_CORE_DAILY_FROM (the first
 //!                                                     session core queues by itself; unset: none) and VYREON_CORE_DAILY_BUILD
-//!                                                     (the admitted engine build they are queued for)
+//!                                                     (the admitted engine build they are queued for).
+//!                                                     The perishable archive (C-052), all five or none (off):
+//!                                                     VYREON_CORE_SPACES_ENDPOINT (https://nyc3.digitaloceanspaces.com),
+//!                                                     VYREON_CORE_SPACES_REGION (nyc3), VYREON_CORE_SPACES_BUCKET,
+//!                                                     VYREON_CORE_SPACES_KEY_ID_FILE and VYREON_CORE_SPACES_SECRET_FILE
+//!                                                     (files holding the bucket's access key; read, never printed; absent:
+//!                                                     the archive is off). VYREON_CORE_ARCHIVE_FROM (the first session whose
+//!                                                     published day must have its archives; unset: the daily runs' first
+//!                                                     session) and VYREON_CORE_ARCHIVE_ALERT_DAYS (a missing archive older
+//!                                                     than this is a problem; unset: only counted in the digest)
 //!   vyreon-core engine-store export <date> <dir>      bundles and inventories of a day from a store in
 //!                                                     the engine's schema (VYREON_ENGINE_PG[_FILE]; read-only)
 //!
 //! The database connection string comes from `VYREON_CORE_PG`, or from the file named by
 //! `VYREON_CORE_PG_FILE`. It is a secret and is never printed.
 mod engine_store;
-use core_db::{build, daily, evidence, migrate, notice, publish, universe, watch, work};
+use core_db::{archive, build, daily, evidence, migrate, notice, publish, universe, watch, work};
 use std::path::Path;
 use tokio_postgres::Client;
 use std::process::ExitCode;
@@ -208,7 +219,73 @@ fn watch_settings() -> Result<watch::Settings, String> {
         Ok(v) if !v.trim().is_empty() => Some(v.trim().parse().map_err(|_| format!("VYREON_CORE_VOLUME_GIB: cannot read {v}"))?),
         _ => None,
     };
-    Ok(watch::Settings { profile, deadlines_from, volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64), deadline_hour, daily })
+    // C-052: the archive is watched when its bucket is set
+    let archive = match set("VYREON_CORE_SPACES_BUCKET") {
+        None => None,
+        Some(_) => {
+            let alert_days = match set("VYREON_CORE_ARCHIVE_ALERT_DAYS") {
+                None => None,
+                Some(v) => Some(v.parse::<i32>().ok().filter(|d| *d >= 1).ok_or_else(|| format!("VYREON_CORE_ARCHIVE_ALERT_DAYS: {v} is not a whole number of days from 1"))?),
+            };
+            let expected_from = date_setting("VYREON_CORE_ARCHIVE_FROM")?.or_else(|| daily.as_ref().map(|d| d.from.clone()));
+            Some(watch::ArchiveWatch { expected_from, alert_days })
+        }
+    };
+    Ok(watch::Settings { profile, deadlines_from, volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64), deadline_hour, daily, archive })
+}
+
+/// The perishable archive's bucket and key (C-052): all five settings or none. The key's files
+/// may be absent (the Secret not created yet): the archive is then off. Never printed.
+fn spaces_settings() -> Result<Option<archive::Spaces>, String> {
+    let names = ["VYREON_CORE_SPACES_ENDPOINT", "VYREON_CORE_SPACES_REGION", "VYREON_CORE_SPACES_BUCKET", "VYREON_CORE_SPACES_KEY_ID_FILE", "VYREON_CORE_SPACES_SECRET_FILE"];
+    let values: Vec<Option<String>> = names.iter().map(|n| set(n)).collect();
+    if values.iter().all(Option::is_none) {
+        println!("the perishable archive is off: VYREON_CORE_SPACES_* are not set");
+        return Ok(None);
+    }
+    if values.iter().any(Option::is_none) {
+        return Err(format!("set all or none of {}", names.join(", ")));
+    }
+    let v: Vec<String> = values.into_iter().flatten().collect();
+    let read = |file: &str| std::fs::read_to_string(file).ok().map(|t| t.trim().to_owned()).filter(|t| !t.is_empty());
+    let (Some(key_id), Some(secret)) = (read(&v[3]), read(&v[4])) else {
+        println!("the Spaces key's files are absent or empty: the perishable archive is off");
+        return Ok(None);
+    };
+    let spaces = archive::Spaces::new(&v[0], &v[1], &v[2], &key_id, &secret)?;
+    println!("the perishable archive goes to {spaces:?}");
+    Ok(Some(spaces))
+}
+
+/// `archive list [<date>]`: one line per archive object, newest session first, then what is missing.
+async fn archive_list(session: Option<&str>) -> Result<(), String> {
+    let client = connect().await?;
+    let rows = archive::list(&client, session, 200).await?;
+    if rows.is_empty() {
+        println!("no perishable archive{}", session.map_or(String::new(), |s| format!(" for {s}")));
+    }
+    for r in &rows {
+        let text = |k: &str| r[k].as_str().unwrap_or_default().to_owned();
+        let state = match text("state").as_str() {
+            "KEPT" => format!("KEPT {}", text("kept_at")),
+            "FAILED" => format!("FAILED: {}", text("failure")),
+            other => format!("{other} {} (not kept yet)", text("requested_at")),
+        };
+        println!("{} {:<12} {} bytes {}/{} job {} by {}: {state}", text("session"), text("category"), r["bytes"], text("bucket"), text("key"), r["job_id"], text("worker"));
+    }
+    let s = watch_settings()?;
+    let now = watch::now(&client).await?;
+    let expected = s.archive.as_ref().and_then(|a| a.expected_from.clone());
+    let missing = archive::missing(&client, &s.profile, expected.as_deref(), &now).await?;
+    println!(
+        "missing: {}{}",
+        missing.len(),
+        expected.map_or(" (only requests never kept are counted: VYREON_CORE_ARCHIVE_FROM is not set)".into(), |f| format!(" (every published day from {f} is expected to have its archives)"))
+    );
+    for m in missing.iter().filter(|m| session.is_none_or(|s| s == m.session)) {
+        println!("  {} {} for {}", m.session, m.category, watch::age(m.age));
+    }
+    Ok(())
 }
 
 /// `daily [queue]`: the daily runs' settings, the sessions handled, and (with `queue`) what is due
@@ -310,6 +387,7 @@ async fn serve() -> Result<(), String> {
         lease_seconds: setting("VYREON_CORE_LEASE_SECONDS", 300.0)?,
         budget,
         max_bundle_bytes: 2 << 30,
+        archive: spaces_settings()?,
     };
     let pg: tokio_postgres::Config = conninfo("VYREON_CORE_PG")?.parse().map_err(|_| "VYREON_CORE_PG: not a connection string".to_string())?;
     let manager = deadpool_postgres::Manager::new(pg, NoTls);
@@ -465,6 +543,8 @@ async fn main() -> ExitCode {
         ["evidence", "list", job] => evidence_list(Some(job)).await,
         ["evidence", "show", job] => evidence_show(job, None).await,
         ["evidence", "show", job, "--attempt", attempt] => evidence_show(job, Some(attempt)).await,
+        ["archive", "list"] => archive_list(None).await,
+        ["archive", "list", date] => archive_list(Some(date)).await,
         ["problems"] => problems().await,
         ["digest"] => digest(false).await,
         ["digest", "weekly"] => digest(true).await,

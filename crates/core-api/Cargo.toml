@@ -20,6 +20,7 @@ tower-http.workspace = true
 tokio-postgres.workspace = true
 
 [dev-dependencies]
+md-5.workspace = true
 flate2.workspace = true
 tar.workspace = true
 test-support = { path = "../test-support" }

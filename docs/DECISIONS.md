@@ -868,3 +868,77 @@ published with nobody starting anything; nodes exist only while there is work. M
   about $120 a month) or the pool created and deleted around each run as today.
 - **Ordinary day:** about one worker node for 6 to 7 hours a session (about $1.10; the owner's
   spend).
+
+## C-052 The cluster archives the perishable inputs to Spaces through upload URLs core signs (owner-approved design, 2026-11-17)
+The owner (2026-11-17): workers stay stateless and hold no storage credential; core alone holds the
+Spaces key and hands a worker a pre-signed upload URL for one named object, valid minutes; the
+worker uploads straight to the bucket and reports it; core records what is kept per session. So
+the droplet's nightly archive (`deploy/droplet/archive-perishables.sh`) can retire. Engine D-360
+is the worker's side. Migration 0020; `crates/core-db/src/archive.rs`.
+- **What:** per published day and category, the directory the day read, packed by the worker as
+  one tar.zst (`zstd -10`, the droplet's level; entries `<T>/<path>` as the droplet lays them out,
+  byte order, mode 0644, mtime 0, so the same files pack to the same bytes). Categories (C-004):
+  `exq01-events` (the cohort prints, kept by the provider about five sessions) and `act01-auto`
+  (the ACT01 interval pulls). **Not the company capture**, the droplet's third: C-043 already keeps
+  it in core's database, whole (D-306 packs the same directory); a second copy in Spaces is the
+  second store C-043 declined. Adding it is one line in each side's category list.
+- **Key and versions:** `perishables/<category>/<session>/<sha256>.tar.zst` in the bucket
+  (`droplet-capture/` stays the droplet's). Content-addressed: the same archive again is answered
+  `kept`, with no URL; another archive of the same session and category is another object beside
+  the first, never in its place; a KEPT object is never issued a URL again, so nothing kept is
+  ever overwritten. The droplet's freeze: once a version is KEPT and the session is more than 14
+  calendar days old (`FREEZE_DAYS`), another version is answered `frozen` (nothing sent): a late
+  re-run, after the provider has dropped the prints, never adds a shrunken copy. Nothing is ever
+  deleted by core.
+- **The URL:** AWS Signature Version 4 in the query string (path-style `<endpoint>/<bucket>/<key>`),
+  which Spaces accepts (https://docs.digitalocean.com/reference/api/spaces/, "Authentication"; the
+  signing is AWS's, https://docs.aws.amazon.com/AmazonS3/latest/API/sigv4-query-string-auth.html),
+  valid **600 s** from the database's clock, signing `Content-Length`, `Content-MD5` and
+  `x-amz-meta-sha256`: the store refuses a body of another length or MD5 (S3's `BadDigest`), any
+  other header value breaks the signature, and the SHA-256 travels with the object. **Signer:**
+  the maintained crate `rusty-s3` 0.11.0 (sans-IO, made for pre-signed URLs on S3-compatible
+  stores; default features off, `rustcrypto` on: it adds only `jiff`, `url`, `percent-encoding`,
+  `zeroize` and the RustCrypto `hmac`/`sha2` already in the lock), not a signer of our own (the
+  coordinator's ruling, 2026-11-17: proven infrastructure first; a hand-written signer was replaced
+  before merge). Its action headers are signed, so the three headers above are in
+  `X-Amz-SignedHeaders`; `UrlStyle::Path`. Its output reproduces AWS's published pre-signed
+  example exactly (the unit test pins its signature, aeeed9bb…); `aws-sigv4` was the fallback.
+- **Kept means read back:** on `done` core signs a HEAD (60 s) and keeps the object only if its
+  size, its ETag (the MD5 of a single-part upload) and its `x-amz-meta-sha256` are those
+  requested; otherwise FAILED with what it found. A worker's own failure is recorded with its
+  reason. Core cannot reach the bucket: 503, the worker sends `done` again.
+- **Secrets:** the key is read from two files (Secret `vyreon-core-spaces`, mounted read-only),
+  never printed (`Spaces`' `Debug` hides it). The URL is a credential: never stored (only when it
+  expires), never in a log or an error (core's HEAD errors are taken without their URL); a reason
+  the worker reports is kept only if no credential pattern of C-049's list is in it (else
+  "(the reason is not kept: …)"); the worker redacts it first (D-360).
+- **Who may ask:** a day block's live lease, for a session its job has published (base, own
+  build); `done` only for an archive its own job requested.
+- **Routes:** `POST /worker/v1/archives {category, session, bytes, sha256, md5}` → `{state: off |
+  kept | frozen | upload, archive_id, key, url, headers, expires_seconds}`;
+  `POST /worker/v1/archives/{id}/done {failed: null | why}` → `{kept, why}`. CLI:
+  `vyreon-core archive list [<date>]` (each object: state, size, key, job, worker; then what is
+  missing).
+- **Missing (C-050's digest):** a (session, category) with nothing KEPT that was requested, or, from
+  `VYREON_CORE_ARCHIVE_FROM` (default the daily runs' first session), of a published day, an hour
+  or more after the request or the publication. The digest always carries `Perishable archive: N
+  missing (the oldest …)` while the archive is on; `ARCHIVE_MISSING` is a problem only past
+  `VYREON_CORE_ARCHIVE_ALERT_DAYS` (unset: never). Backfilled days before the archive's first
+  session are not expected (their prints were gone before they were computed).
+- **Settings, all five or none (off by default):** `VYREON_CORE_SPACES_ENDPOINT`
+  (`https://nyc3.digitaloceanspaces.com`), `_REGION` (`nyc3`), `_BUCKET` (`vyreon-data`),
+  `_KEY_ID_FILE`, `_SECRET_FILE`. Off, or the Secret absent: every request is answered `off` and
+  the worker sends nothing.
+- **Ordinary day:** no published value changes. After `day_done` the worker packs and uploads two
+  archives (about 170 MB of prints raw a day, some tens of MB packed; the ACT01 pulls are small),
+  within a 15-minute deadline that never touches the day's outcome; finish.log gains two lines;
+  core gains two rows and two signed HEADs.
+- **Deploying (the owner, `deploy/k8s/README.md` "Perishable archive"):** a Spaces key limited to
+  `vyreon-data`, the Secret, the core image (migration 0020) with the settings commented out, the
+  worker image (D-360, with `zstd`), then the settings.
+- **Not verified:** Spaces itself (no network here): a path-style pre-signed PUT signing those
+  three headers, its `BadDigest` on a wrong `Content-MD5`, and its ETag as a single-part upload's
+  MD5. The tests run the whole exchange against a simulated S3 endpoint that recomputes the
+  signature with the bucket's key, checks the signed headers, the expiry and `Content-MD5`
+  (`core-api/tests/archive_api.rs`), with the engine's packing of the real ACT01 pulls of
+  2025-12-19 (`perishable-act01-auto-2025-12-19.tar.zst`). The first real day is the check.

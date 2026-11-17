@@ -4,7 +4,8 @@
 //!
 //! Who may call: a claim carries the workers' shared token (core is given only its SHA-256); the
 //! claim returns a lease token, and every other call carries that. Both travel as
-//! `Authorization: Bearer <token>`. Workers hold no database or storage credentials (C-016).
+//! `Authorization: Bearer <token>`. Workers hold no database or storage credentials (C-016): for
+//! the perishable archive core hands a worker a pre-signed URL for one object (C-052).
 pub mod notices;
 pub mod reader;
 pub mod worker;
@@ -32,6 +33,9 @@ pub struct Config {
     pub budget: Budget,
     /// The largest bundle accepted.
     pub max_bundle_bytes: u64,
+    /// The Spaces bucket the perishable archive goes to, and the key core signs its upload URLs
+    /// with (C-052); None: the archive is off. Its `Debug` never shows the key.
+    pub archive: Option<core_db::archive::Spaces>,
 }
 
 pub struct App {

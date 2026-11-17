@@ -6,17 +6,21 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+base64.workspace = true
 core-contract = { path = "../core-contract" }
 flate2.workspace = true
 futures-util.workspace = true
+jiff.workspace = true
 tokio.workspace = true
 include_dir.workspace = true
 serde_json.workspace = true
 sha2.workspace = true
 tar.workspace = true
 tokio-postgres.workspace = true
+rusty-s3.workspace = true
 
 [dev-dependencies]
+md-5.workspace = true
 test-support = { path = "../test-support" }
 tar.workspace = true
 tokio.workspace = true

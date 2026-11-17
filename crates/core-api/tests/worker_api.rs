@@ -45,6 +45,7 @@ async fn service(test: &str) -> Service {
         lease_seconds: 300.0,
         budget: Budget::default(),
         max_bundle_bytes: 1 << 20,
+        archive: None,
     };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
