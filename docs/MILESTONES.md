@@ -124,6 +124,12 @@ first publication of either; ideally free and paid are ready together. Google Ad
    stored readings in the history pass; Reporter only draws them. **Built right after the
    two-week sample** (owner, 2026-11-17: "its quick to do"); the sample's two full weeks are its
    first test data.
+   One mechanism per kind of quantity (owner): state → the week's close; flow → week sum or daily
+   mean; ratio of flows → recomputed from the week's summed parts (never an average of daily
+   ratios); state curve → the week's closing curve; flow curve → summed per bucket on a common grid;
+   already relative (percentiles, z-scores, unusualness) → not aggregated, feeds the paid review. A
+   short table assigns each sensor's values to a kind. Owner: "This is direct reader value... this
+   is what i would want." 
    yet: it needed the database) beside the free one (all there, a lot of numbers); then **a
    significant body of iteration on the reports themselves** (owner, 2026-11-16) until free and
    paid are generated with confidence.
