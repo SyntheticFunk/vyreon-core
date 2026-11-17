@@ -348,9 +348,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (min 1 would cost about $120 a month: owner's call then). **Applied after the sample, in the
   runbook's order (deploy/k8s/README.md).** Open before the droplet retires: the cluster does not
   yet archive the perishable option prints to Spaces (C-004); the droplet still does. **Design
-  (owner, 2026-11-17): workers stay stateless and credential-free; a worker uploads T's prints to
-  core over the worker API (as captures and evidence already go), and core alone holds the Spaces
-  key, writes them to Spaces and records what was kept per session.**
+  (owner, 2026-11-17): workers stay stateless and credential-free; core alone holds the Spaces key
+  and hands a worker a pre-signed upload URL for one named object, valid for minutes (the standard
+  S3 pattern); the worker uploads directly to Spaces and reports it; core records what was kept per
+  session.** Data never passes through core, so the same mechanism serves the sample's raw
+  downloads (about 45 GB a day) if they are kept.
 - **18:19 UTC: STEP 3 (CLUSTER VERIFICATION) COMPLETE.** 2025-12-10 PUBLISHED on 1a532d8b: 2,688 of 2,688
   measure slots and 512 of 512 day-layer slots, zero faults of any kind. With 2025-04-11 (2,684 of
   2,688, 4 stated ETHA absences), the June 2022 block (META contained) and 2024-07-16's cause found
