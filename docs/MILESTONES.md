@@ -335,6 +335,19 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
   label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
   when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
+- **18:19 UTC: STEP 3 (CLUSTER VERIFICATION) COMPLETE.** 2025-12-10 PUBLISHED on 1a532d8b: 2,688 of 2,688
+  measure slots and 512 of 512 day-layer slots, zero faults of any kind. With 2025-04-11 (2,684 of
+  2,688, 4 stated ETHA absences), the June 2022 block (META contained) and 2024-07-16's cause found
+  and contained (outside phase 1's range), every verification day is answered. **Image diff (process
+  addition b), 2025-12-10, build d55f6439 (2026-11-16) against 1a532d8b, value by value:** of 3,958
+  readings, no state changed and the values of all but 12 families are identical. Each change ties
+  to a decision: CDD-MACRO01 (64) CPI is now the unrevised CPIAUCNS (D-305: e.g. 324.245 → 324.8);
+  INT-TEMP-EVC01 (64) now SUPPORTED from the full 252-session tape history (D-310 with the
+  completed cache); FIELD synchronization readings follow from those inputs; company families
+  (17 each) gained the provider-comparison and vintage coordinates (D-259..D-261, D-337..D-356);
+  DLM-EVENT-WINDOW states its forecast basis (D-305). One unexplained: DLM-OI-CENTROID for BABA
+  differs at the 16th significant digit (summation order), probably from BABA1's adjusted root now
+  resolving; to confirm. Idle node deleted; only the sample is running.
 - **18:10 UTC: notices redesign merged (core main b04f882, C-050, migration 0018; 18 unit + 48 DB tests;
   image `vyreon-core:b04f882` pushed). Deploys when the sample finishes** (a core restart mid-run
   risks the workers' leases). Problems are derived from the database every minute: one alert
