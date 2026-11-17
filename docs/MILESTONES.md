@@ -93,8 +93,10 @@ first publication of either; ideally free and paid are ready together. Google Ad
    heuristic that changes some days and not others is a candidate for retirement.
    **Backups (owner, 2026-11-17): "given that recomputation has a known time and money cost its
    actually WORTH backing shit up."** CloudNativePG's scheduled backups to Spaces (base backup plus
-   write-ahead log), one tested restore; proposed before phase 1 starts, since the build itself is
-   the cost being protected. The droplet's capture and archive keep running meanwhile.
+   write-ahead log), one tested restore. **Set up when phase 1's first tranche passes its census**
+   (owner: before that there is nothing worth keeping). **Weekly full backup** (owner: daily data,
+   daily fulls cost more for nothing) plus continuous log archiving, so any moment is still
+   restorable; about 30 days kept; a bucket and key only for backups. The droplet's capture and archive keep running meanwhile.
    **Security before launch (owner, 2026-11-17), part of step 7:** least-privilege tokens replace the
    full-access DigitalOcean token once the system's shape is settled (it stays for now); the
    reader API stays inside the cluster (Reporter runs as a container beside core; its output is
