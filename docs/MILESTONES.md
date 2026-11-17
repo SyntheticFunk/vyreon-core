@@ -357,6 +357,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
   label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
   when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
+- **19:33 UTC: round v returned: 9 findings, no credential leak.** For phase 1: the worker's archive
+  packing has no deadline (a stalled compressor could hold a node and its block). Daily operation:
+  Discord sending can delay scheduling; empty schedules still start a node; a weekly verdict can be
+  green with a failed history pass; a green digest can follow an open alert; delivery is not
+  deduplicated; a missing-archive alert can be postponed by retries; a cancelled repair job resolves a
+  problem; a bucket change mixes rows. Verify-and-fix running across core (`/home/diggz/wt/core-fix-v`)
+  and the engine (`/home/diggz/wt/fx27`); nothing applied until it lands.
 - **19:14 UTC: perishable archive merged: core main 8928dab (C-052, migration 0020) and engine `pass-s3i`
   5e40b9dd (D-360; suite 1,370 passed, 8 known failures).** Core signs pre-signed PUT and HEAD URLs
   with rusty-s3 0.11.0 (the hand-written signer replaced: proven library first); the worker packs
