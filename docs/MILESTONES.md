@@ -322,6 +322,21 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **17:44 UTC: 2025-04-11 PUBLISHED on 1a532d8b (refused three times on older builds): 2,684 of 2,688
+  measure slots and 512 of 512 day-layer slots complete, 0 engine faults;** 4 ETHA readings withheld
+  as EMPTY_DELIVERED_POPULATION (its prior week had no options yet). 2025-12-10 still computing.
+  **My error: `delete-idle.sh` matched pods by name (v-day/v-tape/v-pass), missed `v-sample`, and
+  deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
+  label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
+  when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
+- **Discord notices (owner, 2026-11-17, pasted ten days of the droplet's alerts): noise.** A normal
+  "provider has not published yet" raised as 🔴 every evening; 64 tickers listed two or three times
+  per alert; a stopped run re-alerted every 12 h for 3.5 days; "all well" while nothing had
+  published for a week. Planned in core: alerts only for what needs the owner (refused day, paused
+  queue, a session not published by its deadline, spend, core disk), one 09:00 MT digest, counts not
+  ticker lists, one alert per problem then the digest then one "resolved". Waiting on the owner: the
+  webhook as a cluster secret; leave to stop the droplet's alert timer (its capture timer checked
+  separately for perishables first).
 - **13:42 UTC: STEP 4a STARTED: the two-week sample, 2026-11-02..2026-11-13 (10 sessions) as two blocks
   of 5 on build 05837898+3d485555ec3d** (image pushed, registered 4,679 slots, admitted), Job
   `v-sample`, 2 pods; pool `day` at 4 nodes (2 more for 2025-04-11, computing, and 2025-12-10,
