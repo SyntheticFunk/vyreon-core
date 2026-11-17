@@ -357,6 +357,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
   label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
   when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
+- **20:07 UTC: round v's 9 findings all real and fixed; merged (core main, migrations 0021, 0022; engine
+  `pass-s3i` 41ca88cb, D-360 amended; core 25 unit + 62 DB tests, engine 1,371 passed, 8 known).**
+  Scheduler and Discord sender are separate tasks; each post is claimed under a lock (one residual
+  duplicate if core stops between Discord accepting and core recording; Discord webhooks take no
+  idempotency key); digests and problem openings share a lock; the weekly check is red while any
+  problem is open; archive rows record their endpoint and bucket; packing runs under the archive's
+  15-minute deadline; the 07:45 CronJob runs a gate on the core node (`vyreon-core daily
+  start-worker`, minimal RBAC) that starts a worker Job only when daily work is waiting. Core image
+  rebuilt and pushed; deploy after the sample (delete the old `daily` CronJob first, per the README).
+  Untested on the real cluster: the gate's RBAC and Spaces.
 - **19:33 UTC: round v returned: 9 findings, no credential leak.** For phase 1: the worker's archive
   packing has no deadline (a stalled compressor could hold a node and its block). Daily operation:
   Discord sending can delay scheduling; empty schedules still start a node; a weekly verdict can be
