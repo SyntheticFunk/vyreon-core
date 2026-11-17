@@ -128,7 +128,13 @@ first publication of either; ideally free and paid are ready together. Google Ad
    mean; ratio of flows → recomputed from the week's summed parts (never an average of daily
    ratios); state curve → the week's closing curve; flow curve → summed per bucket on a common grid;
    already relative (percentiles, z-scores, unusualness) → not aggregated, feeds the paid review. A
-   short table assigns each sensor's values to a kind. Owner: "This is direct reader value... this
+   short table assigns each sensor's values to a kind. **Presentation research pass (owner, 2026-11-17), when the first real reports
+   exist:** the inventory (all prior design work is Reporter's `docs/publication-design/`, dated
+   2026-09-25, before the pivot) leaves these gaps: week-over-week overlays and flow curves (G05);
+   an open-interest heatmap by strike × expiry (C04 has only coarse 5×5 bins); the volatility surface
+   (C06 ruled out a smooth surface: revisit with real data); mapping today's sensors to chart types;
+   competitors' actual chart forms; citable sentences for answer engines; shareable chart images
+   and social cards. Owner: "This is direct reader value... this
    is what i would want." 
    yet: it needed the database) beside the free one (all there, a lot of numbers); then **a
    significant body of iteration on the reports themselves** (owner, 2026-11-16) until free and
