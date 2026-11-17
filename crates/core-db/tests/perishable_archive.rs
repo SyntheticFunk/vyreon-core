@@ -185,3 +185,101 @@ async fn a_published_days_perishables_are_requested_verified_kept_and_frozen() {
     drop(client);
     scratch.drop().await;
 }
+
+/// A day block of the real slice of 2025-12-10 that has published its base: its lease token.
+async fn published_block(scratch: &Scratch, test: &str) -> (Client, String) {
+    let mut client = scratch.client().await;
+    migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
+    work::load_calendar(&mut client, &serde_json::from_str(test_support::CALENDAR).unwrap()).await.unwrap();
+    let fixtures = test_support::fixtures();
+    let doc = universe::read_responses(&fixtures.join("engine-v1-PROFILE.json"), &fixtures.join("intrinio-universe")).unwrap();
+    universe::store(&mut client, &doc).await.unwrap();
+    let b = build::register(&mut client, &inventories()[0]).await.unwrap().engine_build;
+    build::admit(&client, &b, &json!({"checklist": "archive test"})).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-10", 30).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    let (header, scalars, files) = parts(BASE);
+    let path = bundle(&format!("archive-{test}"), &header, &scalars, &files);
+    publish_for_lease(&mut client, &path, &block.token).await.unwrap();
+    std::fs::remove_file(&path).unwrap();
+    (client, block.token)
+}
+
+/// Audit 2026-11-17 round v, 3: an archive is read back only where its URL was signed for. Asked
+/// under one bucket, reported after the settings moved to another: FAILED, not verified in the
+/// other; asked again, the row moves to the new place with its new URL and is kept there.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn an_archive_is_read_back_only_where_its_url_was_signed_for() {
+    let scratch = Scratch::new("archive_place").await;
+    let (mut client, token) = published_block(&scratch, "place").await;
+    let a = spaces();
+    let b = Spaces::new("https://nyc3.digitaloceanspaces.com", "nyc3", "vyreon-other", "DO00ARCHIVETESTKEY", SECRET).unwrap();
+    let elsewhere = Spaces::new("https://sfo3.digitaloceanspaces.com", "sfo3", "vyreon-data", "DO00ARCHIVETESTKEY", SECRET).unwrap();
+    let r = request("act01-auto", "2025-12-10", TAPE_AAPL);
+    let Answer::Upload { archive_id, .. } = archive::request(&mut client, &a, &token, &r, "2025-12-11 13:00:00+00").await.unwrap() else { panic!("an upload") };
+    let t = archive::target(&client, &token, archive_id).await.unwrap();
+    assert_eq!((t.endpoint.as_deref(), t.bucket.as_str()), (Some("https://nyc3.digitaloceanspaces.com"), "vyreon-data"));
+    assert_eq!(archive::same_place(&t, &a), Ok(()));
+    // the settings changed (another bucket, or the same name at another endpoint): not read back
+    for other in [&b, &elsewhere] {
+        let why = archive::same_place(&t, other).unwrap_err();
+        assert!(why.contains("signed for https://nyc3.digitaloceanspaces.com/vyreon-data") && why.contains("not read back"), "{why}");
+    }
+    let why = archive::same_place(&t, &b);
+    assert!(!archive::record(&mut client, &token, archive_id, &why, "2025-12-11 13:01:00+00").await.unwrap());
+    // asked again under the new settings: the same row, now in the new bucket, its URL signed there
+    let Answer::Upload { archive_id: again, url, .. } = archive::request(&mut client, &b, &token, &r, "2025-12-11 13:05:00+00").await.unwrap() else { panic!("an upload") };
+    assert_eq!(again, archive_id);
+    assert!(url.starts_with("https://nyc3.digitaloceanspaces.com/vyreon-other/perishables/"), "{url}");
+    let t = archive::target(&client, &token, archive_id).await.unwrap();
+    assert_eq!(t.bucket, "vyreon-other");
+    assert_eq!(archive::same_place(&t, &b), Ok(()));
+    assert!(archive::same_place(&t, &a).is_err());
+    assert!(archive::record(&mut client, &token, archive_id, &archive::verify(&t, &head_of(TAPE_AAPL)), "2025-12-11 13:06:00+00").await.unwrap());
+    let listed = archive::list(&client, Some("2025-12-10"), 10).await.unwrap();
+    assert_eq!((listed[0]["bucket"].as_str(), listed[0]["endpoint"].as_str(), listed[0]["state"].as_str()), (Some("vyreon-other"), Some("https://nyc3.digitaloceanspaces.com"), Some("KEPT")));
+    drop(client);
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-17 round v, 5: asking again for a URL does not reset the age a missing archive is
+/// counted from: it stays missing, and an `ARCHIVE_MISSING` problem stays open, until it is kept.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn asking_again_does_not_reset_a_missing_archives_age() {
+    let scratch = Scratch::new("archive_age").await;
+    let (mut client, token) = published_block(&scratch, "age").await;
+    let s = spaces();
+    let r = request("exq01-events", "2025-12-10", TAPE_AAPL);
+    let Answer::Upload { archive_id, .. } = archive::request(&mut client, &s, &token, &r, "2025-12-11 13:00:00+00").await.unwrap() else { panic!("an upload") };
+    assert!(!archive::record(&mut client, &token, archive_id, &Err("the worker: the bucket answered 503".into()), "2025-12-11 13:01:00+00").await.unwrap());
+    let day_later = "2025-12-12 14:00:00+00";
+    let ages = |m: Vec<archive::Missing>| m.into_iter().map(|m| (m.session, m.category, m.age)).collect::<Vec<_>>();
+    let missing = ages(archive::missing(&client, PROFILE, None, day_later).await.unwrap());
+    assert_eq!(missing, [("2025-12-10".to_owned(), "exq01-events".to_owned(), 25 * 3600)]);
+    // the watch, alerting past a day: open
+    let settings = Settings {
+        profile: PROFILE.into(),
+        deadlines_from: None,
+        volume_bytes: None,
+        deadline_hour: watch::DEADLINE_HOUR,
+        daily: None,
+        archive: Some(ArchiveWatch { expected_from: None, alert_days: Some(1) }),
+    };
+    let archive_lines = |lines: Vec<String>| lines.into_iter().filter(|l| l.contains("Perishable archive")).collect::<Vec<_>>();
+    assert_eq!(archive_lines(watch::check(&mut client, &settings, day_later).await.unwrap().opened).len(), 1);
+    // asked again (and failing again): still missing, aged from the first request; still open
+    let again = archive::request(&mut client, &s, &token, &r, day_later).await.unwrap();
+    assert!(matches!(again, Answer::Upload { archive_id: id, .. } if id == archive_id), "{again:?}");
+    assert_eq!(ages(archive::missing(&client, PROFILE, None, day_later).await.unwrap()), missing);
+    let change = watch::check(&mut client, &settings, day_later).await.unwrap();
+    assert!(archive_lines(change.resolved).is_empty() && archive_lines(change.opened).is_empty());
+    let requested = at(&client, &format!("SELECT requested_at AT TIME ZONE 'UTC' FROM core.perishable_archive WHERE archive_id = {archive_id}")).await;
+    assert_eq!(requested, "2025-12-11 13:00:00");
+    // kept: no longer missing, resolved
+    assert!(archive::record(&mut client, &token, archive_id, &Ok(()), day_later).await.unwrap());
+    assert_eq!(archive_lines(watch::check(&mut client, &settings, day_later).await.unwrap().resolved).len(), 1);
+    drop(client);
+    scratch.drop().await;
+}
