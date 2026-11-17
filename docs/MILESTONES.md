@@ -116,6 +116,11 @@ first publication of either; ideally free and paid are ready together. Google Ad
    needs the population's evidence. Outcome: a short list of rule changes (each then a scoped
    recalculation), and the rules that stand.
 6. **(4) Reporter on the phase 1 database.** First a proper paid report (none has been produced
+   **Weekly comparison idea (owner, 2026-11-17):** per sensor, plot this week against last week on
+   one chart. State readings (IV term structure, skew, open interest by strike, levels) compare the
+   week's closing reading (Friday against last Friday); flow readings (volume, activity, intraday
+   profiles) compare the week's total or daily mean. The weekly aggregates are computed by the
+   engine's derived layer or served by core, each method stated, never by Reporter.
    yet: it needed the database) beside the free one (all there, a lot of numbers); then **a
    significant body of iteration on the reports themselves** (owner, 2026-11-16) until free and
    paid are generated with confidence.
