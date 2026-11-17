@@ -236,3 +236,44 @@ session at $0.167 an hour, about $24 a month; more for a retried day.
 
 **Off:** comment out the two daily settings and apply (core queues nothing more), and
 `kubectl -n vyreon patch cronjob daily -p '{"spec":{"suspend":true}}'`.
+
+## Perishable archive (C-052)
+
+The perishable inputs a published day read (the cohort prints, which the provider keeps about
+five sessions, and the ACT01 interval pulls) go from each worker straight to the bucket
+`vyreon-data` under `perishables/<category>/<session>/<sha256>.tar.zst`. Workers hold no storage
+key: for each object core signs a PUT URL valid ten minutes (AWS Signature Version 4, which Spaces
+accepts: https://docs.digitalocean.com/reference/api/spaces/), the worker uploads, and core reads
+the object back (size, MD5, SHA-256) before it counts it kept. `vyreon-core archive list [date]`
+shows each object and what is missing; the 09:00 digest counts what is missing. The droplet's
+nightly archive (`deploy/droplet/archive-perishables.sh`, prefix `droplet-capture/`) keeps running
+until the cluster's archive has been seen working; retiring it is a separate step.
+
+### Apply, in order (the owner)
+
+1. **A key for the bucket only** (DigitalOcean control panel, Spaces Object Storage, Access Keys:
+   https://docs.digitalocean.com/products/spaces/how-to/manage-access/): a *limited access* key
+   for the bucket `vyreon-data` alone, with the narrowest permission that can write
+   (the panel offers Read, or Read/Write/Delete; core only signs PUT and HEAD, never DELETE).
+   Save its id and secret to two files without printing them (`key-id`, `secret`, mode 600).
+2. **The Secret** (from the files, never printed):
+   ```sh
+   kubectl -n vyreon create secret generic vyreon-core-spaces --from-file=key-id=key-id --from-file=secret=secret
+   ```
+   Keep the two files where the other keys are kept: the panel shows the secret only once.
+3. **Core image** with migration 0020 (`sed ... 20-core.yaml | kubectl apply -f -` as above), the
+   archive's settings still commented out: workers that ask are told it is off. Check:
+   `kubectl -n vyreon logs deploy/vyreon-core | grep -i "perishable archive"` says it is off.
+4. **Worker image** with engine D-360 (it installs `zstd`; build as `deploy/worker/build.sh`),
+   registered and admitted as usual; the CronJob and Jobs use it.
+5. **Switch on:** uncomment `VYREON_CORE_SPACES_ENDPOINT`, `_REGION`, `_BUCKET`, `_KEY_ID_FILE`,
+   `_SECRET_FILE` (and, if wanted, `VYREON_CORE_ARCHIVE_ALERT_DAYS`) in `20-core.yaml` and apply.
+   The log says `the perishable archive goes to Spaces { endpoint: ..., key: (held, not shown) }`.
+6. **First day:** the day's `finish.log` lines `perishable archive: act01-auto <T>: N bytes, kept in
+   the bucket as perishables/...`; `vyreon-core archive list <T>` shows both categories KEPT. Not
+   verified before this run: Spaces' answer to a path-style pre-signed PUT that signs
+   `Content-Length`, `Content-MD5` and `x-amz-meta-sha256`, and its ETag being the MD5 of a
+   single-part upload (S3's behaviour; the read-back refuses the object otherwise, and says why).
+
+**Off:** comment out the five settings and apply; workers are told the archive is off and send
+nothing. Nothing in the bucket is ever deleted by core.
