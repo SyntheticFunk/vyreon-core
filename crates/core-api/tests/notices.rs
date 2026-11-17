@@ -1,7 +1,7 @@
 //! Notices: events logged with their transactions, problems posted once each, and the posts sent
 //! in order, silently and naming no one, to a local stand-in for the Discord webhook. Run with
 //! `cargo test -- --ignored`.
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::{Json, Router, routing::post};
 use core_api::notices::{payload, send_unsent};
@@ -10,21 +10,26 @@ use core_db::budget::Budget;
 use core_db::work::{self, Kind};
 use core_db::{build, migrate, notice, watch};
 use serde_json::{Value, json};
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use test_support::slice::inventories;
 use test_support::{CALENDAR, Scratch};
 
 type Received = Arc<Mutex<Vec<Value>>>;
 
-/// A webhook that refuses its first post as Discord does when rate limiting, then accepts.
-async fn webhook(State(received): State<Received>, Json(body): Json<Value>) -> (StatusCode, Json<Value>) {
+/// A webhook that refuses its first post as Discord does when rate limiting, then accepts,
+/// returning the saved message as Discord's Execute Webhook does with `wait=true` (only then).
+async fn webhook(State(received): State<Received>, Query(q): Query<HashMap<String, String>>, Json(body): Json<Value>) -> (StatusCode, Json<Value>) {
     let mut received = received.lock().unwrap();
     if received.is_empty() && body["content"] != "again" {
         received.push(json!("refused once"));
         return (StatusCode::TOO_MANY_REQUESTS, Json(json!({"retry_after": 0.5})));
     }
-    received.push(body);
-    (StatusCode::NO_CONTENT, Json(Value::Null))
+    received.push(body.clone());
+    match q.get("wait").map(String::as_str) {
+        Some("true") => (StatusCode::OK, Json(json!({"id": format!("{}", 1_000 + received.len()), "content": body["content"]}))),
+        _ => (StatusCode::NO_CONTENT, Json(Value::Null)),
+    }
 }
 
 #[tokio::test]
@@ -125,53 +130,92 @@ async fn ready_app(test: &str) -> (Scratch, tokio_postgres::Client, Arc<App>) {
     (scratch, client, App::new(pool, config))
 }
 
-/// A webhook that takes its time (300 ms a post) and records what it was sent.
-async fn slow_webhook(State(received): State<Received>, Json(body): Json<Value>) -> StatusCode {
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+/// A webhook that answers 204 without the saved message (Discord's answer without `wait=true`).
+async fn unconfirming_webhook(State(received): State<Received>, Json(body): Json<Value>) -> StatusCode {
     received.lock().unwrap().push(body);
     StatusCode::NO_CONTENT
 }
 
-/// Audit 2026-11-17 round v, 8: a post is claimed before it is sent. Two senders at once post each
-/// notice once, in order; a post claimed by a sender that stopped before recording it waits while
-/// the claim is live and goes once after it lapses (the stated at-least-once window, C-050).
+/// Moves a post's send mark 121 s back: its window has passed.
+async fn back(c: &tokio_postgres::Client, id: i64) {
+    c.execute("UPDATE core.notice SET sending_since = sending_since - interval '121 seconds' WHERE notice_id = $1", &[&id]).await.unwrap();
+}
+
+/// A post's (sent, attempts, last error).
+async fn state(c: &tokio_postgres::Client, id: i64) -> (bool, i32, Option<String>) {
+    let r = c.query_one("SELECT sent_at IS NOT NULL, attempts, last_error FROM core.notice WHERE notice_id = $1", &[&id]).await.unwrap();
+    (r.get(0), r.get(1), r.get(2))
+}
+
+/// Audit 2026-11-17 round w, 6 and 11: a post is delivered only when Discord returns the saved
+/// message (`wait=true`); a send whose outcome is unknown (a 2xx without the message, or the
+/// answer lost after the request went) is not sent again for `UNCONFIRMED_SECONDS`, then once; a
+/// restart between a send and its record is the same window. One sender (one core, C-053).
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
-async fn two_senders_post_each_notice_once_and_a_lapsed_claim_once_more() {
-    let (scratch, client, app) = ready_app("notice_claims").await;
-    for i in 0..6 {
-        notice::alert(&client, &format!("post {i}")).await.unwrap();
-    }
+async fn a_post_is_sent_when_saved_and_an_unknown_outcome_waits_its_window() {
+    let (scratch, client, app) = ready_app("notice_outcomes").await;
+    let http = reqwest::Client::new();
+    // 204 without the saved message: not counted as delivered, and not sent again at once
+    notice::alert(&client, "first").await.unwrap();
+    notice::alert(&client, "second").await.unwrap();
+    let first: i64 = client.query_one("SELECT min(notice_id) FROM core.notice", &[]).await.unwrap().get(0);
     let received: Received = Arc::default();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}/hook", listener.local_addr().unwrap());
-    let stub = Router::new().route("/hook", post(slow_webhook)).with_state(received.clone());
+    let stub = Router::new().route("/hook", post(unconfirming_webhook)).with_state(received.clone());
     tokio::spawn(async move { axum::serve(listener, stub).await.unwrap() });
-    let http = reqwest::Client::new();
-    let (a, b) = tokio::join!(send_unsent(&app, &http, &url), send_unsent(&app, &http, &url));
-    // the second sender stops at a post the first holds; either may stop that way, nothing goes twice
-    let total = a.unwrap_or(0) + b.unwrap_or(0);
-    let mut sent = 0;
-    while sent + total < 6 {
-        sent += send_unsent(&app, &http, &url).await.unwrap();
-    }
-    let posts: Vec<String> = received.lock().unwrap().iter().map(|p| p["content"].as_str().unwrap().to_owned()).collect();
-    assert_eq!(posts, (0..6).map(|i| format!("post {i}")).collect::<Vec<_>>(), "each once, in order");
+    let why = send_unsent(&app, &http, &url).await.unwrap_err();
+    assert!(why.contains("without the saved message") && why.contains("not sent again for 120 s"), "{why}");
+    assert_eq!(state(&client, first).await.0, false);
+    assert_eq!(send_unsent(&app, &http, &url).await.unwrap(), 0, "inside the window: nothing, and nothing overtakes it");
+    assert_eq!(received.lock().unwrap().len(), 1);
 
-    // a sender claimed a post and stopped before recording it: nothing goes while its claim is live
-    notice::alert(&client, "after a crash").await.unwrap();
-    let crashed = notice::claim_next(&client, core_api::notices::CLAIM_SECONDS).await.unwrap().unwrap();
-    assert_eq!(crashed.message, "after a crash");
-    assert_eq!(send_unsent(&app, &http, &url).await.unwrap(), 0);
-    assert_eq!(received.lock().unwrap().len(), 6);
-    // once the claim lapses it is sent, once; the stopped sender's late record changes nothing
-    client.execute("UPDATE core.notice SET sending_since = sending_since - interval '121 seconds' WHERE notice_id = $1", &[&crashed.id]).await.unwrap();
-    assert_eq!(send_unsent(&app, &http, &url).await.unwrap(), 1);
-    assert_eq!(send_unsent(&app, &http, &url).await.unwrap(), 0);
-    assert!(!notice::sent(&client, &crashed).await.unwrap());
-    assert_eq!(received.lock().unwrap().len(), 7);
-    let unsent: i64 = client.query_one("SELECT count(*) FROM core.notice WHERE post AND sent_at IS NULL", &[]).await.unwrap().get(0);
-    assert_eq!(unsent, 0);
+    // the answer lost after the request went (the connection dropped): the same window
+    let dropping = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let lost_url = format!("http://{}/hook", dropping.local_addr().unwrap());
+    let reached = Arc::new(Mutex::new(0usize));
+    let counted = reached.clone();
+    tokio::spawn(async move {
+        use tokio::io::AsyncReadExt;
+        while let Ok((mut socket, _)) = dropping.accept().await {
+            let mut buf = [0u8; 4096];
+            let _ = socket.read(&mut buf).await;
+            *counted.lock().unwrap() += 1;
+            drop(socket);
+        }
+    });
+    back(&client, first).await;
+    let why = send_unsent(&app, &http, &lost_url).await.unwrap_err();
+    assert!(why.contains("no answer") && why.contains("not sent again"), "{why}");
+    assert_eq!(send_unsent(&app, &http, &lost_url).await.unwrap(), 0, "a lost answer is not followed by an immediate repost");
+    assert_eq!(*reached.lock().unwrap(), 1);
+
+    // never connected: nothing reached Discord, so it goes again at the next send
+    let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap();
+    back(&client, first).await;
+    assert!(send_unsent(&app, &http, &format!("http://{closed}/hook")).await.is_err());
+    let (_, attempts, _) = state(&client, first).await;
+    let saved: Received = Arc::default();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let good = format!("http://{}/webhooks/1/a-secret-token", listener.local_addr().unwrap());
+    let stub = Router::new().route("/webhooks/1/a-secret-token", post(webhook)).with_state(saved.clone());
+    tokio::spawn(async move { axum::serve(listener, stub).await.unwrap() });
+    saved.lock().unwrap().push(json!("no rate limit here"));
+    assert_eq!(send_unsent(&app, &http, &good).await.unwrap(), 2, "a refused connection is retried at once; then both, in order");
+    assert_eq!(state(&client, first).await, (true, attempts + 1, None));
+    let posts: Vec<String> = saved.lock().unwrap()[1..].iter().map(|p| p["content"].as_str().unwrap().to_owned()).collect();
+    assert_eq!(posts, ["first", "second"]);
+
+    // a restart between a send and its record: the mark stays, so it waits the window, then once
+    notice::alert(&client, "after a restart").await.unwrap();
+    let crashed = notice::next(&client, core_api::notices::UNCONFIRMED_SECONDS).await.unwrap().unwrap();
+    assert_eq!(crashed.message, "after a restart");
+    assert_eq!(send_unsent(&app, &http, &good).await.unwrap(), 0);
+    back(&client, crashed.id).await;
+    assert_eq!(send_unsent(&app, &http, &good).await.unwrap(), 1);
+    assert_eq!(send_unsent(&app, &http, &good).await.unwrap(), 0);
+    assert_eq!(saved.lock().unwrap().len(), 4);
     scratch.drop().await;
 }
 
