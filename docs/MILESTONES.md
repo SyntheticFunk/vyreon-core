@@ -341,6 +341,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   when one opens, one "Resolved" when it clears; old chatty notices are log only (`vyreon-core
   log`); `problems`, `digest [weekly]`, `notices mark-sent`. Deadline checks start when
   `VYREON_CORE_DEADLINES_FROM` is set: at the first daily run, not for the backfill.
+- **Owner, 2026-11-17, the sequence:** when the two-week sample completes safely and without
+  error, the system is called **ready** ("from this day forward it can reliably build data"); then
+  phase 1's backfill starts and, in parallel, **daily runs capture each new trading session**
+  (deadline alerts switched on from that day). When phase 1 completes, the current dataset with
+  enough history is what the reports are built on.
 - **Owner, 2026-11-17: phase 1 is the priority** ("The database build is 10-ish days alone for
   phase 1. Then we can sprint towards live launch readiness."); no launch target set.
 - **17:54 UTC: the droplet's old Discord alerts retired (owner's word):** `vyreon-health.timer` and
