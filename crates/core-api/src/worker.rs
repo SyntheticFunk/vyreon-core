@@ -418,8 +418,8 @@ async fn archive_done(State(app): Shared, headers: HeaderMap, Path(id): Path<i64
         Some(why) => Err(format!("the worker: {why}")),
         None if target.state == "KEPT" => Ok(()),
         None => {
-            let date = archive::amz_date(&**client, &now).await.map_err(failed)?;
-            let head = head_object(spaces, &target.key, &date).await.map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("reading the object back from the bucket: {e}")))?;
+            let at = archive::signing_time(&**client, &now).await.map_err(failed)?;
+            let head = head_object(spaces, &target.key, at).await.map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("reading the object back from the bucket: {e}")))?;
             archive::verify(&target, &head)
         }
     };
@@ -429,8 +429,8 @@ async fn archive_done(State(app): Shared, headers: HeaderMap, Path(id): Path<i64
 
 /// Reads an object's size, ETag and `x-amz-meta-sha256` back from the bucket (a HEAD pre-signed
 /// for a minute). An error never carries the URL.
-async fn head_object(spaces: &archive::Spaces, key: &str, amz_date: &str) -> Result<archive::Head, String> {
-    let url = spaces.presign("HEAD", key, &[], amz_date, 60);
+async fn head_object(spaces: &archive::Spaces, key: &str, at: i64) -> Result<archive::Head, String> {
+    let url = spaces.presign_head(key, at, 60);
     let http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(std::time::Duration::from_secs(30)).build().map_err(|e| e.without_url().to_string())?;
     let response = http.head(url).send().await.map_err(|e| e.without_url().to_string())?;
     let text = |name: &str| response.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);

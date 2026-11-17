@@ -22,15 +22,14 @@
 //! An upload URL is a credential: it is never stored, logged or put in an error (only when it
 //! expires is recorded); a reason a worker reports is kept only if no credential pattern is in it.
 //!
-//! The signer is written here on RustCrypto's HMAC and SHA-256: no maintained S3 signing crate
-//! (`aws-sigv4`, `rusty-s3`) was available to this workspace's offline build. It is checked
-//! against AWS's published example of a pre-signed URL (the unit test below).
+//! The signing is the `rusty-s3` crate's (Signature Version 4, query-string pre-signed URLs, built
+//! for S3-compatible stores); its output is checked against AWS's published example of a
+//! pre-signed URL (the unit test below).
 use crate::evidence;
 use crate::work::{self, LeaseError};
 use base64::Engine;
-use hmac::{Hmac, KeyInit, Mac};
+use rusty_s3::{Bucket, Credentials, S3Action, UrlStyle};
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 use tokio_postgres::{Client, GenericClient};
 
 /// The categories archived (the droplet's, less the company capture, which core keeps in its
@@ -61,18 +60,20 @@ fn is_hex(text: &str, len: usize) -> bool {
 /// The bucket and the key core signs with. The key is never shown (`Debug` hides it).
 #[derive(Clone)]
 pub struct Spaces {
-    scheme: String,
-    host: String,
-    region: String,
-    bucket: String,
-    key_id: String,
-    secret: String,
+    endpoint: String,
+    bucket: Bucket,
+    credentials: Credentials,
 }
 
 impl std::fmt::Debug for Spaces {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "Spaces {{ endpoint: {}, region: {}, bucket: {}, key: (held, not shown) }}", self.endpoint(), self.region, self.bucket)
+        write!(f, "Spaces {{ endpoint: {}, region: {}, bucket: {}, key: (held, not shown) }}", self.endpoint, self.bucket.region(), self.bucket.name())
     }
+}
+
+/// `at` (Unix seconds) as the signer takes it.
+fn timestamp(at: i64) -> jiff::Timestamp {
+    jiff::Timestamp::from_second(at).unwrap_or(jiff::Timestamp::UNIX_EPOCH)
 }
 
 impl Spaces {
@@ -96,15 +97,18 @@ impl Spaces {
         if key_id.is_empty() || secret.is_empty() || key_id.contains(char::is_whitespace) || secret.contains(char::is_whitespace) {
             return Err("the Spaces key's id and secret are each one word".into());
         }
-        Ok(Spaces { scheme: scheme.into(), host: host.into(), region: region.into(), bucket: bucket.into(), key_id: key_id.into(), secret: secret.into() })
+        let url = endpoint.parse().map_err(|e| format!("the endpoint {endpoint}: {e}"))?;
+        // path-style: `<endpoint>/<bucket>/<key>`
+        let bucket = Bucket::new(url, UrlStyle::Path, bucket.to_owned(), region.to_owned()).map_err(|e| format!("the bucket {bucket}: {e}"))?;
+        Ok(Spaces { endpoint: endpoint.to_owned(), bucket, credentials: Credentials::new(key_id, secret) })
     }
 
-    pub fn endpoint(&self) -> String {
-        format!("{}://{}", self.scheme, self.host)
+    pub fn endpoint(&self) -> &str {
+        &self.endpoint
     }
 
     pub fn bucket(&self) -> &str {
-        &self.bucket
+        self.bucket.name()
     }
 
     /// The object's key: content-addressed, so another version never replaces one.
@@ -112,74 +116,26 @@ impl Spaces {
         format!("perishables/{category}/{session}/{sha256}.tar.zst")
     }
 
-    /// A pre-signed URL (path-style: `<endpoint>/<bucket>/<key>`) for `method` on `key`, signing
-    /// `headers` (lowercase names; `host` is added), dated `amz_date` (`YYYYMMDDTHHMMSSZ`), valid
-    /// `expires` seconds. A credential: never log it.
-    pub fn presign(&self, method: &str, key: &str, headers: &[(&str, &str)], amz_date: &str, expires: i32) -> String {
-        let path = format!("/{}/{}", self.bucket, uri_encode(key, false));
-        let mut all: Vec<(String, String)> = headers.iter().map(|(k, v)| (k.to_ascii_lowercase(), v.to_string())).collect();
-        all.push(("host".into(), self.host.clone()));
-        let query = presign_query(method, &path, &self.region, &self.key_id, &self.secret, amz_date, expires, &all);
-        format!("{}://{}{}?{}", self.scheme, self.host, path, query)
-    }
-}
-
-/// RFC 3986 percent-encoding as Signature Version 4 requires: the unreserved characters as they
-/// are, every other byte `%XX` (uppercase); `/` kept in a path (`encode_slash` false).
-pub fn uri_encode(text: &str, encode_slash: bool) -> String {
-    let mut out = String::with_capacity(text.len());
-    for b in text.bytes() {
-        if b.is_ascii_alphanumeric() || b"-._~".contains(&b) || (b == b'/' && !encode_slash) {
-            out.push(b as char);
-        } else {
-            out.push_str(&format!("%{b:02X}"));
+    /// A pre-signed PUT URL for `key`, signing `headers` (lowercase names; `host` is added), at
+    /// `at` (Unix seconds), valid `expires` seconds. A credential: never log it.
+    pub fn presign_put(&self, key: &str, headers: &[(&str, &str)], at: i64, expires: i32) -> String {
+        let mut action = rusty_s3::actions::PutObject::new(&self.bucket, Some(&self.credentials), key);
+        for (k, v) in headers {
+            action.headers_mut().insert(k.to_ascii_lowercase(), v.to_string());
         }
+        action.sign_with_time(std::time::Duration::from_secs(expires.max(1) as u64), &timestamp(at)).to_string()
     }
-    out
-}
 
-fn hmac(key: &[u8], data: &str) -> Vec<u8> {
-    let mut mac = <Hmac<Sha256> as KeyInit>::new_from_slice(key).expect("HMAC takes a key of any length");
-    mac.update(data.as_bytes());
-    mac.finalize().into_bytes().to_vec()
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|b| format!("{b:02x}")).collect()
-}
-
-/// The query string of a URL pre-signed with AWS Signature Version 4 (S3, unsigned payload):
-/// `X-Amz-Algorithm`, `-Credential`, `-Date`, `-Expires`, `-SignedHeaders` and `-Signature`.
-/// `headers` holds every signed header, `host` among them, with lowercase names.
-#[allow(clippy::too_many_arguments)]
-pub fn presign_query(method: &str, canonical_uri: &str, region: &str, key_id: &str, secret: &str, amz_date: &str, expires: i32, headers: &[(String, String)]) -> String {
-    let date = &amz_date[..8.min(amz_date.len())];
-    let scope = format!("{date}/{region}/s3/aws4_request");
-    let mut headers: Vec<(String, String)> = headers.iter().map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim().to_owned())).collect();
-    headers.sort();
-    let signed = headers.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>().join(";");
-    let params = [
-        ("X-Amz-Algorithm", "AWS4-HMAC-SHA256".to_owned()),
-        ("X-Amz-Credential", format!("{key_id}/{scope}")),
-        ("X-Amz-Date", amz_date.to_owned()),
-        ("X-Amz-Expires", expires.to_string()),
-        ("X-Amz-SignedHeaders", signed.clone()),
-    ];
-    // already in byte order of their names
-    let query = params.iter().map(|(k, v)| format!("{k}={}", uri_encode(v, true))).collect::<Vec<_>>().join("&");
-    let canonical_headers: String = headers.iter().map(|(k, v)| format!("{k}:{v}\n")).collect();
-    let canonical = format!("{method}\n{canonical_uri}\n{query}\n{canonical_headers}\n{signed}\nUNSIGNED-PAYLOAD");
-    let to_sign = format!("AWS4-HMAC-SHA256\n{amz_date}\n{scope}\n{}", hex(&Sha256::digest(canonical.as_bytes())));
-    let mut key = hmac(format!("AWS4{secret}").as_bytes(), date);
-    for part in [region, "s3", "aws4_request"] {
-        key = hmac(&key, part);
+    /// A pre-signed HEAD URL for `key` at `at`, valid `expires` seconds. A credential.
+    pub fn presign_head(&self, key: &str, at: i64, expires: i32) -> String {
+        let action = rusty_s3::actions::HeadObject::new(&self.bucket, Some(&self.credentials), key);
+        action.sign_with_time(std::time::Duration::from_secs(expires.max(1) as u64), &timestamp(at)).to_string()
     }
-    format!("{query}&X-Amz-Signature={}", hex(&hmac(&key, &to_sign)))
 }
 
-/// `now` as Signature Version 4 dates it (`YYYYMMDDTHHMMSSZ`, UTC), by the database's clock.
-pub async fn amz_date(c: &impl GenericClient, now: &str) -> Result<String, String> {
-    Ok(c.query_one("SELECT to_char($1::text::timestamptz AT TIME ZONE 'UTC', 'YYYYMMDD\"T\"HH24MISS\"Z\"')", &[&now]).await.map_err(db)?.get(0))
+/// `now` in Unix seconds, by the database's clock: the time a URL is signed at.
+pub async fn signing_time(c: &impl GenericClient, now: &str) -> Result<i64, String> {
+    Ok(c.query_one("SELECT floor(extract(epoch FROM $1::text::timestamptz))::bigint", &[&now]).await.map_err(db)?.get(0))
 }
 
 /// What a worker asks to archive: one category of one session, packed (`<session>/...` in a
@@ -329,13 +285,13 @@ pub async fn request(client: &mut Client, spaces: &Spaces, token: &str, r: &Requ
             .map_err(failed)?
             .get(0),
     };
-    let date = amz_date(&tx, now).await.map_err(LeaseError::Failed)?;
+    let at = signing_time(&tx, now).await.map_err(LeaseError::Failed)?;
     tx.commit().await.map_err(failed)?;
     let md5: Vec<u8> = (0..16).map(|i| u8::from_str_radix(&r.md5[2 * i..2 * i + 2], 16).unwrap_or(0)).collect();
     let headers = vec![("content-md5".to_owned(), base64::engine::general_purpose::STANDARD.encode(md5)), (META_SHA256.to_owned(), r.sha256.clone())];
     let length = r.bytes.to_string();
     let signed: Vec<(&str, &str)> = [("content-length", length.as_str())].into_iter().chain(headers.iter().map(|(k, v)| (k.as_str(), v.as_str()))).collect();
-    let url = spaces.presign("PUT", &key, &signed, &date, URL_SECONDS);
+    let url = spaces.presign_put(&key, &signed, at, URL_SECONDS);
     Ok(Answer::Upload { archive_id: id, key, url, headers, expires_seconds: URL_SECONDS })
 }
 
@@ -506,22 +462,17 @@ mod tests {
     /// Parameters (AWS Signature Version 4)", Amazon S3 API Reference, section "An Example"):
     /// GET `test.txt` of `examplebucket` (virtual-hosted), 24 hours from 2013-05-24T00:00:00Z,
     /// us-east-1, the documentation's example key. Its stated signature:
-    /// aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404.
+    /// aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404. Reproduced by the
+    /// signer core uses (rusty-s3).
     #[test]
     fn the_signer_reproduces_aws_published_presigned_example() {
-        let query = presign_query(
-            "GET",
-            "/test.txt",
-            "us-east-1",
-            "AKIAIOSFODNN7EXAMPLE",
-            "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
-            "20130524T000000Z",
-            86400,
-            &[("host".into(), "examplebucket.s3.amazonaws.com".into())],
-        );
+        let bucket = Bucket::new("https://s3.amazonaws.com".parse().unwrap(), UrlStyle::VirtualHost, "examplebucket", "us-east-1").unwrap();
+        let credentials = Credentials::new("AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY");
+        let url = rusty_s3::actions::GetObject::new(&bucket, Some(&credentials), "test.txt").sign_with_time(std::time::Duration::from_secs(86400), &timestamp(1_369_353_600));
         assert_eq!(
-            query,
-            "X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request\
+            url.as_str(),
+            "https://examplebucket.s3.amazonaws.com/test.txt?X-Amz-Algorithm=AWS4-HMAC-SHA256\
+             &X-Amz-Credential=AKIAIOSFODNN7EXAMPLE%2F20130524%2Fus-east-1%2Fs3%2Faws4_request\
              &X-Amz-Date=20130524T000000Z&X-Amz-Expires=86400&X-Amz-SignedHeaders=host\
              &X-Amz-Signature=aeeed9bbccd4d02ee5c0109b86d86835f995330da4c265957d157751f604d404"
         );
@@ -531,10 +482,13 @@ mod tests {
     fn a_url_is_path_style_and_signs_the_objects_headers() {
         let s = Spaces::new("https://nyc3.digitaloceanspaces.com/", "nyc3", "vyreon-data", "DO00EXAMPLEKEYID", "an-example-secret").unwrap();
         let key = Spaces::object_key("exq01-events", "2026-11-16", &"a".repeat(64));
-        let url = s.presign("PUT", &key, &[("content-length", "42"), ("Content-MD5", "1B2M2Y8AsgTpgAmY7PhCfg=="), (META_SHA256, "ab")], "20261117T130000Z", URL_SECONDS);
+        // 2026-11-17T13:00:00Z
+        let url = s.presign_put(&key, &[("content-length", "42"), ("Content-MD5", "1B2M2Y8AsgTpgAmY7PhCfg=="), (META_SHA256, "ab")], 1_794_920_400, URL_SECONDS);
         assert!(url.starts_with(&format!("https://nyc3.digitaloceanspaces.com/vyreon-data/perishables/exq01-events/2026-11-16/{}.tar.zst?", "a".repeat(64))), "{url}");
         assert!(url.contains("&X-Amz-Expires=600&") && url.contains("X-Amz-SignedHeaders=content-length%3Bcontent-md5%3Bhost%3Bx-amz-meta-sha256&"), "{url}");
-        assert!(url.contains("X-Amz-Credential=DO00EXAMPLEKEYID%2F20261117%2Fnyc3%2Fs3%2Faws4_request&"));
+        assert!(url.contains("X-Amz-Credential=DO00EXAMPLEKEYID%2F20261117%2Fnyc3%2Fs3%2Faws4_request&") && url.contains("X-Amz-Date=20261117T130000Z&"), "{url}");
+        let head = s.presign_head(&key, 1_794_920_400, 60);
+        assert!(head.contains("X-Amz-SignedHeaders=host&") && head.contains("X-Amz-Expires=60&"), "{head}");
         // the key is never shown
         let shown = format!("{s:?}");
         assert!(!shown.contains("DO00EXAMPLEKEYID") && !shown.contains("an-example-secret"), "{shown}");

@@ -9,14 +9,16 @@ publish = false
 
 [workspace.dependencies]
 tower-http = { version = "0.6", features = ["compression-gzip"] }
+# S3 pre-signed URLs (C-052): the signer only, sans-IO, RustCrypto
+rusty-s3 = { version = "0.11.0", default-features = false, features = ["rustcrypto"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 axum = "0.8"
 base64 = "0.22"
 deadpool-postgres = "0.14"
 flate2 = "1"
 futures-util = { version = "0.3", default-features = false }
-hmac = "0.13"
 include_dir = "0.7"
+jiff = { version = "0.2", default-features = false, features = ["std"] }
 md-5 = "0.11"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }

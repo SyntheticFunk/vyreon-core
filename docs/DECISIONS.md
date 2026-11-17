@@ -896,10 +896,13 @@ is the worker's side. Migration 0020; `crates/core-db/src/archive.rs`.
   valid **600 s** from the database's clock, signing `Content-Length`, `Content-MD5` and
   `x-amz-meta-sha256`: the store refuses a body of another length or MD5 (S3's `BadDigest`), any
   other header value breaks the signature, and the SHA-256 travels with the object. **Signer:**
-  written in `archive.rs` on RustCrypto's `hmac` and `sha2` (both already in the lock): no maintained
-  S3 signing crate (`aws-sigv4`, `rusty-s3`) was in the offline registry and the build has no
-  network. It reproduces AWS's published pre-signed example exactly (the unit test pins its
-  signature, aeeed9bb…).
+  the maintained crate `rusty-s3` 0.11.0 (sans-IO, made for pre-signed URLs on S3-compatible
+  stores; default features off, `rustcrypto` on: it adds only `jiff`, `url`, `percent-encoding`,
+  `zeroize` and the RustCrypto `hmac`/`sha2` already in the lock), not a signer of our own (the
+  coordinator's ruling, 2026-11-17: proven infrastructure first; a hand-written signer was replaced
+  before merge). Its action headers are signed, so the three headers above are in
+  `X-Amz-SignedHeaders`; `UrlStyle::Path`. Its output reproduces AWS's published pre-signed
+  example exactly (the unit test pins its signature, aeeed9bb…); `aws-sigv4` was the fallback.
 - **Kept means read back:** on `done` core signs a HEAD (60 s) and keeps the object only if its
   size, its ETag (the MD5 of a single-part upload) and its `x-amz-meta-sha256` are those
   requested; otherwise FAILED with what it found. A worker's own failure is recorded with its

@@ -90,6 +90,7 @@ fn bucket() -> Bucket {
     let host = url.trim_start_matches("http://").to_owned();
     let (objects, skew, seen) = (Arc::new(Mutex::new(BTreeMap::<String, Object>::new())), Arc::new(AtomicI64::new(0)), Arc::new(Mutex::new(Vec::new())));
     let (o, k, s) = (objects.clone(), skew.clone(), seen.clone());
+    let keyholder = Spaces::new(&url, "nyc3", "vyreon-data", KEY_ID, SECRET).unwrap();
     std::thread::spawn(move || {
         for mut stream in listener.incoming().flatten() {
             let Some((method, target, headers, body)) = read_request(&stream) else { continue };
@@ -107,7 +108,15 @@ fn bucket() -> Bucket {
             let date = params.get("X-Amz-Date").copied().unwrap_or_default();
             let expires: i32 = params.get("X-Amz-Expires").and_then(|e| e.parse().ok()).unwrap_or(0);
             let given: Vec<(String, String)> = signed.iter().map(|h| (h.clone(), if h == "host" { host.clone() } else { headers.get(h).cloned().unwrap_or_default() })).collect();
-            let expected = archive::presign_query(&method, path, "nyc3", KEY_ID, SECRET, date, expires, &given);
+            // the same request signed again with the bucket's key (the signer core uses)
+            let key = path.trim_start_matches("/vyreon-data/").to_owned();
+            let unsigned: Vec<(&str, &str)> = given.iter().filter(|(h, _)| h != "host").map(|(h, v)| (h.as_str(), v.as_str())).collect();
+            let resigned = match (method.as_str(), date.len() == 16) {
+                ("PUT", true) => keyholder.presign_put(&key, &unsigned, unix(date), expires),
+                ("HEAD", true) if unsigned.is_empty() => keyholder.presign_head(&key, unix(date), expires),
+                _ => String::new(),
+            };
+            let expected = resigned.split_once('?').map_or("", |(_, q)| q).to_owned();
             if date.len() != 16 || expected != query {
                 reply(403, "", "<Error><Code>SignatureDoesNotMatch</Code></Error>", 0);
                 continue;
@@ -117,7 +126,6 @@ fn bucket() -> Bucket {
                 reply(403, "", "<Error><Code>AccessDenied</Code><Message>Request has expired</Message></Error>", 0);
                 continue;
             }
-            let key = path.trim_start_matches("/vyreon-data/").to_owned();
             match method.as_str() {
                 "PUT" => {
                     let md5 = Md5::digest(&body);
