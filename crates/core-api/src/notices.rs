@@ -1,6 +1,7 @@
 //! The owner's Discord channel (C-014, C-050; AGENTS.md: the channel only, never a phone ping):
 //! the watch (`core_db::watch`: problems opened and resolved, the 09:00 digest, the Saturday
-//! check) once a minute, and the sender, which posts what the watch queued. Each post is silent
+//! check, the daily runs' queueing) once a minute, and the sender, which posts what the watch
+//! queued, each in its own task, so delivery never delays the watch (audit 2026-11-17 round v, 2). Each post is silent
 //! and names no one. The webhook URL is a secret: it is read from a file, never logged, and
 //! stripped from any error text.
 use crate::App;
@@ -19,14 +20,27 @@ pub fn payload(message: &str) -> Value {
     json!({"content": content, "flags": SILENT, "allowed_mentions": {"parse": []}, "username": "Vyreon core"})
 }
 
+/// How long a sender's claim on a post lasts (migration 0021). Longer than one post can take
+/// (`POST_TIMEOUT`, plus at most 30 s waiting out a rate limit), so a live sender never loses its
+/// claim; a sender that stopped mid-post loses it after this, and the post is sent again.
+pub const CLAIM_SECONDS: i32 = 120;
+/// The longest one post may take.
+pub const POST_TIMEOUT: Duration = Duration::from_secs(20);
+/// At most this many posts per send.
+const BATCH: usize = 20;
+
 /// Sends what is unsent, oldest first, stopping at the first failure so notices stay in order.
-/// Returns how many were sent.
+/// Each post is claimed first (`notice::claim_next`): two senders never post the same one, and a
+/// post another sender is sending stops this one. Returns how many were sent.
 pub async fn send_unsent(app: &App, http: &reqwest::Client, webhook: &str) -> Result<usize, String> {
     let client = app.pool.get().await.map_err(|e| e.to_string())?;
     let client: &tokio_postgres::Client = &client;
     let mut sent = 0;
-    for (id, message) in notice::unsent(client, 20).await? {
-        let outcome = match http.post(webhook).json(&payload(&message)).send().await {
+    for _ in 0..BATCH {
+        let Some(claimed) = notice::claim_next(client, CLAIM_SECONDS).await? else {
+            break;
+        };
+        let outcome = match http.post(webhook).timeout(POST_TIMEOUT).json(&payload(&claimed.message)).send().await {
             Ok(r) if r.status().is_success() => Ok(()),
             Ok(r) if r.status().as_u16() == 429 => {
                 // Discord says how long to wait
@@ -39,52 +53,63 @@ pub async fn send_unsent(app: &App, http: &reqwest::Client, webhook: &str) -> Re
         };
         match outcome {
             Ok(()) => {
-                notice::sent(client, id).await?;
+                if !notice::sent(client, &claimed).await? {
+                    return Err(format!("notice {}: posted after its claim had lapsed", claimed.id));
+                }
                 sent += 1;
             }
             Err(e) => {
-                notice::not_sent(client, id, &e).await?;
-                return Err(format!("notice {id}: {e}"));
+                notice::not_sent(client, &claimed, &e).await?;
+                return Err(format!("notice {}: {e}", claimed.id));
             }
         }
     }
     Ok(sent)
 }
 
-/// Runs the watch once a minute and, with a webhook, sends what is queued every quarter minute.
-/// Without one the posts wait unsent (`vyreon-core notices mark-sent` clears them before the
-/// sender is switched on).
-pub fn spawn_watch(app: Arc<App>, settings: core_db::watch::Settings, webhook: Option<String>) -> tokio::task::JoinHandle<()> {
+/// The watch (problems, the digest, the weekly check, and the daily runs' queueing, C-051) every
+/// `every` (a minute in the service). Its own task: delivering posts never delays it.
+pub fn spawn_watch(app: Arc<App>, settings: core_db::watch::Settings, every: Duration) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
-        let http = reqwest::Client::builder().timeout(Duration::from_secs(20)).build().expect("http client");
-        let mut tick = tokio::time::interval(Duration::from_secs(15));
-        let mut ticks = 0u64;
+        let mut tick = tokio::time::interval(every);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             tick.tick().await;
-            if ticks.is_multiple_of(4)
-                && let Ok(mut client) = app.pool.get().await
-            {
-                let client: &mut tokio_postgres::Client = &mut client;
-                let watched = match core_db::watch::now(&*client).await {
-                    Ok(now) => core_db::watch::tick(client, &settings, &now).await,
-                    Err(e) => Err(e),
-                };
-                match watched {
-                    Ok(change) => {
-                        for s in &change.opened {
-                            println!("vyreon-core: problem opened: {s}");
-                        }
-                        for s in &change.resolved {
-                            println!("vyreon-core: problem resolved: {s}");
-                        }
+            let Ok(mut client) = app.pool.get().await else {
+                eprintln!("vyreon-core: watch: no database connection");
+                continue;
+            };
+            let client: &mut tokio_postgres::Client = &mut client;
+            let watched = match core_db::watch::now(&*client).await {
+                Ok(now) => core_db::watch::tick(client, &settings, &now).await,
+                Err(e) => Err(e),
+            };
+            match watched {
+                Ok(change) => {
+                    for s in &change.opened {
+                        println!("vyreon-core: problem opened: {s}");
                     }
-                    Err(e) => eprintln!("vyreon-core: watch: {e}"),
+                    for s in &change.resolved {
+                        println!("vyreon-core: problem resolved: {s}");
+                    }
                 }
+                Err(e) => eprintln!("vyreon-core: watch: {e}"),
             }
-            ticks += 1;
-            if let Some(webhook) = &webhook
-                && let Err(e) = send_unsent(&app, &http, webhook).await
-            {
+        }
+    })
+}
+
+/// The sender: what the watch queued, posted every `every` (a quarter minute in the service), in
+/// a task of its own. Without a webhook nothing is started and the posts wait unsent
+/// (`vyreon-core notices mark-sent` clears them before the sender is switched on).
+pub fn spawn_sender(app: Arc<App>, webhook: String, every: Duration) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let http = reqwest::Client::builder().timeout(POST_TIMEOUT).build().expect("http client");
+        let mut tick = tokio::time::interval(every);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tick.tick().await;
+            if let Err(e) = send_unsent(&app, &http, &webhook).await {
                 eprintln!("vyreon-core: notices: {e}");
             }
         }

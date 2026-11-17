@@ -410,7 +410,11 @@ async fn serve() -> Result<(), String> {
             None
         }
     };
-    core_api::notices::spawn_watch(app.clone(), watch_settings()?, webhook);
+    // the watch and the sender run apart: delivering posts never delays the watch's queueing
+    core_api::notices::spawn_watch(app.clone(), watch_settings()?, std::time::Duration::from_secs(60));
+    if let Some(webhook) = webhook {
+        core_api::notices::spawn_sender(app.clone(), webhook, std::time::Duration::from_secs(15));
+    }
     println!("vyreon-core listening on {listen}");
     axum::serve(listener, core_api::router(app)).await.map_err(|e| e.to_string())
 }
