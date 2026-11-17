@@ -315,6 +315,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **07:21 UTC: build 1a532d8b+c17a5feae181 registered and admitted (image pushed): D-357 (a failing
+  child's error lines lead its message; evidence reads every run log) and D-358 (a replay
+  session the provider refuses on a job's last attempt is a stated TAPE_PROVIDER_REFUSED absence
+  in core's tape cache; later sessions proceed).** 440 old tape jobs cancelled; 654 re-queued on
+  1a532d8b (cached sessions are skipped by `tape_held`); pool `day` at 3 nodes; Job `v-tape-1a53`,
+  6 pods. Open, from D-358: core's claim does not send `max_attempts` (the worker assumes 3);
+  superseding a refused session later means deleting its rows (preview first) and re-running.
 - **06:55 UTC: 2022-06-13 PUBLISHED on 2967d2cb** (company fix confirmed on a real day; META
   contained); job 68 on 06-14. **Tape history stalled at 214 of 654:** Intrinio answers HTTP 500
   for the replay files of 2025-01-10 and 2025-01-13 (three attempts each; Intrinio's own MCP fails
