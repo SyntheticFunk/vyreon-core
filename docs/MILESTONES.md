@@ -357,6 +357,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
   label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
   when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
+- **19:14 UTC: perishable archive merged: core main 8928dab (C-052, migration 0020) and engine `pass-s3i`
+  5e40b9dd (D-360; suite 1,370 passed, 8 known failures).** Core signs pre-signed PUT and HEAD URLs
+  with rusty-s3 0.11.0 (the hand-written signer replaced: proven library first); the worker packs
+  and uploads the cohort prints and ACT01 pulls after a day publishes; core verifies and records;
+  a missing archive shows in the digest. Company captures stay in core's database (C-043). To apply
+  after the sample: the owner creates a Spaces key limited to bucket `vyreon-data` (narrowest write);
+  runbook order in deploy/k8s/README.md "Perishable archive"; the droplet keeps archiving until the
+  cluster's archive is seen working. Real Spaces untested (Content-MD5 and ETag behaviour to confirm
+  on the first day). **Round v started: one narrow Codex audit of C-050, C-051, C-052 and D-360**
+  (credentials, wrong states, stopped work, cost). Codex at 88% of its week (resets 2026-11-20).
 - **18:34 UTC: daily runs built and merged (core main 0bd9cd7, C-051, migration 0019; 18 unit + 53 DB
   tests; image `vyreon-core:0bd9cd7` pushed, includes the notices).** A session's inputs are ready by
   07:30 New York on T+1 (evidence: the droplet's captures, Intrinio's FAQ on open interest from
