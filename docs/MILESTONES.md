@@ -315,6 +315,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **06:46 UTC: 2024-07-16 refused a third time on the old build (job 65, now cancelled); the cause
+  is still unseen:** `requote` prints its per-source FAILED lines to a log the evidence does not
+  read, and the worker's error message keeps only the first 500 characters of the child's
+  output (successful sources). My catcher script also failed (it used `bc`, absent from the
+  image; fixed). Engine fix running (`/home/diggz/wt/fx23`, D-357): a failing child's error lines
+  lead its message; the evidence reads every log in the run's logs directory. 2024-07-16 re-runs
+  on the next build after the tape history. Tape jobs: about 230 of 654 done, 6 pods.
 - **05:51 UTC: tape history first, as D-310 planned.** A day job without core's tape caches
   captures its 252 prior tape sessions inline, about a minute each, and does NOT upload them
   (core held 319 entries over 4 sessions; unchanged after 5.5 hours of inline captures). So
