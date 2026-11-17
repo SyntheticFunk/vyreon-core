@@ -337,6 +337,17 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
   label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
   when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
+- **18:34 UTC: daily runs built and merged (core main 0bd9cd7, C-051, migration 0019; 18 unit + 53 DB
+  tests; image `vyreon-core:0bd9cd7` pushed, includes the notices).** A session's inputs are ready by
+  07:30 New York on T+1 (evidence: the droplet's captures, Intrinio's FAQ on open interest from
+  04:00 ET, the engine's settled-bar rule; summer unchecked). Core queues each session's tape job,
+  day block and history pass from `VYREON_CORE_DAILY_FROM` for `VYREON_CORE_DAILY_BUILD`, ahead of
+  backfill work; a CronJob (`40-daily.yaml`) starts workers at 07:45 New York, Tuesday to Saturday;
+  deadline 20:00 MT on T+1; `DAILY_STOPPED` raised if the build is not admitted. About $1.10 a
+  session. Autoscaling the pool to 0: DigitalOcean's pages disagree; the API decides when applied
+  (min 1 would cost about $120 a month: owner's call then). **Applied after the sample, in the
+  runbook's order (deploy/k8s/README.md).** Open before the droplet retires: the cluster does not
+  yet archive the perishable option prints to Spaces (C-004); the droplet still does.
 - **18:19 UTC: STEP 3 (CLUSTER VERIFICATION) COMPLETE.** 2025-12-10 PUBLISHED on 1a532d8b: 2,688 of 2,688
   measure slots and 512 of 512 day-layer slots, zero faults of any kind. With 2025-04-11 (2,684 of
   2,688, 4 stated ETHA absences), the June 2022 block (META contained) and 2024-07-16's cause found
