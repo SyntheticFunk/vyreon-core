@@ -892,7 +892,8 @@ pub async fn digest(client: &Client, s: &Settings, now: &str) -> Result<String, 
 }
 
 /// The Saturday check at `now`: this week's sessions (Monday to the day before), each published
-/// or not with its coverage, for Sunday's report.
+/// or not with its coverage and its history pass, for Sunday's report. Green only with every
+/// watched session's base and history pass published (or due later) and no problem open.
 pub async fn weekly(client: &Client, s: &Settings, now: &str) -> Result<String, String> {
     let c = client;
     let open = open(c, now).await?;
@@ -903,7 +904,9 @@ pub async fn weekly(client: &Client, s: &Settings, now: &str) -> Result<String, 
                         EXISTS (SELECT FROM vyreon.day_revision d WHERE d.represented_date = s.session AND d.profile_id = $2
                                 AND d.state = 'PUBLISHED' AND d.base_revision IS NULL),
                         ((s.session + 1) + make_time($4, 0, 0)) AT TIME ZONE 'America/Edmonton' <= $1::text::timestamptz,
-                        to_char(s.session + 1, 'Dy')
+                        to_char(s.session + 1, 'Dy'),
+                        EXISTS (SELECT FROM vyreon.day_revision d WHERE d.represented_date = s.session AND d.profile_id = $2
+                                AND d.state = 'PUBLISHED' AND d.base_revision IS NOT NULL AND NOT d.day_local)
                  FROM core.session s,
                       (SELECT ($1::text::timestamptz AT TIME ZONE 'America/Edmonton')::date AS today) t
                  WHERE s.session >= date_trunc('week', t.today)::date AND s.session < t.today
@@ -914,33 +917,48 @@ pub async fn weekly(client: &Client, s: &Settings, now: &str) -> Result<String, 
         )
         .await
         .map_err(db)?;
-    // (session, words, watched, published, its deadline passed, its deadline's day)
-    let week: Vec<(String, String, bool, bool, bool, String)> = rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5))).collect();
+    // (session, words, watched, published, its deadline passed, its deadline's day, its history
+    // pass published)
+    let week: Vec<(String, String, bool, bool, bool, String, bool)> = rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6))).collect();
     let dates: Vec<String> = week.iter().map(|w| w.0.clone()).collect();
     let tallies = session_tallies(c, &s.profile, &dates).await?;
     let watched: Vec<_> = week.iter().filter(|w| w.2).collect();
     // C-051: a session whose deadline is still ahead (Friday's, on Saturday morning) is due, not missing
     let missing: Vec<&str> = watched.iter().filter(|w| !w.3 && w.4).map(|w| w.1.as_str()).collect();
     let due: Vec<&str> = watched.iter().filter(|w| !w.3 && !w.4).map(|w| w.1.as_str()).collect();
+    // round v, 6: Sunday's report reads the history-reading sensors too (the ordered pass, C-051)
+    let no_history: Vec<&str> = watched.iter().filter(|w| w.3 && w.4 && !w.6).map(|w| w.1.as_str()).collect();
     let first = if week.is_empty() {
         "🟡 Weekly check: no trading session this week".to_string()
     } else if watched.is_empty() {
         "🟡 Weekly check: this week's sessions have no publishing deadline yet, so Sunday's report is not checked".to_string()
-    } else if missing.is_empty() && due.is_empty() {
-        format!("🟢 Weekly check: all {} of this week's sessions published; Sunday's report has what it needs", watched.len())
-    } else if missing.is_empty() {
-        format!("🟢 Weekly check: on time; {} of {} sessions published, {} due later ({})", watched.len() - due.len(), watched.len(), due.len(), due.join(", "))
-    } else {
+    } else if !missing.is_empty() {
         format!("🔴 Weekly check: Sunday's report at risk, {} of {} sessions not published ({})", missing.len(), watched.len(), missing.join(", "))
+    } else if let Some(oldest) = open.first() {
+        // round v, 6: an open problem is never green
+        let more = if open.len() > 1 { format!(" (and {} more)", open.len() - 1) } else { String::new() };
+        format!("🔴 Weekly check: Sunday's report is not cleared while a problem is open: {}{more}", one_line(&oldest.summary, 200))
+    } else if !no_history.is_empty() {
+        format!(
+            "🟡 Weekly check: Sunday's report waits for the history pass of {} of {} sessions ({})",
+            no_history.len(),
+            watched.len(),
+            no_history.join(", ")
+        )
+    } else if due.is_empty() {
+        format!("🟢 Weekly check: all {} of this week's sessions published with their history pass; Sunday's report has what it needs", watched.len())
+    } else {
+        format!("🟢 Weekly check: on time; {} of {} sessions published, {} due later ({})", watched.len() - due.len(), watched.len(), due.len(), due.join(", "))
     };
     let mut lines = Vec::new();
-    for (date, words, watched, published, passed, by) in &week {
+    for (date, words, watched, published, passed, by, history) in &week {
+        let history = if *history { "history pass published" } else { "history pass not published" };
         lines.push(match (published, tallies.get(date)) {
             (true, Some(t)) => {
                 let share = t.measured().map_or("no measurements".into(), |v| format!("{} of its measurements have a value", pct(v)));
-                format!("{words}: published · {share} · {}", faults(t.engine_faults))
+                format!("{words}: published · {share} · {} · {history}", faults(t.engine_faults))
             }
-            (true, None) => format!("{words}: published"),
+            (true, None) => format!("{words}: published · {history}"),
             (false, _) if *watched && !*passed => format!("{words}: not published yet, due by {by} {:02}:00 MT", s.deadline_hour),
             (false, _) => format!("{words}: not published"),
         });
