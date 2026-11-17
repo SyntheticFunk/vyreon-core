@@ -241,7 +241,7 @@ async fn a_refused_bundle_pauses_the_queue_and_a_failing_worker_sends_its_log() 
     assert_eq!(status["paused"], true);
     assert!(status["pause_reason"].as_str().unwrap().contains("(day-1): bundle refused: unreadable bundle"), "{status}");
     // the pause and its notice were written together
-    let notice: String = admin.query_one("SELECT message FROM core.notice ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    let notice: String = admin.query_one("SELECT message FROM core.notice WHERE NOT post ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
     assert!(notice.starts_with("Queue paused: job ") && notice.contains("bundle refused: unreadable bundle"), "{notice}");
     assert_eq!(s.claim("day-block", &s.base_build, "day-2").await.status(), StatusCode::NO_CONTENT);
     assert_eq!(s.post("/lease/heartbeat", token, json!({})).await.1["paused"], true, "the worker learns of the pause");

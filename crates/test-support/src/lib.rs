@@ -70,3 +70,9 @@ pub const MACRO_CAPTURE_IDENTITY: &str = "efc96bf3d914609ebb5cb1d2c6837976cb3550
 /// cut at 500 characters by whoever kept the excerpt), then the log's tail. Checked before it was
 /// frozen: no credential in it.
 pub const WORKER_LOG_REFUSED_DAY: &str = include_str!("../fixtures/worker-fill-log-2024-07-16-refused.txt");
+
+/// A real faulted slot: the engine's containment body for XLB's SAI-EXQ01 on 2025-12-10 (every
+/// role WITHHELD for ENGINE_FAULT, its result id `SAI-EXQ01/XLB/2025-12-10/engine-fault`), from
+/// the engine's frozen exports of that day (`vyreon-cli/tests/fixtures/exports-2025-12-10`, engine
+/// 9ac5010c), copied 2026-11-17. Its SHA-256 is the one its export index states (326760d7…).
+pub const ENGINE_FAULT_BODY_XLB: &str = include_str!("../fixtures/engine-fault-body-2025-12-10-XLB-SAI-EXQ01.json");
