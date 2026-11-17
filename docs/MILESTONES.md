@@ -335,6 +335,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
   label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
   when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
+- **18:10 UTC: notices redesign merged (core main b04f882, C-050, migration 0018; 18 unit + 48 DB tests;
+  image `vyreon-core:b04f882` pushed). Deploys when the sample finishes** (a core restart mid-run
+  risks the workers' leases). Problems are derived from the database every minute: one alert
+  when one opens, one "Resolved" when it clears; old chatty notices are log only (`vyreon-core
+  log`); `problems`, `digest [weekly]`, `notices mark-sent`. Deadline checks start when
+  `VYREON_CORE_DEADLINES_FROM` is set: at the first daily run, not for the backfill.
+- **Owner, 2026-11-17: phase 1 is the priority** ("The database build is 10-ish days alone for
+  phase 1. Then we can sprint towards live launch readiness."); no launch target set.
 - **17:54 UTC: the droplet's old Discord alerts retired (owner's word):** `vyreon-health.timer` and
   `vyreon-heartbeat.timer` stopped and disabled; `vyreon-capture` and `vyreon-archive` keep running
   (they save the option-trade cohort prints the provider will not serve again, to the volume and
