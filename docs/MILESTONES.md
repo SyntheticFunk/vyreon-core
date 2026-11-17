@@ -357,6 +357,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
   label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
   when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
+- **23:42 UTC: round w (first audit on gpt-6.2-astra, about 2% of Codex's week: 88% → 90%): 20 findings
+  on round v's fixes.** Most sit in machinery the fixes added: notice locks and leases (one real
+  stall: the digest holds a lock that blocks publishing, phase 1 included), the daily gate (Job-
+  creation RBAC is namespace-wide in effect, no image pull secret, can skip a day or start two
+  workers), and races needing two core instances, which never run. Response: simplify. One core
+  at a time, enforced by an advisory lock at startup; machinery that only survived two instances
+  removed; the rest fixed plainly (`/home/diggz/wt/core-fix-w`, `/home/diggz/wt/fx28`). **Waiting
+  on the owner: retire the gate** (the CronJob starts the worker directly; on an exchange holiday a
+  node starts and finds nothing, at most about $0.17, about 9 days a year).
 - **20:07 UTC: round v's 9 findings all real and fixed; merged (core main, migrations 0021, 0022; engine
   `pass-s3i` 41ca88cb, D-360 amended; core 25 unit + 62 DB tests, engine 1,371 passed, 8 known).**
   Scheduler and Discord sender are separate tasks; each post is claimed under a lock (one residual
