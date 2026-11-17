@@ -315,6 +315,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
   bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
   tape sessions from 2024-04-09. A verifier is triaging both reports.
+- **08:54 UTC: 2022-06-14 PUBLISHED on 2967d2cb** (the day the old build lost to META's history is
+  now published, META contained); 06-15 computing. D-358 worked on real data: 2025-01-10 and
+  01-13 recorded as 128 stated tape absences after their retries. Tape history 385 of 654; late-2025
+  sessions take 6-9 min each (bigger replay files, download-bound per node), so the pool went to 7
+  nodes and the tape Job to 18 pods (same node-hours, about 1.5 h instead of 3-4).
 - **07:31 UTC: the queue had paused itself** when old tape job 259 failed for the last time
   (core's safety stop: `queue_control` paused with that reason), so the first 654 tape pods found
   nothing to claim and exited. Resumed (`vyreon-core queue resume`) now that D-358 handles the
