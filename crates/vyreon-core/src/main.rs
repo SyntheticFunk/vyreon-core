@@ -390,6 +390,13 @@ async fn serve() -> Result<(), String> {
         archive: spaces_settings()?,
     };
     let pg: tokio_postgres::Config = conninfo("VYREON_CORE_PG")?.parse().map_err(|_| "VYREON_CORE_PG: not a connection string".to_string())?;
+    // C-053: one core at a time. The lock is held by this connection for the service's life; a
+    // second service refuses to start, and this one stops when the connection is lost
+    let (holder, connection) = pg.connect(NoTls).await.map_err(|e| format!("postgres connect: {e}"))?;
+    let mut lost = tokio::spawn(connection);
+    if !core_db::instance::take(&holder).await? {
+        return Err("another vyreon-core serve holds the database's single-instance lock (C-053): this one does not serve".into());
+    }
     let manager = deadpool_postgres::Manager::new(pg, NoTls);
     let pool = deadpool_postgres::Pool::builder(manager).max_size(16).build().map_err(|e| e.to_string())?;
     let app = core_api::App::new(pool, config);
@@ -415,8 +422,24 @@ async fn serve() -> Result<(), String> {
     if let Some(webhook) = webhook {
         core_api::notices::spawn_sender(app.clone(), webhook, std::time::Duration::from_secs(15));
     }
-    println!("vyreon-core listening on {listen}");
-    axum::serve(listener, core_api::router(app)).await.map_err(|e| e.to_string())
+    println!("vyreon-core listening on {listen} (the single-instance lock is held, C-053)");
+    let mut ping = tokio::time::interval(std::time::Duration::from_secs(15));
+    let held = async {
+        loop {
+            ping.tick().await;
+            match tokio::time::timeout(std::time::Duration::from_secs(10), core_db::instance::held(&holder)).await {
+                Ok(Ok(true)) => {}
+                Ok(Ok(false)) => return "the single-instance lock is no longer held".to_string(),
+                Ok(Err(e)) => return format!("the connection holding the single-instance lock failed: {e}"),
+                Err(_) => return "the connection holding the single-instance lock did not answer in 10 s".to_string(),
+            }
+        }
+    };
+    tokio::select! {
+        served = axum::serve(listener, core_api::router(app)) => served.map_err(|e| e.to_string()),
+        why = held => Err(format!("{why}: stopping, so that no second core serves beside this one (C-053)")),
+        _ = &mut lost => Err("the connection holding the single-instance lock ended: stopping (C-053)".into()),
+    }
 }
 
 async fn engine_store_export(date: &str, dir: &str) -> Result<(), String> {
