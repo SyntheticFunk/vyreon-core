@@ -91,6 +91,10 @@ first publication of either; ideally free and paid are ready together. Google Ad
    date; continuity of each series. Rules required by a published standard for real events (OCC
    adjustments, splits, filing dates) fire only on those events by nature; a science rule or
    heuristic that changes some days and not others is a candidate for retirement.
+   **Backups (owner, 2026-11-17): "given that recomputation has a known time and money cost its
+   actually WORTH backing shit up."** CloudNativePG's scheduled backups to Spaces (base backup plus
+   write-ahead log), one tested restore; proposed before phase 1 starts, since the build itself is
+   the cost being protected. The droplet's capture and archive keep running meanwhile.
    **Security before launch (owner, 2026-11-17), part of step 7:** least-privilege tokens replace the
    full-access DigitalOcean token once the system's shape is settled (it stays for now); the
    reader API stays inside the cluster (Reporter runs as a container beside core; its output is
