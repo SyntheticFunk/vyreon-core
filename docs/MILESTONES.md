@@ -329,6 +329,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
   label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
   when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
+- **17:48 UTC: notices design APPROVED; webhook stored as cluster Secret `vyreon-core-webhook`** (new
+  channel; file gitignored, mode 600, never printed). Owner: "I want to open it and immediately
+  know if i gotta go look at it or its running ok." Building in core (`/home/diggz/wt/core-notices`):
+  problems table (one alert per problem, one "resolved"), deadline alerts, paused queue, last-time
+  failures, provider auth/error bursts, DB size; 09:00 MT digest with a verdict first line (🟢 / 🟡 /
+  🔴 Needs you), Saturday readiness check; spend and idle-node checks are v2. Switched on with the
+  backlog marked sent.
 - **Discord notices (owner, 2026-11-17, pasted ten days of the droplet's alerts): noise.** A normal
   "provider has not published yet" raised as 🔴 every evening; 64 tickers listed two or three times
   per alert; a stopped run re-alerted every 12 h for 3.5 days; "all well" while nothing had
