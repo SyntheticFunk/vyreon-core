@@ -174,7 +174,9 @@ async fn a_published_days_perishables_are_requested_verified_kept_and_frozen() {
     assert!(watch::digest(&client, &settings, &later).await.unwrap().contains("Perishable archive: nothing missing"));
 
     // only the requesting job's live lease reports; a day block's lease ended reports nothing
+    // the worker archives after `day_done`: the block's last day done, its lease still asks
     work::day_done(&mut client, &block.token, "2025-12-10").await.unwrap();
+    assert_eq!(archive::request(&mut client, &s, &block.token, &first, now).await.unwrap(), Answer::Kept { archive_id, key: key.clone() });
     work::finish(&mut client, &block.token).await.unwrap();
     assert_eq!(archive::record(&mut client, &block.token, archive_id, &Ok(()), &later).await, Err(LeaseError::Gone));
     let pass = work::claim(&mut client, Kind::OrderedPass, &derived_build, "p1", HOUR).await.unwrap().unwrap();
