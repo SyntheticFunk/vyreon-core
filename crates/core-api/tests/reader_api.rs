@@ -35,7 +35,7 @@ async fn database(test: &str) -> (Scratch, tokio_postgres::Client) {
 /// The service on a free local port.
 async fn serve(scratch: &Scratch) -> String {
     let pool = deadpool_postgres::Pool::builder(deadpool_postgres::Manager::new(scratch.config.clone(), tokio_postgres::NoTls)).max_size(4).build().unwrap();
-    let config = Config { worker_token_sha256: sha256_hex(b"unused"), spool: std::env::temp_dir(), lease_seconds: 300.0, budget: Budget::default(), max_bundle_bytes: 1 << 20 };
+    let config = Config { worker_token_sha256: sha256_hex(b"unused"), spool: std::env::temp_dir(), lease_seconds: 300.0, budget: Budget::default(), max_bundle_bytes: 1 << 20, archive: None };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}/v1", listener.local_addr().unwrap());
     let app = App::new(pool, config);
@@ -272,7 +272,7 @@ async fn the_engines_coordinates_view_is_stored_and_served_as_published() {
 
     let key = api_key::create(&client, "reporter", &["read".to_owned()]).await.unwrap();
     let pool = deadpool_postgres::Pool::builder(deadpool_postgres::Manager::new(scratch.config.clone(), tokio_postgres::NoTls)).max_size(2).build().unwrap();
-    let config = Config { worker_token_sha256: sha256_hex(b"unused"), spool: std::env::temp_dir(), lease_seconds: 300.0, budget: Budget::default(), max_bundle_bytes: 1 << 20 };
+    let config = Config { worker_token_sha256: sha256_hex(b"unused"), spool: std::env::temp_dir(), lease_seconds: 300.0, budget: Budget::default(), max_bundle_bytes: 1 << 20, archive: None };
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let url = format!("http://{}/v1", listener.local_addr().unwrap());
     let app = App::new(pool, config);

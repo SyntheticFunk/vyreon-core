@@ -206,6 +206,7 @@ dependencies = [
  "deadpool-postgres",
  "flate2",
  "futures-util",
+ "md-5",
  "reqwest",
  "serde",
  "serde_json",
@@ -231,10 +232,13 @@ dependencies = [
 name = "core-db"
 version = "0.1.0"
 dependencies = [
+ "base64 0.22.1",
  "core-contract",
  "flate2",
  "futures-util",
+ "hmac",
  "include_dir",
+ "md-5",
  "serde_json",
  "sha2",
  "tar",

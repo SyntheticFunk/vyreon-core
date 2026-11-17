@@ -35,7 +35,7 @@ async fn problems_are_posted_once_in_order_silently_and_events_only_logged() {
     migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
     work::load_calendar(&mut client, &serde_json::from_str(CALENDAR).unwrap()).await.unwrap();
     let b = build::register(&mut client, &inventories()[0]).await.unwrap().engine_build;
-    let settings = watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None };
+    let settings = watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None };
 
     // the events: a build admitted, a block done, the queue paused and resumed: logged, not posted (C-050)
     build::admit(&client, &b, &json!({"checklist": "notice test"})).await.unwrap();
@@ -77,7 +77,7 @@ async fn problems_are_posted_once_in_order_silently_and_events_only_logged() {
     let stub = Router::new().route("/webhooks/1/a-secret-token", post(webhook)).with_state(received.clone());
     tokio::spawn(async move { axum::serve(listener, stub).await.unwrap() });
     let pool = deadpool_postgres::Pool::builder(deadpool_postgres::Manager::new(scratch.config.clone(), tokio_postgres::NoTls)).max_size(2).build().unwrap();
-    let config = Config { worker_token_sha256: "0".repeat(64), spool: std::env::temp_dir(), lease_seconds: 300.0, budget: Budget::default(), max_bundle_bytes: 1 };
+    let config = Config { worker_token_sha256: "0".repeat(64), spool: std::env::temp_dir(), lease_seconds: 300.0, budget: Budget::default(), max_bundle_bytes: 1, archive: None };
     let app = App::new(pool, config);
     let http = reqwest::Client::new();
 

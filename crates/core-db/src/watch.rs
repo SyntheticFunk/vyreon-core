@@ -20,7 +20,7 @@
 //! one more function returning `Found` rows into `current`, with its kind added to
 //! `core.problem`'s check; nothing else changes.
 use crate::daily::{self, Daily};
-use crate::{evidence, notice};
+use crate::{archive, evidence, notice};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use tokio_postgres::{Client, GenericClient};
@@ -69,6 +69,20 @@ pub struct Settings {
     pub deadline_hour: i32,
     /// The daily runs (C-051); None: core queues nothing by itself.
     pub daily: Option<Daily>,
+    /// The perishable archive (C-052); None: it is off and not watched.
+    pub archive: Option<ArchiveWatch>,
+}
+
+/// What the watch checks of the perishable archive (C-052).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ArchiveWatch {
+    /// From this session every published day is expected to have each category archived
+    /// (`VYREON_CORE_ARCHIVE_FROM`, by default the daily runs' first session); None: only an
+    /// archive requested and never kept counts as missing.
+    pub expected_from: Option<String>,
+    /// A missing archive older than this many days is a problem (`ARCHIVE_MISSING`); None: it is
+    /// only counted in the digest.
+    pub alert_days: Option<i32>,
 }
 
 impl Settings {
@@ -210,6 +224,28 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open])
             command: "vyreon-core daily".into(),
             detail: None,
         });
+    }
+    // C-052: perishable archives missing past the configured age
+    if let Some(a) = &s.archive
+        && let Some(days) = a.alert_days
+    {
+        let missing = archive::missing(c, &s.profile, a.expected_from.as_deref(), now).await?;
+        let old: Vec<&archive::Missing> = missing.iter().filter(|m| m.age >= i64::from(days) * 86_400).collect();
+        if let Some(first) = old.first() {
+            found.push(Found {
+                kind: "ARCHIVE_MISSING",
+                key: "perishables".into(),
+                summary: format!(
+                    "Perishable archive: {} missing for more than {days} {}, the oldest {} {} (the provider keeps option prints about five sessions)",
+                    old.len(),
+                    if days == 1 { "day" } else { "days" },
+                    first.session,
+                    first.category
+                ),
+                command: "vyreon-core archive list".into(),
+                detail: None,
+            });
+        }
     }
     if let Some(volume) = s.volume_bytes.filter(|v| *v > 0) {
         let size: i64 = c.query_one("SELECT pg_database_size(current_database())", &[]).await.map_err(db)?.get(0);
@@ -824,6 +860,13 @@ pub async fn digest(client: &Client, s: &Settings, now: &str) -> Result<String, 
         Some(v) => format!("Database size: {} of {} ({:.0}%)", gigabytes(size), gigabytes(v), 100.0 * size as f64 / v as f64),
         None => format!("Database size: {} (its volume's size is not set, so it is not checked)", gigabytes(size)),
     });
+    if let Some(a) = &s.archive {
+        let missing = archive::missing(c, &s.profile, a.expected_from.as_deref(), now).await?;
+        lines.push(match missing.first() {
+            None => "Perishable archive: nothing missing".into(),
+            Some(m) => format!("Perishable archive: {} missing (the oldest {} {}, {})", missing.len(), m.session, m.category, age(m.age)),
+        });
+    }
     if s.daily.is_some() {
         lines.push(daily::digest_line(c, s.daily.as_ref(), now, ZONE).await?);
     }

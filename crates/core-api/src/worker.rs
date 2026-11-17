@@ -14,6 +14,9 @@
 //!   POST /input-captures/{session}/{kind}/absence  {reason}             a capture the worker could not keep -> {new}
 //!   GET  /input-captures/{session}                                      -> {session, captures: [...]}: every version and absence
 //!   GET  /input-captures/{session}/{kind}/{identity}                    -> the archive as it was sent (application/gzip)
+//!   POST /archives                   {category, session, bytes, sha256, md5}   a perishable archive (C-052) -> {state: off | kept |
+//!                                                                          frozen | upload, archive_id, key, url, headers, expires_seconds}
+//!   POST /archives/{id}/done         {failed: null | why}               the upload is done (or failed) -> {kept, why}
 //!   POST /budget                     {requests}                         -> {budget_lease_id, requests, valid_seconds}
 //!                                                                          or {requests: 0, retry_after_seconds}
 //!   POST /budget/{id}/release        {used: {category: requests}}       -> {counted}
@@ -43,6 +46,14 @@
 //! `core_db::evidence::MAX_DOCUMENT_BYTES` (413 above); a document in which a credential pattern
 //! survives is refused (422) and nothing is stored.
 //!
+//! A perishable archive (C-052) is one category of a day the job published (`core_db::archive::
+//! CATEGORIES`), packed by the worker. Core decides the object's key and answers with a pre-signed
+//! PUT URL valid for minutes, which signs the archive's length, its `Content-MD5` and its
+//! `x-amz-meta-sha256`; the worker sends exactly those. The URL is a credential: the worker never
+//! logs it and core never stores it. On `done` core reads the object back (a signed HEAD) and keeps
+//! it only if its size, MD5 and SHA-256 are those requested; core cannot reach the bucket: 503,
+//! sent again. With the archive off every request is answered `{state: "off"}`.
+//!
 //! Statuses: 401 no or wrong token; 410 the lease is gone (stop working); 422 the call or the
 //! bundle is wrong (a refused bundle also pauses the queue); 5xx core or the database failed.
 use crate::{ApiError, App, bearer, failed, refused};
@@ -53,6 +64,7 @@ use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post, put};
 use axum::{Json, Router};
 use core_contract::sha256_hex;
+use core_db::archive;
 use core_db::budget::{self, Grant};
 use core_db::capture;
 use core_db::evidence;
@@ -85,6 +97,8 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/input-captures/{session}", get(captures_list))
         .route("/input-captures/{session}/{kind}/absence", post(capture_absent))
         .route("/input-captures/{session}/{kind}/{identity}", put(capture_put).get(capture_get))
+        .route("/archives", post(archive_request))
+        .route("/archives/{id}/done", post(archive_done))
         .route("/budget", post(budget_draw))
         .route("/budget/{id}/release", post(budget_release))
 }
@@ -364,6 +378,68 @@ async fn capture_get(State(app): Shared, headers: HeaderMap, Path((session, kind
         Some(bytes) => Ok(([(header::CONTENT_TYPE, "application/gzip")], bytes).into_response()),
         None => Err(ApiError(StatusCode::NOT_FOUND, format!("no {kind} capture {identity} of {session}"))),
     }
+}
+
+#[derive(Deserialize)]
+struct ArchiveRequest {
+    category: String,
+    session: String,
+    bytes: i64,
+    sha256: String,
+    md5: String,
+}
+
+async fn archive_request(State(app): Shared, headers: HeaderMap, Json(r): Json<ArchiveRequest>) -> Reply {
+    let mut client = app.db().await?;
+    let Some(spaces) = &app.config.archive else {
+        caller(&client, &headers).await?;
+        return ok(json!({"state": "off"}));
+    };
+    let now = core_db::watch::now(&**client).await.map_err(failed)?;
+    let request = archive::Request { category: r.category, session: r.session, bytes: r.bytes, sha256: r.sha256, md5: r.md5 };
+    ok(archive::request(&mut client, spaces, bearer(&headers)?, &request, &now).await?.reply())
+}
+
+#[derive(Deserialize)]
+struct ArchiveDone {
+    #[serde(default)]
+    failed: Option<String>,
+}
+
+async fn archive_done(State(app): Shared, headers: HeaderMap, Path(id): Path<i64>, Json(d): Json<ArchiveDone>) -> Reply {
+    let mut client = app.db().await?;
+    let Some(spaces) = &app.config.archive else {
+        return Err(refused("the perishable archive is off"));
+    };
+    let token = bearer(&headers)?;
+    let target = archive::target(&**client, token, id).await?;
+    let now = core_db::watch::now(&**client).await.map_err(failed)?;
+    let outcome = match d.failed {
+        Some(why) => Err(format!("the worker: {why}")),
+        None if target.state == "KEPT" => Ok(()),
+        None => {
+            let date = archive::amz_date(&**client, &now).await.map_err(failed)?;
+            let head = head_object(spaces, &target.key, &date).await.map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("reading the object back from the bucket: {e}")))?;
+            archive::verify(&target, &head)
+        }
+    };
+    let kept = archive::record(&mut client, token, id, &outcome, &now).await?;
+    ok(json!({"archive_id": id, "kept": kept, "why": outcome.err().map(|e| archive::failure_text(&e))}))
+}
+
+/// Reads an object's size, ETag and `x-amz-meta-sha256` back from the bucket (a HEAD pre-signed
+/// for a minute). An error never carries the URL.
+async fn head_object(spaces: &archive::Spaces, key: &str, amz_date: &str) -> Result<archive::Head, String> {
+    let url = spaces.presign("HEAD", key, &[], amz_date, 60);
+    let http = reqwest::Client::builder().redirect(reqwest::redirect::Policy::none()).timeout(std::time::Duration::from_secs(30)).build().map_err(|e| e.without_url().to_string())?;
+    let response = http.head(url).send().await.map_err(|e| e.without_url().to_string())?;
+    let text = |name: &str| response.headers().get(name).and_then(|v| v.to_str().ok()).map(str::to_owned);
+    Ok(archive::Head {
+        status: response.status().as_u16(),
+        bytes: text("content-length").and_then(|v| v.parse().ok()),
+        etag: text("etag"),
+        sha256: text(archive::META_SHA256),
+    })
 }
 
 #[derive(Deserialize)]

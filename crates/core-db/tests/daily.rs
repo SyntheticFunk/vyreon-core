@@ -168,7 +168,7 @@ async fn a_build_that_cannot_work_queues_nothing_and_is_a_problem() {
     assert_eq!(refused, format!("daily runs: build {derived} is not admitted; 1 due sessions are not queued"));
     let n: i64 = client.query_one("SELECT count(*) FROM core.job", &[]).await.unwrap().get(0);
     assert_eq!(n, 0);
-    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d.clone()) };
+    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d.clone()), archive: None };
     let now = "2025-12-11 12:31:00+00";
     let stopped = format!("Daily runs stopped: build {derived} is not admitted, so no new session is queued");
     assert_eq!(watch::check(&mut client, &s, now).await.unwrap().opened, std::slice::from_ref(&stopped));

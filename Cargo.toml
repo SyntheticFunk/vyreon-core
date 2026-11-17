@@ -11,10 +11,13 @@ publish = false
 tower-http = { version = "0.6", features = ["compression-gzip"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 axum = "0.8"
+base64 = "0.22"
 deadpool-postgres = "0.14"
 flate2 = "1"
 futures-util = { version = "0.3", default-features = false }
+hmac = "0.13"
 include_dir = "0.7"
+md-5 = "0.11"
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["float_roundtrip", "raw_value"] }
 tar = { version = "0.4", default-features = false }
