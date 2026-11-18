@@ -546,6 +546,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   ("we capped a time and just kept running into repeated time caps"; expects it under the engine's
   own compute time): the real day runs with `VYREON_REFCHECK_MINUTES=600`; the production bound is
   then set from the measurement.
+  **Engine `pass-fx43` done (tip 58f39421, pushed; suite 1,396 passed):** D-380 CPI/INDPRO release
+  table from April 2022 (82 dates from BLS and the Fed's G.17; all 107 checked against ALFRED);
+  D-381 FEDFUNDS readable the session after the Fed's first business day (54 of 54 months
+  confirmed; no phase-1 session was read early; the old lag would have on 2027-01-04); D-382
+  `earnings_disclosed_at` is release evidence (recovers NVDA 2025-02-26, AVGO 2025-03-06; AMD, NVDA,
+  PLTR's missing 8-Ks: latest withheld, history POSSIBLY_INCOMPLETE); D-383 date-only acceptance
+  (`sec_filing.accepted_utc_date`). Phase-1 changes: CPI 23 sessions, INDPRO 14, FEDFUNDS 19 (and
+  DBA, UUP surfaces on those dates), EVENTS01 NVDA, AVGO, AMD, PLTR. **Dated reminder: the release
+  table ends at November 2027 data; extend it before then.** Core follow-up: EDGAR checker compares
+  `accepted_utc_date`.
   **DataShop check (rules 39208e3 first; tool f6fd4da; reports `checks/2026-11-18-datashop-*.json`)
   FAILS on quotes, volume and open interest; faults cluster on corporate actions:** open interest
   100% on SPY/TSLA/UUP (338,784 contracts), same-day dating confirmed; quotes at 15:45 equal on
