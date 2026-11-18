@@ -876,6 +876,18 @@ published for a week. Migration 0018; `crates/core-db/src/watch.rs`.
   - Ordinary day: posts are the same; the weekly first line on Saturday with Friday's history pass
     still due reads "🟢 … on time; 4 of 5 sessions published with their history pass, 1 due later".
 
+- **Amended 2026-11-17 (audit round x, 11): a failed queueing is a problem before the digest.**
+  The tick queues the daily runs (C-051) before it checks, and a queueing error (the store's
+  partitions or a job insert refused, the build admitted) was only returned after the minute's
+  digest, which could say 🟢 while the due session had no jobs. Now the check finds it from
+  core's rows: a session due (`daily::due`) and not recorded as queued is `DAILY_STOPPED` ("Daily
+  runs stopped: a session due is not queued (the oldest …): queueing failed, the service's log says
+  why"), the same kind and key as a build that cannot work (whose summary is kept when both hold),
+  so the digest composed after it is 🔴; it resolves once the session is queued. A failure that
+  clears the next minute is one alert and one "Resolved". No new machinery: the state was already
+  in `core.daily_session`. Ordinary day: no change (queueing succeeds, nothing is due unqueued at
+  the check). Test: `core-db/tests/daily.rs::a_failed_queueing_is_a_problem_before_the_digest`.
+
 ## C-051 Daily runs: core queues each session the morning after; a CronJob starts the worker; the pool scales to zero (owner-approved goal, 2026-11-17)
 Goal (owner): from the day the system is declared ready, each new session is computed and
 published with nobody starting anything; nodes exist only while there is work. Migration 0019;
@@ -975,6 +987,26 @@ published with nobody starting anything; nodes exist only while there is work. M
   Jobs ("Jobs that you define should be idempotent", same page), and the worker is (core's leases:
   the second pod finds nothing or the next job), at the cost of a second node for minutes; a Job
   made by hand (`kubectl create job --from=cronjob/daily`) is not held back by `Forbid` (README).
+
+- **Amended 2026-11-17 (audit round x, 6, 13): the daily run takes only daily work, and waits a
+  little for it.** (13) During the backfill a daily pod with no daily job left claimed the
+  backfill's earliest work of its kind (a multi-day block), held a node for hours and could be
+  killed at its 23 h deadline, using an attempt. Now each container of CronJob `daily` sets
+  `VYREON_WORKER_DAILY` and the worker claims with `daily: true` (`POST /worker/v1/claims`,
+  `work::claim_as`): only a job of priority 1. The backfill's workers claim as before (daily jobs
+  first, then any). (6) A watch delayed past 07:45 (core restarting, a stalled tick) let all three
+  pods find nothing and succeed; the session queued a minute later waited for the next scheduled
+  start (Saturday's: Tuesday). Now the run's first pod's tape container (`JOB_COMPLETION_INDEX`
+  0), finding nothing (or core unreachable), asks again every minute for up to 30 minutes
+  (`VYREON_WORKER_DAILY: "30"`); the queue inserts a session's three kinds in one transaction, so
+  the day block and the pass follow it at once. The other pods and containers ask once (`"0"`),
+  so an ordinary morning costs nothing more. **Cost:** a morning with nothing queued (after an
+  exchange holiday) now holds the node about 30 minutes, about $0.25 instead of $0.17, about nine
+  times a year. A queue later than 08:15 New York still waits for the next start (C-050's
+  deadline alerts it). Engine side: D-360 amended (round x). Ordinary day: the same run; its
+  claims carry `daily: true`. Tests: `core-db/tests/daily.rs`,
+  `work_queued_or_published_by_hand_is_not_queued_again` (a daily-only claim takes the daily tape and then nothing, while the backfill's
+  tapes remain), engine `core_client::tests::a_daily_worker_waits_a_bounded_time_for_its_job`.
 
 ## C-052 The cluster archives the perishable inputs to Spaces through upload URLs core signs (owner-approved design, 2026-11-17)
 The owner (2026-11-17): workers stay stateless and hold no storage credential; core alone holds the
@@ -1083,6 +1115,12 @@ is the worker's side. Migration 0020; `crates/core-db/src/archive.rs`.
   - *`archive list` prints the endpoint (18):* each object as `<endpoint>/<bucket>/<key>`.
   - Ordinary day: unchanged (nothing is reported unless a category is not packed).
 
+- **Amended 2026-11-17 (audit round x, 4; engine D-360 amended).** A category with an entry the
+  worker cannot read (a broken link, a closed directory) is archived with its readable files and
+  the skipped entries said in its outcome, or, with none readable, reported not packed (so core
+  counts it missing); each category is named to the worker's parent as soon as its own walk ends.
+  Core is unchanged. Ordinary day: unchanged.
+
 ## C-053 One core at a time, enforced by the database (2026-11-17; audit round w)
 Core runs as one replica (`deploy/k8s/20-core.yaml`, strategy `Recreate`), and its watch, notice
 sender and archive checks were written for one; round w's findings 1, 11 (two senders), 15 (two
@@ -1101,3 +1139,16 @@ and their writes are safe beside the service (row and transaction locks). Machin
 notice claim lease (C-050 amended). One more database connection is held. Ordinary day: no change.
 Test: `core-db/tests/instance.rs` (a second session refused while the first holds it; free once
 the first session ends).
+- **Amended 2026-11-17 (audit round x, 5): a frozen core is restarted, a lost one is let go.** A
+  process frozen with its connection open kept the lock, and every replacement refused to start;
+  the readiness probe takes a Pod out of service but never restarts it. Now `/live` answers 503
+  once the watch has not started a tick for `LIVE_WITHIN` (15 min; it ticks every minute) and
+  reads no database; `20-core.yaml` has a liveness probe on it (every 60 s, 10 s to answer, 3
+  failures), so a stalled watch or a runtime that no longer answers is restarted within about 18
+  minutes, which closes its connection and frees the lock. A database that is down stays the
+  readiness probe's (a restart would not help it). For a node lost behind a partition, the lock's
+  session sets the server's `tcp_keepalives_idle` 30 s, `_interval` 10 s, `_count` 3 (PostgreSQL 16
+  manual, "Connection Settings"; the system default waits about two hours), so the server ends it
+  and frees the lock within about a minute. Ordinary day: no change. Tests:
+  `core-api/tests/notices.rs::a_core_whose_watch_stalled_is_not_live`, `core-db/tests/instance.rs`
+  (the keepalive set on the lock's session).

@@ -296,6 +296,12 @@ pub const PUBLISH_LOCK: &str = "SELECT pg_advisory_xact_lock(hashtextextended('v
 /// Claims the earliest claimable job of `kind` for the worker's own build, if there is one; a daily
 /// run's job (priority 1, C-051) before any other.
 pub async fn claim(client: &mut Client, kind: Kind, build: &str, worker: &str, lease_seconds: f64) -> Result<Option<Claim>, String> {
+    claim_as(client, kind, build, worker, lease_seconds, false).await
+}
+
+/// `claim`; with `daily_only`, only a daily run's job (priority 1): the daily CronJob's worker
+/// never takes a backfill block (C-051 amended, audit round x, 13).
+pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str, lease_seconds: f64, daily_only: bool) -> Result<Option<Claim>, String> {
     // expired leases end first, each in its own transaction; one that cannot be ended is reported
     // by the service's sweeper every half minute and does not stop this claim
     let _ = sweep(client).await;
@@ -308,10 +314,11 @@ pub async fn claim(client: &mut Client, kind: Kind, build: &str, worker: &str, l
             "UPDATE core.job SET state = 'LEASED', attempts = attempts + 1
              WHERE job_id = (SELECT j.job_id FROM core.job j
                              WHERE j.job_id IN (SELECT job_id FROM core.claimable_job WHERE kind = $1 AND engine_build = $2 AND next_session IS NOT NULL)
+                               AND (NOT $3 OR j.priority = 1)
                              ORDER BY j.priority DESC, j.first_session, j.job_id LIMIT 1 FOR UPDATE SKIP LOCKED)
                AND state = 'QUEUED'
              RETURNING job_id, profile_id, scope::text, attempts, next_session::text, last_session::text",
-            &[&kind.name(), &build],
+            &[&kind.name(), &build, &daily_only],
         )
         .await
         .map_err(db)?

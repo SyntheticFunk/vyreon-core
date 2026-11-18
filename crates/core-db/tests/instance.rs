@@ -11,6 +11,9 @@ async fn a_second_core_is_refused_while_the_first_holds_the_database() {
     let second = scratch.client().await;
     assert!(instance::take(&first).await.unwrap(), "the first core takes the lock");
     assert!(instance::held(&first).await.unwrap());
+    // round x, 5: the server probes the lock's connection (over TCP; a Unix socket reads 0)
+    let idle: String = first.query_one("SELECT current_setting('tcp_keepalives_idle')", &[]).await.unwrap().get(0);
+    assert!(idle == "30" || idle == "0", "{idle}");
     assert!(!instance::take(&second).await.unwrap(), "a second core is refused");
     assert!(!instance::held(&second).await.unwrap());
     // the first core's connection ends (it stopped, or lost the database): the lock goes with it

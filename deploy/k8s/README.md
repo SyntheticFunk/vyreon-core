@@ -163,9 +163,11 @@ starting anything, and worker nodes exist only while there is work:
   never joined by a second; that start is made once it ends, within 6 h
   (`startingDeadlineSeconds`; Kubernetes, "CronJob").
 - **Accepted cost (the owner, 2026-11-17, retiring round v's gate):** on a weekday morning with
-  nothing queued (the morning after an exchange holiday) a node still starts, the three containers
-  find nothing to claim and exit in about a minute, and the node goes: at most about $0.17 a time,
-  about nine times a year.
+  nothing queued (the morning after an exchange holiday) a node still starts, the first pod's tape
+  container asks again every minute for 30 minutes (a late queue, audit round x, 6), the
+  containers find nothing to claim and exit, and the node goes: about $0.25 a time, about nine
+  times a year. The CronJob's containers claim only the daily runs' jobs (`VYREON_WORKER_DAILY`,
+  round x, 13), never a backfill block.
 - **The pool scales:** pool `day` autoscaled with min 0; the worker Job's pending pod brings up one
   node; the node is removed after it has been unneeded for the autoscaler's unneeded time
   (10 minutes by the upstream default).
@@ -234,7 +236,7 @@ session at $0.167 an hour, about $24 a month; more for a retried day.
    daily-gate --ignore-not-found`. Then
    `sed -e "s#VYREON_WORKER_IMAGE#registry.digitalocean.com/vyreon/vyreon-worker:<tag>#" deploy/k8s/40-daily.yaml | kubectl apply -f -`.
    The worker image must be the build named in step 5. Until step 5 nothing is queued, so each
-   morning's pod finds nothing to claim and exits (a node for a few minutes, about $0.17); apply
+   morning's pod finds nothing to claim and exits (a node for about 40 minutes, about $0.25); apply
    it with step 5, or suspend it until then
    (`kubectl -n vyreon patch cronjob daily -p '{"spec":{"suspend":true}}'`).
 5. **Switch on** (the owner's word that the system is ready): the build admitted

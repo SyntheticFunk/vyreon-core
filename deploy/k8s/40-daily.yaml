@@ -6,14 +6,15 @@
 #
 # No gate (the owner, 2026-11-17, retiring round v's `vyreon-core daily start-worker`): on a
 # weekday morning with nothing queued (the morning after an exchange holiday) a node starts, the
-# three containers find nothing to claim and exit in about a minute, and the autoscaler removes the
-# node: at most about $0.17 a time, about nine times a year (C-051 amended).
+# first pod's tape container asks for 30 minutes (round x, 6), the containers then find nothing
+# and exit, and the autoscaler removes the node: about $0.25 a time, about nine times a year
+# (C-051 amended).
 #
 # One pod runs a day's three kinds in order, each a container with its own empty home, as the
 # separate Jobs of 30-workers.yaml do: the tape job (init container), the day block (init
 # container: it starts only after the tape container exited 0, and a day block waits for its
 # session's tape anyway), then the ordered pass. A container that finds nothing to claim exits 0
-# at once. The pod's request is its largest container's (the day block's 6 CPUs): one pod per
+# (the first pod's tape container after its wait, below). The pod's request is its largest container's (the day block's 6 CPUs): one pod per
 # 8-vCPU node.
 #
 # `completions: 3`, one pod at a time (`parallelism: 1`): an ordinary morning's first pod does the
@@ -21,9 +22,11 @@
 # queued (a missed morning, a retried day) each pod takes the next, up to three a run. A failed pod
 # is replaced once (`backoffLimitPerIndex: 1`, C-040), so a refused day is tried again at once; the
 # job's own attempts and evidence are core's (C-035, C-049). No `backoffLimit`: see 30-workers.yaml.
-# While the backfill shares the build, a pod with no daily session left claims the backfill's
-# earliest work of its kind (daily jobs are claimed first, C-051): set `completions: 1` to keep the
-# daily run to its own session. `concurrencyPolicy: Forbid`: a run still going at the next
+# Each container claims only the daily runs' jobs (`VYREON_WORKER_DAILY`, C-051 amended, audit
+# round x, 13), never a backfill block, so a run never holds a node for the backfill. A late queue
+# (round x, 6): the first pod's tape container (`JOB_COMPLETION_INDEX` 0), finding nothing, asks
+# again every minute for up to `VYREON_WORKER_DAILY` minutes (30) before it exits; the others
+# exit at once. `concurrencyPolicy: Forbid`: a run still going at the next
 # morning's schedule (it is stopped after 23 h) is never joined by a second; that morning's start
 # counts as missed and is made once the running Job ends, if within `startingDeadlineSeconds`
 # (6 h) of 07:45 (Kubernetes, "CronJob": "a new Job can be created once the previous Job
@@ -75,6 +78,7 @@ spec:
               image: VYREON_WORKER_IMAGE
               args: ["run", "tape", "--bin", "/opt/vyreon/bin", "--repo", "/opt/vyreon/bin"]
               env:
+                - {name: VYREON_WORKER_DAILY, value: "30"}
                 - {name: VYREON_HOME, value: /work}
                 - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
                 - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
@@ -90,6 +94,7 @@ spec:
               image: VYREON_WORKER_IMAGE
               args: ["run", "day-block", "--bin", "/opt/vyreon/bin", "--repo", "/opt/vyreon/bin"]
               env:
+                - {name: VYREON_WORKER_DAILY, value: "0"}
                 - {name: VYREON_HOME, value: /work}
                 - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
                 - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
@@ -106,6 +111,7 @@ spec:
               image: VYREON_WORKER_IMAGE
               args: ["run", "ordered-pass", "--bin", "/opt/vyreon/bin", "--repo", "/opt/vyreon/bin"]
               env:
+                - {name: VYREON_WORKER_DAILY, value: "0"}
                 - {name: VYREON_HOME, value: /work}
                 - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
                 - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}

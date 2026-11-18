@@ -93,6 +93,14 @@ spec:
           readinessProbe:
             httpGet: {path: /ready, port: 8080}
             periodSeconds: 10
+          # a core whose watch has not ticked for 15 min (`/live`, C-053 amended, round x 5) is
+          # restarted, so a frozen process never keeps the single-instance lock; a database that
+          # is down is the readiness probe's, not a restart's
+          livenessProbe:
+            httpGet: {path: /live, port: 8080}
+            periodSeconds: 60
+            timeoutSeconds: 10
+            failureThreshold: 3
           resources:
             requests: {cpu: "500m", memory: 1Gi}
           volumeMounts:

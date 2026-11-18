@@ -258,3 +258,28 @@ async fn the_watch_runs_while_the_sender_is_stuck() {
     watcher.abort();
     scratch.drop().await;
 }
+
+/// Audit round x, 5: `/live`, the liveness probe's, answers while the watch ticks and fails once
+/// it has not started a tick within `LIVE_WITHIN` (a frozen core is restarted by Kubernetes and its
+/// single-instance lock freed); a watch ticking again makes it live again.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_core_whose_watch_stalled_is_not_live() {
+    let (scratch, _client, app) = ready_app("liveness").await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/live", listener.local_addr().unwrap());
+    let router = core_api::router(app.clone());
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    async fn status(url: &str) -> u16 {
+        reqwest::get(url).await.unwrap().status().as_u16()
+    }
+    assert_eq!(status(&url).await, 200, "just started");
+    app.watching(std::time::Instant::now().checked_sub(core_api::LIVE_WITHIN + std::time::Duration::from_secs(1)).unwrap());
+    assert_eq!(status(&url).await, 503, "the watch stalled");
+    let settings = watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None };
+    let watcher = core_api::notices::spawn_watch(app.clone(), settings, std::time::Duration::from_millis(100));
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    assert_eq!(status(&url).await, 200, "the watch ticks again");
+    watcher.abort();
+    scratch.drop().await;
+}
