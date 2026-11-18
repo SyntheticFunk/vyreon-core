@@ -448,8 +448,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   rest about 5. The next day's download (47–52 min) overlaps compute, so compute is the bound.
   11-04's longer intent B is the main difference (hypothesis: the session after the 11-03
   midterm election, a busier tape; not checked). 15:14 UTC: 11-05 published in 262 min; 15:34
-  UTC: 11-12 in 250 min; 19:34 UTC: 11-06 in 259 min (9 of 10; 0 failed; block 2 done, its node
-  deleted 19:36). 11-13 running. Sample ends near 20:00–21:00 UTC.
+  UTC: 11-12 in 250 min; 19:34 UTC: 11-06 in 259 min; **19:58 UTC: 11-13 in 263 min: SAMPLE
+  COMPLETE, 10 of 10 published, every day 2,688 exported and 0 failed; both nodes deleted (19:36,
+  19:58).** External checks over all ten days (20:05 UTC): Cboe PASS (gaps unchanged, level
+  correlations 0.993-0.997; `checks/2026-11-18-cboe-sample-10days.json`); EDGAR the same 26 FAIL,
+  BABA and TSM only, 1,944 PASS (`checks/2026-11-18-edgar-sample-10days.json`). Pass criteria:
+  (1) yes; (2) yes; (3) coverage count not yet run; (4) refcheck impossible on the sample (raws
+  deleted): moves to the first tranche's gate; (5) domestic filers exact, 20-F ROA defect to fix;
+  (6) plots not yet made; (7) image diff with the next image. Sample ends near 20:00–21:00 UTC.
 - **02:40 UTC: owner decision: fix round x's other twelve in their simplest form (core #1 2 7 8 9 12
   17 19 in `/home/diggz/wt/core-fix-y`; engine #3 10 14 15 16 in `/home/diggz/wt/fx30`), then NO
   further audit of the operations features.** Reason: three rounds (v, w, x) keep finding the same
