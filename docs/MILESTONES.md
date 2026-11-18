@@ -456,12 +456,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (1) yes; (2) yes; (3) coverage count not yet run; (4) refcheck impossible on the sample (raws
   deleted): moves to the first tranche's gate; (5) domestic filers exact, 20-F ROA defect to fix;
   (6) plots not yet made; (7) image diff with the next image.
-  **Coverage count (20:30 UTC; `checks/2026-11-18-coverage-sample.txt`, every state-bearing element):**
+  **Coverage count (20:05 UTC; `checks/2026-11-18-coverage-sample.txt`, every state-bearing element):**
   below 80%: PCR-UACT-I01 0.43, D111-TEMP01 0.71 and a DLM-VWAP role (381 of 640 asset-days)
   all SOURCE_VOLUME_RECONCILIATION_FAILED; SAI-EXQ01 0.35, M0-PRINT-SIZE 0.20, SAI-EXQ01-TEMPORAL
   0.64 all EVENT_SOURCE_NOT_RETAINED (512 of 640 asset-days; the archive is off?); INT-ACT-TV15
   0.64 INSUFFICIENT_ELIGIBLE; CDD-FND01 0.785 and SAI-G01 mostly structural NOT_APPLICABLE. Being
-  diagnosed. **Started 20:15 UTC (owner: "start working on those fixes"):** engine `pass-fx40`
+  diagnosed. **Started 20:00 UTC (owner: "start working on those fixes"):** engine `pass-fx40`
   (20-F ROA currency D-361.., adjusted-root volume, GOOGL shares); refcheck in the worker
   (engine `pass-fx41` D-370, core `core-refcheck` C-054); free gate checks (Cboe 14 pairs, OCC
   volume, FRED) in `tools/external`. Owner buying DataShop and subscriptions; core deploy not yet
