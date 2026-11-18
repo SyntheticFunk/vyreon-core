@@ -365,7 +365,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (QuantLib 1.43, TA-Lib 0.8.2), its report recorded per session in core, a disagreement as one
   notice; its time per day measured (it adds node-hours). The sample's criterion 4 (and 7, the
   image diff) then from one sample day re-run on the new image. The owner's key file
-  `spaces-only-key.txt` is gitignored (the repo is public).
+  `spaces-only-key.txt` is gitignored (the repo is public). Owner: the cost is worth it; and
+  "we have done the ten day spot check without actually checking any of it against external
+  references": so far the sample shows the system runs (10 days, 0 failures), not that its
+  numbers are right. **19:20 UTC: the bucket-limited Spaces key works** (`spaces-storage-access-key.txt`,
+  gitignored: lists `vyreon-data`, refused the account's bucket list); cluster Secret
+  `vyreon-core-spaces` created from it (key-id, secret; not printed).
 - **03:40 UTC: round x's other twelve fixed and merged; no audit (owner).** Core main 58cf628 (#1 the
   archive outcome checks its place; #2 cancelling a repair opens NOT_DERIVED; #7 digest tally in one
   statement; #8 a "not packed" beside KEPT is not listed; #9 a block archives only days it marked
