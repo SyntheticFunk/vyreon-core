@@ -298,3 +298,159 @@ to carry the filed value exactly.
 Pass = no FAIL, failed UNIT or LOOKAHEAD anywhere. The sample's criterion (5) ("EDGAR agrees for
 every company's latest-quarter figures") is reported separately over the current readings alone.
 The report states what was not comparable.
+
+## Tiingo daily prices (`tiingo.py`)
+
+A second vendor's daily bars recomputing what is a deterministic function of daily prices.
+**Declared 2026-11-18, before any stored value was compared with Tiingo** (nothing here is
+`seen`). Tiingo's EOD endpoint `api.tiingo.com/tiingo/daily/<TICKER>/prices?startDate=2019-12-01&
+endDate=2026-11-17`, one request per security (64), Commercial API plan licensed for this internal
+validation. The token is read from `tiingo.txt` and sent as the `Authorization` header, never in a
+URL. Tiingo's data is licensed: it is cached **outside the repo**; `tiingo.py fetch` records url
+(without the token), sha256 and fetch time in the cache's `fetched.json`, and the checks refuse a
+cache that differs. Fields used: `date`, `open`, `high`, `low`, `close`, `volume`, `divCash`,
+`splitFactor`. Tiingo's own `adj*` fields are **not** used: the engine's adjustment is rebuilt from
+the raw fields. Whether Tiingo's close is the primary listing's official close was not established.
+
+Dates: the sample, 2026-11-02..06 and 11-09..13 (engine build 05837898), from core's published
+revisions (`tiingo-field.sql`, `tiingo-prices.sql`). Definitions are the engine's at that build
+(`h5-field`, `h3-p01`, `h3-p03`, `h3-path`, `h5-derived` `ta.rs`/`technical.rs`).
+
+**The engine's inputs, rebuilt from Tiingo:**
+
+- Sessions: Tiingo's SPY dates. They must equal the axis of the stored FIELD-DEP01 masks where
+  the two overlap (otherwise the tool stops: an alignment error, not a verdict).
+- A session's adjustment factor (it relates the bars before t to t): `f_t = (1 - divCash_t /
+  close_{t-1}) / splitFactor_t`, the dividend term only when `0 < divCash_t < close_{t-1}`. This is
+  `ta::back_adjust` (D-063) with Tiingo's dividend and split (Tiingo's `splitFactor` 2 is
+  Intrinio's ratio 0.5). P01 uses Intrinio's per-day factor (D-024), taken to be the same
+  CRSP-style factor: a convention difference shows as a return difference on an ex-date, which
+  the input check below lists per security-day.
+- Adjusted log return `r_t = ln(close_t / (close_{t-1} f_t))` (P01 `adjusted_r1`, FIELD's panel
+  cell); raw `ln(close_t / close_{t-1})` (P01 `raw_r1`); split-free raw
+  `ln(close_t splitFactor_t / close_{t-1})` (FIELD's raw cell, SUB01 `adjusted_raw`);
+  `adjusted_r5` the sum of five adjusted log returns. Window-adjusted OHLC (P03, PATH):
+  each earlier bar times the product of the later factors.
+- Missing data: **the engine's support, not Tiingo's coverage.** FIELD cells are supported
+  exactly where the published FIELD-DEP01 common masks say (union over the sample's bodies:
+  security i is supported on session s when some mask of a pair holding i is true on s); older
+  sessions count as supported where Tiingo has the bar. Each window's engine-withheld cells are
+  counted in the report. Tiingo lacking a bar the engine supports is NOT_COMPARABLE for every
+  quantity whose window holds it, never a pass. DLM records: Tiingo's bars from the receipt's
+  `daily_bars_from` (the engine's history start after any D-063 restart) through T; SPY's from
+  SPY's own receipt; a session missing in that span is NOT_COMPARABLE.
+
+**Tolerances and their reasons.** Two vendors carrying the same official closes give the same
+returns to rounding, so the bands are sized to detect one materially wrong print, not to absorb
+method differences; a failure is reported with its cause, never re-banded.
+
+- Per-return input tolerance `5e-4` (5 bp). A dividend or ex-date convention difference is a few
+  bp at most; a wrong close is more.
+- Correlation-type quantities `0.01`, as the research suggested. Reason: one return off by about
+  1% in a 21-session window moves that security's 63 pair correlations by up to a few tenths and
+  the mean of the 2,016 pairs by about 0.01, so 0.01 is the size of one bad print, and identical
+  inputs give about 1e-12.
+- Leading eigenvalue 1% relative (the research's figure; about 0.2 at a level of 20, the same
+  size as 0.003 on the mean correlation, since `lambda_1 ~ 1 + 63 * mean`).
+- Derived quantities take the tolerance their operands' tolerances propagate to (stated per item).
+- A level percentile (`PCT.MIDRANK` over n references): `|delta| <= m / n`, m = the number of
+  Tiingo reference levels within twice the level's tolerance of Tiingo's current level (only
+  those can change sides when each level moves by at most its tolerance), and each stored
+  reference cell within the level's tolerance.
+
+### Check 1: FIELD (`tiingo.py field`)
+
+Each T's panel is the 376 calendar sessions through T. Compared:
+
+1. FIELD-SYNC01 `W21.*`, `W63.*`: `off_diagonal_mean`, `median`, `q10`, `q90` (Pearson over the
+   terminal-inclusive 21 or 63 sessions, all 64 required in every row, else withheld
+   INCOMPATIBLE_COMMON_SUPPORT; Type-7 quantiles of the 2,016 upper-triangle cells): `0.01`.
+   `pair_count`, `window_start`, `window_end` exact. Both `.level_percentile_cap126` contexts
+   and their `.reference` arrays by the percentile rule (level tolerance 0.01). The
+   `pearson_matrix` arrays: every cell `0.02` (one pair is noisier than the mean of 2,016).
+2. FIELD-RMT01 `leading_eigenvalue` (Pearson spectrum of the last at most 250 all-64 rows ending
+   T, minimum 126): 1% relative. `spectrum` ranks 2..64: `|delta| <= 0.02` absolute (their sum is
+   about 44, so 0.02 is under 0.05% of the trace per rank; small eigenvalues have no useful
+   relative scale). Leading-eigenvalue share `lambda_1 / 64` reported (follows from the above).
+3. FIELD-DIM01 from that spectrum: `participation_ratio` and `entropy_effective_rank` 2% relative
+   (`PR = 64^2 / sum lambda^2` is dominated by `lambda_1^2`: 1% on `lambda_1` gives about 2%);
+   `k95` within 1 (a threshold crossing of the cumulative share); `reconstruction_loss` at k:
+   `|delta| <= (0.01 lambda_1 + 0.02 (k - 1)) / 64` (the cumulative sum of the spectrum bands).
+4. FIELD-DEP01 every pair (last 250 calendar sessions, each pair on its common support, minimum
+   126): `pearson`, `spearman`, `common_scale_pearson` `0.01` (250 sessions: one bad print moves a
+   pair by less than in W21); `signed_concordance` `6 / count` and `categorical_sign_agreement`
+   `3 / count` (three sign flips: a return within a tick of zero can change sign between vendors);
+   `common_count` exact (it is the engine's own mask, a consistency check).
+5. FIELD-GRP01 `within_median`, `between_median`, `median_difference`,
+   `group_equal_weighted_difference`, each `group.within_median`: `0.01` (a median of values each
+   within 0.01 is within 0.01); pair counts exact.
+6. FIELD-SUB01, where published (it is withheld unless admitted, which needs seeded null draws):
+   `pearson_spearman.*`, `primary_common_scale_removed.*`, `adjusted_raw.*`,
+   `trailing.L{63,126,189,249,250}.*`, `rolling126.*`, `leave_group_out.*` and the minima
+   `trailing.minimum_overlap`, `rolling126.minimum_adjacent_overlap`,
+   `leave_group_out.minimum_overlap`: overlap `0.01`, principal angle 1.5 degrees (overlap =
+   cos^2 of the angle: 0.01 is about 1.7 degrees near 10 degrees). `base_projector_k1`: Tiingo's
+   leading vector v must give `v' P v >= 0.99`.
+7. Cross-section of T: FIELD-BR01 counts within 1, fractions within `1/64`, `signed_prevalence`,
+   `directional_synchronization`, `fragmentation` within `2/64` (one security changing sign);
+   FIELD-DIST01 quantiles, `cross_sectional_mad`, `iqr`: `5e-4` (an order statistic of values each
+   within 5e-4 is within 5e-4; MAD and IQR within `1e-3`); FIELD-XCONC01 `absolute_move_sum`
+   `64 * 5e-4`, `absolute_move_hhi`, `top_one_share`, `top_five_share` and `top_five.share`
+   `0.005`, `effective_count` 5% relative (shares of a sum of about 0.5 move by about 1e-3 per
+   5 bp; 0.005 leaves room for a top-five reordering), `top_five.object_id` reported. Their
+   contexts by the percentile rule.
+8. Input check: DIST01 `object_return_state` (each security's adjusted log return on T) against
+   Tiingo's `r_t`: `5e-4`.
+
+Not compared, with the reason: RMT01 `iid_leading_q99`, `independent_shift_leading_q99`,
+`common_scale_shift_leading_q99`, `separated_dimension` and the three null `*_rankwise_q95`
+arrays, DIM01 `separated_dimension`, GRP01 `permutation_q95` and `permutation_exceedance`, SUB01
+`bootstrap.*`, `minimum_k1_overlap`, `k3_state`, `k5_state` (seeded NumPy PCG64 draws: reproducing
+them would re-implement the engine's generator, not test the prices); FIELD-FDSYNC01,
+FIELD-FDRMT01, FIELD-FDDIM01, FIELD-MHDEP01 (15-minute quote midpoints, intraday); FIELD-SUP01,
+FIELD-OPTBR01, M0-FIELD-ANALYTICS (options).
+
+### Check 2: price-based base and derived sensors (`tiingo.py prices`)
+
+Per security-day, over the 64 securities:
+
+1. **Input: raw close.** VS-P01 `raw_close` and every cell of `raw_close.history` (the 63
+   sessions before T; one comparison per security-session, a session stated differently by two
+   bodies listed): `|delta| <= max(0.005, 1e-4 * close)` (half a cent, or 1 bp on prices above
+   $50).
+2. **Input: returns.** VS-P01 `adjusted_r1`, `raw_r1`, `adjusted_r5` and every cell of
+   `adjusted_r1.history`: `5e-4`; `adjusted_close` as `raw_close` (it is T's raw close).
+3. VS-P03 `CC.W{5,10,21,42}` 0.5% relative; `PARKINSON`, `GARMAN_KLASS`, `ROGERS_SATCHELL`,
+   `YANG_ZHANG` at the four windows 2% relative (they read the high and low, which one print sets
+   and vendors' print eligibility can differ). PATH-L01 `gap`, `intraday`: `5e-4`; PATH-L02
+   `raw_log_high_low_range`: `1e-3`.
+4. DLM-TECHNICAL, DLM-PRICE-LEVELS, DLM-DRAWDOWN, DLM-RELATIVE-PERFORMANCE, DLM-BETA, numeric
+   roles, `ta.rs` exactly (Wilder RSI/ATR/ADX seeds, EMA seeded by SMA, SAR from the history's
+   first bar, all from `daily_bars_from`):
+   - prices (unit `usd`: moving averages, bands, channels, pivots, Fibonacci levels, swing and
+     52-week highs and lows, SAR, Ichimoku, MACD lines, ATR): `0.01 + 1e-3 |v|`;
+   - oscillators (units `index_0_100`, `index_minus_100_0`): 1.0 point; CCI: `2 + 0.02 |v|`;
+   - returns and distances (`return_*`, `spy_return_*`, `excess_vs_spy_*`, `distance_sma_*`,
+     `distance_from_52_week_high`, `rate_of_change_10`, `gap`, `atr_14_percent`,
+     `bollinger_bandwidth`, drawdowns, `worst_*_session_return`): `1e-3 + 1e-3 |v|`;
+   - bounded positions (`bollinger_percent_b`, `position_in_52_week_range`): `0.01`;
+     `downside_deviation_1y` 1% relative; `regression_channel_50.slope_per_session`
+     `1e-5 + 0.01 |v|`;
+   - `correlation_63`, `correlation_1y`: `0.01`; `beta_63`, `beta_1y`: `0.01 + 0.01 |v|`
+     (`beta_1y` is the recomputed FIELD-DEP01 SPY pair times the volatility ratio, D-087);
+   - `rsi_14.percentile_252`: the percentile rule with RSI's 1.0 point.
+   - Reported, not judged: the volume-based roles (`obv_change_20`, `chaikin_money_flow_20`,
+     `money_flow_index_14`, `volume_price_trend_change_20`, `vwma_20`, `distance_vwma_20`,
+     `volume_oscillator_5_20`: the two vendors' daily volume definitions were not established),
+     every text and integer role (states, crossings, session counts: threshold functions of the
+     numbers above; their agreement rate is reported).
+
+Not compared: PATH-L03-L07 (its W21 path geometry was not transcribed in this round), VS-P07
+(volume), DLM-CANDLESTICK (categorical; reported agreement only), DLM-VWAP (consolidated tape),
+every `change5_*`, `magnitude_percentile_cap126` and `continuation_ratio` context of the base
+sensors (not transcribed in this round), and the option-based sensors.
+
+**Verdicts (both checks):** PASS inside the band; FAIL outside it, or the engine supported where
+the recompute is undefined on the same inputs; NOT_COMPARABLE (engine withheld, with its state
+and reason; Tiingo lacking a bar). Pass = no FAIL. The report gives, per quantity, the count
+compared, the count failed, the largest difference and its security-day, and every failure.
