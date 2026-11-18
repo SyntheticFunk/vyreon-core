@@ -1,0 +1,386 @@
+[
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/SPY/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "SPY.json",
+  "sha256": "f729711bd8b346d4bdcf79412e48bdab8510bd58006a253a8c3e616fe11affc1",
+  "fetched_at": "2026-11-18T20:50:51+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/QQQ/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "QQQ.json",
+  "sha256": "c4f1c67915ad80338501e194795d52fa47e045dd407ac8a533732950a4abd9d5",
+  "fetched_at": "2026-11-18T20:50:51+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/IWM/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "IWM.json",
+  "sha256": "e40a8d6d428d49a8f4576c00a01280d277739d6d4ff4dda84d5aee911bfa6227",
+  "fetched_at": "2026-11-18T20:50:52+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/DIA/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "DIA.json",
+  "sha256": "b9d8777b8c3ae6a09956c0d392daad7c5ba76123c8f60cb218868863a88959ce",
+  "fetched_at": "2026-11-18T20:50:53+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/RSP/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "RSP.json",
+  "sha256": "c178337dc0321422d6924d9b748c56aabde76c02a2e5551f1ec54ea0c70054a9",
+  "fetched_at": "2026-11-18T20:50:54+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/MDY/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "MDY.json",
+  "sha256": "d942495ab34f0c6e0a69542f86b6d42289f47ee17a1081c5e6dd2a48a8b1b61f",
+  "fetched_at": "2026-11-18T20:50:55+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/VTV/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "VTV.json",
+  "sha256": "783861ad98ff576cd6d82376b6e687d862c18d261e62a3db0b24317c6d53b7e1",
+  "fetched_at": "2026-11-18T20:50:56+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/ARKK/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "ARKK.json",
+  "sha256": "23499d462bdf04a6220ecf804b0697d2b26a72b24ae55e576d1bc70ae1a1a770",
+  "fetched_at": "2026-11-18T20:50:57+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/XLK/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "XLK.json",
+  "sha256": "09cb7a911df5b4263284b1072c7b1578bfddb4fa0fbdcd15d4082962f49a0355",
+  "fetched_at": "2026-11-18T20:50:58+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/XLF/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "XLF.json",
+  "sha256": "6852da6f9953d92949f3797a58c5154986615de3ef0019b02119f2c1b5ada6b7",
+  "fetched_at": "2026-11-18T20:50:59+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/XLE/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "XLE.json",
+  "sha256": "6f23c4bcd0224d4e594222ac843a11d9ed7e834914652aca713617c7d6ebc59b",
+  "fetched_at": "2026-11-18T20:50:59+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/XLV/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "XLV.json",
+  "sha256": "e8dc059c085943e943f7bb2b4e036ad29209963405d0ee4515f1d6b10c59c13c",
+  "fetched_at": "2026-11-18T20:51:00+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/XLY/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "XLY.json",
+  "sha256": "aa56e6ed7b8b72bbc4538404a7c9ca9965cdf40c13b9568449dc7d4415fa6013",
+  "fetched_at": "2026-11-18T20:51:01+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/XLI/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "XLI.json",
+  "sha256": "a7d6c86328fa7b4ce07855de374188ef45b6b95c55ee422eef901536b9846a59",
+  "fetched_at": "2026-11-18T20:51:02+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/XLC/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "XLC.json",
+  "sha256": "1efa4f525da87616fb7ebf153f4583d44a9a13b6efa96c68b6355774cb395982",
+  "fetched_at": "2026-11-18T20:51:03+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/XLB/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "XLB.json",
+  "sha256": "5e94798f356df8104c5a6a8c74cc0421c5a6f10e7e5e30fd79e9254e18336b5b",
+  "fetched_at": "2026-11-18T20:51:04+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/XLP/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "XLP.json",
+  "sha256": "16b691ac5a97da10160be8326ab587c9cc8004e6bc2f0355f92d085203da1d75",
+  "fetched_at": "2026-11-18T20:51:05+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/XLU/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "XLU.json",
+  "sha256": "47d85a634fed6034a2847a2b1835c5d6cd89623d3997b8155f29cf364650226b",
+  "fetched_at": "2026-11-18T20:51:05+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/XLRE/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "XLRE.json",
+  "sha256": "9a6f0c61bdff7c1e33e16403f3e7f88ee9d1e2f8aab8afd02a255a6f78456936",
+  "fetched_at": "2026-11-18T20:51:06+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/IEF/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "IEF.json",
+  "sha256": "03f37503bed94a8ca7d650ca5279b252196c0a08519cdeb9e82b78ae91fdc2f4",
+  "fetched_at": "2026-11-18T20:51:07+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/TLT/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "TLT.json",
+  "sha256": "9d01b039a6b8d79ef087a0995509b3b273c1e38940888390dd41ff5f0737fe29",
+  "fetched_at": "2026-11-18T20:51:08+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/TIP/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "TIP.json",
+  "sha256": "550ed9664c822aa65bdb63809656bf18bd0ebf109359adf7a048e18fb65d63b3",
+  "fetched_at": "2026-11-18T20:51:09+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/LQD/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "LQD.json",
+  "sha256": "7c11fc66215ca503ad15cee523050c258d861c831913a6dc5a95bb458fe499c1",
+  "fetched_at": "2026-11-18T20:51:10+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/HYG/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "HYG.json",
+  "sha256": "9c9df152b4c12f6c8997d91d4eb37deb253c6dfc2c1aeb0b18873d113709c5aa",
+  "fetched_at": "2026-11-18T20:51:11+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/EMB/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "EMB.json",
+  "sha256": "a63fda186ec121bee03abb5512a5aab286c1e01cda5cacf228c4ded0899aee5b",
+  "fetched_at": "2026-11-18T20:51:12+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/GLD/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "GLD.json",
+  "sha256": "f58f54c997ebd58e2c9566413cca0904bbdeeab6e577c6f09d4561f6d4b97308",
+  "fetched_at": "2026-11-18T20:51:13+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/SLV/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "SLV.json",
+  "sha256": "a3acb93750aca4ab649c241013af3194552f0970f3bc79f5f23c6c693a766c8c",
+  "fetched_at": "2026-11-18T20:51:13+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/USO/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "USO.json",
+  "sha256": "6c41d38a43d0905f5caa7a1f11e403d59606dd809ec0bf68d25cd7aff1b9ac4f",
+  "fetched_at": "2026-11-18T20:51:14+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/UNG/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "UNG.json",
+  "sha256": "9074fc343a4c9d461e9c5fcc396d48ffb653662df78d009a1adc5ad1d61611f6",
+  "fetched_at": "2026-11-18T20:51:15+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/DBA/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "DBA.json",
+  "sha256": "31ba46009acb1f207134e598c5c74fe3dc7ea76c5c5df6edb0b35756461d5755",
+  "fetched_at": "2026-11-18T20:51:16+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/UUP/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "UUP.json",
+  "sha256": "01167cd413e8b91db17852ad935f7a2641493c5b9bf263c4bd18056f69406faf",
+  "fetched_at": "2026-11-18T20:51:17+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/IBIT/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "IBIT.json",
+  "sha256": "caa4f8d0ab45555d6502fd30fd770b733834110d69e45f792b557f819cfe5519",
+  "fetched_at": "2026-11-18T20:51:18+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/ETHA/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "ETHA.json",
+  "sha256": "755deb6e8778b909ca6bd8cbce4ceafe778c68968225f249b700e8b8eb3d29e8",
+  "fetched_at": "2026-11-18T20:51:18+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/EFA/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "EFA.json",
+  "sha256": "f1c75640fafea1bb40e22d1ff7baa3bb81f3764e646a9bb4b4a8a8e7a9305ce8",
+  "fetched_at": "2026-11-18T20:51:19+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/EEM/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "EEM.json",
+  "sha256": "ade61f6198045b4a19c00b3ddcdf1edfab2c1059fb1ee4f31f0af8c6238f2dae",
+  "fetched_at": "2026-11-18T20:51:20+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/FXI/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "FXI.json",
+  "sha256": "cc5345a8eec463ce1116d46a7570f8f5c1f219915d574b9a0a854f99f975f6b2",
+  "fetched_at": "2026-11-18T20:51:21+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/EWJ/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "EWJ.json",
+  "sha256": "40096769b53033be5d10c095f1b1a3af4360b225a82c93b4f182e3d2821ae935",
+  "fetched_at": "2026-11-18T20:51:22+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/EWZ/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "EWZ.json",
+  "sha256": "dca72cbe725e8f5a750592646808baae823997c50bdf8773afb127d386860149",
+  "fetched_at": "2026-11-18T20:51:23+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/INDA/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "INDA.json",
+  "sha256": "bbff4dd020c39fe4098f0bbf6002e544de14e98755d0cec21bef5264a78f695d",
+  "fetched_at": "2026-11-18T20:51:24+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/EWY/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "EWY.json",
+  "sha256": "a4501cb32b3508850af0fd7fee62d87a2c199114dfe7bb05383524afd5aabfed",
+  "fetched_at": "2026-11-18T20:51:24+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/VGK/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "VGK.json",
+  "sha256": "ce61374a85b9ef537b4f2a89a9ace37374244815a4342b0f6bbdb2ee24e18bbc",
+  "fetched_at": "2026-11-18T20:51:25+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/SMH/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "SMH.json",
+  "sha256": "dc48812774ea6343eb5901dda1974a72b3b08da00b380f7e190ce09b2a53b4ac",
+  "fetched_at": "2026-11-18T20:51:26+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/KRE/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "KRE.json",
+  "sha256": "a6e3c1bc93f75079add497a4138c89d8cf5df6b4df420534023b0fc8efc204b2",
+  "fetched_at": "2026-11-18T20:51:27+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/XHB/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "XHB.json",
+  "sha256": "d1bc7391a6a370586d4d902d193dd5e534e113ec59ce9db6e1955b15cb862548",
+  "fetched_at": "2026-11-18T20:51:28+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/XRT/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "XRT.json",
+  "sha256": "d91f072330fa4298ed12b781e7c0e04ab8e1a9b50b9e27cfd9e80d65d1da11dc",
+  "fetched_at": "2026-11-18T20:51:29+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/XBI/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "XBI.json",
+  "sha256": "fac5b04bc21d9ee03a971679548e3549f481fb6020027995f84da6fe427e6bc5",
+  "fetched_at": "2026-11-18T20:51:30+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/URA/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "URA.json",
+  "sha256": "4fba2b91223531f33c48b2e27a4620e7e6c5316f4aa2041b9f87d9672e763871",
+  "fetched_at": "2026-11-18T20:51:30+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/AAPL/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "AAPL.json",
+  "sha256": "c6db7412f603ba1819612abd1bfc65394ebf4f750a7f4f6c8262ec496469a093",
+  "fetched_at": "2026-11-18T20:51:31+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/MSFT/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "MSFT.json",
+  "sha256": "71cd87561c5474143124948ccd8147fc2b2350a9c4913cb98e83e8b83aa675fc",
+  "fetched_at": "2026-11-18T20:51:32+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/NVDA/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "NVDA.json",
+  "sha256": "ad95529a3c23d37f574d54724efd649545cac5fccedf645e0defd2774408be13",
+  "fetched_at": "2026-11-18T20:51:33+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/AMD/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "AMD.json",
+  "sha256": "4b91671cb65b9d05304b0a470b786850bdb3c89c9bb93a138fe1947c25c47f9a",
+  "fetched_at": "2026-11-18T20:51:34+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/AVGO/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "AVGO.json",
+  "sha256": "84540b62db62c35225d86ecfae3e399ca9a562b1fe641a52288bacf97dabff60",
+  "fetched_at": "2026-11-18T20:51:35+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/AMZN/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "AMZN.json",
+  "sha256": "40521f0a1fd387be53eef85f037d9ee8d0de83a36cef31bc18340d867bf725e1",
+  "fetched_at": "2026-11-18T20:51:36+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/GOOGL/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "GOOGL.json",
+  "sha256": "4388ef6eadf5939d9bb34db7ecafc1923e29fc786ffa1d5a0dff659ad141dc9a",
+  "fetched_at": "2026-11-18T20:51:36+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/META/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "META.json",
+  "sha256": "ed573964d0890fde50bfc6741df62bdb4eb1dcb38f387bd4e58877aa1c6e8634",
+  "fetched_at": "2026-11-18T20:51:37+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/TSLA/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "TSLA.json",
+  "sha256": "22af8fba978cc7492b8cb05c120e21d269f2157240927e9863bb8aae1ae61677",
+  "fetched_at": "2026-11-18T20:51:38+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/PLTR/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "PLTR.json",
+  "sha256": "3afab83cbdf8d94c90dd5ecd33ff9437e3b1e934ff79bad76db0177520cd6b38",
+  "fetched_at": "2026-11-18T20:51:39+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/JPM/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "JPM.json",
+  "sha256": "09fd5fa27fa5d5ce70440ae1eda0942f46b503b2d43b65f995ef4dabb6701c47",
+  "fetched_at": "2026-11-18T20:51:40+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/LLY/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "LLY.json",
+  "sha256": "1673e708e3b597b332bab2181dc978b2f0910435a6b6a76e42070fd682225092",
+  "fetched_at": "2026-11-18T20:51:41+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/WMT/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "WMT.json",
+  "sha256": "95e182eda0d558b93fa2ee8d2b270a82eefa180b7f2f87e064a7aa82d30c0c9b",
+  "fetched_at": "2026-11-18T20:51:42+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/BABA/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "BABA.json",
+  "sha256": "02073fb27f0afe4a4b49649015b4cc6206b19097475d7215385d54366cb71714",
+  "fetched_at": "2026-11-18T20:51:43+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/TSM/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "TSM.json",
+  "sha256": "fd7f04d668dd47ab98f412edd85fff05f2f40d518b8bc6c9f74383c5fd933983",
+  "fetched_at": "2026-11-18T20:51:43+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/MSTR/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "MSTR.json",
+  "sha256": "49b10c1c0442429c7c589ff01373dafc1e259af619f50870fb481ffd3298ceab",
+  "fetched_at": "2026-11-18T20:51:44+00:00"
+ },
+ {
+  "url": "https://api.tiingo.com/tiingo/daily/COIN/prices?startDate=2019-12-01&endDate=2026-11-17",
+  "file": "COIN.json",
+  "sha256": "04659974c00a2aae71d4a525eed582703e28d4c0ad5b27e5f9f56e90227b4e60",
+  "fetched_at": "2026-11-18T20:51:45+00:00"
+ }
+]
