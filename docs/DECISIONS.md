@@ -1246,3 +1246,59 @@ worker's side. Migration 0025; `crates/core-db/src/refcheck.rs`.
   it and opens REFCHECK_DISAGREES once, alerted once, counted in the digest; the day published again
   resolves it); `core-api/tests/worker_api.rs` (the same over HTTP: before done 422, kept, again,
   a credential 422, another day's account 422); `refcheck::tests` (the summaries count, never list).
+
+## C-055 Every claim carries the OCC adjustment ledger, committed data with an OCC memo behind each entry (2026-11-18; engine audit 9 finding 1, D-170, D-290..D-294)
+The engine reads an optional per-asset ledger of dated OCC contract adjustments
+(`<home>/h5-universe/adjustments.json`, `VYREON-ADJUSTMENTS@1`, engine `adjustments::parse_ledger`)
+from a claim's `adjustments`, as it reads the dated tickers; core never sent one. Without it an
+adjustment older than the engine's detector lookback (21 sessions) is invisible, while the provider
+keeps listing the stale pre-adjustment contracts with frozen open interest: EWJ's open interest was
+withheld PROVIDER_OI_INCOMPLETE on 100 sessions (2026-01-20..06-11) after OCC cut every strike by
+$0.16 on 2025-12-16; with that one entry no session faults (reproduced). Phase 1 (from 2025-04-10)
+meets the December 2025 adjustments.
+- **What:** `crates/core-api/data/occ-adjustments.json`, compiled into the binary
+  (`core_api::adjustments`). A claim's `adjustments` is the ledger's `assets` narrowed to the
+  claim's members (`{}` when none has an entry). Only the engine's vocabulary: `split` with the
+  provider's ratio (1/n, a whole forward split), `other` with `strike_offset` (every strike lowered
+  by a special distribution) or `root` (positions moved to an adjusted root: reverse splits and
+  cash added to the deliverable).
+- **Why committed data, not a table:** the boring option. It is reference data that changes a few
+  times a year, each change a reviewed commit with its source. No migration and no load step that a
+  new database could miss (a forgotten `universe load`-style step would send no ledger, and the
+  engine would carry on without one, silently); every claim one core build answers carries the
+  same ledger. Cost: a new entry ships with a core image. The engine's own detector covers the
+  first 21 sessions after an adjustment, so a new one needs its entry within about a month.
+- **Core's rules beyond the engine's parser** (checked by `adjustments::check`, at first use and in
+  the tests): every entry's evidence opens with its OCC Information Memo, number and URL
+  (`https://infomemo.theocc.com/infomemos?number=N`); no entry without a source (engine D-102); a
+  reverse or fractional split is never a `split` (the engine cannot place it) but the adjusted root
+  OCC names; the engine's `unknown` (a possible adjustment) is never sent; an asset's entries in
+  ex-date order without repeats; no field the engine does not read. A strike offset is the
+  distribution rounded to the nearest cent, the amount every strike actually moved (OCC rounds each
+  reduced strike to the penny: EWJ $0.157024 makes 35.00 into 34.84).
+- **Coverage:** every OCC adjustment of the 64 with an ex-date from 2022-05-27 (the database's first
+  session) to 2026-11-18: 21 entries, 13 forward splits (AMZN, GOOGL, TSLA, SMH, WMT, NVDA, AVGO,
+  MSTR, and XLB, XLE, XLK, XLU, XLY on 2025-12-05), 4 strike offsets (FXI 0.15 2023-06-08, QQQ 0.22
+  2023-12-27, EMB 0.25 2024-12-30, EWJ 0.16 2025-12-16) and 4 adjusted roots (UNG1 2024-01-24,
+  BABA1 2024-06-13, BABA2 2025-06-12, ETHA1 2026-10-06). The roots agree with the engine's
+  `assets/adjusted-roots.json`.
+- **How they were found:** infomemo.theocc.com answers automated reads with a Cloudflare challenge
+  (HTTP 403), so the memos were read from MIAX's copies (the PDFs OCC issued, attached to MIAX's
+  corporate-action alerts). Every MIAX corporate-action alert from 2022-05 to 2026-11 and a MIAX
+  search per ticker were read for the 64; Intrinio's `prices/adjustments` records (splits and
+  dividends since 2022-05-27) gave the candidates, and each split and off-schedule distribution was
+  matched to a memo or to none. Each entry also states Intrinio's record of its date.
+- **FXI's 2023 distribution** (memo #52545) is the older form: on the ex-date (2023-06-07) the
+  strikes stayed and the deliverable carried $14.90 for one day; the strikes were reduced the next
+  session. The ledger dates the reduction (2023-06-08), the session the old strikes stop being
+  listed.
+- **Not covered:** adjustments before 2022-05-27 that are still within 39 months of the database's
+  early sessions (to 2019-02); seen in passing: ARKK's 2021-12-29 capital-gains reduction of $0.78
+  (memo #49856). The FB to META symbol change (memo #50536) is a ticker change, carried by the
+  dated tickers. Which ledger a published day was computed with is not recorded (the engine build
+  is); a ledger change that touches published days is a scoped republish of those assets.
+- Tests: `core-api` `adjustments::tests` (the committed ledger passes, names only the 64 and holds
+  EWJ's, EMB's, XLE's and UNG's entries; each rule refuses a real entry altered to break it; a claim
+  carries only its members' entries); `core-api/tests/worker_api.rs` (a day-block claim over HTTP
+  carries the ledger). The engine's own parser reads the file (checked from the engine at
+  `pass-s3i`, read only: `parse_ledger`, `universe::write_claim`, `Universe::load`).
