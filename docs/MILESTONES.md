@@ -556,7 +556,7 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   DBA, UUP surfaces on those dates), EVENTS01 NVDA, AVGO, AMD, PLTR. **Dated reminder: the release
   table ends at November 2027 data; extend it before then.** Core follow-up: EDGAR checker compares
   `accepted_utc_date`.
-  **Optimization pass before phase 1 (owner, 22:00 UTC): timeboxed, from the real day's profile;
+  **Optimization pass before phase 1 (owner, 21:50 UTC): timeboxed, from the real day's profile;
   byte-identity retired** ("Byte identical is based on the assumption that the current system is
   perfect. We are repeatedly proving it is not"). Image-diff rule for any change: floating-point
   noise (relative ~1e-12) allowed and reported; anything larger ties to a decision; states never
