@@ -283,6 +283,10 @@ pub async fn request(client: &mut Client, spaces: &Spaces, token: &str, r: &Requ
 
 /// Refused unless `lease` is a day block's and its job has published `session` (its base, its own
 /// build): a day's perishables are archived (or reported not packed) once it is published.
+/// Revisions do not record their job; a day the job published is one it has marked done
+/// (`work::day_done`, which needs the day's base of the job's build published, and which the
+/// worker sends after publishing, before its archive phase): a day before the job's next, never
+/// the next itself (audit round x, 9: a block just leased on a day published by hand before it).
 async fn published_by(tx: &impl GenericClient, lease: &work::Held, session: &str) -> Result<(), LeaseError> {
     if lease.kind != "DAY_BLOCK" {
         return Err(LeaseError::Refused(format!("job {} is not a day block", lease.job_id)));
@@ -292,7 +296,8 @@ async fn published_by(tx: &impl GenericClient, lease: &work::Held, session: &str
             "SELECT EXISTS (SELECT FROM vyreon.day_revision
                             WHERE profile_id = $1 AND engine_build = $2 AND state = 'PUBLISHED' AND base_revision IS NULL
                               AND represented_date = $3::text::date
-                              AND represented_date BETWEEN $4::text::date AND COALESCE($5::text::date, $6::text::date))",
+                              AND represented_date BETWEEN $4::text::date AND $6::text::date
+                              AND ($5::text IS NULL OR represented_date < $5::text::date))",
             &[&lease.profile_id, &lease.engine_build, &session, &lease.first_session, &lease.next_session, &lease.last_session],
         )
         .await
@@ -318,9 +323,11 @@ pub async fn unpacked(client: &mut Client, token: &str, category: &str, session:
     let tx = client.transaction().await.map_err(failed)?;
     let lease = work::held(&tx, token).await?;
     published_by(&tx, &lease, session).await?;
+    // sent again after its answer was lost: the one record stands (audit round x, 17)
     tx.execute(
         "INSERT INTO core.perishable_unpacked (session, category, failure, reported_at, job_id, engine_build, worker)
-         VALUES ($1::text::date, $2, $3, $4::text::timestamptz, $5, $6, $7)",
+         VALUES ($1::text::date, $2, $3, $4::text::timestamptz, $5, $6, $7)
+         ON CONFLICT (job_id, worker, session, category) DO NOTHING",
         &[&session, &category, &failure_text(why), &now, &lease.job_id, &lease.engine_build, &lease.worker],
     )
     .await
@@ -329,12 +336,17 @@ pub async fn unpacked(client: &mut Client, token: &str, category: &str, session:
 }
 
 /// What workers reported they could not pack (of a session, or the newest), newest session first:
-/// (session, category, why, job, worker, when, in UTC).
+/// (session, category, why, job, worker, when, in UTC). A report of a category the same job and
+/// worker had KEPT (the upload done, its outcome line lost when the child was stopped) is
+/// superseded and not listed, in whichever order the two came (audit round x, 8); `missing`
+/// already counts a KEPT category as kept.
 pub async fn unpacked_list(client: &impl GenericClient, session: Option<&str>, limit: i64) -> Result<Vec<(String, String, String, i64, String, String)>, String> {
     let rows = client
         .query(
             "SELECT session::text, category, failure, job_id, worker, to_char(reported_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')
-             FROM core.perishable_unpacked WHERE $1::text IS NULL OR session = $1::text::date
+             FROM core.perishable_unpacked u WHERE ($1::text IS NULL OR session = $1::text::date)
+               AND NOT EXISTS (SELECT FROM core.perishable_archive k WHERE k.session = u.session AND k.category = u.category
+                                 AND k.job_id = u.job_id AND k.worker = u.worker AND k.state = 'KEPT')
              ORDER BY session DESC, category, reported_at LIMIT $2",
             &[&session, &limit],
         )
@@ -425,10 +437,14 @@ pub fn failure_text(text: &str) -> String {
     if text.chars().count() > MAX_FAILURE_CHARS { text.chars().take(MAX_FAILURE_CHARS - 1).chain(['…']).collect() } else { text.to_owned() }
 }
 
-/// Records what became of an archive at `now`: KEPT (Ok) or FAILED with the reason, under the
-/// requesting job's live lease. An archive KEPT stays KEPT. True when it is kept.
-pub async fn record(client: &mut Client, token: &str, archive_id: i64, outcome: &Result<(), String>, now: &str) -> Result<bool, LeaseError> {
+/// Records what became of the archive `read` (as `target` read it, before it was read back) at
+/// `now`: KEPT (Ok) or FAILED with the reason, under the requesting job's live lease. An archive
+/// KEPT stays KEPT. The row must still be in the place `read` names (endpoint, bucket and key): an
+/// archive asked again elsewhere since is not marked by an outcome read in the old place (audit
+/// round x, 1: a core that lost its lock to another, still answering). True when it is kept.
+pub async fn record(client: &mut Client, token: &str, read: &Target, outcome: &Result<(), String>, now: &str) -> Result<bool, LeaseError> {
     let failed = |e: tokio_postgres::Error| LeaseError::Failed(db(e));
+    let archive_id = read.archive_id;
     let tx = client.transaction().await.map_err(failed)?;
     let lease = work::held(&tx, token).await?;
     let failure = outcome.as_ref().err().map(|e| failure_text(e));
@@ -436,20 +452,29 @@ pub async fn record(client: &mut Client, token: &str, archive_id: i64, outcome: 
         .query_opt(
             "UPDATE core.perishable_archive SET state = CASE WHEN $3::text IS NULL THEN 'KEPT' ELSE 'FAILED' END,
                     kept_at = CASE WHEN $3::text IS NULL THEN $4::text::timestamptz END, failure = $3
-             WHERE archive_id = $1 AND job_id = $2 AND state <> 'KEPT' RETURNING state",
-            &[&archive_id, &lease.job_id, &failure, &now],
+             WHERE archive_id = $1 AND job_id = $2 AND state <> 'KEPT'
+               AND endpoint IS NOT DISTINCT FROM $5 AND bucket = $6 AND object_key = $7 RETURNING state",
+            &[&archive_id, &lease.job_id, &failure, &now, &read.endpoint, &read.bucket, &read.key],
         )
         .await
         .map_err(failed)?;
     let kept = match row {
         Some(r) => r.get::<_, String>(0) == "KEPT",
-        None => tx
-            .query_opt("SELECT state FROM core.perishable_archive WHERE archive_id = $1 AND job_id = $2", &[&archive_id, &lease.job_id])
-            .await
-            .map_err(failed)?
-            .ok_or_else(|| LeaseError::Refused(format!("archive {archive_id} is not one job {} requested", lease.job_id)))?
-            .get::<_, String>(0)
-            == "KEPT",
+        None => {
+            let row = tx
+                .query_opt(
+                    "SELECT state, endpoint IS NOT DISTINCT FROM $3 AND bucket = $4 AND object_key = $5 FROM core.perishable_archive WHERE archive_id = $1 AND job_id = $2",
+                    &[&archive_id, &lease.job_id, &read.endpoint, &read.bucket, &read.key],
+                )
+                .await
+                .map_err(failed)?
+                .ok_or_else(|| LeaseError::Refused(format!("archive {archive_id} is not one job {} requested", lease.job_id)))?;
+            let (state, same): (String, bool) = (row.get(0), row.get(1));
+            if state != "KEPT" && !same {
+                return Err(LeaseError::Refused(format!("archive {archive_id} was asked again in another place since it was read: this outcome is not recorded")));
+            }
+            state == "KEPT"
+        }
     };
     tx.commit().await.map_err(failed)?;
     Ok(kept)

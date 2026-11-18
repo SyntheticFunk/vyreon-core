@@ -602,24 +602,51 @@ pub async fn retry_failed(db_client: &impl GenericClient) -> Result<u64, String>
 
 /// Withdraws jobs that are not finished: each becomes CANCELLED and any live lease on it ends, so
 /// its worker is refused at its next heartbeat or publish. Finished jobs are left as they are.
-/// Returns how many jobs were cancelled.
+/// An ordered pass cancelled on a day whose base is published, with no history revision of its
+/// profile published (as the watch resolves NOT_DERIVED) and no other pass of that day to come,
+/// leaves the day's history absent: a NOT_DERIVED problem, in the same transaction (audit round
+/// x, 2: a repair a republish queued, then cancelled). Returns how many jobs were cancelled.
 pub async fn cancel(client: &mut Client, jobs: &[i64]) -> Result<u64, String> {
     let tx = client.transaction().await.map_err(db)?;
-    let cancelled = tx
-        .execute(
-            "UPDATE core.job SET state = 'CANCELLED', finished_at = now() WHERE job_id = ANY($1) AND state IN ('QUEUED', 'LEASED', 'FAILED')",
+    let cancelled: Vec<i64> = tx
+        .query(
+            "UPDATE core.job SET state = 'CANCELLED', finished_at = now() WHERE job_id = ANY($1) AND state IN ('QUEUED', 'LEASED', 'FAILED') RETURNING job_id",
             &[&jobs],
         )
         .await
-        .map_err(db)?;
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
     tx.execute(
         "UPDATE core.lease SET ended_at = now(), outcome = 'CANCELLED', failure = 'the job was cancelled' WHERE job_id = ANY($1) AND ended_at IS NULL",
         &[&jobs],
     )
     .await
     .map_err(db)?;
+    let absent: Vec<(String, String, bool)> = tx
+        .query(
+            "SELECT DISTINCT j.first_session::text, j.profile_id FROM core.job j
+             WHERE j.job_id = ANY($1) AND j.kind = 'ORDERED_PASS'
+               AND EXISTS (SELECT FROM vyreon.day_revision b WHERE b.represented_date = j.first_session AND b.state = 'PUBLISHED' AND b.base_revision IS NULL)
+               AND NOT EXISTS (SELECT FROM vyreon.day_revision r WHERE r.represented_date = j.first_session AND r.profile_id = j.profile_id AND r.state = 'PUBLISHED'
+                                 AND r.base_revision IS NOT NULL AND NOT r.day_local)
+               AND NOT EXISTS (SELECT FROM core.job u WHERE u.kind = 'ORDERED_PASS' AND u.profile_id = j.profile_id AND u.first_session = j.first_session
+                                 AND u.state IN ('QUEUED', 'LEASED', 'FAILED'))
+             ORDER BY 2, 1",
+            &[&cancelled],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| (r.get(0), r.get(1), false))
+        .collect();
+    for profile in absent.iter().map(|(_, p, _)| p.clone()).collect::<std::collections::BTreeSet<String>>() {
+        let days: Vec<(String, String, bool)> = absent.iter().filter(|(_, p, _)| *p == profile).cloned().collect();
+        crate::watch::not_derived(&tx, &days, "Cancelling their ordered pass left").await?;
+    }
     tx.commit().await.map_err(db)?;
-    Ok(cancelled)
+    Ok(cancelled.len() as u64)
 }
 
 /// The queue at a glance: jobs by kind and state, what is claimable, and the pause.

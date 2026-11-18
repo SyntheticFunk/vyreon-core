@@ -844,5 +844,5 @@ async fn rederive(tx: &Transaction<'_>, header: &Header, same_day: bool, fallen:
     }
     crate::notice::log(tx, &text).await.map_err(Error::Failed)?;
     // what no job derives again needs the owner: a problem until each day has its job (C-050)
-    crate::watch::not_derived(tx, &unowned).await.map_err(Error::Failed)
+    crate::watch::not_derived(tx, &unowned, "A republish left").await.map_err(Error::Failed)
 }

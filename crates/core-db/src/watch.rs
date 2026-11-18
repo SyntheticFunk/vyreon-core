@@ -526,9 +526,10 @@ pub async fn check(client: &mut Client, s: &Settings, now: &str) -> Result<Chang
     Ok(change)
 }
 
-/// A publish left days that no job derives again (C-037): a problem, opened in the publish's
-/// transaction, until each day's revision of its kind is published again. `days`: (day, profile, day-local).
-pub async fn not_derived(c: &impl GenericClient, days: &[(String, String, bool)]) -> Result<(), String> {
+/// A publish (or a cancelled ordered pass, audit round x, 2) left days that no job derives again
+/// (C-037): a problem, opened in the caller's transaction, until each day's revision of its kind
+/// is published again. `days`: (day, profile, day-local); `cause` begins the summary ("A republish left").
+pub async fn not_derived(c: &impl GenericClient, days: &[(String, String, bool)], cause: &str) -> Result<(), String> {
     if days.is_empty() {
         return Ok(());
     }
@@ -540,12 +541,25 @@ pub async fn not_derived(c: &impl GenericClient, days: &[(String, String, bool)]
     let found = Found {
         kind: "NOT_DERIVED",
         key: format!("{} {}", days[0].1, listed.join(",")),
-        summary: format!("A republish left {} days that no job derives again: {shown}{more}", listed.len()),
+        summary: format!("{cause} {} days that no job derives again: {shown}{more}", listed.len()),
         command: "vyreon-core log 20".into(),
         detail: Some(json!({"days": days.iter().map(|(day, profile, local)| json!({"day": day, "profile_id": profile, "day_local": local})).collect::<Vec<_>>()})),
     };
     open_one(c, &found, None).await.map(|_| ())
 }
+
+/// What a published revision holds, counted from its measurements: (revision_id, slots, withheld,
+/// provider_withheld, engine_faults) of the revisions `d` that `$WHERE` names.
+const COUNTED: &str = "SELECT d.revision_id, count(m.measurement_id)::int AS slots, (count(*) FILTER (WHERE m.whole))::int AS withheld,
+                (count(*) FILTER (WHERE m.whole AND NOT m.fault))::int AS provider_withheld, (count(*) FILTER (WHERE m.fault))::int AS engine_faults
+         FROM vyreon.day_revision d
+         LEFT JOIN LATERAL (
+             SELECT m.measurement_id,
+                    strpos(m.body_text, m.measurement_id || '/' || m.object_id || '/' || d.represented_date::text || '/engine-fault\"') > 0 AS whole,
+                    strpos(m.body_text, '\"ENGINE_FAULT\"') > 0 OR strpos(m.body_text, '\"PARENT_ENGINE_FAULT\"') > 0 AS fault
+             FROM vyreon.measurement m WHERE m.revision_id = d.revision_id AND m.represented_date = d.represented_date) m ON true
+         WHERE d.published_at IS NOT NULL AND $WHERE
+         GROUP BY d.revision_id";
 
 /// Counts what each published revision holds, once (a published revision never changes).
 async fn tally(c: &impl GenericClient, revisions: &[i64]) -> Result<(), String> {
@@ -553,18 +567,11 @@ async fn tally(c: &impl GenericClient, revisions: &[i64]) -> Result<(), String> 
         return Ok(());
     }
     c.execute(
-        "INSERT INTO core.revision_tally (revision_id, slots, withheld, provider_withheld, engine_faults)
-         SELECT d.revision_id, count(m.measurement_id)::int, (count(*) FILTER (WHERE m.whole))::int,
-                (count(*) FILTER (WHERE m.whole AND NOT m.fault))::int, (count(*) FILTER (WHERE m.fault))::int
-         FROM vyreon.day_revision d
-         LEFT JOIN LATERAL (
-             SELECT m.measurement_id,
-                    strpos(m.body_text, m.measurement_id || '/' || m.object_id || '/' || d.represented_date::text || '/engine-fault\"') > 0 AS whole,
-                    strpos(m.body_text, '\"ENGINE_FAULT\"') > 0 OR strpos(m.body_text, '\"PARENT_ENGINE_FAULT\"') > 0 AS fault
-             FROM vyreon.measurement m WHERE m.revision_id = d.revision_id AND m.represented_date = d.represented_date) m ON true
-         WHERE d.revision_id = ANY($1) AND d.published_at IS NOT NULL
-         GROUP BY d.revision_id
-         ON CONFLICT (revision_id) DO NOTHING",
+        &format!(
+            "INSERT INTO core.revision_tally (revision_id, slots, withheld, provider_withheld, engine_faults) {}
+             ON CONFLICT (revision_id) DO NOTHING",
+            COUNTED.replace("$WHERE", "d.revision_id = ANY($1)")
+        ),
         &[&revisions],
     )
     .await
@@ -589,30 +596,33 @@ impl Tally {
     }
 }
 
-/// The tallies of the profile's sessions, by date (only sessions with a published revision).
+/// The tallies of the profile's sessions, by date (only sessions with a published revision). One
+/// statement, so one snapshot (audit round x, 7): the revisions published, and their counts (kept
+/// ones, and the ones counted here for the first time, which are kept for the next time). A
+/// revision replaced between two reads can no longer drop its session's count to nothing.
 pub async fn session_tallies(c: &impl GenericClient, profile: &str, sessions: &[String]) -> Result<BTreeMap<String, Tally>, String> {
-    let missing: Vec<i64> = c
-        .query(
-            "SELECT d.revision_id FROM vyreon.day_revision d
-             WHERE d.profile_id = $1 AND d.state = 'PUBLISHED' AND d.represented_date = ANY($2::text[]::date[])
-               AND NOT EXISTS (SELECT FROM core.revision_tally t WHERE t.revision_id = d.revision_id)",
-            &[&profile, &sessions],
-        )
-        .await
-        .map_err(db)?
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
-    tally(c, &missing).await?;
     // a session counts once its base revision is published; its derived revisions add their slots
     let rows = c
         .query(
-            "SELECT d.represented_date::text, sum(t.slots)::bigint, sum(t.withheld)::bigint, sum(t.provider_withheld)::bigint, sum(t.engine_faults)::bigint
-             FROM vyreon.day_revision d JOIN core.revision_tally t USING (revision_id)
-             WHERE d.profile_id = $1 AND d.state = 'PUBLISHED' AND d.represented_date = ANY($2::text[]::date[])
-               AND EXISTS (SELECT FROM vyreon.day_revision b WHERE b.represented_date = d.represented_date AND b.profile_id = d.profile_id
-                             AND b.state = 'PUBLISHED' AND b.base_revision IS NULL)
-             GROUP BY 1",
+            &format!(
+                "WITH shown AS (SELECT d.revision_id, d.represented_date FROM vyreon.day_revision d
+                            WHERE d.profile_id = $1 AND d.state = 'PUBLISHED' AND d.represented_date = ANY($2::text[]::date[])
+                              AND EXISTS (SELECT FROM vyreon.day_revision b WHERE b.represented_date = d.represented_date AND b.profile_id = d.profile_id
+                                            AND b.state = 'PUBLISHED' AND b.base_revision IS NULL)),
+                 counted AS ({}),
+                 kept AS (INSERT INTO core.revision_tally (revision_id, slots, withheld, provider_withheld, engine_faults)
+                          SELECT * FROM counted ON CONFLICT (revision_id) DO NOTHING),
+                 t AS (SELECT t.revision_id, t.slots, t.withheld, t.provider_withheld, t.engine_faults FROM core.revision_tally t
+                       WHERE t.revision_id IN (SELECT revision_id FROM shown)
+                       UNION ALL SELECT * FROM counted)
+                 SELECT s.represented_date::text, sum(t.slots)::bigint, sum(t.withheld)::bigint, sum(t.provider_withheld)::bigint, sum(t.engine_faults)::bigint
+                 FROM shown s JOIN t USING (revision_id)
+                 GROUP BY 1",
+                COUNTED.replace(
+                    "$WHERE",
+                    "d.revision_id IN (SELECT revision_id FROM shown) AND NOT EXISTS (SELECT FROM core.revision_tally t WHERE t.revision_id = d.revision_id)"
+                )
+            ),
             &[&profile, &sessions],
         )
         .await

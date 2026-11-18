@@ -453,7 +453,7 @@ async fn archive_done(State(app): Shared, headers: HeaderMap, Path(id): Path<i64
             }
         },
     };
-    let kept = archive::record(&mut client, token, id, &outcome, &now).await?;
+    let kept = archive::record(&mut client, token, &target, &outcome, &now).await?;
     ok(json!({"archive_id": id, "kept": kept, "why": outcome.err().map(|e| archive::failure_text(&e))}))
 }
 
