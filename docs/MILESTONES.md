@@ -399,6 +399,20 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   FY2025 20-F not yet in companyfacts; BABA's capex element; per-class-only share counts (COIN,
   META, MSTR, PLTR, GOOGL). To investigate: GOOGL's `reported_shares_outstanding` is dated
   2016-02-01 on every date (stale?). 11-13 added when it publishes.
+  **20:30 UTC: external-reference research done** (`~/claude-artifacts/research/2026-11-18-external-references.md`;
+  94 sensors: A same quantity 16, B band 7, C independent recompute 39, D internal only 15,
+  E nothing 17). Four pilots ran on stored days (those days are no longer blind for them).
+  **Lead to investigate before phase 1: our option volume omits adjusted roots** (EWZ 2026-11-12:
+  `2EWZ` 61,400 contracts, 38% of the day; OCC put share 0.606 vs ours 0.672; standard roots
+  0.1-1.1% below OCC, put share within 0.003): engine rule or Intrinio delivery, unknown.
+  Shortlist: OCC Volume Query (free, history) vs VS-O06, DLM-PCR-VOLUME, DLM-OPTIONS-VOLUME;
+  Cboe iv30 bands to 14 assets (VXAPL VXAZN VXGOG VXEEM VXEWZ VXTLT VXD VXSLV VXFXI; pilot saw
+  AAPL 2025-04-11 gap 8.2 and an EEM expected-move -1.3); FRED, EDGAR 8-K times, CIK (FRED pilot
+  exact); Tiingo Commercial $50/mo (prices, technicals, FIELD recompute); OCC per-series open
+  interest captured daily from now (current-day only). Massive out (business $1,999/mo options;
+  personal plans barred). DataShop (owner's quote: $300 SPY 13 months; all symbols $2,520): one
+  month, April 2025, SPY + TSLA + a thin chain, about $70. Terms to confirm: Cboe (index data
+  beyond personal use: permissions@cboe.com), OCC (terms page blocks automated reads).
   **Phase-1 tranche gate (agreed with the owner, 19:50 UTC; "the consequences of a wrong number
   are unfortunately quite large"):** each tranche passes, before the next starts, (a) refcheck in
   the worker on every day, (b) the Cboe bands, (c) EDGAR; and, once 63 sessions of history exist,
