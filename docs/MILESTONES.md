@@ -501,6 +501,17 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   4,970,460 trades, 498 requests, 1.04 GB JSON, 25 min; SPY 954,761, 96, 196 MB, 6 min; TIP 13,026,
   2, 2 MB, 3 s. All 64: likely a few thousand requests a day (vs ~39k per day now), several GB of
   JSON, NVDA the long pole unless split by time window.
+  **Engine `pass-fx40` done (pushed, not merged; based on 9bc02f2d):** D-361: BABA and TSM send no
+  local-currency facts (each amount is Intrinio's USD translation at that period's rate), so every
+  quantity combining periods (ROA, yoy differences and their percentiles, derived quarters,
+  trailing sums) is withheld REPRESENTATION_INCOMPATIBLE / CURRENCY_TRANSLATED_AT_DIFFERENT_PERIOD_RATES
+  and translated amounts are labelled; D-362: true adjusted roots are counted (BABA2), FLEX never
+  reaches the engine (Intrinio lists no FLEX tickers), ETHA's fractional volume is D-079's
+  standard-equivalent count (owner's call: whole contracts recommended); D-363: GOOGL's share
+  count (a zero-share class on the 2016 cover became required) now 12,294,000,000 (2026-10-21); an
+  older cover never stands in. Suite 1,390 passed (shared-target interference: one crate re-run
+  alone). `pass-fx43` started (D-380..: CPI/INDPRO release table, FEDFUNDS clock, earnings
+  evidence, date-only midnight stamps).
   **Free gate checks run (f392ff9; bands 480066e, 7fff827; reports `checks/2026-11-18-{cboe14,occ,fred,edgar-events}-sample.json`):**
   Cboe 14 pairs: all 140 sessions inside band 1; correlation FAILS VXSLV/SLV 0.887, VXFXI/FXI 0.824
   (single-day divergences, cause open). OCC standard roots: 522 of 576 inside, 54 fail (TLT 11-11
