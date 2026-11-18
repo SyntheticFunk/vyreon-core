@@ -357,6 +357,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
   label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
   when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
+- **00:48 UTC: round x (gpt-6.2-astra; Codex 90% → 91%): 18 findings + 1 suspicion on the simplified
+  operations features; no defect in any published value.** Count not converging, meaningfulness is:
+  most need a chain of unusual failures (a lost Postgres disconnect notice during an archive
+  retry; a gateway 504 after Discord saved a post; one stalled filesystem write). Fixing the six
+  that matter, simply (`/home/diggz/wt/core-fix-x`, `/home/diggz/wt/fx29`): 13 daily workers claim
+  only daily work (phase 1 relevant); 6 a daily worker waits for late scheduling; 5 a liveness probe
+  restarts a frozen core; 4 one bad file no longer drops an archive category; 11 no green digest
+  after a failed scheduling step; 18 the flaky test counted every process on the host. **Proposed
+  to the owner: record the other twelve as stated limits in the decisions (no new machinery) and
+  stop auditing the operations features until real operation shows something new.**
 - **00:17 UTC: round w answered by simplification and merged (core main 96f1042, C-053, migration 0023;
   engine `pass-s3i` 8e67c4ec; core 23 unit + 57 DB tests, engine 1,375 passed, 8 known).** Owner
   approved retiring the gate. One core at a time enforced by an advisory lock; the gate, its RBAC
