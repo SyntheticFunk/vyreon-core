@@ -839,6 +839,42 @@ published for a week. Migration 0018; `crates/core-db/src/watch.rs`.
     opens a problem waits for a digest being composed (a second at most), and the reverse.
   - Ordinary day: nothing posted changes but the weekly check's lines (" · history pass
     published") and its first line when a history pass is missing or a problem is open.
+- **Amended 2026-11-17 (audit round w, 4, 6, 8, 9, 11, 12, 13, 16; C-053).** Round w found most
+  defects in round v's own machinery; the fixes simplify where one core (C-053) allows.
+  - *One sender, no claim lease (11; C-053).* Two senders cannot exist, so the row lock and the
+    claim token are gone (`notice::next`, `sent`, `not_sent`, `unconfirmed`). `sending_since`
+    (0021) now marks a send whose outcome is not known yet: a restart between a send and its
+    record, or an answer lost after the request went, waits `UNCONFIRMED_SECONDS` (120 s) before
+    the post goes again, never at once (11); a refused connection or an error status goes again at
+    the next send.
+  - *Delivered means Discord returned the saved message (6).* Posts are sent with `?wait=true`:
+    Discord's Execute Webhook then "waits for server confirmation of message send before
+    response, and returns the created message body", while with the default `false` "a message
+    that is not saved does not return an error"
+    (https://docs.discord.com/developers/resources/webhook#execute-webhook, read 2026-11-17). A
+    2xx without a message (`id`) is an unknown outcome (above). **Residual (at least once):** a
+    message Discord saved whose answer is lost is posted once more after 120 s; Execute Webhook
+    takes no idempotency key.
+  - *The digest is composed outside the problems' lock (4).* It counts measurement bodies (the
+    tallies), which could hold the lock while a publish opening `NOT_DERIVED` waited behind it with
+    the publish lock held. Now the post is composed with no lock; the lock is taken only to read
+    the open problems again and queue the post if they are the ones it was composed from (by id);
+    if a problem opened or resolved meanwhile, nothing is queued and the next minute composes it
+    again. Round v's guarantee holds (no green digest after the alert of a problem still open).
+  - *No post after a failed check (13).* The minute's digest and weekly check are composed only
+    after that minute's check succeeded, never from a list the check could not bring up to date.
+  - *The weekly headline agrees with its lines (12).* A session is complete only with its base and
+    history pass published; one not complete before its deadline is "due later" (its line: "history
+    pass not published yet, due by …"); any open problem is 🔴 whatever the deadlines, before the
+    "no deadline yet" and "no session" lines.
+  - *`NOT_DERIVED` resolves only when each of its days has a revision of its kind published again
+    after it opened (8, 9).* A queued or leased job no longer resolves it: a block may be past the
+    day already (it resumes at its next session), and a repair job cancelled after the problem
+    resolved left it hidden. The problem now reads "open until each day is derived again".
+  - *16 (an older tick resolving `ARCHIVE_MISSING`) needs two services' ticks: answered by C-053;*
+    one service runs one watch tick at a time.
+  - Ordinary day: posts are the same; the weekly first line on Saturday with Friday's history pass
+    still due reads "🟢 … on time; 4 of 5 sessions published with their history pass, 1 due later".
 
 ## C-051 Daily runs: core queues each session the morning after; a CronJob starts the worker; the pool scales to zero (owner-approved goal, 2026-11-17)
 Goal (owner): from the day the system is declared ready, each new session is computed and
@@ -918,6 +954,27 @@ published with nobody starting anything; nodes exist only while there is work. M
   pod (seconds on the core node) instead of directly; an empty morning starts nothing. Not
   verified: the Kubernetes API itself (the tests run the gate against a local stand-in) and the
   Role on the cluster; the first morning is the check (`kubectl -n vyreon logs job/<daily-…>`).
+- **Amended 2026-11-17 (the owner; audit round w, 2, 5, 10, 14, 15): the gate is retired.** Round
+  w found five defects in it (a Role able to create any Job in the namespace and the database
+  owner's password for a count; no pull secret on its account; yesterday's finishing Job taking
+  today's only start; a count that disagreed with what a worker can claim; two gates able to start
+  two Jobs). The owner's decision: CronJob `daily` starts the worker Job directly again, as before
+  round v (`40-daily.yaml`: the worker image, the `default` service account and, named in the pod,
+  the `regcred` pull secret as the other worker Jobs; `safe-to-evict: "false"`; `completions: 3`,
+  `activeDeadlineSeconds` 23 h; `concurrencyPolicy: Forbid`). `vyreon-core daily start-worker`,
+  `core_api::gate`, `daily::waiting`, the ServiceAccount, Role and RoleBinding `daily-gate` and
+  the suspended CronJob `daily-worker` are removed. **Accepted cost:** on a weekday morning with
+  nothing queued (the morning after an exchange holiday) a node starts, the three containers find
+  nothing to claim and exit in about a minute, and the autoscaler removes the node: at most about
+  $0.17 a time, about nine times a year. What remains of each finding: 2, 5, 14 have no subject; 10
+  (a run still going at 07:45): `Forbid` skips that start and counts it missed, and "a new Job can
+  be created once the previous Job completes" within `startingDeadlineSeconds` (6 h)
+  (https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/, read 2026-11-17), so the
+  session is started when the earlier run ends, not the next morning; 15: `Forbid` keeps
+  scheduled runs from overlapping; Kubernetes states a CronJob may on rare occasions create two
+  Jobs ("Jobs that you define should be idempotent", same page), and the worker is (core's leases:
+  the second pod finds nothing or the next job), at the cost of a second node for minutes; a Job
+  made by hand (`kubectl create job --from=cronjob/daily`) is not held back by `Forbid` (README).
 
 ## C-052 The cluster archives the perishable inputs to Spaces through upload URLs core signs (owner-approved design, 2026-11-17)
 The owner (2026-11-17): workers stay stateless and hold no storage credential; core alone holds the
@@ -1009,3 +1066,38 @@ is the worker's side. Migration 0020; `crates/core-db/src/archive.rs`.
   - Ordinary day: unchanged (one request per archive; core gains the endpoint on each row).
   - Engine side: D-360 amended the same day (packing is inside the archive's deadline: a stalled
     compressor is killed, the archive is not made, the day's outcome unchanged).
+- **Amended 2026-11-17 (audit round w, 1, 7, 17, 18; C-053; migration 0023).**
+  - *1 (a retry through a second core configured for another bucket moving a row between its
+    HEAD and its record) needs two cores at once: answered by C-053.* One core's settings change
+    only with a restart, which round v's place check covers.
+  - *A category not packed is counted missing (7).* The worker reports it
+    (`POST /worker/v1/archives/unpacked {category, session, why}` → `{recorded: true}`, or
+    `{state: off}`; the same lease rule as a request: a day block's, for a day its job published);
+    core keeps it in `core.perishable_unpacked` (0023), and `missing` counts the (session,
+    category) from the report, whatever `VYREON_CORE_ARCHIVE_FROM` says. `archive list` prints
+    them ("not packed at …"). Engine side: D-360 amended (round w).
+  - *A row KEPT before 0022 has no endpoint and is not counted as kept (17).* Migration 0023 sets
+    such rows FAILED ("kept before migration 0022, where it was read back is not recorded"), so they
+    count missing and a request for them is given a URL again; a CHECK keeps any row from being
+    KEPT without its endpoint. None are expected on the cluster (the archive was off).
+  - *`archive list` prints the endpoint (18):* each object as `<endpoint>/<bucket>/<key>`.
+  - Ordinary day: unchanged (nothing is reported unless a category is not packed).
+
+## C-053 One core at a time, enforced by the database (2026-11-17; audit round w)
+Core runs as one replica (`deploy/k8s/20-core.yaml`, strategy `Recreate`), and its watch, notice
+sender and archive checks were written for one; round w's findings 1, 11 (two senders), 15 (two
+gates, since retired, C-051) and 16 needed two instances at once, and round v had added machinery
+(a claim lease on each post) only to survive that. Now it is an invariant, not a deployment
+setting: `vyreon-core serve` takes a session-level PostgreSQL advisory lock
+(`pg_try_advisory_lock(hashtextextended('vyreon-core serve', 0))`, `core_db::instance`) on a
+connection it keeps for its life, before it starts anything, and refuses to serve when another
+session holds it ("another vyreon-core serve holds the database's single-instance lock"; Kubernetes
+restarts it until the old pod is gone). PostgreSQL releases a session-level advisory lock when its
+session ends (PostgreSQL 16 manual, "Advisory Locks"), so a core that dies frees it. The service
+checks every 15 s that its connection still holds the lock (10 s to answer) and stops when it does
+not, or when that connection ends, so a core that lost its database cannot serve beside a new one.
+The command-line tools (`publish`, `queue`, `digest`, …) do not take it: they are the operator's,
+and their writes are safe beside the service (row and transaction locks). Machinery removed: the
+notice claim lease (C-050 amended). One more database connection is held. Ordinary day: no change.
+Test: `core-db/tests/instance.rs` (a second session refused while the first holds it; free once
+the first session ends).
