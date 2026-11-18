@@ -598,6 +598,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   Follow-ups: the engine's QQQ 174.78 `residue_strikes` example is OCC #53847; FXI's date (cash
   06-07, strikes 06-08) for the engine to confirm; record the ledger's hash with each published
   day (provenance). Pre-2022-05-27 adjustments are outside phase 1's 39-month relevance.
+  **Engine merged: `pass-s3i` and `worker` fast-forwarded to e329b3c8** (`pass-fx45`: fx42, fx43,
+  fx41, fx40, fx44; overlay rules now D-394, so every option source is requoted; refcheck's
+  worker-mode decision list gained D-382/383; the ETHA fixture requoted, original kept as
+  `etha-first-chain.pre-d390`). Clean full suite with no other build running: 1,413 passed, 0
+  failed; reference pytest 34 passed. Images building (worker e329b3c8, core 23717e2).
   **DataShop check (rules 39208e3 first; tool f6fd4da; reports `checks/2026-11-18-datashop-*.json`)
   FAILS on quotes, volume and open interest; faults cluster on corporate actions:** open interest
   100% on SPY/TSLA/UUP (338,784 contracts), same-day dating confirmed; quotes at 15:45 equal on
