@@ -413,6 +413,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   personal plans barred). DataShop (owner's quote: $300 SPY 13 months; all symbols $2,520): one
   month, April 2025, SPY + TSLA + a thin chain, about $70. Terms to confirm: Cboe (index data
   beyond personal use: permissions@cboe.com), OCC (terms page blocks automated reads).
+  **DataShop purchase list (given to the owner 20:55 UTC):** Option EOD Summary with calcs, whole
+  calendar months: SPY, TSLA, UUP April 2025 (stress; UUP the thinnest chain, 30 point quotes on
+  2025-04-11 vs EMB 82); XLK December 2025 (2-for-1 split ex 2025-12-05, per Intrinio; XLB XLE XLU
+  XLY split the same day); ETHA October 2026 (1-for-3 reverse split 2026-10-06: adjusted
+  contracts, the EWZ question). Our closing quotes are Intrinio's whole-market snapshot at 15:55
+  ET (D-071, D-072); for the comparison Intrinio's 15:45 snapshot is fetched to match Cboe's 15:45
+  fields exactly; volume and open interest compared exactly, IV as a declared band.
   **Phase-1 tranche gate (agreed with the owner, 19:50 UTC; "the consequences of a wrong number
   are unfortunately quite large"):** each tranche passes, before the next starts, (a) refcheck in
   the worker on every day, (b) the Cboe bands, (c) EDGAR; and, once 63 sessions of history exist,
