@@ -39,6 +39,173 @@ white paper). The gap widens with skew and with the level of volatility.
 
 Pass = every compared session inside band 1, and band 2 where judged.
 
+### Nine more pairs (declared 2026-11-18, before any stored value was compared with them)
+
+The five pairs above keep their rules and their committed files unchanged. Nine more, read
+2026-11-18 from the same URL pattern (it now redirects to `cdn-api.cboe.com`), every one published
+through 2026-11-17:
+
+| Index | Cboe's underlying | Our security | Same options? |
+|---|---|---|---|
+| VXAPL | AAPL options | AAPL | yes |
+| VXAZN | AMZN options | AMZN | yes |
+| VXGOG | Alphabet options ("Cboe Equity VIX on Google"; the documents read do not say GOOG or GOOGL) | GOOGL | not confirmed |
+| VXEEM | EEM options | EEM | yes |
+| VXEWZ | EWZ options | EWZ | yes |
+| VXTLT | TLT options | TLT | yes |
+| VXD | DJIA index (DJX) options | DIA | no (DJX vs DIA) |
+| VXSLV | SLV options | SLV | yes; no close before 2025-05-15 in the window |
+| VXFXI | FXI options | FXI | yes; no close before 2025-09-16 in the window |
+
+Pairing evidence: Cboe consultation C2022040800 (2022-04-08) names VXAPL, VXAZN, VXGOG, VXEWZ,
+VXEEM and VXTLT with their underlyings ("Volatility Index for underlying TLT"); VXSLV is Cboe's
+Silver ETF, VXFXI its China ETF (FXI), VXD its DJIA volatility index. Files: Cboe's terms allow one
+copy for personal non-commercial use and ask for approval before other use, so these nine are
+**not committed**: they are cached outside the repo and `cboe/fetched.json` records url, sha256 and
+fetch time; `cboe.py` refuses a cache that differs. (The five committed files carry the same terms
+question; the research recommends one email to Cboe. Owner's call.)
+
+**Bands for the nine:**
+
+1. Per session: `-1 <= index - 100*iv30 <= U` with `U = max(8, 0.25 * 100*iv30)`. Reasoning: the
+   variance-swap rate integrates the smile, `sigma_VS^2 = integral of sigma(z)^2 phi(z) dz` over
+   the standardized moneyness z (Gatheral, *The Volatility Surface*, ch. 11). With
+   `sigma(z) = sigma_0 (1 + a z + b z^2)`, `sigma_VS / sigma_0 ~ 1 + a^2/2 + b`: the excess is
+   **proportional to the level**, so a fixed 8 points is a 50% excess at a level of 16 and 16% at
+   50. For an S&P-like 30-day smile (a ~ -0.3, b ~ 0.1) the ratio is about 1.15. Single stocks
+   and these ETFs carry a flatter put skew (smaller a^2) than index options but fatter wings and
+   earnings jumps, which the Cboe strip reaches to its last two-zero-bid strike; 1.25 bounds the
+   ratio with headroom for close-time and interpolation differences. At levels below 32 the old
+   absolute 8 governs, so the new band is never tighter than the old one. The lower -1 is the old
+   pairs' (ATM conventions; also an earnings jump inside 30 days can make a single-stock smile
+   concave at the money, and a thin strip's truncation lowers the index).
+   **Disclosure:** this band was written after the research pilot reported these nine pairs'
+   gaps on 12 sessions (2025-04-11, 2025-12-10, 2025-12-11, 2026-11-02..06 and 11-09..12; largest
+   AAPL 2025-04-11, 8.2). Those sessions are marked `seen`; their verdicts are not evidence for
+   the band, and each session's verdict under the old pairs' fixed `[-1, 8]` is reported beside it.
+   Only `blind` sessions test it (2026-11-13 in the sample; then the phase-1 days).
+2. Correlation as for the five: >= 0.9 when the index's range over the panel is >= 3 points.
+3. A withheld `iv30` is reported with its state and reason; a date without a Cboe close (VXSLV,
+   VXFXI above) is NOT_COMPARABLE, never a pass.
+
+Pass = every compared session of the nine inside band 1 and band 2 where judged; reported over
+all sessions and over blind sessions alone.
+
+**Dates.** The sample (2026-11-02..06 and 11-09..13, engine build 05837898) is judged as one
+panel. The other published days in the phase-1 window (2025-04-11 and 2025-12-10, build 1a532d8b;
+2025-12-11, build 0ca127ea) are reported separately with their builds, band 1 only (a panel of
+mixed builds is not a correlation panel). This applies to all checks below.
+
+## OCC cleared volume (`occ.py`)
+
+OCC's Volume Query (`marketdata.theocc.com/volume-query`, CSV, no key): cleared option contracts
+per underlying, option symbol (the standard root `EWZ` and adjusted roots such as `2EWZ`),
+call/put, exchange and account type (customer, firm, market maker). One request per date returns
+every underlying (`symbolType=ALL`, about 4 MB), so a day costs one request, not 64. Each cleared
+trade is recorded once per side, so **contracts = the quantity summed over exchanges and account
+types, divided by 2**; a sum that is odd for one symbol and side is listed as an anomaly. The data
+is OCC's clearing record: independent of OPRA's tape, of Intrinio and of the engine. Cached outside
+the repo; `occ.py fetch` records url, sha256 and fetch time.
+
+**Terms: unverified.** OCC's terms page refuses automated reads. **The owner must read OCC's terms
+in a browser before this check is relied on.** Requests stay modest: one per date, one second
+apart, a generic User-Agent.
+
+**Ours:** base-layer `VS-O06`: `reported_subset.reported_oi_total` (the session's reported option
+volume; the role keeps the O02 template's name, `h3-o06` maps volume into it) and
+`reported_subset.put_share`. `DLM-PCR-VOLUME` and `DLM-OPTIONS-VOLUME` are history-pass sensors not
+stored for these dates: not comparable here; they inherit this check's inputs.
+
+**Compared, per security-day:** standard root = OCC option symbol equal to our ticker; adjusted =
+every other symbol under the same underlying (listed by name).
+
+1. Volume, `rel = ours / OCC - 1`: inside `[-2%, +0.5%]` when OCC >= 10,000 contracts;
+   `[-5%, +1%]` at 1,000-10,000; below 1,000 reported, not judged. Reasoning: two record keepers
+   counting the same trades. The asymmetry allows trades OCC clears that never reach the vendor's
+   per-contract daily volume (late or corrected prints) but not a vendor total above the clearing
+   record beyond busted-print noise. At 1,000-10,000 a single stray print is a larger fraction.
+2. Put share, `|ours - OCC|`: <= 0.005 at >= 10,000 contracts, <= 0.02 at 1,000-10,000. Reasoning:
+   a missing fraction f of contracts with put share p' moves the share by f |p' - p|; f <= 2% and
+   |p' - p| <= 0.25 give 0.005.
+3. **Adjusted roots.** Our volume omits adjusted-root contracts today (EWZ 2026-11-12: `2EWZ`, 38%
+   of the underlying's cleared total); an engine fix is in progress. Where OCC has adjusted-root
+   volume, ours is judged against both totals with bands 1-2:
+   - `PASS_ALL_ROOTS`: inside against standard + adjusted (the fix's target);
+   - `ADJUSTED_MISSING`: inside against the standard root only. The known gap: listed with the
+     adjusted contracts, their share of the total and the all-roots put-share difference;
+   - `FAIL`: inside against neither.
+   Where OCC has no adjusted root the two totals are one and the verdict is PASS or FAIL.
+4. NOT_COMPARABLE: our role withheld (state and reason) or OCC has no rows for the underlying.
+
+Pass (`pass`) = no FAIL. `pass_all_roots` = no FAIL and no ADJUSTED_MISSING. **The gate is `pass`
+while the engine's adjusted-root fix is pending and `pass_all_roots` from the first engine build
+that carries it.** The adjusted-root gap is reported on every day either way.
+
+Seen: the research pilot compared SPY, NVDA, IWM, TSLA, AAPL, GLD, MSTR, EWZ, XLU and UUP on
+2026-11-12 (and MSTR's `2MSTR`); those security-days are `seen`, all others `blind`.
+
+## FRED/ALFRED (`fred.py`)
+
+`CDD-MACRO01` publishes three FRED series: CPIAUCNS (BLS), FEDFUNDS and INDPRO (Federal Reserve),
+each with its latest value, its observation date and a 24-observation history. Reference: ALFRED's
+vintage CSV `alfred.stlouisfed.org/graph/alfredgraph.csv?id=<S>&vintage_date=<D>` (no key): the
+series as it stood on D, releases made on D included. Cached outside the repo; `fred.py fetch`
+records url, sha256 and fetch time. FRED's terms ask for permission only for copyrighted
+third-party series; these three are public-domain government data.
+
+**Compared, per date T and series:**
+
+1. Clock: our `observation_date` against the latest observation in the vintage of T.
+   MATCH; `RELEASE_DAY` (ours is the latest of the vintage of T-1 and T is the release date:
+   a release made on T may come after the 16:00 close, e.g. H.15 at 16:15; listed, not failed);
+   LAG (older than the vintage of T-1 allows: stale, listed, not failed, as EDGAR's clock);
+   LOOKAHEAD (later than the vintage of T: failed).
+2. Value and history: our value and every history cell (observation date and value) equal to
+   the reference vintage: the cells' dates are the vintage's 24 latest non-missing observations
+   up to our observation date (a month the agency never published, such as October 2025 CPI, is
+   absent in both), and each value is exactly equal.
+   - CPIAUCNS, FEDFUNDS: the reference vintage is T's (T-1's for RELEASE_DAY). BLS does not
+     revise the not-seasonally-adjusted CPI (engine D-305).
+   - INDPRO: the body states `vintage_basis = PROVIDER_CURRENT_REVISED_VINTAGE_AS_CAPTURED_NOT_
+     FIRST_PRINT` (engine D-305, owner 2026-11-16): the reference vintage is the New York date of
+     its `vintage_captured_at`. Its difference from T's vintage is reported per cell as
+     `REVISED_AFTER_T` (information the reader did not have on T; the engine states it; not a
+     verdict on D-305).
+
+**Tolerance: exact.** FRED and the provider carry the agency's published decimal (for example
+`337.511`); both parse to the same IEEE-754 double, and no arithmetic intervenes. Any difference
+is a delivery or selection fault.
+
+Not compared: the text roles (`native_unit`, `frequency`, `seasonal_adjustment`).
+Pass = no value or history FAIL and no LOOKAHEAD. Seen: the research pilot compared 2026-11-12.
+
+## EDGAR filing times for CDD-EVENTS01 (`edgar.py events`)
+
+From the submissions files `edgar.py fetch` already caches (`events.sql` gives the bodies).
+EDGAR's `acceptanceDateTime` is written with a `Z` but is Eastern time (the filing index shows the
+same clock time as "Accepted"); it is read in America/New_York and converted to UTC. T's close is
+16:00 New York.
+
+1. `sec_filing.earnings_release_8k_at` and every cell of its `.history`: equal, to the second, to
+   the acceptance of an original 8-K (form `8-K`) of the same filer. Each matched 8-K's EDGAR items
+   are reported (2.02 = results of operations); the engine's set is the provider's earnings flag,
+   which also marks some non-2.02 8-Ks (D-073), so a non-2.02 match is noted, not failed.
+   Completeness: every original 8-K with item 2.02 accepted by T's close and inside the history's
+   366-day window must be in the history; a missing one is FAIL (a missed earnings event moves the
+   event window and IV-crush readings).
+2. The latest periodic report (`sec_filing.report_type`, `period_end`, `filing_date`,
+   `accepted_at`): an EDGAR filing of that form and period exists with that filing date, accepted
+   at that second. An instant at 00:00:00Z where EDGAR's acceptance differs is FAIL (a time the
+   provider did not state, published as one). Clock against the latest original 10-K, 10-Q, 20-F
+   or 40-F accepted by T's close: MATCH, LAG (listed), LOOKAHEAD (failed).
+3. A withheld coordinate or history is NOT_COMPARABLE with its reason. A match that holds only
+   when `acceptanceDateTime` is read as UTC is FAIL (`ZONE`).
+
+Not compared: expected earnings (a provider forecast, stated as such), dividends and splits
+(Tiingo, not bought), insider filings (their selection rule differs from EDGAR's listing).
+Pass = no FAIL and no LOOKAHEAD. Seen: nothing compared before; AAPL's 2026-11-12 body was read
+while writing these rules (not compared).
+
 ## SEC EDGAR (`edgar.py`)
 
 The filers' own XBRL facts, read 2026-11-18 from SEC's API: `data.sec.gov/api/xbrl/companyfacts/`
