@@ -144,6 +144,16 @@ that carries it.** The adjusted-root gap is reported on every day either way.
 Seen: the research pilot compared SPY, NVDA, IWM, TSLA, AAPL, GLD, MSTR, EWZ, XLU and UUP on
 2026-11-12 (and MSTR's `2MSTR`); those security-days are `seen`, all others `blind`.
 
+**Found on the first run (2026-11-18), rules unchanged:** rule 3's premise is wrong for most of
+the volume it covers. A root with a leading digit (`2EWZ`, `4SPY`) is a **FLEX** root, not a
+corporate-action adjustment (Cboe and NYSE FLEX symbology: 1/2 American/European physically
+settled, 3/4 cash settled; Cboe `flexsymbology.pdf`, NYSE "Cash-Settled FLEX ETF Options").
+Adjusted roots carry a trailing digit (`BABA2`, `ETHA1`). In the sample, non-standard volume was
+8.27 M FLEX contracts, 0.09 M adjusted, 7 k unidentified (`B1SPY`-style). The report labels each
+root's kind (information only; verdicts follow the rules as declared). Whether FLEX volume belongs
+in the reader's option volume is a definition for the owner and the published standard, not for
+this check; until then `ADJUSTED_MISSING` mostly means "FLEX not counted".
+
 ## FRED/ALFRED (`fred.py`)
 
 `CDD-MACRO01` publishes three FRED series: CPIAUCNS (BLS), FEDFUNDS and INDPRO (Federal Reserve),
