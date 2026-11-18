@@ -512,6 +512,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   older cover never stands in. Suite 1,390 passed (shared-target interference: one crate re-run
   alone). `pass-fx43` started (D-380..: CPI/INDPRO release table, FEDFUNDS clock, earnings
   evidence, date-only midnight stamps).
+  **Tiingo checks PASS (rules 0663e30 first; tool f96d2ad; reports `checks/2026-11-18-tiingo-{field,prices}-sample.json`):**
+  FIELD recompute from a second vendor's closes, 165,030 comparisons over 88 quantities, all inside
+  (SYNC01 W21/W63 mean correlation within 4e-7; RMT01 leading eigenvalue within 3e-5 relative;
+  DEP01 20,160 pairs within 8.5e-4); prices 86,656 comparisons over 108 quantities, all inside;
+  Intrinio's raw closes equal Tiingo's on all 4,608 security-sessions. Skipped: random-number
+  quantities (RMT01 nulls, GRP01 permutations, SUB01 bootstrap), intraday and option FIELD
+  sensors, PATH-L03-L07, VS-P07, CANDLESTICK, VWAP.
   **Free gate checks run (f392ff9; bands 480066e, 7fff827; reports `checks/2026-11-18-{cboe14,occ,fred,edgar-events}-sample.json`):**
   Cboe 14 pairs: all 140 sessions inside band 1; correlation FAILS VXSLV/SLV 0.887, VXFXI/FXI 0.824
   (single-day divergences, cause open). OCC standard roots: 522 of 576 inside, 54 fail (TLT 11-11
