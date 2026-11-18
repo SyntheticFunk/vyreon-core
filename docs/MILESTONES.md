@@ -542,7 +542,7 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   Owner on its cost: if the real day shows it is large, the fallback is the full check daily on
   the most volatile families and the whole suite weekly ("quite practical"); scaling out with more
   nodes is also acceptable.
-  **Owner (21:50 UTC): no time cap on the first real day's reference check, so it is measured**
+  **Owner (21:45 UTC): no time cap on the first real day's reference check, so it is measured**
   ("we capped a time and just kept running into repeated time caps"; expects it under the engine's
   own compute time): the real day runs with `VYREON_REFCHECK_MINUTES=600`; the production bound is
   then set from the measurement.
