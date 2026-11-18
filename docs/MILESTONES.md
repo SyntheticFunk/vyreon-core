@@ -384,7 +384,21 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   3.3..7.6, 0.998; VXN/QQQ 2.9..6.1, 0.997; RVX/IWM 2.3..4.8, 0.996; OVX/USO 3.8..5.3, 0.997;
   GVZ/GLD 1.9..3.3 (GVZ moved only 1.8 points, so its correlation, 0.69, is reported, not
   judged). Widest gap 11-05 (VIX 28.2): the skew premium widens with the level, as expected,
-  but sits near the band's top. EDGAR check being built (declaration committed before comparing).
+  but sits near the band's top.
+  **20:10 UTC: EDGAR check (declared f56347d before comparing, tolerance 1e-9; tool eb3b17d;
+  report `~/claude-artifacts/checks/2026-11-18-edgar-sample.json`, 9 dates) FAILS under its rules,
+  only on the two 20-F filers.** 15 domestic filers: every comparable figure passes, 1,925 of
+  1,926 PASS bitwise equal to the as-first-filed SEC facts; filing clock 153 of 153; no
+  restatement or look-ahead. BABA and TSM (26 FAIL): the provider's "as reported" USD is its own
+  conversion (local fact / the filer's convenience rate, unrounded), labelled USD; level
+  differences ~1e-7 relative; single-period ratios equal the local-currency ratios. **Real defect:
+  ROA averages two years' assets converted at two different convenience rates** (vs the
+  local-currency ROA: BABA FY2023-26 -3.9%, -2.5%, -0.25%, +2.5%; TSM 2022-24 -4.4%, +0.2%,
+  -3.1%). To fix in the engine before phase 1: cross-period company ratios in the filer's
+  reporting currency, and a converted amount stated as converted. Not comparable (137): TSM's
+  FY2025 20-F not yet in companyfacts; BABA's capex element; per-class-only share counts (COIN,
+  META, MSTR, PLTR, GOOGL). To investigate: GOOGL's `reported_shares_outstanding` is dated
+  2016-02-01 on every date (stale?). 11-13 added when it publishes.
   **Phase-1 tranche gate (agreed with the owner, 19:50 UTC; "the consequences of a wrong number
   are unfortunately quite large"):** each tranche passes, before the next starts, (a) refcheck in
   the worker on every day, (b) the Cboe bands, (c) EDGAR; and, once 63 sessions of history exist,
