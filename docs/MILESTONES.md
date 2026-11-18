@@ -543,6 +543,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   session (this one is 3 days old), with all documentation updated, and remind the owner to fill
   in the time sheet and engineering log.** Reporter is its own side quest, started during phase 1's
   compute.
+  **DataShop delivered and downloaded (21:15 UTC):** order_000107661, 65 day files (SPY TSLA UUP
+  2025-04, 21; XLK 2025-12, 22; ETHA 2026-10, 22), 20 MB, every zip valid, sha256 in
+  `~/claude-artifacts/datashop/order_000107661/SHA256SUMS`. Fields per contract: bid/ask and sizes
+  at 15:45 and EOD, underlying at both, Cboe IV and Greeks at 15:45, volume, VWAP, open interest,
+  `delivery_code` (adjusted contracts). SFTP copy removed by Cboe after 30 days.
   **Free gate checks run (f392ff9; bands 480066e, 7fff827; reports `checks/2026-11-18-{cboe14,occ,fred,edgar-events}-sample.json`):**
   Cboe 14 pairs: all 140 sessions inside band 1; correlation FAILS VXSLV/SLV 0.887, VXFXI/FXI 0.824
   (single-day divergences, cause open). OCC standard roots: 522 of 576 inside, 54 fail (TLT 11-11
