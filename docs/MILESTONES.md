@@ -366,7 +366,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   child's group killed; #16 D-360's bound is 15 min 45 s; 1,388 passed, 0 failed). Stated limits:
   a day republished by hand after its block marked it done is still credited to that block; history
   problems round v resolved falsely stay closed (none known); a stalled worker disk after the
-  deadline can still block cleanup. Images for phase 1 building (worker 9bc02f2d, core 58cf628+).
+  deadline can still block cleanup. Images pushed (03:05 UTC): `vyreon-worker:9bc02f2d` (build
+  `9bc02f2d+90a50956a51d`, inventory `cluster-scratch/inventory-9bc02f2d.json`; register and admit
+  at phase 1's start) and `vyreon-core:01ca9d7` (deploy after the sample).
 - **Sample: 2026-11-02 and 2026-11-09 published (02:20, 02:38 UTC; 237 and 258 min with the
   window download).**
 - **02:40 UTC: owner decision: fix round x's other twelve in their simplest form (core #1 2 7 8 9 12
