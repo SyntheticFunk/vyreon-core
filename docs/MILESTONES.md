@@ -464,8 +464,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   diagnosed. **Started 20:00 UTC (owner: "start working on those fixes"):** engine `pass-fx40`
   (20-F ROA currency D-361.., adjusted-root volume, GOOGL shares); refcheck in the worker
   (engine `pass-fx41` D-370, core `core-refcheck` C-054); free gate checks (Cboe 14 pairs, OCC
-  volume, FRED) in `tools/external`. Owner buying DataShop and subscriptions; core deploy not yet
-  approved. Sample ends near 20:00–21:00 UTC.
+  volume, FRED) in `tools/external`. Owner bought DataShop ($300: SPY TSLA UUP Apr 2025, XLK Dec
+  2025, ETHA Oct 2026; per-day files; SFTP login verified, host key pinned in ~/.ssh/known_hosts
+  (RSA SHA256:4yK/0LgwT2ERct0jZXdP6590zT9Qdhv78xfjWdv91lQ); files not yet written, polled every
+  10 min; 30-day retention). **20:16 UTC: core `01ca9d7` deployed (owner: "youre good to
+  deploy what u need")**: migrations to 0024 by the init container; first without the webhook,
+  1 unsent post marked sent, then with it: notices live, 0 posted at switch-on, no open problem;
+  digest 🟡 (1 provider gap 11-13). Perishable archive still off (switched on with the first
+  real-day run). Owner setting up Tiingo. Sample ends near 20:00–21:00 UTC.
 - **02:40 UTC: owner decision: fix round x's other twelve in their simplest form (core #1 2 7 8 9 12
   17 19 in `/home/diggz/wt/core-fix-y`; engine #3 10 14 15 16 in `/home/diggz/wt/fx30`), then NO
   further audit of the operations features.** Reason: three rounds (v, w, x) keep finding the same
