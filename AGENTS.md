@@ -70,6 +70,8 @@ The engine computes; core schedules, stores and serves. The measurements are the
   old tip), then do it. The commit before a prune of the status document is tagged
   (`milestones-<date>`). Commit each landed step
   with a short summary; separate commits for code, tests, docs and deploy.
+- Provider faults go in `docs/PROVIDER_FAULTS.md` as they are found (evidence, dates, handling,
+  reported or not); a rule that only compensates for one is judged against it in the rule census.
 - Disk housekeeping on the laptop (owner, 2026-11-16): the WSL disk crash of 2026-11-15 was cargo
   build directories not deleted after their branches merged; WSL's virtual disk never shrinks on
   its own. Delete a worktree's `/home/diggz/wt/target-<name>` when its branch merges, and the

@@ -1,0 +1,24 @@
+# Provider fault register (Intrinio)
+
+Every fault found in what the provider delivers: evidence, dates affected, how the engine handles it,
+and whether it was reported. Added as each fault is found (owner, 2026-11-18: "documenting the faults
+as we find them is good practice"). A rule that only compensates for a fault listed here is judged in
+the step-5 rule census against this register: a general handling (the input disagrees with an
+independent source or with itself, so it is a stated absence) is preferred over a date-shaped one.
+
+| # | Found | Fault | Evidence | Dates affected | Handling | Reported |
+|---|---|---|---|---|---|---|
+| P-01 | 2026-10-08 | Option EOD `close_bid`/`close_ask` are stub quotes posted 4–15 min after the 16:00 close for options that stop trading at 16:00 | LQD 2026-09-18: every near-the-money 09-25 contract asked 4.80 for 1 contract (20:04–20:15 UTC); ATM 105 call mid 2.49 traded 0.22; 27 of 64 securities affected that day | All EOD files | Closing quotes from the 15:55 ET whole-market snapshot (engine D-071, D-072) | No |
+| P-02 | 2026-10-11 | Whole-market snapshot writes "no bid" as 0.00 with size 0 (EOD shows 0.01) | SPY 2026-09-18: 1,000 rows | Snapshots | A side priced 0.00 with size 0 is missing (D-072) | No |
+| P-03 | 2026-10-11 | A 15:59 snapshot holds quotes stamped after the close | SPY 2026-08-31 quote friction 0.061 vs 0.031 at 15:55; 7 dates | Snapshots near the close | Snapshot at close − 5 min; files with any post-close stamp fail (D-072) | No |
+| P-04 | 2026-11-18 | Equity replay (tick) files from 2026-11-06 hold 1–10% fewer trades than the trades API and official volume, in every 15-minute bin; files ~2.4x larger (CTA B 28.8 → 76 GB, quote messages ~3x) | TIP 2026-11-12: 9,294 replay prints vs 9,742 from the trades API (official volume within 0.01%); D-089 2% gate fails 56–63 of 64 a day from 11-06 vs 3–9 before | 2026-11-06 onward | D-089 gate withholds (SOURCE_VOLUME_RECONCILIATION_FAILED); owner decision: daily runs take trades from the trades API, quotes from the replay | Draft written, owner to send |
+| P-05 | 2026-11-18 | Option EOD volume misses large prints (or carries prints OCC did not clear) | vs OCC cleared volume: TLT 2026-11-11 calls 166,717 short (OI in 11/30 85C, 86C fell 62,691 and 41,529 with EOD volume 550 and 440); NVDA 2026-11-05 puts 495,279 short; BABA 2026-11-12 puts +39,242 (single deep-ITM prints) | 54 of 576 security-days in the sample outside the OCC band | Volume published as the provider reports it, definition stated; the OCC check flags the days | Draft written, owner to send |
+| P-06 | 2026-11-18 | Earnings 8-Ks missing from filings data; the periodic rows' `earnings_disclosed_8k_id` null | AMD 2026-11-03, NVDA 2026-08-26, PLTR 2026-08-03 (re-fetched 2026-11-18) | Those filings | Engine `pass-fx43`: use the periodic rows' `earnings_disclosed_at` as evidence, else state the history possibly incomplete | Draft written, owner to send |
+| P-07 | 2026-11-18 | Foreign (20-F) filers' "as reported" amounts are the provider's own USD translation at each period's rate, labelled as the reporting currency; no local-currency facts | BABA FY2026 at 6.8980 RMB/USD, FY2025 at 7.2567; the restated comparative keeps the older rate | BABA, TSM, all periods | Engine D-361: cross-period quantities withheld (CURRENCY_TRANSLATED_AT_DIFFERENT_PERIOD_RATES); translations labelled | No |
+| P-08 | 2026-11-18 | Periodic-report acceptance stamped `T00:00:00Z` (the UTC date, no time) for 12 of 17 companies | 31 cases checked against EDGAR | Periodic filings | No look-ahead (D-077, D-331 admit only when the date is before T); engine `pass-fx43` publishes it as a date | No |
+| P-09 | 2026-11-18 | EWJ open interest withheld PROVIDER_OI_INCOMPLETE on ~99 sessions, late January to mid-June 2026 | VS-O02 history; cause (provider gap or a false withhold) under investigation in engine `pass-fx42` | EWJ, 2026-01..06 | Under investigation | No |
+| P-10 | 2026-11-18 | Some option volume rows null in EOD although the snapshot shows trading | (engine D-079, D-125) | Occasional | Snapshot volume used when EOD is null (D-125) | No |
+
+Not a provider fault (recorded so it is not re-found): FLEX options are not delivered at all (no
+FLEX tickers among Intrinio's 7,668 option tickers); Vyreon's volume is listed standard and adjusted
+contracts, FLEX excluded, by definition (engine D-362).
