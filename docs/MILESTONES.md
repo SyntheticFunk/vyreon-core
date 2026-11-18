@@ -368,24 +368,24 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   `spaces-only-key.txt` is gitignored (the repo is public). Owner: the cost is worth it; and
   "we have done the ten day spot check without actually checking any of it against external
   references": so far the sample shows the system runs (10 days, 0 failures), not that its
-  numbers are right. **19:20 UTC: the bucket-limited Spaces key works** (`spaces-storage-access-key.txt`,
+  numbers are right. **19:13 UTC: the bucket-limited Spaces key works** (`spaces-storage-access-key.txt`,
   gitignored: lists `vyreon-data`, refused the account's bucket list); cluster Secret
   `vyreon-core-spaces` created from it (key-id, secret; not printed).
-  **Owner (19:40 UTC): the sample is salvaged by two external checks, EDGAR (company figures
+  **Owner (19:20 UTC): the sample is salvaged by two external checks, EDGAR (company figures
   against the filers' XBRL facts, data.sec.gov companyfacts) and Cboe's volatility indices (VIX/SPY
   existing in `refcheck.outside`; add VXN/QQQ, RVX/IWM, GVZ/GLD, OVX/USO, bands committed before
   comparing): "If those pass within tolerances then the system has passed what I would consider a
   major verification."** Both read the sample from core (not day dumps). The step-5 count of
   published and withheld slots is the "coverage count" (not the B0/B1 census, which included
   the reference checks). Then phase 1's first tranche runs with refcheck in the worker, gated.
-  **19:20 UTC: Cboe check PASSES on the 8 published days** (bands committed first, 4cabd03,
+  **19:23 UTC: Cboe check PASSES on the 8 published days** (bands committed first, 4cabd03,
   `tools/external/`; report `~/claude-artifacts/checks/2026-11-18-cboe-sample-8days.json`).
   Index minus our VS-IVS01 iv30, points (band -1..8), and correlation over the 8 days: VIX/SPY
   3.3..7.6, 0.998; VXN/QQQ 2.9..6.1, 0.997; RVX/IWM 2.3..4.8, 0.996; OVX/USO 3.8..5.3, 0.997;
   GVZ/GLD 1.9..3.3 (GVZ moved only 1.8 points, so its correlation, 0.69, is reported, not
   judged). Widest gap 11-05 (VIX 28.2): the skew premium widens with the level, as expected,
   but sits near the band's top.
-  **20:10 UTC: EDGAR check (declared f56347d before comparing, tolerance 1e-9; tool eb3b17d;
+  **19:42 UTC: EDGAR check (declared f56347d before comparing, tolerance 1e-9; tool eb3b17d;
   report `~/claude-artifacts/checks/2026-11-18-edgar-sample.json`, 9 dates) FAILS under its rules,
   only on the two 20-F filers.** 15 domestic filers: every comparable figure passes, 1,925 of
   1,926 PASS bitwise equal to the as-first-filed SEC facts; filing clock 153 of 153; no
@@ -399,7 +399,7 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   FY2025 20-F not yet in companyfacts; BABA's capex element; per-class-only share counts (COIN,
   META, MSTR, PLTR, GOOGL). To investigate: GOOGL's `reported_shares_outstanding` is dated
   2016-02-01 on every date (stale?). 11-13 added when it publishes.
-  **20:30 UTC: external-reference research done** (`~/claude-artifacts/research/2026-11-18-external-references.md`;
+  **19:46 UTC: external-reference research done** (`~/claude-artifacts/research/2026-11-18-external-references.md`;
   94 sensors: A same quantity 16, B band 7, C independent recompute 39, D internal only 15,
   E nothing 17). Four pilots ran on stored days (those days are no longer blind for them).
   **Lead to investigate before phase 1: our option volume omits adjusted roots** (EWZ 2026-11-12:
@@ -413,14 +413,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   personal plans barred). DataShop (owner's quote: $300 SPY 13 months; all symbols $2,520): one
   month, April 2025, SPY + TSLA + a thin chain, about $70. Terms to confirm: Cboe (index data
   beyond personal use: permissions@cboe.com), OCC (terms page blocks automated reads).
-  **DataShop purchase list (given to the owner 20:55 UTC):** Option EOD Summary with calcs, whole
+  **DataShop purchase list (given to the owner 19:50 UTC):** Option EOD Summary with calcs, whole
   calendar months: SPY, TSLA, UUP April 2025 (stress; UUP the thinnest chain, 30 point quotes on
   2025-04-11 vs EMB 82); XLK December 2025 (2-for-1 split ex 2025-12-05, per Intrinio; XLB XLE XLU
   XLY split the same day); ETHA October 2026 (1-for-3 reverse split 2026-10-06: adjusted
   contracts, the EWZ question). Our closing quotes are Intrinio's whole-market snapshot at 15:55
   ET (D-071, D-072); for the comparison Intrinio's 15:45 snapshot is fetched to match Cboe's 15:45
   fields exactly; volume and open interest compared exactly, IV as a declared band.
-  **Phase-1 tranche gate (agreed with the owner, 19:50 UTC; "the consequences of a wrong number
+  **Phase-1 tranche gate (agreed with the owner, 19:31 UTC; "the consequences of a wrong number
   are unfortunately quite large"):** each tranche passes, before the next starts, (a) refcheck in
   the worker on every day, (b) the Cboe bands, (c) EDGAR; and, once 63 sessions of history exist,
   (d) a flag-agreement test, declared and committed before phase 1 runs: when a Cboe index is in
