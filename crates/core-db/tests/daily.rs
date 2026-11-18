@@ -130,7 +130,8 @@ async fn summer_time_and_a_holiday_follow_new_york() {
 }
 
 /// A session already queued by hand gets only the kinds it lacks; one already published gets
-/// nothing; a daily job is claimed before the backfill's older work of its kind.
+/// nothing; a daily job is claimed before the backfill's older work of its kind, and a daily-only
+/// claim takes nothing else.
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn work_queued_or_published_by_hand_is_not_queued_again() {
@@ -151,8 +152,10 @@ async fn work_queued_or_published_by_hand_is_not_queued_again() {
 
     // the backfill's older tapes wait while the daily session's tape is claimed first
     work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-01", "2025-12-05", 1).await.unwrap();
-    let claim = work::claim(&mut client, Kind::Tape, &b, "w1", 3600.0).await.unwrap().unwrap();
+    let claim = work::claim_as(&mut client, Kind::Tape, &b, "w1", 3600.0, true).await.unwrap().unwrap();
     assert_eq!(claim.sessions, ["2025-12-15"]);
+    // round x, 13: the daily CronJob's worker takes only daily work, never the backfill's tapes
+    assert!(work::claim_as(&mut client, Kind::Tape, &b, "daily", 3600.0, true).await.unwrap().is_none());
     let next = work::claim(&mut client, Kind::Tape, &b, "w2", 3600.0).await.unwrap().unwrap();
     assert_eq!(next.sessions, ["2025-12-01"], "then the earliest of the rest, as before");
     scratch.drop().await;
@@ -181,6 +184,39 @@ async fn a_build_that_cannot_work_queues_nothing_and_is_a_problem() {
     // withdrawn: stopped again
     build::withdraw(&client, &derived, "daily test").await.unwrap();
     assert_eq!(watch::check(&mut client, &s, "2025-12-11 12:33:00+00").await.unwrap().opened.len(), 1);
+    scratch.drop().await;
+}
+
+/// Audit round x, 11: a tick whose queueing failed (the store's partitions could not be made, the
+/// build admitted) never queues a green digest: the session due and not queued is a problem first,
+/// and the digest says it; once queueing works the problem resolves.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_failed_queueing_is_a_problem_before_the_digest() {
+    let (scratch, mut client, b, _) = ready("daily_queue_failed").await;
+    let d = daily(&b, "2025-12-10");
+    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d), archive: None };
+    client
+        .batch_execute(
+            "ALTER FUNCTION vyreon.ensure_months(date, date) RENAME TO ensure_months_kept;
+             CREATE FUNCTION vyreon.ensure_months(first date, last date) RETURNS integer LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'partitions refused (test)'; END $$;",
+        )
+        .await
+        .unwrap();
+    // 09:00 Mountain on 2025-12-11 (UTC−7): the digest's minute
+    let nine = "2025-12-11 16:00:00+00";
+    let why = watch::tick(&mut client, &s, nine).await.unwrap_err();
+    assert!(why.contains("partitions refused (test)"), "{why}");
+    let stopped = "Daily runs stopped: a session due is not queued (the oldest 2025-12-10): queueing failed, the service's log says why";
+    let open: Vec<String> = watch::open(&client, nine).await.unwrap().into_iter().map(|o| o.summary).collect();
+    assert_eq!(open, [stopped]);
+    let digest: String = client.query_one("SELECT message FROM core.notice WHERE once = 'digest 2025-12-11'", &[]).await.unwrap().get(0);
+    assert!(digest.starts_with(&format!("🔴 Needs you: {stopped}")), "{digest}");
+    // queueing works again: the session is queued and the problem resolves
+    client.batch_execute("DROP FUNCTION vyreon.ensure_months(date, date); ALTER FUNCTION vyreon.ensure_months_kept(date, date) RENAME TO ensure_months;").await.unwrap();
+    let change = watch::tick(&mut client, &s, "2025-12-11 16:01:00+00").await.unwrap();
+    assert_eq!(change.resolved, [stopped]);
+    assert_eq!(jobs_of(&client, "2025-12-10").await, daily_jobs());
     scratch.drop().await;
 }
 
