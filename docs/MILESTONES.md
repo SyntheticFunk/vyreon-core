@@ -371,6 +371,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   numbers are right. **19:20 UTC: the bucket-limited Spaces key works** (`spaces-storage-access-key.txt`,
   gitignored: lists `vyreon-data`, refused the account's bucket list); cluster Secret
   `vyreon-core-spaces` created from it (key-id, secret; not printed).
+  **Owner (19:40 UTC): the sample is salvaged by two external checks, EDGAR (company figures
+  against the filers' XBRL facts, data.sec.gov companyfacts) and Cboe's volatility indices (VIX/SPY
+  existing in `refcheck.outside`; add VXN/QQQ, RVX/IWM, GVZ/GLD, OVX/USO, bands committed before
+  comparing): "If those pass within tolerances then the system has passed what I would consider a
+  major verification."** Both read the sample from core (not day dumps). The step-5 count of
+  published and withheld slots is the "coverage count" (not the B0/B1 census, which included
+  the reference checks). Then phase 1's first tranche runs with refcheck in the worker, gated.
 - **03:40 UTC: round x's other twelve fixed and merged; no audit (owner).** Core main 58cf628 (#1 the
   archive outcome checks its place; #2 cancelling a repair opens NOT_DERIVED; #7 digest tally in one
   statement; #8 a "not packed" beside KEPT is not listed; #9 a block archives only days it marked
