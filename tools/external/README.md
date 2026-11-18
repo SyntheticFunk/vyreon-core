@@ -567,3 +567,39 @@ row counts, `delivery_code`) was read before this declaration; no value was comp
 **Verdicts:** per contract and judged field, EQUAL or DIFF; the others as listed. Pass = no DIFF
 in comparisons 1-3. The report gives agreement rates per field, underlying and month, the
 largest differences with their contracts, and every DIFF (capped listing, full counts).
+
+**First run (2026-11-18, rules unchanged; reports `~/claude-artifacts/checks/2026-11-18-
+datashop-*.json`): FAIL on all three judged comparisons.** One refusal: 2025-12-16 has no
+Intrinio snapshot at 15:45 (the listing gives 15:44), so its XLK quotes are NO_SNAPSHOT_AT_INSTANT.
+
+- Quotes, judged rows (unchanged for over a second before 15:45): SPY 4,685/4,685 equal, TSLA
+  2,258/2,261, UUP 4,130/4,169, ETHA 12,728/12,769, XLK 18,316/18,550. XLK's split ex-date
+  2025-12-05 is 196 of the 317 DIFFs: that day Intrinio's snapshots (15:45 and the engine's 15:55)
+  label most post-split contracts at half their strike (1,286 rows carry Cboe's quote for twice
+  the stated strike; strikes 21.25-455 against Cboe's 42.5-227.5) and none of the 196 judged
+  contracts at their own strike agree. Outside it, 121 DIFFs in about 40,000 judged rows: 72 are
+  Intrinio quotes last updated before 10:00 that Cboe shows replaced (Cboe's EOD equals its 15:45
+  and Intrinio's 15:55 repeats the stale quote in 70): missed updates on far out-of-the-money
+  contracts with small offers (UUP, XLK, ETHA1); the other 49 fall within an hour of 15:45 (24 in
+  1-5 s, a clock offset is likely). The judged set is the quiet contracts: SPY and TSLA quotes
+  mostly moved after 15:45 (AFTER: 225,551 and 97,434 rows), so the busy book is not tested.
+- Volume (traded contracts): SPY 99.35%, TSLA 98.28%, UUP 98.73%, ETHA 96.80%, XLK 61.45%.
+  Intrinio is low on most DIFFs, mostly by under 100 contracts, with 55 prints of 1,000 or more
+  missing (SPY 2025-04-04: 40,000 twice, 11,750 twice, 11,500 twice); month totals SPY -0.073%,
+  TSLA -0.038%, ETHA -0.47%, UUP -0.20%; worst non-XLK day UUP 2025-04-17 -3.4%, SPY 2025-04-04
+  -0.88%. 224 contracts read exactly one contract above Cboe. XLK: +14.8% for the month, from
+  3,356 split phantoms (pre-split listings in EOD with null OI and 108,908 contracts that Cboe does
+  not list; 3,106 absent from the snapshot, which D-079 drops) and the ex-date mislabelling; on
+  Cboe-listed contracts XLK agrees on 89.1%.
+- Open interest: same-day convention confirmed (SPY/TSLA/UUP 100% same day, 36% shifted).
+  SPY, TSLA, UUP 100% equal (339,784 contracts). ETHA 120 DIFFs, all on 10-07 and 10-08: new
+  standard-root listings after the reverse split carry OI where OCC has 0 (39 equal to the ETHA1
+  twin's OI). XLK 414 DIFFs, 105 on the ex-date. EOD and the 15:45 snapshot carry the same OI as
+  the engine's 15:55 snapshot on every compared contract.
+- Coverage: `delivery_code` empty on all 427,062 rows. Intrinio carries the pre-adjustment ETHA
+  contracts under the standard root beside ETHA1 from 2026-10-06 (about 1,000 rows a day with OI
+  to 10-12, quoteless after); Cboe lists them only as ETHA1. Cboe contracts with a quote, volume
+  or OI missing from the engine's snapshot: 37 outside XLK's ex-date (UUP LEAPS, a few SPY/TSLA).
+- IV (reported): Intrinio EOD IV against Cboe's 15:45 IV, |delta| 0.25-0.75, 7-60 days: median
+  absolute difference about 0.01 for SPY, TSLA, XLK; UUP 0.074 (p90 0.87), ETHA p90 2.49 (the
+  provider's IV on the adjusted contracts).
