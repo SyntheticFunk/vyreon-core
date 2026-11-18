@@ -20,47 +20,78 @@ pub fn payload(message: &str) -> Value {
     json!({"content": content, "flags": SILENT, "allowed_mentions": {"parse": []}, "username": "Vyreon core"})
 }
 
-/// How long a sender's claim on a post lasts (migration 0021). Longer than one post can take
-/// (`POST_TIMEOUT`, plus at most 30 s waiting out a rate limit), so a live sender never loses its
-/// claim; a sender that stopped mid-post loses it after this, and the post is sent again.
-pub const CLAIM_SECONDS: i32 = 120;
+/// How long a post whose send has no known outcome waits before it is sent again (migration
+/// 0021's `sending_since`): longer than one post can take (`POST_TIMEOUT`, plus at most 30 s
+/// waiting out a rate limit).
+pub const UNCONFIRMED_SECONDS: i32 = 120;
 /// The longest one post may take.
 pub const POST_TIMEOUT: Duration = Duration::from_secs(20);
 /// At most this many posts per send.
 const BATCH: usize = 20;
 
-/// Sends what is unsent, oldest first, stopping at the first failure so notices stay in order.
-/// Each post is claimed first (`notice::claim_next`): two senders never post the same one, and a
-/// post another sender is sending stops this one. Returns how many were sent.
+/// What became of one post.
+enum Outcome {
+    /// Discord returned the saved message.
+    Delivered,
+    /// Discord answered with an error, or was never reached: send it again.
+    NotSent(String),
+    /// The request may have reached Discord, but no saved message came back.
+    Unknown(String),
+}
+
+/// Posts one message with `wait=true`: Discord's Execute Webhook then "waits for server
+/// confirmation of message send before response, and returns the created message body"; with the
+/// default `false`, "a message that is not saved does not return an error"
+/// (https://docs.discord.com/developers/resources/webhook#execute-webhook, read 2026-11-17).
+/// Delivered only when the saved message (its `id`) comes back.
+async fn post(http: &reqwest::Client, webhook: &str, message: &str) -> Outcome {
+    let response = match http.post(webhook).query(&[("wait", "true")]).timeout(POST_TIMEOUT).json(&payload(message)).send().await {
+        Ok(r) => r,
+        // never connected: nothing reached Discord
+        Err(e) if e.is_connect() || e.is_builder() => return Outcome::NotSent(e.without_url().to_string()),
+        Err(e) => return Outcome::Unknown(format!("no answer: {}", e.without_url())),
+    };
+    let status = response.status().as_u16();
+    if status == 429 {
+        // Discord says how long to wait
+        let wait = response.json::<Value>().await.ok().and_then(|v| v["retry_after"].as_f64()).unwrap_or(2.0).clamp(0.5, 30.0);
+        tokio::time::sleep(Duration::from_secs_f64(wait)).await;
+        return Outcome::NotSent("rate limited".to_owned());
+    }
+    if !response.status().is_success() {
+        return Outcome::NotSent(format!("status {status}"));
+    }
+    match response.json::<Value>().await {
+        Ok(saved) if saved["id"].as_str().is_some_and(|id| !id.is_empty()) => Outcome::Delivered,
+        Ok(_) => Outcome::Unknown(format!("status {status} without the saved message")),
+        Err(e) => Outcome::Unknown(format!("status {status} without the saved message ({})", e.without_url())),
+    }
+}
+
+/// Sends what is unsent, oldest first, stopping at the first post not delivered so notices stay
+/// in order. One sender (one core, C-053). A post whose outcome is unknown is not sent again for
+/// `UNCONFIRMED_SECONDS`: at least once, the residual is a duplicate after a lost answer or a
+/// restart mid-send (Discord's webhook takes no idempotency key). Returns how many were sent.
 pub async fn send_unsent(app: &App, http: &reqwest::Client, webhook: &str) -> Result<usize, String> {
     let client = app.pool.get().await.map_err(|e| e.to_string())?;
     let client: &tokio_postgres::Client = &client;
     let mut sent = 0;
     for _ in 0..BATCH {
-        let Some(claimed) = notice::claim_next(client, CLAIM_SECONDS).await? else {
+        let Some(p) = notice::next(client, UNCONFIRMED_SECONDS).await? else {
             break;
         };
-        let outcome = match http.post(webhook).timeout(POST_TIMEOUT).json(&payload(&claimed.message)).send().await {
-            Ok(r) if r.status().is_success() => Ok(()),
-            Ok(r) if r.status().as_u16() == 429 => {
-                // Discord says how long to wait
-                let wait = r.json::<Value>().await.ok().and_then(|v| v["retry_after"].as_f64()).unwrap_or(2.0).clamp(0.5, 30.0);
-                tokio::time::sleep(Duration::from_secs_f64(wait)).await;
-                Err("rate limited".to_owned())
-            }
-            Ok(r) => Err(format!("status {}", r.status().as_u16())),
-            Err(e) => Err(e.without_url().to_string()),
-        };
-        match outcome {
-            Ok(()) => {
-                if !notice::sent(client, &claimed).await? {
-                    return Err(format!("notice {}: posted after its claim had lapsed", claimed.id));
-                }
+        match post(http, webhook, &p.message).await {
+            Outcome::Delivered => {
+                notice::sent(client, p.id).await?;
                 sent += 1;
             }
-            Err(e) => {
-                notice::not_sent(client, &claimed, &e).await?;
-                return Err(format!("notice {}: {e}", claimed.id));
+            Outcome::NotSent(e) => {
+                notice::not_sent(client, p.id, &e).await?;
+                return Err(format!("notice {}: {e}", p.id));
+            }
+            Outcome::Unknown(e) => {
+                notice::unconfirmed(client, p.id, &e).await?;
+                return Err(format!("notice {}: {e}; not sent again for {UNCONFIRMED_SECONDS} s", p.id));
             }
         }
     }

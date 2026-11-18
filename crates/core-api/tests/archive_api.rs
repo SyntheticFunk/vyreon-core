@@ -288,6 +288,12 @@ async fn a_worker_archives_a_published_days_perishables_through_a_url_core_signs
     // another job's archive is not this lease's to report
     let (status, _) = s.post(&s.url, "/archives/999999/done", token, json!({})).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
+    // round w, 7: a category the worker could not pack is reported (off: answered off)
+    let unpacked = json!({"category": "exq01-events", "session": "2025-12-10", "why": "not packed: zstd killed at the deadline"});
+    assert_eq!(s.post(&s.off, "/archives/unpacked", token, unpacked.clone()).await, (StatusCode::OK, json!({"state": "off"})));
+    assert_eq!(s.post(&s.url, "/archives/unpacked", token, unpacked).await, (StatusCode::OK, json!({"recorded": true})));
+    let reported: i64 = admin.query_one("SELECT count(*) FROM core.perishable_unpacked", &[]).await.unwrap().get(0);
+    assert_eq!(reported, 1);
 
     // no URL the bucket received is in core's database
     let rows: String = admin.query_one("SELECT COALESCE(string_agg(row_to_json(a)::text, ' '), '') FROM core.perishable_archive a", &[]).await.unwrap().get(0);

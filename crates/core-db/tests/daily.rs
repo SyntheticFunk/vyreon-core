@@ -207,33 +207,3 @@ async fn the_deadline_leaves_two_days_of_work_after_the_inputs_are_ready() {
     assert_eq!((min.as_str(), max.as_str()), ("13:30:00", "14:30:00"));
     scratch.drop().await;
 }
-
-/// Audit 2026-11-17 round v, 9: the CronJob's gate starts a worker only while a daily job waits:
-/// none before the session is queued, three once it is, none while the queue is paused or the
-/// build is withdrawn, none once they are claimed or cancelled. Backfill jobs alone start none.
-#[tokio::test]
-#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
-async fn the_gate_sees_daily_work_only_while_it_waits() {
-    let (scratch, mut client, b, _) = ready("daily_gate").await;
-    let d = daily(&b, "2025-12-10");
-    // a backfill block queued by hand is not the daily runs' work
-    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-01", "2025-12-05", 5).await.unwrap();
-    assert_eq!(daily::waiting(&client).await.unwrap(), 0);
-    // the morning after the 10th: its three jobs wait
-    assert_eq!(queue(&mut client, &d, "2025-12-11 12:31:00+00").await, ["2025-12-10"]);
-    assert_eq!(daily::waiting(&client).await.unwrap(), 3);
-    work::pause(&client, "gate test").await.unwrap();
-    assert_eq!(daily::waiting(&client).await.unwrap(), 0);
-    work::resume(&client).await.unwrap();
-    let tape = work::claim(&mut client, Kind::Tape, &b, "w1", 3600.0).await.unwrap().unwrap();
-    assert_eq!(daily::waiting(&client).await.unwrap(), 2, "the claimed tape no longer waits");
-    build::withdraw(&client, &b, "gate test").await.unwrap();
-    assert_eq!(daily::waiting(&client).await.unwrap(), 0, "a withdrawn build's jobs are not handed out");
-    client.execute("UPDATE core.engine_build SET withdrawn_at = NULL, withdrawal = NULL WHERE engine_build = $1", &[&b]).await.unwrap();
-    assert_eq!(daily::waiting(&client).await.unwrap(), 2);
-    let rest: Vec<i64> = client.query("SELECT job_id FROM core.job WHERE priority = 1 AND state = 'QUEUED'", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
-    work::cancel(&mut client, &rest).await.unwrap();
-    assert_eq!(daily::waiting(&client).await.unwrap(), 0);
-    drop(tape);
-    scratch.drop().await;
-}

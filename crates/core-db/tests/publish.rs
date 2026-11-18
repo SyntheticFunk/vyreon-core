@@ -583,15 +583,15 @@ async fn a_replaced_day_local_or_history_revision_takes_down_what_read_it() {
     assert_eq!(published(&client).await, [ids[0], ids[3], ids[4], again.revision_id]);
     let said: String = client.query_one("SELECT message FROM core.notice WHERE NOT post ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
     assert!(said.contains("no job derives these again, schedule them: 2025-12-10, 2025-12-11"), "{said}");
-    // and it needs the owner: a problem, posted once, open until each day has its job (C-050)
+    // and it needs the owner: a problem, posted once, open until each day is derived again (C-050)
     let open = client.query("SELECT kind, summary FROM core.problem WHERE resolved_at IS NULL", &[]).await.unwrap();
     assert_eq!(open.len(), 1);
     assert_eq!(open[0].get::<_, String>(0), "NOT_DERIVED");
     assert_eq!(open[0].get::<_, String>(1), "A republish left 2 days that no job derives again: 2025-12-10, 2025-12-11");
     let posted: Vec<String> = client.query("SELECT message FROM core.notice WHERE post", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
     assert_eq!(posted, ["🔴 A republish left 2 days that no job derives again: 2025-12-10, 2025-12-11\nTo see more: `vyreon-core log 20`"]);
-    // audit 2026-11-17 round v, 4: passes scheduled after the problem and then cancelled derive
-    // nothing: it stays open; queued, they will derive the days: it resolves
+    // audit 2026-11-17 round w, 8 and 9: a job resolves nothing, queued or cancelled (a block may
+    // be past the day already, a repair may be cancelled after); only the days derived again do
     let settings = core_db::watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: 20, daily: None, archive: None };
     let not_derived = async |client: &mut Client| {
         let now = core_db::watch::now(&*client).await.unwrap();
@@ -600,21 +600,21 @@ async fn a_replaced_day_local_or_history_revision_takes_down_what_read_it() {
     };
     let (profile, build) = (history.0.profile_id.clone(), history.0.engine_build.clone());
     let passes = core_db::work::schedule(&mut client, core_db::work::Kind::OrderedPass, &profile, &build, days[0], days[1], 1).await.unwrap();
+    assert_eq!(not_derived(&mut client).await, 1, "queued passes have derived nothing yet");
     let jobs: Vec<i64> = client.query("SELECT job_id FROM core.job WHERE kind = 'ORDERED_PASS'", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
     assert_eq!(jobs.len() as u64, passes.jobs);
     assert_eq!(core_db::work::cancel(&mut client, &jobs).await.unwrap(), 2);
     assert_eq!(not_derived(&mut client).await, 1, "a cancelled pass derives nothing");
-    core_db::work::schedule(&mut client, core_db::work::Kind::OrderedPass, &profile, &build, days[0], days[1], 1).await.unwrap();
-    assert_eq!(not_derived(&mut client).await, 0, "queued passes will derive both days");
-    let resolved: String = client.query_one("SELECT message FROM core.notice WHERE post ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
-    assert!(resolved.starts_with("✅ Resolved: A republish left 2 days"), "{resolved}");
-    let jobs: Vec<i64> = client.query("SELECT job_id FROM core.job WHERE kind = 'ORDERED_PASS' AND state = 'QUEUED'", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
-    core_db::work::cancel(&mut client, &jobs).await.unwrap();
 
-    // the history derived again in order; then the 10th's history alone again takes the 11th's down
+    // the history derived again in order: open until the last of its days is published again
     let tenth = send(&mut client, &history, days[0]).await;
+    assert_eq!(not_derived(&mut client).await, 1, "the 11th is not derived again yet");
     let eleventh = send(&mut client, &history, days[1]).await;
     assert_eq!((tenth.superseded, eleventh.superseded), (0, 0));
+    assert_eq!(not_derived(&mut client).await, 0);
+    let resolved: String = client.query_one("SELECT message FROM core.notice WHERE post ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    assert!(resolved.starts_with("✅ Resolved: A republish left 2 days"), "{resolved}");
+    // then the 10th's history alone again takes the 11th's down
     let tenth_again = send(&mut client, &history, days[0]).await;
     assert_eq!(tenth_again.superseded, 2, "the 10th's own previous history revision and the 11th's");
     assert_eq!(published(&client).await, [ids[0], ids[3], ids[4], again.revision_id, tenth_again.revision_id]);

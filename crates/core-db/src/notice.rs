@@ -43,53 +43,57 @@ pub async fn unsent(db_client: &impl GenericClient, limit: i64) -> Result<Vec<(i
     Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
 }
 
-/// A post claimed for sending (migration 0021): its id, its text, and the claim it was taken
-/// under, which its outcome is recorded with.
+/// A post taken for sending: its id and its text.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct Claimed {
+pub struct Post {
     pub id: i64,
     pub message: String,
-    pub claim: String,
 }
 
-/// Claims the oldest post not sent yet, unless another sender's claim on it is live (younger than
-/// `claim_seconds`): then nothing, so no post overtakes it and none goes twice at once. The row is
-/// locked while it is claimed, so two senders never take the same post.
-pub async fn claim_next(db_client: &impl GenericClient, claim_seconds: i32) -> Result<Option<Claimed>, String> {
+/// Takes the oldest post not sent yet for sending, and marks when it is being sent
+/// (`sending_since`, migration 0021). Nothing while that post's last send has an outcome not known
+/// (Discord may have saved it) younger than `unconfirmed_seconds`: it is not sent again before,
+/// and no later post overtakes it. One sender at a time (one core, C-053), so no row lock or
+/// claim is needed; the mark covers a restart between a send and its record.
+pub async fn next(db_client: &impl GenericClient, unconfirmed_seconds: i32) -> Result<Option<Post>, String> {
     let row = db_client
         .query_opt(
             "UPDATE core.notice SET sending_since = clock_timestamp()
-             WHERE notice_id = (SELECT notice_id FROM core.notice WHERE post AND sent_at IS NULL ORDER BY notice_id LIMIT 1 FOR UPDATE)
-               AND post AND sent_at IS NULL
+             WHERE notice_id = (SELECT notice_id FROM core.notice WHERE post AND sent_at IS NULL ORDER BY notice_id LIMIT 1)
                AND (sending_since IS NULL OR sending_since < clock_timestamp() - make_interval(secs => $1::int))
-             RETURNING notice_id, message, sending_since::text",
-            &[&claim_seconds],
+             RETURNING notice_id, message",
+            &[&unconfirmed_seconds],
         )
         .await
         .map_err(db)?;
-    Ok(row.map(|r| Claimed { id: r.get(0), message: r.get(1), claim: r.get(2) }))
+    Ok(row.map(|r| Post { id: r.get(0), message: r.get(1) }))
 }
 
-/// Records a claimed post as sent. False when the claim was no longer this sender's.
-pub async fn sent(db_client: &impl GenericClient, c: &Claimed) -> Result<bool, String> {
-    let n = db_client
-        .execute(
-            "UPDATE core.notice SET sent_at = now(), attempts = attempts + 1, last_error = NULL, sending_since = NULL
-             WHERE notice_id = $1 AND sending_since = $2::text::timestamptz",
-            &[&c.id, &c.claim],
-        )
-        .await
-        .map_err(db)?;
-    Ok(n == 1)
-}
-
-/// Records a claimed post as not sent (it is claimed again at the next send).
-pub async fn not_sent(db_client: &impl GenericClient, c: &Claimed, error: &str) -> Result<(), String> {
+/// Records a post as sent (Discord returned the saved message).
+pub async fn sent(db_client: &impl GenericClient, id: i64) -> Result<(), String> {
     db_client
-        .execute(
-            "UPDATE core.notice SET attempts = attempts + 1, last_error = $3, sending_since = NULL WHERE notice_id = $1 AND sending_since = $2::text::timestamptz",
-            &[&c.id, &c.claim, &error],
-        )
+        .execute("UPDATE core.notice SET sent_at = now(), attempts = attempts + 1, last_error = NULL, sending_since = NULL WHERE notice_id = $1", &[&id])
+        .await
+        .map_err(db)?;
+    Ok(())
+}
+
+/// Records a post as not sent: Discord answered with an error (or was never reached), so it is
+/// sent again at the next send.
+pub async fn not_sent(db_client: &impl GenericClient, id: i64, error: &str) -> Result<(), String> {
+    db_client
+        .execute("UPDATE core.notice SET attempts = attempts + 1, last_error = $2, sending_since = NULL WHERE notice_id = $1", &[&id, &error])
+        .await
+        .map_err(db)?;
+    Ok(())
+}
+
+/// Records a send whose outcome is not known (the request may have reached Discord, but no saved
+/// message came back): the post keeps its `sending_since`, so it is sent again only after the
+/// window `next` is given (at least once, never in a tight loop).
+pub async fn unconfirmed(db_client: &impl GenericClient, id: i64, error: &str) -> Result<(), String> {
+    db_client
+        .execute("UPDATE core.notice SET attempts = attempts + 1, last_error = $2 WHERE notice_id = $1", &[&id, &error])
         .await
         .map_err(db)?;
     Ok(())

@@ -212,23 +212,7 @@ pub async fn request(client: &mut Client, spaces: &Spaces, token: &str, r: &Requ
     let failed = |e: tokio_postgres::Error| LeaseError::Failed(db(e));
     let tx = client.transaction().await.map_err(failed)?;
     let lease = work::held(&tx, token).await?;
-    if lease.kind != "DAY_BLOCK" {
-        return Err(LeaseError::Refused(format!("job {} is not a day block", lease.job_id)));
-    }
-    let published: bool = tx
-        .query_one(
-            "SELECT EXISTS (SELECT FROM vyreon.day_revision
-                            WHERE profile_id = $1 AND engine_build = $2 AND state = 'PUBLISHED' AND base_revision IS NULL
-                              AND represented_date = $3::text::date
-                              AND represented_date BETWEEN $4::text::date AND COALESCE($5::text::date, $6::text::date))",
-            &[&lease.profile_id, &lease.engine_build, &r.session, &lease.first_session, &lease.next_session, &lease.last_session],
-        )
-        .await
-        .map_err(failed)?
-        .get(0);
-    if !published {
-        return Err(LeaseError::Refused(format!("{} is not a day job {} has published: a day's perishables are archived once it is published", r.session, lease.job_id)));
-    }
+    published_by(&tx, &lease, &r.session).await?;
     let held = tx
         .query_opt(
             "SELECT archive_id, state, object_key, bytes, md5 FROM core.perishable_archive
@@ -295,6 +279,68 @@ pub async fn request(client: &mut Client, spaces: &Spaces, token: &str, r: &Requ
     let signed: Vec<(&str, &str)> = [("content-length", length.as_str())].into_iter().chain(headers.iter().map(|(k, v)| (k.as_str(), v.as_str()))).collect();
     let url = spaces.presign_put(&key, &signed, at, URL_SECONDS);
     Ok(Answer::Upload { archive_id: id, key, url, headers, expires_seconds: URL_SECONDS })
+}
+
+/// Refused unless `lease` is a day block's and its job has published `session` (its base, its own
+/// build): a day's perishables are archived (or reported not packed) once it is published.
+async fn published_by(tx: &impl GenericClient, lease: &work::Held, session: &str) -> Result<(), LeaseError> {
+    if lease.kind != "DAY_BLOCK" {
+        return Err(LeaseError::Refused(format!("job {} is not a day block", lease.job_id)));
+    }
+    let published: bool = tx
+        .query_one(
+            "SELECT EXISTS (SELECT FROM vyreon.day_revision
+                            WHERE profile_id = $1 AND engine_build = $2 AND state = 'PUBLISHED' AND base_revision IS NULL
+                              AND represented_date = $3::text::date
+                              AND represented_date BETWEEN $4::text::date AND COALESCE($5::text::date, $6::text::date))",
+            &[&lease.profile_id, &lease.engine_build, &session, &lease.first_session, &lease.next_session, &lease.last_session],
+        )
+        .await
+        .map_err(|e| LeaseError::Failed(db(e)))?
+        .get(0);
+    if !published {
+        return Err(LeaseError::Refused(format!("{session} is not a day job {} has published: a day's perishables are archived once it is published", lease.job_id)));
+    }
+    Ok(())
+}
+
+/// Records that a worker could not pack a category of a day its job published (round w, 7): no
+/// archive was requested, and the (session, category) is counted missing from this report
+/// (`missing`), whatever `VYREON_CORE_ARCHIVE_FROM` says.
+pub async fn unpacked(client: &mut Client, token: &str, category: &str, session: &str, why: &str, now: &str) -> Result<(), LeaseError> {
+    if !CATEGORIES.contains(&category) {
+        return Err(LeaseError::Refused(format!("{category} is not a perishable category ({})", CATEGORIES.join(", "))));
+    }
+    if !core_contract::is_date(session) {
+        return Err(LeaseError::Refused(format!("{session} is not a date written YYYY-MM-DD")));
+    }
+    let failed = |e: tokio_postgres::Error| LeaseError::Failed(db(e));
+    let tx = client.transaction().await.map_err(failed)?;
+    let lease = work::held(&tx, token).await?;
+    published_by(&tx, &lease, session).await?;
+    tx.execute(
+        "INSERT INTO core.perishable_unpacked (session, category, failure, reported_at, job_id, engine_build, worker)
+         VALUES ($1::text::date, $2, $3, $4::text::timestamptz, $5, $6, $7)",
+        &[&session, &category, &failure_text(why), &now, &lease.job_id, &lease.engine_build, &lease.worker],
+    )
+    .await
+    .map_err(failed)?;
+    tx.commit().await.map_err(failed)
+}
+
+/// What workers reported they could not pack (of a session, or the newest), newest session first:
+/// (session, category, why, job, worker, when, in UTC).
+pub async fn unpacked_list(client: &impl GenericClient, session: Option<&str>, limit: i64) -> Result<Vec<(String, String, String, i64, String, String)>, String> {
+    let rows = client
+        .query(
+            "SELECT session::text, category, failure, job_id, worker, to_char(reported_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')
+             FROM core.perishable_unpacked WHERE $1::text IS NULL OR session = $1::text::date
+             ORDER BY session DESC, category, reported_at LIMIT $2",
+            &[&session, &limit],
+        )
+        .await
+        .map_err(db)?;
+    Ok(rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5))).collect())
 }
 
 /// One requested archive, as core checks it.
@@ -453,7 +499,7 @@ pub struct Missing {
 }
 
 /// The archives missing at `now`, oldest session first: a (session, category) with nothing KEPT
-/// that was requested, or, from `expected_from`, of a day of `profile` published (its base), each
+/// that was requested or reported not packed, or, from `expected_from`, of a day of `profile` published (its base), each
 /// at least `GRACE_MINUTES` ago. Without `expected_from` only what was requested counts.
 pub async fn missing(client: &impl GenericClient, profile: &str, expected_from: Option<&str>, now: &str) -> Result<Vec<Missing>, String> {
     let categories: Vec<&str> = CATEGORIES.to_vec();
@@ -461,6 +507,8 @@ pub async fn missing(client: &impl GenericClient, profile: &str, expected_from: 
         .query(
             "WITH candidate AS (
                  SELECT session, category, requested_at AS since FROM core.perishable_archive
+                 UNION ALL
+                 SELECT session, category, reported_at FROM core.perishable_unpacked
                  UNION ALL
                  SELECT d.represented_date, c.category, d.published_at FROM vyreon.day_revision d CROSS JOIN unnest($4::text[]) AS c(category)
                  WHERE $3::text IS NOT NULL AND d.represented_date >= $3::text::date AND d.profile_id = $2

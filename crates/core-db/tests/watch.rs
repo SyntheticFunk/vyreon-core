@@ -280,7 +280,8 @@ async fn the_digest_leads_with_its_verdict() {
     }
     let weekly: String = client.query_one("SELECT message FROM core.notice WHERE once = 'weekly 2025-12-13'", &[]).await.unwrap().get(0);
     let lines: Vec<&str> = weekly.lines().collect();
-    assert_eq!(lines[0], "🟡 Weekly check: this week's sessions have no publishing deadline yet, so Sunday's report is not checked");
+    // the queue is still paused: red, though no deadline is set (round w, 12)
+    assert_eq!(lines[0], format!("🔴 Weekly check: Sunday's report is not cleared while a problem is open: {paused}"));
     assert_eq!(lines[1..6], [
         "Mon Dec 8: not published",
         "Tue Dec 9: published · 100.0% of its measurements have a value · 0 engine faults · history pass not published",
@@ -376,6 +377,96 @@ async fn a_digest_never_says_nothing_is_open_after_an_alert() {
     assert_eq!(posts.len(), 2, "{posts:?}");
     assert!(posts[0].1.starts_with("🔴 A republish left 1 days that no job derives again: 2025-12-11"), "{posts:?}");
     assert!(posts[1].1.starts_with("🔴 Needs you: A republish left 1 days"), "the digest after the alert says it is open: {posts:?}");
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-17 round w, 12: the headline agrees with its lines. Saturday 09:00, Friday's base
+/// published and its history pass not yet, before Friday's deadline (Saturday 10:00 here): due,
+/// never "all published with their history pass". With no deadline set, an open problem is red.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn the_weekly_headline_agrees_with_its_lines() {
+    let (scratch, mut client, b) = ready("weekly_lines").await;
+    let s = settings(Some("2025-12-08"));
+    let days = ["2025-12-08", "2025-12-09", "2025-12-10", "2025-12-11", "2025-12-12"];
+    for day in days {
+        published(&client, &b, day, &format!("{day} 20:00-07")).await;
+    }
+    for day in &days[..4] {
+        history_published(&client, day, &format!("{day} 22:00-07")).await;
+    }
+    let nine = "2025-12-13 09:00:00-07";
+    check(&mut client, &s, nine).await;
+    let weekly = watch::weekly(&client, &s, nine).await.unwrap();
+    let lines: Vec<&str> = weekly.lines().collect();
+    assert_eq!(lines[0], "🟢 Weekly check: on time; 4 of 5 sessions published with their history pass, 1 due later (Fri Dec 12)");
+    assert_eq!(lines[5], "Fri Dec 12: published · no measurements · 0 engine faults · history pass not published yet, due by Sat 10:00 MT");
+    // no deadline set: the week is not judged, but an open problem is still red
+    work::pause(&client, "a pass refused its bundle").await.unwrap();
+    check(&mut client, &settings(None), nine).await;
+    let weekly = watch::weekly(&client, &settings(None), nine).await.unwrap();
+    assert!(weekly.starts_with("🔴 Weekly check: Sunday's report is not cleared while a problem is open: Work queue paused"), "{weekly}");
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-17 round w, 13: a check that fails composes no digest from the stale problem
+/// list; the next minute's check, once it succeeds, does. (The check fails here because a table
+/// it reads is renamed away for the minute; the digest itself does not read it.)
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_failed_check_posts_no_digest() {
+    let (scratch, mut client, _) = ready("failed_check").await;
+    let s = settings(None);
+    work::pause(&client, "a check failed on 2025-12-11").await.unwrap();
+    client.batch_execute("ALTER TABLE core.queue_control RENAME TO queue_control_away").await.unwrap();
+    assert!(watch::tick(&mut client, &s, "2025-12-12 09:00:00-07").await.is_err());
+    assert!(posts(&client).await.is_empty(), "no digest from a list the check could not bring up to date");
+    client.batch_execute("ALTER TABLE core.queue_control_away RENAME TO queue_control").await.unwrap();
+    watch::tick(&mut client, &s, "2025-12-12 09:01:00-07").await.unwrap();
+    let said = posts(&client).await;
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert!(said[0].starts_with("🔴 Work queue paused"), "{said:?}");
+    assert!(said[1].starts_with("🔴 Needs you: Work queue paused"), "the digest names the problem: {said:?}");
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-17 round w, 4: the digest counts measurement bodies outside the problems' lock.
+/// While its counting is held (another session holds the measurements locked), a publish opens a
+/// problem without waiting; the digest composed from the list before it is then not queued, and
+/// the next minute's digest names it.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_problem_opens_while_the_digest_counts() {
+    let (scratch, client, b) = ready("digest_counting").await;
+    let s = settings(None);
+    // a published revision not yet counted: the digest's count reads its measurements
+    published(&client, &b, "2025-12-10", "2025-12-11 20:00-07").await;
+    let mut holder = scratch.client().await;
+    let hold = holder.transaction().await.unwrap();
+    hold.batch_execute("LOCK TABLE vyreon.measurement IN ACCESS EXCLUSIVE MODE").await.unwrap();
+    let mut watching = scratch.client().await;
+    let s2 = s.clone();
+    let minute = tokio::spawn(async move {
+        let r = watch::tick(&mut watching, &s2, "2025-12-12 09:30:00-07").await;
+        (watching, r)
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(!minute.is_finished(), "the digest is counting (held by the lock on the measurements)");
+    // a publish opens a problem meanwhile: it does not wait for the digest
+    let mut publishing = scratch.client().await;
+    let tx = publishing.transaction().await.unwrap();
+    let opened = tokio::time::timeout(std::time::Duration::from_secs(2), watch::not_derived(&tx, &[("2025-12-11".into(), PROFILE.into(), false)])).await;
+    assert!(opened.is_ok(), "the problem opened while the digest was counting");
+    tx.commit().await.unwrap();
+    hold.rollback().await.unwrap();
+    let (mut watching, r) = minute.await.unwrap();
+    r.unwrap();
+    let said = posts(&client).await;
+    assert_eq!(said.len(), 1, "the digest composed before the problem opened is not queued: {said:?}");
+    watch::tick(&mut watching, &s, "2025-12-12 09:31:00-07").await.unwrap();
+    let said = posts(&client).await;
+    assert_eq!(said.len(), 2, "{said:?}");
+    assert!(said[1].starts_with("🔴 Needs you: A republish left 1 days"), "{said:?}");
     scratch.drop().await;
 }
 

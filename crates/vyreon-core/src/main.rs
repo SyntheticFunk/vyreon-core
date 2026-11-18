@@ -20,16 +20,14 @@
 //!   vyreon-core evidence show <job> [--attempt N]     one attempt's evidence in full (the latest by default):
 //!                                                     its stop message, the input plan's refusals and its log excerpt
 //!   vyreon-core archive list [<date>]                 the perishable archive (C-052): each object requested, kept or
-//!                                                     failed (the newest sessions, or one session), and what is missing
+//!                                                     failed with its endpoint, bucket and key (the newest sessions, or
+//!                                                     one session), each category a worker could not pack, and what is missing
 //!   vyreon-core problems                              the open problems (C-050), oldest first, and the last resolved
 //!   vyreon-core digest [weekly]                       print the 09:00 digest (or the Saturday check) as it would be posted now
 //!   vyreon-core log [n]                               the newest n (20) logged events, which are not posted
 //!   vyreon-core daily [queue]                         the daily runs (C-051): their settings, the sessions
 //!                                                     handled and the next due; `queue` queues what is due now
 //!                                                     (the service does it every minute by itself)
-//!   vyreon-core daily start-worker [<cronjob>]        the daily CronJob's gate (in a pod): start a worker Job from
-//!                                                     the template of <cronjob> (daily-worker) only when a daily job
-//!                                                     is waiting and no daily Job is still running
 //!   vyreon-core notices mark-sent                     mark every post not sent yet as sent, without posting it (run once
 //!                                                     before the webhook is first switched on, so the channel starts clean)
 //!   vyreon-core api-key create <holder> <read[,admin]>   make a reader API key (printed once; only its digest is kept)
@@ -260,6 +258,19 @@ fn spaces_settings() -> Result<Option<archive::Spaces>, String> {
     Ok(Some(spaces))
 }
 
+/// One archive object as `archive list` prints it: where it is (endpoint, bucket, key: round w,
+/// 18, C-052) and its state.
+fn archive_line(r: &serde_json::Value) -> String {
+    let text = |k: &str| r[k].as_str().unwrap_or_default().to_owned();
+    let state = match text("state").as_str() {
+        "KEPT" => format!("KEPT {}", text("kept_at")),
+        "FAILED" => format!("FAILED: {}", text("failure")),
+        other => format!("{other} {} (not kept yet)", text("requested_at")),
+    };
+    let endpoint = r["endpoint"].as_str().unwrap_or("(endpoint not recorded)");
+    format!("{} {:<12} {} bytes {endpoint}/{}/{} job {} by {}: {state}", text("session"), text("category"), r["bytes"], text("bucket"), text("key"), r["job_id"], text("worker"))
+}
+
 /// `archive list [<date>]`: one line per archive object, newest session first, then what is missing.
 async fn archive_list(session: Option<&str>) -> Result<(), String> {
     let client = connect().await?;
@@ -268,13 +279,11 @@ async fn archive_list(session: Option<&str>) -> Result<(), String> {
         println!("no perishable archive{}", session.map_or(String::new(), |s| format!(" for {s}")));
     }
     for r in &rows {
-        let text = |k: &str| r[k].as_str().unwrap_or_default().to_owned();
-        let state = match text("state").as_str() {
-            "KEPT" => format!("KEPT {}", text("kept_at")),
-            "FAILED" => format!("FAILED: {}", text("failure")),
-            other => format!("{other} {} (not kept yet)", text("requested_at")),
-        };
-        println!("{} {:<12} {} bytes {}/{} job {} by {}: {state}", text("session"), text("category"), r["bytes"], text("bucket"), text("key"), r["job_id"], text("worker"));
+        println!("{}", archive_line(r));
+    }
+    // round w, 7: what a worker could not pack is never silent
+    for (session_, category, why, job, worker, at) in archive::unpacked_list(&client, session, 200).await? {
+        println!("{session_} {category:<12} not packed at {at}, job {job} by {worker}: {why}");
     }
     let s = watch_settings()?;
     let now = watch::now(&client).await?;
@@ -293,22 +302,6 @@ async fn archive_list(session: Option<&str>) -> Result<(), String> {
 
 /// `daily [queue]`: the daily runs' settings, the sessions handled, and (with `queue`) what is due
 /// now queued, as the service does every minute.
-/// The daily CronJob's gate (round v, 9): the worker Job is created from `cronjob`'s template
-/// only when a daily job is waiting, so a morning with nothing queued starts no worker node.
-async fn daily_start_worker(cronjob: &str) -> Result<(), String> {
-    let client = connect().await?;
-    let waiting = daily::waiting(&client).await?;
-    if waiting == 0 {
-        println!("no daily job is waiting: no worker started");
-        return Ok(());
-    }
-    match core_api::gate::start(&core_api::gate::Kube::in_cluster()?, cronjob).await? {
-        core_api::gate::Started::AlreadyRunning(job) => println!("{waiting} daily jobs waiting; the daily runs' Job {job} is still running: none started"),
-        core_api::gate::Started::Created(job) => println!("{waiting} daily jobs waiting: started {job} from {cronjob}"),
-    }
-    Ok(())
-}
-
 async fn daily_runs(queue: bool) -> Result<(), String> {
     let s = watch_settings()?;
     let Some(d) = &s.daily else {
@@ -409,6 +402,13 @@ async fn serve() -> Result<(), String> {
         archive: spaces_settings()?,
     };
     let pg: tokio_postgres::Config = conninfo("VYREON_CORE_PG")?.parse().map_err(|_| "VYREON_CORE_PG: not a connection string".to_string())?;
+    // C-053: one core at a time. The lock is held by this connection for the service's life; a
+    // second service refuses to start, and this one stops when the connection is lost
+    let (holder, connection) = pg.connect(NoTls).await.map_err(|e| format!("postgres connect: {e}"))?;
+    let mut lost = tokio::spawn(connection);
+    if !core_db::instance::take(&holder).await? {
+        return Err("another vyreon-core serve holds the database's single-instance lock (C-053): this one does not serve".into());
+    }
     let manager = deadpool_postgres::Manager::new(pg, NoTls);
     let pool = deadpool_postgres::Pool::builder(manager).max_size(16).build().map_err(|e| e.to_string())?;
     let app = core_api::App::new(pool, config);
@@ -434,8 +434,24 @@ async fn serve() -> Result<(), String> {
     if let Some(webhook) = webhook {
         core_api::notices::spawn_sender(app.clone(), webhook, std::time::Duration::from_secs(15));
     }
-    println!("vyreon-core listening on {listen}");
-    axum::serve(listener, core_api::router(app)).await.map_err(|e| e.to_string())
+    println!("vyreon-core listening on {listen} (the single-instance lock is held, C-053)");
+    let mut ping = tokio::time::interval(std::time::Duration::from_secs(15));
+    let held = async {
+        loop {
+            ping.tick().await;
+            match tokio::time::timeout(std::time::Duration::from_secs(10), core_db::instance::held(&holder)).await {
+                Ok(Ok(true)) => {}
+                Ok(Ok(false)) => return "the single-instance lock is no longer held".to_string(),
+                Ok(Err(e)) => return format!("the connection holding the single-instance lock failed: {e}"),
+                Err(_) => return "the connection holding the single-instance lock did not answer in 10 s".to_string(),
+            }
+        }
+    };
+    tokio::select! {
+        served = axum::serve(listener, core_api::router(app)) => served.map_err(|e| e.to_string()),
+        why = held => Err(format!("{why}: stopping, so that no second core serves beside this one (C-053)")),
+        _ = &mut lost => Err("the connection holding the single-instance lock ended: stopping (C-053)".into()),
+    }
 }
 
 async fn engine_store_export(date: &str, dir: &str) -> Result<(), String> {
@@ -573,8 +589,6 @@ async fn main() -> ExitCode {
         ["digest", "weekly"] => digest(true).await,
         ["daily"] => daily_runs(false).await,
         ["daily", "queue"] => daily_runs(true).await,
-        ["daily", "start-worker"] => daily_start_worker("daily-worker").await,
-        ["daily", "start-worker", cronjob] => daily_start_worker(cronjob).await,
         ["log"] => log("20").await,
         ["log", n] => log(n).await,
         ["notices", "mark-sent"] => match connect().await {
@@ -601,7 +615,21 @@ async fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::publish_args;
+    use super::{archive_line, publish_args};
+
+    /// Audit 2026-11-17 round w, 18: `archive list` names the endpoint the object is kept at.
+    #[test]
+    fn an_archive_line_names_its_endpoint_bucket_and_key() {
+        let row = serde_json::json!({
+            "session": "2025-12-10", "category": "act01-auto", "state": "KEPT", "bytes": 4242, "bucket": "vyreon-data",
+            "key": "perishables/act01-auto/2025-12-10/4ef2e745.tar.zst", "kept_at": "2025-12-11T13:06:00Z", "job_id": 7, "worker": "w1",
+            "endpoint": "https://nyc3.digitaloceanspaces.com",
+        });
+        assert_eq!(
+            archive_line(&row),
+            "2025-12-10 act01-auto   4242 bytes https://nyc3.digitaloceanspaces.com/vyreon-data/perishables/act01-auto/2025-12-10/4ef2e745.tar.zst job 7 by w1: KEPT 2025-12-11T13:06:00Z"
+        );
+    }
 
     /// Fix round C (corepublish.md, noticed by the verifier): `publish a --vouch b` published `a`
     /// unvouched and then failed opening a file named `--vouch`. The command line is now read

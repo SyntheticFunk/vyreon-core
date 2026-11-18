@@ -154,20 +154,18 @@ starting anything, and worker nodes exist only while there is work:
   admitted build). Unset: nothing is queued. A build not admitted or withdrawn is the problem
   `DAILY_STOPPED` on the channel. The publishing deadline (C-050) then starts at the same session,
   each due by **20:00 MT** the next calendar day (`VYREON_CORE_DEADLINE_HOUR`).
-- **The cluster starts the worker, only when there is work:** CronJob `daily` (`40-daily.yaml`)
-  at 07:45 New York, Tuesday to Saturday, runs a gate on the core node (`vyreon-core daily
-  start-worker`): when core holds a daily job waiting (queued, its build admitted, the queue not
-  paused) and no daily Job is still running, it creates the worker Job from the template of the
-  suspended CronJob `daily-worker`; otherwise it starts nothing, so an empty morning starts no
-  node (audit 2026-11-17 round v, 9). The worker Job's pod runs the tape, the day and the ordered
-  pass in order, up to three pods one after another. Every worker pod carries
-  `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"`, so the autoscaler never removes a
-  node under a running day.
-- **The gate's rights (RBAC, `40-daily.yaml`):** ServiceAccount `daily-gate`, bound by RoleBinding
-  `daily-gate` to Role `daily-gate` in namespace `vyreon` only: `get` on the one CronJob
-  `daily-worker` (resourceNames), `list` and `create` on Jobs (a created Job's name is generated, so
-  `create` cannot be limited by name). Nothing cluster-wide, no Secrets, no Pods. The gate reads
-  core's database with core's own login (Secret `vyreon-pg-app`) to count what waits.
+- **The cluster starts the worker:** CronJob `daily` (`40-daily.yaml`) at 07:45 New York, Tuesday
+  to Saturday, starts the worker Job itself (worker image, the `default` service account and the
+  `regcred` pull secret as the other worker Jobs, `concurrencyPolicy: Forbid`, at most three pods
+  one after another, stopped after 23 h). Its pod runs the tape, the day and the ordered pass in
+  order. Every worker pod carries `cluster-autoscaler.kubernetes.io/safe-to-evict: "false"`, so
+  the autoscaler never removes a node under a running day. A run still going at the next 07:45 is
+  never joined by a second; that start is made once it ends, within 6 h
+  (`startingDeadlineSeconds`; Kubernetes, "CronJob").
+- **Accepted cost (the owner, 2026-11-17, retiring round v's gate):** on a weekday morning with
+  nothing queued (the morning after an exchange holiday) a node still starts, the three containers
+  find nothing to claim and exit in about a minute, and the node goes: at most about $0.17 a time,
+  about nine times a year.
 - **The pool scales:** pool `day` autoscaled with min 0; the worker Job's pending pod brings up one
   node; the node is removed after it has been unneeded for the autoscaler's unneeded time
   (10 minutes by the upstream default).
@@ -231,29 +229,28 @@ session at $0.167 an hour, about $24 a month; more for a retried day.
    `doctl kubernetes cluster node-pool create vyreon --name day --size s-8vcpu-16gb-amd --count 0
    --auto-scale --min-nodes 0 --max-nodes <max> --label vyreon=worker --taint "vyreon=worker:NoSchedule"`
    and use the new id.)
-4. **The CronJobs and the gate's rights:** with the core image of step 1 (it has `daily
-   start-worker`; migrations 0021 and 0022 since round v), first remove the CronJob `daily` of the
-   version before the gate if it was applied (`kubectl -n vyreon delete cronjob daily`: it ran the
-   worker itself), then
-   `sed -e "s#VYREON_WORKER_IMAGE#registry.digitalocean.com/vyreon/vyreon-worker:<tag>#" -e "s#VYREON_CORE_IMAGE#registry.digitalocean.com/vyreon/vyreon-core:<tag>#" deploy/k8s/40-daily.yaml | kubectl apply -f -`.
-   The worker image must be the build named in step 5. Nothing is queued yet, so each morning's
-   gate says "no daily job is waiting: no worker started" (`kubectl -n vyreon logs job/<daily-…>`)
-   and no node comes up.
+4. **The CronJob:** if round v's gate was applied, remove it first: `kubectl -n vyreon delete
+   cronjob daily daily-worker --ignore-not-found` and `kubectl -n vyreon delete serviceaccount,role,rolebinding
+   daily-gate --ignore-not-found`. Then
+   `sed -e "s#VYREON_WORKER_IMAGE#registry.digitalocean.com/vyreon/vyreon-worker:<tag>#" deploy/k8s/40-daily.yaml | kubectl apply -f -`.
+   The worker image must be the build named in step 5. Until step 5 nothing is queued, so each
+   morning's pod finds nothing to claim and exits (a node for a few minutes, about $0.17); apply
+   it with step 5, or suspend it until then
+   (`kubectl -n vyreon patch cronjob daily -p '{"spec":{"suspend":true}}'`).
 5. **Switch on** (the owner's word that the system is ready): the build admitted
    (`vyreon-core build admit`), then in `20-core.yaml` uncomment `VYREON_CORE_DAILY_FROM` (the
    first session to compute by itself: normally the session after the last one scheduled by hand)
    and `VYREON_CORE_DAILY_BUILD`, and apply. Check: `vyreon-core daily` shows the settings, "due
    now" and the next session's time; it queues within a minute of 07:30 New York.
-6. **First morning:** `kubectl -n vyreon get cronjob,jobs,pods -o wide` (the gate's Job says it
-   started `daily-worker-…`; a node comes up, the pod runs `tape`, `day-block`, `ordered-pass`),
+6. **First morning:** `kubectl -n vyreon get cronjob,jobs,pods -o wide` (a Job `daily-…`; a node
+   comes up, the pod runs `tape`, `day-block`, `ordered-pass`),
    `vyreon-core queue`, the 09:00 digest's "Daily runs" line; after the run, the node is gone
    within about 10 minutes (`kubectl get nodes -l vyreon=worker`). To run at once instead of
-   waiting: `kubectl -n vyreon create job daily-now --from=cronjob/daily` (through the gate), or
-   `--from=cronjob/daily-worker` (the worker whatever is queued).
+   waiting: `kubectl -n vyreon create job daily-now --from=cronjob/daily` (a Job made by hand is
+   not held back by `Forbid`: check `kubectl -n vyreon get jobs -l work=daily` first).
 
 **Off:** comment out the two daily settings and apply (core queues nothing more), and
-`kubectl -n vyreon patch cronjob daily -p '{"spec":{"suspend":true}}'` (the gate; `daily-worker`
-stays suspended).
+`kubectl -n vyreon patch cronjob daily -p '{"spec":{"suspend":true}}'`.
 
 ## Perishable archive (C-052)
 

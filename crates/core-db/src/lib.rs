@@ -7,6 +7,7 @@ pub mod build;
 pub mod capture;
 pub mod daily;
 pub mod evidence;
+pub mod instance;
 pub mod migrate;
 pub mod notice;
 pub mod publish;

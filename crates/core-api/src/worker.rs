@@ -17,6 +17,8 @@
 //!   POST /archives                   {category, session, bytes, sha256, md5}   a perishable archive (C-052) -> {state: off | kept |
 //!                                                                          frozen | upload, archive_id, key, url, headers, expires_seconds}
 //!   POST /archives/{id}/done         {failed: null | why}               the upload is done (or failed) -> {kept, why}
+//!   POST /archives/unpacked          {category, session, why}           a category the worker could not pack (round w, 7)
+//!                                                                          -> {recorded} | {state: off}
 //!   POST /budget                     {requests}                         -> {budget_lease_id, requests, valid_seconds}
 //!                                                                          or {requests: 0, retry_after_seconds}
 //!   POST /budget/{id}/release        {used: {category: requests}}       -> {counted}
@@ -99,6 +101,7 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/input-captures/{session}/{kind}/{identity}", put(capture_put).get(capture_get))
         .route("/archives", post(archive_request))
         .route("/archives/{id}/done", post(archive_done))
+        .route("/archives/unpacked", post(archive_unpacked))
         .route("/budget", post(budget_draw))
         .route("/budget/{id}/release", post(budget_release))
 }
@@ -398,6 +401,25 @@ async fn archive_request(State(app): Shared, headers: HeaderMap, Json(r): Json<A
     let now = core_db::watch::now(&**client).await.map_err(failed)?;
     let request = archive::Request { category: r.category, session: r.session, bytes: r.bytes, sha256: r.sha256, md5: r.md5 };
     ok(archive::request(&mut client, spaces, bearer(&headers)?, &request, &now).await?.reply())
+}
+
+#[derive(Deserialize)]
+struct ArchiveUnpacked {
+    category: String,
+    session: String,
+    why: String,
+}
+
+/// A category the worker could not pack (round w, 7): counted missing, never silent.
+async fn archive_unpacked(State(app): Shared, headers: HeaderMap, Json(u): Json<ArchiveUnpacked>) -> Reply {
+    let mut client = app.db().await?;
+    if app.config.archive.is_none() {
+        caller(&client, &headers).await?;
+        return ok(json!({"state": "off"}));
+    }
+    let now = core_db::watch::now(&**client).await.map_err(failed)?;
+    archive::unpacked(&mut client, bearer(&headers)?, &u.category, &u.session, &u.why, &now).await?;
+    ok(json!({"recorded": true}))
 }
 
 #[derive(Deserialize)]

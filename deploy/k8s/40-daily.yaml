@@ -1,19 +1,15 @@
 # Daily runs (C-051): core queues each trading session at 07:30 New York the next calendar day
-# (`core_db::daily`); a quarter of an hour later, Tuesday to Saturday (the mornings after Monday to
-# Friday), the CronJob `daily` below runs a gate on the core node: `vyreon-core daily start-worker`
-# creates the worker Job from the suspended CronJob `daily-worker`'s template only when a daily job
-# is waiting in core (and no daily Job is still running), so a morning with nothing queued (the
-# Saturday after Good Friday, a session already done by hand) starts no worker node (audit
-# 2026-11-17 round v, 9). On the autoscaled pool `day` (min 0) the worker pod brings up one node,
-# which the autoscaler removes about ten minutes after the run ends (README, "Daily runs").
+# (`core_db::daily`); this CronJob starts the worker a quarter of an hour later, Tuesday to Saturday
+# (the mornings after Monday to Friday), so the queued session is claimed with nobody starting
+# anything. On the autoscaled pool `day` (min 0) its pod brings up one node, which the autoscaler
+# removes about ten minutes after the run ends (README, "Daily runs").
 #
-# The gate (CronJob `daily`): the core image, on the core pool (no worker toleration, so never on a
-# worker node), its own service account `daily-gate` with a Role that may only read the CronJob
-# `daily-worker` and list and create Jobs in this namespace; the database login of core (Secret
-# `vyreon-pg-app`) to count what waits.
+# No gate (the owner, 2026-11-17, retiring round v's `vyreon-core daily start-worker`): on a
+# weekday morning with nothing queued (the morning after an exchange holiday) a node starts, the
+# three containers find nothing to claim and exit in about a minute, and the autoscaler removes the
+# node: at most about $0.17 a time, about nine times a year (C-051 amended).
 #
-# The worker (CronJob `daily-worker`, suspended: never run by its schedule, only its template is
-# used). One pod runs a day's three kinds in order, each a container with its own empty home, as the
+# One pod runs a day's three kinds in order, each a container with its own empty home, as the
 # separate Jobs of 30-workers.yaml do: the tape job (init container), the day block (init
 # container: it starts only after the tape container exited 0, and a day block waits for its
 # session's tape anyway), then the ordered pass. A container that finds nothing to claim exits 0
@@ -27,45 +23,13 @@
 # job's own attempts and evidence are core's (C-035, C-049). No `backoffLimit`: see 30-workers.yaml.
 # While the backfill shares the build, a pod with no daily session left claims the backfill's
 # earliest work of its kind (daily jobs are claimed first, C-051): set `completions: 1` to keep the
-# daily run to its own session. A Job made from the template is deleted a week after it ends
-# (`ttlSecondsAfterFinished`: a suspended CronJob's history limits do not apply to it).
+# daily run to its own session. `concurrencyPolicy: Forbid`: a run still going at the next
+# morning's schedule (it is stopped after 23 h) is never joined by a second; that morning's start
+# counts as missed and is made once the running Job ends, if within `startingDeadlineSeconds`
+# (6 h) of 07:45 (Kubernetes, "CronJob": "a new Job can be created once the previous Job
+# completes", https://kubernetes.io/docs/concepts/workloads/controllers/cron-jobs/).
 #
 # Secret `vyreon-worker` (README): each container mounts only the keys it reads (C-016, C-020).
-apiVersion: v1
-kind: ServiceAccount
-metadata:
-  name: daily-gate
-  namespace: vyreon
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: Role
-metadata:
-  name: daily-gate
-  namespace: vyreon
-rules:
-  # the worker's template, and nothing else of the CronJobs
-  - apiGroups: ["batch"]
-    resources: ["cronjobs"]
-    resourceNames: ["daily-worker"]
-    verbs: ["get"]
-  # whether a daily Job still runs, and the worker Job itself (`create` cannot be limited to a
-  # name: the Job's is generated)
-  - apiGroups: ["batch"]
-    resources: ["jobs"]
-    verbs: ["list", "create"]
----
-apiVersion: rbac.authorization.k8s.io/v1
-kind: RoleBinding
-metadata:
-  name: daily-gate
-  namespace: vyreon
-subjects:
-  - {kind: ServiceAccount, name: daily-gate, namespace: vyreon}
-roleRef:
-  apiGroup: rbac.authorization.k8s.io
-  kind: Role
-  name: daily-gate
----
 apiVersion: batch/v1
 kind: CronJob
 metadata:
@@ -74,51 +38,15 @@ metadata:
 spec:
   schedule: "45 7 * * 2-6"
   timeZone: America/New_York
-  # never two gates at once; a start missed (control plane busy, an upgrade) still runs within 6 h
+  # never two runs at once; a start missed (control plane busy, an upgrade) still runs within 6 h
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 21600
   successfulJobsHistoryLimit: 7
   failedJobsHistoryLimit: 7
   jobTemplate:
-    spec:
-      backoffLimit: 2
-      activeDeadlineSeconds: 600
-      template:
-        metadata:
-          labels: {app: vyreon-daily-gate}
-        spec:
-          restartPolicy: Never
-          serviceAccountName: daily-gate
-          containers:
-            - name: gate
-              image: VYREON_CORE_IMAGE
-              args: ["daily", "start-worker", "daily-worker"]
-              env:
-                - name: PGUSER
-                  valueFrom: {secretKeyRef: {name: vyreon-pg-app, key: username}}
-                - name: PGPASSWORD
-                  valueFrom: {secretKeyRef: {name: vyreon-pg-app, key: password}}
-                - name: VYREON_CORE_PG
-                  value: "host=vyreon-pg-rw port=5432 dbname=vyreon user=$(PGUSER) password=$(PGPASSWORD)"
-              resources:
-                requests: {cpu: 50m, memory: 64Mi}
----
-apiVersion: batch/v1
-kind: CronJob
-metadata:
-  name: daily-worker
-  namespace: vyreon
-spec:
-  # only its template is used, by the gate above; the schedule is never run
-  suspend: true
-  schedule: "45 7 * * 2-6"
-  timeZone: America/New_York
-  concurrencyPolicy: Forbid
-  jobTemplate:
     metadata:
       labels: {work: daily}
     spec:
-      ttlSecondsAfterFinished: 604800
       completions: 3
       parallelism: 1
       completionMode: Indexed
@@ -134,6 +62,11 @@ spec:
             cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
         spec:
           restartPolicy: Never
+          # the worker Jobs' account (`default`, 30-workers.yaml); the private registry's pull
+          # secret named here too, not only through the account (audit 2026-11-17 round w, 5)
+          serviceAccountName: default
+          imagePullSecrets:
+            - {name: regcred}
           nodeSelector: {vyreon: worker}
           tolerations:
             - {key: vyreon, operator: Equal, value: worker, effect: NoSchedule}
