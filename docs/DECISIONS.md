@@ -887,6 +887,25 @@ published for a week. Migration 0018; `crates/core-db/src/watch.rs`.
   clears the next minute is one alert and one "Resolved". No new machinery: the state was already
   in `core.daily_session`. Ordinary day: no change (queueing succeeds, nothing is due unqueued at
   the check). Test: `core-db/tests/daily.rs::a_failed_queueing_is_a_problem_before_the_digest`.
+- **Amended (audit round x 2, 7, 12, 19, 2026-11-18).** Each the simplest fix; no new machinery.
+  - *A cancelled repair pass opens `NOT_DERIVED` (2).* A republish queues the finished pass of a
+    day whose history fell, so no problem opens; cancelling that pass left the history silently
+    absent. `work::cancel` now opens `NOT_DERIVED` ("Cancelling their ordered pass left N days …")
+    in its transaction for each ordered pass it cancels whose day has a published base, no history
+    revision of the profile published and no other pass to come; it resolves as before. Not
+    reopened: a problem round v resolved falsely before migration 0023 (none known on the cluster).
+  - *The digest's tallies are one statement (7):* the published revisions, their kept counts and
+    the ones counted for the first time come from one snapshot (the new counts are kept by the same
+    statement), so a revision replaced between two reads can no longer make a "no measurements,
+    0 engine faults" line.
+  - *A 5xx is an unknown outcome (12).* A gateway's 502/503/504 can come after Discord saved the
+    post (RFC 9110, 15.6), so it keeps `sending_since` and waits the 120 s window like a lost
+    answer; only a 4xx (a definite refusal, 429 included) or a refused connection goes again at once.
+  - *One `wait=true` (19).* Any `wait` parameter in the configured webhook URL is removed before
+    `wait=true` is added (`notices::waiting_url`); the URL is never printed.
+  - Ordinary day: unchanged. Tests: `core-db/tests/publish.rs::a_cancelled_repair_pass_leaves_its_day_a_problem`,
+    `core-db/tests/watch.rs::the_digest_leads_with_its_verdict` (tallies), `core-api/tests/notices.rs::a_gateway_timeout_waits_the_unknown_outcome_window`,
+    `core-api` unit `the_webhook_url_carries_one_wait_true`.
 
 ## C-051 Daily runs: core queues each session the morning after; a CronJob starts the worker; the pool scales to zero (owner-approved goal, 2026-11-17)
 Goal (owner): from the day the system is declared ready, each new session is computed and
@@ -1120,6 +1139,20 @@ is the worker's side. Migration 0020; `crates/core-db/src/archive.rs`.
   the skipped entries said in its outcome, or, with none readable, reported not packed (so core
   counts it missing); each category is named to the worker's parent as soon as its own walk ends.
   Core is unchanged. Ordinary day: unchanged.
+- **Amended (audit round x 8, 9, 17, 2026-11-18; migration 0024).**
+  - *A day its job published is one the job has marked done (9).* Revisions do not record their
+    job; `published_by` now takes a day before the job's next session (`day_done` needs the day's
+    base of the job's build published, and the worker sends it before its archive phase), never
+    the next itself, so a block just leased on a day published by hand or by another job neither
+    archives it nor reports it not packed.
+  - *One "not packed" record per occurrence (17).* 0024 keeps one row per (job, worker, session,
+    category) (earlier duplicates deleted, the first kept) and the insert is `ON CONFLICT DO
+    NOTHING`: a report sent again after its answer was lost is the same record. Engine unchanged.
+  - *A "not packed" report beside a KEPT archive of the same job and worker is not listed (8),* in
+    either order (the child stopped after its upload, before its outcome line); `missing` already
+    counted the category as kept.
+  - Ordinary day: unchanged. Tests: `core-db/tests/perishable_archive.rs::a_block_archives_only_days_it_has_published`,
+    `::a_not_packed_report_is_one_record_and_none_beside_a_kept_archive`.
 
 ## C-053 One core at a time, enforced by the database (2026-11-17; audit round w)
 Core runs as one replica (`deploy/k8s/20-core.yaml`, strategy `Recreate`), and its watch, notice
@@ -1152,3 +1185,11 @@ the first session ends).
   and frees the lock within about a minute. Ordinary day: no change. Tests:
   `core-api/tests/notices.rs::a_core_whose_watch_stalled_is_not_live`, `core-db/tests/instance.rs`
   (the keepalive set on the lock's session).
+- **Amended (audit round x 1, 2026-11-18): an archive is marked only where it was read back.** A
+  core whose lock session the server ended, unaware for up to 25 s, could read an archive back in
+  its bucket while the new core moved the row to another, then mark that row KEPT.
+  `archive::record` now updates the row only if its endpoint, bucket and key are still those it
+  read back (`archive::target`); otherwise the outcome is refused ("asked again in another place
+  since it was read") and the row stays as the newer request left it. No fencing token: the
+  place is the evidence. Ordinary day: unchanged. Test:
+  `core-db/tests/perishable_archive.rs::an_outcome_read_in_the_old_place_is_not_recorded_on_an_archive_moved_since`.
