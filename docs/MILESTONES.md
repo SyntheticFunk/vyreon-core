@@ -602,7 +602,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   fx41, fx40, fx44; overlay rules now D-394, so every option source is requoted; refcheck's
   worker-mode decision list gained D-382/383; the ETHA fixture requoted, original kept as
   `etha-first-chain.pre-d390`). Clean full suite with no other build running: 1,413 passed, 0
-  failed; reference pytest 34 passed. Images building (worker e329b3c8, core 23717e2).
+  failed; reference pytest 34 passed. **Images pushed:** `vyreon-worker:e329b3c8` (build
+  `e329b3c8+0368a1d7da4c`, venv QuantLib 1.43 / TA-Lib 0.8.2 verified in `versions.json`; inventory
+  `cluster-scratch/inventory-e329b3c8.json`, 4,679 slots) and `vyreon-core:613b336` (ledger C-055,
+  refcheck reports C-054). Core 613b336 deployed with the **perishable archive to Spaces ON**; build
+  registered and admitted (`evidence-e329b3c8.json`). Kubeconfig had expired: refreshed (7 days).
+  **23:07 UTC: real day 2026-11-03 started** (job 1382, Job `v-real-1103`,
+  `VYREON_REFCHECK_MINUTES=600`). **nyc1 has no capacity for s-8vcpu-16gb-amd** (pool resize
+  refused twice): a temporary pool `day-std` (s-8vcpu-16gb, Intel, same label and taint) runs it,
+  so its timings are on a different CPU. `delete-idle.sh` now covers every `day*` pool. **Phase-1
+  sizing must account for capacity** (8 nodes of one size may not be available in nyc1).
   **DataShop check (rules 39208e3 first; tool f6fd4da; reports `checks/2026-11-18-datashop-*.json`)
   FAILS on quotes, volume and open interest; faults cluster on corporate actions:** open interest
   100% on SPY/TSLA/UUP (338,784 contracts), same-day dating confirmed; quotes at 15:45 equal on
