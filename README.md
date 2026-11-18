@@ -30,6 +30,11 @@ at the top of `crates/vyreon-core/src/main.rs`.
 The perishable archive (C-052): workers upload a published day's cohort prints and ACT01 pulls to
 Spaces through upload URLs core signs (core alone holds the key); `vyreon-core archive list [date]`.
 
+The reference check (C-054): each worker recomputes the day it published with the reference suite
+(QuantLib, TA-Lib) before deleting the day's raw inputs and sends core the report; a disagreement,
+or a check that did not run, is a problem, never an unpublished day; `vyreon-core refcheck list
+[first [last]]` and `refcheck show <date> [--report]`.
+
 The owner's Discord channel (C-050) carries problems (one alert when one opens, one "Resolved"),
 a 09:00 MT digest led by its verdict and a Saturday check; `vyreon-core problems`, `digest
 [weekly]` and `log` show the same from the command line.
