@@ -357,6 +357,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
   label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
   when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
+- **01:12 UTC: round x's six fixes merged (core main 7b27153, image pushed; engine `pass-s3i` e48641a5,
+  1,377 passed, 8 known).** Daily claims are daily-only (`daily: true`); the first daily tape
+  container waits up to 30 minutes for late scheduling (a no-work morning now holds a node about 30
+  minutes, about $0.25); `/live` plus a liveness probe restarts a frozen core, and the lock's session
+  uses TCP keepalives (freed in about a minute behind a partition); unreadable archive entries are
+  skipped and named; a due-but-unqueued session is a DAILY_STOPPED problem; the flaky test counts
+  only its own processes (40 parallel runs passed). Unverified until deployed: the daily claim
+  through HTTP, `JOB_COMPLETION_INDEX` on the cluster.
 - **00:48 UTC: round x (gpt-6.2-astra; Codex 90% → 91%): 18 findings + 1 suspicion on the simplified
   operations features; no defect in any published value.** Count not converging, meaningfulness is:
   most need a chain of unusual failures (a lost Postgres disconnect notice during an archive
