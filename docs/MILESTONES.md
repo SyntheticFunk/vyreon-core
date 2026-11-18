@@ -357,6 +357,18 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
   label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
   when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
+- **03:40 UTC: round x's other twelve fixed and merged; no audit (owner).** Core main 58cf628 (#1 the
+  archive outcome checks its place; #2 cancelling a repair opens NOT_DERIVED; #7 digest tally in one
+  statement; #8 a "not packed" beside KEPT is not listed; #9 a block archives only days it marked
+  done; #12 a 5xx from Discord is an unknown outcome; #17 migration 0024, one record per report;
+  #19 one `wait=true`; 24 unit + 74 DB tests). Engine `pass-s3i`/`worker` 9bc02f2d (#3 finish.log
+  after the deadline loop; #10 packing diagnostics redacted; #14 leftovers removed; #15 a failed
+  child's group killed; #16 D-360's bound is 15 min 45 s; 1,388 passed, 0 failed). Stated limits:
+  a day republished by hand after its block marked it done is still credited to that block; history
+  problems round v resolved falsely stay closed (none known); a stalled worker disk after the
+  deadline can still block cleanup. Images for phase 1 building (worker 9bc02f2d, core 58cf628+).
+- **Sample: 2026-11-02 and 2026-11-09 published (02:20, 02:38 UTC; 237 and 258 min with the
+  window download).**
 - **02:40 UTC: owner decision: fix round x's other twelve in their simplest form (core #1 2 7 8 9 12
   17 19 in `/home/diggz/wt/core-fix-y`; engine #3 10 14 15 16 in `/home/diggz/wt/fx30`), then NO
   further audit of the operations features.** Reason: three rounds (v, w, x) keep finding the same
