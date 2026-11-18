@@ -2,6 +2,7 @@
 
     python3 -I edgar.py fetch CACHE TICKER...      # SEC JSON into CACHE, with CACHE/fetched.json
     python3 -I edgar.py compare CACHE BODIES.tsv > report.json
+    python3 -I edgar.py events CACHE EVENTS.tsv > report.json   # CDD-EVENTS01 filing times
 
 CACHE holds SEC's own responses as downloaded (companyfacts, submissions and their extra pages,
 company_tickers.json) and `fetched.json`: url, file, sha256 and UTC fetch time of each. The
@@ -20,7 +21,7 @@ import sys
 import time
 import urllib.request
 from collections import Counter, defaultdict
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
@@ -697,10 +698,169 @@ def compare(cache: str, bodies: str) -> int:
     return 0 if summary["pass"] else 1
 
 
+# ------------------------------------------------------------- CDD-EVENTS01 filing times (README)
+EVENTS_PERIODIC = {"10-K", "10-Q", "20-F", "40-F"}
+EVENTS_SEEN: set[tuple[str, str]] = set()  # nothing compared before the rules (README)
+WINDOW_DAYS = 366
+
+
+def submissions(cache: Path, ticker: str) -> list[dict]:
+    """Every filing in the cached submissions of one filer, acceptance as an aware UTC instant."""
+    out = {}
+    for p in sorted(cache.glob(f"submissions-{ticker}*.json")):
+        j = json.loads(p.read_text())
+        r = j["filings"]["recent"] if "filings" in j else j
+        for i, accn in enumerate(r["accessionNumber"]):
+            out[accn] = {"accn": accn, "form": r["form"][i], "report_date": r["reportDate"][i],
+                         "filing_date": r["filingDate"][i], "items": r["items"][i],
+                         "accepted": datetime.fromisoformat(r["acceptanceDateTime"][i].replace("Z", "+00:00"))}
+    return list(out.values())
+
+
+def _instant(s: str) -> datetime:
+    return datetime.fromisoformat(s.replace("Z", "+00:00"))
+
+
+def _iso(t: datetime) -> str:
+    return t.astimezone(timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def events_one(d: str, obj: str, body: dict, filings: list[dict]) -> list[dict]:
+    tc = close_of(d)
+    seen = (d, obj) in EVENTS_SEEN
+    cs = {c["coordinate_id"]: c for c in body.get("coordinates", [])}
+    out = []
+
+    def row(kind: str, verdict: str, **kw) -> None:
+        out.append({"date": d, "company": obj, "seen": seen, "item": kind, "verdict": verdict, **kw})
+
+    eights = [f for f in filings if f["form"] == "8-K"]
+    by_time = {f["accepted"].replace(microsecond=0): f for f in eights}
+    # New York wall clock written as UTC: the reading the README's ZONE rule refuses
+    by_ny_clock = {f["accepted"].astimezone(NY).replace(tzinfo=timezone.utc, microsecond=0): f for f in eights}
+
+    def judge_8k(kind: str, value: str) -> None:
+        t = _instant(value).replace(microsecond=0)
+        if t > tc:
+            row(kind, "LOOKAHEAD", ours=value, reason="accepted after T's close")
+        elif t in by_time:
+            f = by_time[t]
+            row(kind, "MATCH", ours=value, accn=f["accn"], items=f["items"], item_2_02="2.02" in f["items"].split(","))
+        elif t in by_ny_clock:
+            f = by_ny_clock[t]
+            row(kind, "FAIL", ours=value, reason="ZONE: equals the New York clock of an 8-K's acceptance",
+                accn=f["accn"], edgar=_iso(f["accepted"]))
+        else:
+            near = min(eights, key=lambda f: abs((f["accepted"] - t).total_seconds()), default=None)
+            row(kind, "FAIL", ours=value, reason="no original 8-K of the filer accepted at that second",
+                nearest=near and {"accn": near["accn"], "accepted": _iso(near["accepted"]), "items": near["items"]})
+
+    c = cs.get("sec_filing.earnings_release_8k_at")
+    if c is None or c["support"]["state"] != "SUPPORTED" or not c.get("value"):
+        row("earnings_release_8k_at", "NOT_COMPARABLE",
+            reason=c and f"{c['support']['state']} {c['support'].get('reason_code')}" or "absent")
+    else:
+        judge_8k("earnings_release_8k_at", c["value"])
+    h = body.get("arrays", {}).get("sec_filing.earnings_release_8k_at.history")
+    if h is None or h.get("state") != "SUPPORTED":
+        row("earnings_release_8k_at.history", "NOT_COMPARABLE",
+            reason=h and f"{h.get('state')} {h.get('reason')}" or "absent")
+    else:
+        cells = h["cells"]
+        for v in cells:
+            judge_8k("earnings_release_8k_at.history", v)
+        have = {_instant(v).replace(microsecond=0) for v in cells}
+        start = date.fromisoformat(d) - timedelta(days=WINDOW_DAYS)
+        for f in eights:
+            ny = f["accepted"].astimezone(NY).date()
+            if "2.02" in f["items"].split(",") and f["accepted"] <= tc and ny >= start \
+                    and f["accepted"].replace(microsecond=0) not in have:
+                row("earnings_release_8k_at.history", "FAIL",
+                    reason="EDGAR item-2.02 8-K accepted by T's close, inside the window, missing from the history",
+                    accn=f["accn"], edgar=_iso(f["accepted"]), items=f["items"],
+                    near_window_start=(ny - start).days <= 3)
+
+    keys = ("report_type", "period_end", "filing_date", "accepted_at")
+    pc = {k: cs.get(f"sec_filing.{k}") for k in keys}
+    if any(x is None or x["support"]["state"] != "SUPPORTED" for x in pc.values()):
+        bad = {k: (x and x["support"]["state"]) for k, x in pc.items()}
+        row("periodic_report", "NOT_COMPARABLE", reason=f"coordinates not all SUPPORTED: {bad}")
+        return out
+    ours = {k: pc[k]["value"] for k in keys}
+    cands = [f for f in filings if f["form"] == ours["report_type"] and f["report_date"] == ours["period_end"]]
+    acc = _instant(ours["accepted_at"]).replace(microsecond=0)
+    exact = [f for f in cands if f["filing_date"] == ours["filing_date"] and f["accepted"].replace(microsecond=0) == acc]
+    if exact:
+        row("periodic_report", "MATCH", ours=ours, accn=exact[0]["accn"])
+    else:
+        ed = [{"accn": f["accn"], "filing_date": f["filing_date"], "accepted": _iso(f["accepted"])} for f in cands]
+        if not cands:
+            why = "no EDGAR filing of that form and period"
+        elif ours["accepted_at"].endswith("T00:00:00Z"):
+            why = "accepted_at is midnight UTC (a date stated as an instant); EDGAR's acceptance differs"
+        else:
+            why = "filing date or acceptance differs from EDGAR's"
+        row("periodic_report", "FAIL", ours=ours, edgar=ed, reason=why)
+    known = [f for f in filings if f["form"] in EVENTS_PERIODIC and f["report_date"] and f["accepted"] <= tc]
+    latest = max(known, key=lambda f: f["accepted"], default=None)
+    if acc > tc:
+        row("periodic_report_clock", "LOOKAHEAD", ours=ours)
+    elif latest is None:
+        row("periodic_report_clock", "NOT_COMPARABLE", reason="no original periodic report in EDGAR by T's close")
+    elif (latest["form"], latest["report_date"]) == (ours["report_type"], ours["period_end"]):
+        row("periodic_report_clock", "MATCH", ours=ours)
+    elif ours["report_type"] not in EVENTS_PERIODIC:
+        row("periodic_report_clock", "NOT_COMPARABLE",
+            reason=f"ours is a {ours['report_type']}, not a periodic XBRL report form",
+            edgar_latest={"form": latest["form"], "period": latest["report_date"], "accepted": _iso(latest["accepted"])})
+    elif latest["report_date"] > ours["period_end"]:
+        row("periodic_report_clock", "LAG", ours=ours,
+            edgar_latest={"form": latest["form"], "period": latest["report_date"], "accepted": _iso(latest["accepted"])})
+    else:
+        row("periodic_report_clock", "FAIL", ours=ours, reason="ours is not EDGAR's latest periodic report by T's close",
+            edgar_latest={"form": latest["form"], "period": latest["report_date"], "accepted": _iso(latest["accepted"])})
+    return out
+
+
+def events(cache: str, bodies: str) -> int:
+    cache_p = Path(cache)
+    subs: dict[str, list] = {}
+    rows, dates = [], set()
+    with open(bodies) as fh:
+        for line in fh:
+            if not line.strip():
+                continue
+            d, mid, obj, text = line.rstrip("\n").split("\t", 3)
+            if mid != "CDD-EVENTS01":
+                continue
+            dates.add(d)
+            if obj not in subs:
+                subs[obj] = submissions(cache_p, obj)
+            rows += events_one(d, obj, json.loads(text), subs[obj])
+    tally = defaultdict(Counter)
+    for r in rows:
+        tally[r["item"]][f"{r['verdict']} {'seen' if r['seen'] else 'blind'}"] += 1
+    bad = [r for r in rows if r["verdict"] in ("FAIL", "LOOKAHEAD")]
+    report = {
+        "check": "EDGAR filing times against CDD-EVENTS01 (tools/external/README.md)",
+        "dates": sorted(dates),
+        "sec_files": json.loads((cache_p / "fetched.json").read_text()),
+        "summary": {k: dict(v) for k, v in sorted(tally.items())},
+        "pass": not bad, "pass_blind": not any(not r["seen"] for r in bad),
+        "failures": bad,
+        "rows": rows,
+    }
+    json.dump(report, sys.stdout, indent=1)
+    print()
+    return 0 if report["pass"] else 1
+
+
 if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else ""
     if cmd == "fetch":
         sys.exit(fetch(sys.argv[2], sys.argv[3:]))
     if cmd == "compare":
         sys.exit(compare(sys.argv[2], sys.argv[3]))
+    if cmd == "events":
+        sys.exit(events(sys.argv[2], sys.argv[3]))
     raise SystemExit(__doc__)

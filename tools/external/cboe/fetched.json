@@ -1,0 +1,56 @@
+[
+ {
+  "url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VXAPL_History.csv",
+  "file": "VXAPL_History.csv",
+  "sha256": "a313a646d0b9260553258dc99cd1496a1bfe6ba5d0ef269445557192b216094e",
+  "fetched_at": "2026-11-18T20:20:27+00:00"
+ },
+ {
+  "url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VXAZN_History.csv",
+  "file": "VXAZN_History.csv",
+  "sha256": "7191c1fba537c412d389e27e564a5bb594b2a699529b97aa060382c84c2c02ec",
+  "fetched_at": "2026-11-18T20:20:29+00:00"
+ },
+ {
+  "url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VXGOG_History.csv",
+  "file": "VXGOG_History.csv",
+  "sha256": "0b5e2a1f928ef8d7afbbf221cd07c44bf9939427a215008307245bcce40dc712",
+  "fetched_at": "2026-11-18T20:20:30+00:00"
+ },
+ {
+  "url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VXEEM_History.csv",
+  "file": "VXEEM_History.csv",
+  "sha256": "c38140edf338e35f4fac4f94de561e324793e43f079c25a8cf18cf970169b416",
+  "fetched_at": "2026-11-18T20:20:31+00:00"
+ },
+ {
+  "url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VXEWZ_History.csv",
+  "file": "VXEWZ_History.csv",
+  "sha256": "0c2c81f831e0452f28acd99a5c0692ce5e5c90c57ee1f66edd0a74a6758e38ee",
+  "fetched_at": "2026-11-18T20:20:32+00:00"
+ },
+ {
+  "url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VXTLT_History.csv",
+  "file": "VXTLT_History.csv",
+  "sha256": "c6901bc35335b7d2970ab97c641d1a0a4f3c47b3b81d277a677418c99218c6bb",
+  "fetched_at": "2026-11-18T20:20:34+00:00"
+ },
+ {
+  "url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VXD_History.csv",
+  "file": "VXD_History.csv",
+  "sha256": "6ab67b671c62b7fb94d605ed2afcbec0d9f0b2c2c8a6d01be160f252ea0036a2",
+  "fetched_at": "2026-11-18T20:20:35+00:00"
+ },
+ {
+  "url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VXSLV_History.csv",
+  "file": "VXSLV_History.csv",
+  "sha256": "3044cd0718dd64b9f3432ebe813c80e762772ab2d872c0e18fde59c447eb6d42",
+  "fetched_at": "2026-11-18T20:20:36+00:00"
+ },
+ {
+  "url": "https://cdn.cboe.com/api/global/us_indices/daily_prices/VXFXI_History.csv",
+  "file": "VXFXI_History.csv",
+  "sha256": "e39caf3ef22f8c24284b6c903703b7806cb2db55cc3026c35d698b321e3e7513",
+  "fetched_at": "2026-11-18T20:20:38+00:00"
+ }
+]
