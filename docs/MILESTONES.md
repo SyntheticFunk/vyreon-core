@@ -357,6 +357,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
   label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
   when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
+- **02:40 UTC: owner decision: fix round x's other twelve in their simplest form (core #1 2 7 8 9 12
+  17 19 in `/home/diggz/wt/core-fix-y`; engine #3 10 14 15 16 in `/home/diggz/wt/fx30`), then NO
+  further audit of the operations features.** Reason: three rounds (v, w, x) keep finding the same
+  class of rare-failure chain, much of it in the previous round's fixes; the owner reads that as a
+  sign the features are ready. Ops audits resume only when real operation shows a new failure;
+  engine and science audits continue as before.
 - **01:12 UTC: round x's six fixes merged (core main 7b27153, image pushed; engine `pass-s3i` e48641a5,
   1,377 passed, 8 known).** Daily claims are daily-only (`daily: true`); the first daily tape
   container waits up to 30 minutes for late scheduling (a no-work morning now holds a node about 30
