@@ -357,6 +357,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
   label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
   when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
+- **00:17 UTC: round w answered by simplification and merged (core main 96f1042, C-053, migration 0023;
+  engine `pass-s3i` 8e67c4ec; core 23 unit + 57 DB tests, engine 1,375 passed, 8 known).** Owner
+  approved retiring the gate. One core at a time enforced by an advisory lock; the gate, its RBAC
+  and template and the notice claim lease removed; the CronJob starts the worker directly (Forbid
+  overlaps); digest outside locks; Discord `wait=true`; the archive phase in a child process under
+  one deadline; packing failures counted; NOT_DERIVED resolves only on publication. A new engine
+  archive test failed once in a parallel run and passed on reruns: to be found. Core image
+  `vyreon-core:96f1042` pushed (deploy after the sample). **Round x started** (gpt-6.2-astra): the
+  simplification, and the flaky test.
 - **23:42 UTC: round w (first audit on gpt-6.2-astra, about 2% of Codex's week: 88% → 90%): 20 findings
   on round v's fixes.** Most sit in machinery the fixes added: notice locks and leases (one real
   stall: the digest holds a lock that blocks publishing, phase 1 included), the daily gate (Job-
