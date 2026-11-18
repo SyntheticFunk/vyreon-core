@@ -511,7 +511,24 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   20:45 UTC: Cboe permission email SENT by the owner (internal validation use of the 14 indices;
   whether the methodology page may name them). Owner reading OCC's terms. DataShop order still
   being prepared by Cboe; OCC's terms read by the owner: fine for our use. Tiingo checks started (FIELD correlation recompute, prices; tolerances
-  committed first). Sample ends near 20:00–21:00 UTC.
+  committed first).
+  **21:00 UTC: gate-check failures diagnosed. NO look-ahead in periodic filings** (31 cases: the
+  provider's midnight stamp is the UTC acceptance date; `known_by_close` D-077 and
+  `filed_after_close` D-331 admit it only when its date is before T; FND clock 170/170). Engine
+  fixes queued (`pass-fx43`, D-380..): (a) CPI and INDPRO release table (`h3-macro`
+  `observed_release`) starts at September 2025: earlier months fall back to the 16-day lag, so
+  phase 1's CPI is up to 5 sessions stale; extend to 2022-05-27 (D-034(4), D-081). (b) FEDFUNDS +3
+  lag admits a value released after the close when the month's first business day is the 4th
+  (e.g. 2027-01-04, inside the paid pilot): readable from the session after the first Fed
+  business day. (c) Earnings releases: Intrinio omits some 8-Ks (AMD 11-03, NVDA 08-26, PLTR
+  08-03); the periodic rows' `earnings_disclosed_at` (exact to EDGAR) is never read: use it as
+  evidence; else state the history possibly incomplete (D-073, D-126, D-288). (d) Publish a
+  midnight `accepted_at` as a date, not an instant. Provider/reference side: OCC mismatches are
+  Intrinio's EOD volume missing large prints (our volume equals Intrinio's exactly; TLT 11-11
+  calls 166,717 short, with OCC open interest falling 104k in two series that show ~1k volume;
+  NVDA 11-05 puts 495,279 short) or over (BABA deep-ITM single prints); ETHA's fractional volume
+  explains 9 of its 10 fails. SLV/FXI correlation: the thin indices' intraday range (2.4-2.9 pts)
+  exceeds their day-to-day moves; our surfaces are dense; no engine fix. Sample ends near 20:00–21:00 UTC.
 - **02:40 UTC: owner decision: fix round x's other twelve in their simplest form (core #1 2 7 8 9 12
   17 19 in `/home/diggz/wt/core-fix-y`; engine #3 10 14 15 16 in `/home/diggz/wt/fx30`), then NO
   further audit of the operations features.** Reason: three rounds (v, w, x) keep finding the same
