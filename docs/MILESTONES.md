@@ -512,7 +512,7 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   whether the methodology page may name them). Owner reading OCC's terms. DataShop order still
   being prepared by Cboe; OCC's terms read by the owner: fine for our use. Tiingo checks started (FIELD correlation recompute, prices; tolerances
   committed first).
-  **21:00 UTC: gate-check failures diagnosed. NO look-ahead in periodic filings** (31 cases: the
+  **20:50 UTC: gate-check failures diagnosed. NO look-ahead in periodic filings** (31 cases: the
   provider's midnight stamp is the UTC acceptance date; `known_by_close` D-077 and
   `filed_after_close` D-331 admit it only when its date is before T; FND clock 170/170). Engine
   fixes queued (`pass-fx43`, D-380..): (a) CPI and INDPRO release table (`h3-macro`
