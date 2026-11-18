@@ -533,6 +533,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   states its unit, each row its deliverable factor, and engine D-390 tables every sensor and role.
   Being implemented on `pass-fx40`. FLEX: Intrinio delivers none, so volume is listed standard and
   adjusted contracts, FLEX excluded, stated in the method.
+  **Core `core-refcheck` merged (C-054, migration 0025: `core.refcheck_report`, `PUT
+  /worker/v1/refcheck/{session}`, `vyreon-core refcheck list|show`, REFCHECK_DISAGREES /
+  REFCHECK_NOT_RUN notices); core suite 102 passed incl. database tests.** Engine side `pass-fx41`
+  (D-370: worker runs refcheck after archive, before prune; 120-min bound; venv QuantLib 1.43,
+  TA-Lib 0.8.2 pinned, build fails on mismatch) merges with the other engine branches. Set
+  `VYREON_CORE_REFCHECK_FROM` to phase 1's first session. Never yet run on a real day.
+  **Owner (21:40 UTC): after the new image's real day and BEFORE phase 1: hand off to a fresh
+  session (this one is 3 days old), with all documentation updated, and remind the owner to fill
+  in the time sheet and engineering log.** Reporter is its own side quest, started during phase 1's
+  compute.
   **Free gate checks run (f392ff9; bands 480066e, 7fff827; reports `checks/2026-11-18-{cboe14,occ,fred,edgar-events}-sample.json`):**
   Cboe 14 pairs: all 140 sessions inside band 1; correlation FAILS VXSLV/SLV 0.887, VXFXI/FXI 0.824
   (single-day divergences, cause open). OCC standard roots: 522 of 576 inside, 54 fail (TLT 11-11
