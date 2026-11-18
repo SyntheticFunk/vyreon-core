@@ -578,6 +578,17 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   OPTIONS-VOLUME 1.4.0, DLM-UNUSUAL-CONTRACTS 2.1.0; the unit table in D-390. Before merge: requote
   the shared `workspace/fixtures/etha-first-chain`. Shared-target interference made every
   agent's full suite unclean: the merged tip gets one clean full run.
+  **Engine `pass-fx44` done (55d354aa, 3e1bd89e, c634170e):** D-391 quotes must respect
+  no-arbitrage bounds at their own stated strike (Hull ch. 11, Merton 1973), S anywhere in the
+  session's [low, high] (`underlying_range=`), tolerance 1% of the high; above 5% of a session's
+  quotes outside, a strike-label fault (`PROVIDER_STRIKE_LABELS`) clears the session's quotes, OI,
+  volume. Verified on DataShop: XLK 2025-12-05 all 2,200 quoted rows mislabelled (2,196 equal Cboe
+  at 2x strike), caught; 0 false positives on 424,814 quotes over 106 other security-days. D-392:
+  a relisted code's positive first-session OI is unknown (all 120 ETHA 10-07/08 caught; Cboe shows
+  0 OI on all 15,798 first-session listings). P-13: no leftover keeps OI or volume after the
+  overlay; every published OI equals Cboe's on 414,902 contract-days. P-15: no staleness rule
+  (610 of 670 old quotes equal Cboe). Follow-up: ACT01 picks its cohort by raw strike, guarded only
+  by `ex_date=`. **All five engine branches done; merging into `pass-fx45` (one clean suite).**
   **DataShop check (rules 39208e3 first; tool f6fd4da; reports `checks/2026-11-18-datashop-*.json`)
   FAILS on quotes, volume and open interest; faults cluster on corporate actions:** open interest
   100% on SPY/TSLA/UUP (338,784 contracts), same-day dating confirmed; quotes at 15:45 equal on
