@@ -527,6 +527,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   Intrinio's raw closes equal Tiingo's on all 4,608 security-sessions. Skipped: random-number
   quantities (RMT01 nulls, GRP01 permutations, SUB01 bootstrap), intraday and option FIELD
   sensors, PATH-L03-L07, VS-P07, CANDLESTICK, VWAP.
+  **Owner decision (ETHA / adjusted contracts):** volume, put/call and per-contract volume against
+  open interest count WHOLE contracts (as OCC and brokers); exposure-type and OI-weighted
+  quantities stay share-equivalent (D-079); "be explicit with where each is used": each role
+  states its unit, each row its deliverable factor, and engine D-390 tables every sensor and role.
+  Being implemented on `pass-fx40`. FLEX: Intrinio delivers none, so volume is listed standard and
+  adjusted contracts, FLEX excluded, stated in the method.
   **Free gate checks run (f392ff9; bands 480066e, 7fff827; reports `checks/2026-11-18-{cboe14,occ,fred,edgar-events}-sample.json`):**
   Cboe 14 pairs: all 140 sessions inside band 1; correlation FAILS VXSLV/SLV 0.887, VXFXI/FXI 0.824
   (single-day divergences, cause open). OCC standard roots: 522 of 576 inside, 54 fail (TLT 11-11
