@@ -493,7 +493,21 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   window's oldest session, so from 11-04 EWJ got a false CAPTURED_HISTORY_START terminal (O04,
   OIJ01 state a false history start). Fixing in engine `pass-fx42` (D-364..), surface check of
   O04, OIJ01, L01. INT-ACT-TV15: structural (a bin pair with zero cohort trades on thin names;
-  common support complete); a clearer reason code would help. Sample ends near 20:00–21:00 UTC.
+  common support complete); a clearer reason code would help.
+  **Owner (20:40 UTC): daily runs take trades from the trades API, quotes from the replay**
+  ("especially after launch of the core... some more volatile component is fine"; the API's
+  7-day prints kept like the other perishables). Engine D-089 amendment queued after `pass-fx40`;
+  request cost being measured (NVDA, SPY, TIP on 2026-11-17).
+  **Free gate checks run (f392ff9; bands 480066e, 7fff827; reports `checks/2026-11-18-{cboe14,occ,fred,edgar-events}-sample.json`):**
+  Cboe 14 pairs: all 140 sessions inside band 1; correlation FAILS VXSLV/SLV 0.887, VXFXI/FXI 0.824
+  (single-day divergences, cause open). OCC standard roots: 522 of 576 inside, 54 fail (TLT 11-11
+  -34%, put share +0.17; XLE 11-03 -11%; NVDA 11-05 -9.5%; BABA 11-12 +16%); ETHA volumes
+  fractional. **`2EWZ`/`4SPY` are FLEX, not adjusted roots** (8.27M contracts; true adjusted roots
+  0.09M): whether volume includes FLEX is the owner's definition; `pass-fx40` redirected. FRED:
+  exact; 2025-04-11 shows February CPI though March was out 04-10 (check). EDGAR 8-K: 765 times
+  exact; earnings 8-Ks missing (AMD 2026-11-03, NVDA 2026-08-26, PLTR 2026-08-03); periodic
+  `accepted_at` at midnight UTC for 12 of 17 companies, possible one-session look-ahead for filings
+  after 17:30 New York (AMD AMZN AVGO PLTR). All under diagnosis. OCC terms: owner reads in a browser. Sample ends near 20:00–21:00 UTC.
 - **02:40 UTC: owner decision: fix round x's other twelve in their simplest form (core #1 2 7 8 9 12
   17 19 in `/home/diggz/wt/core-fix-y`; engine #3 10 14 15 16 in `/home/diggz/wt/fx30`), then NO
   further audit of the operations features.** Reason: three rounds (v, w, x) keep finding the same
