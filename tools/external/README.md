@@ -454,3 +454,19 @@ sensors (not transcribed in this round), and the option-based sensors.
 the recompute is undefined on the same inputs; NOT_COMPARABLE (engine withheld, with its state
 and reason; Tiingo lacking a bar). Pass = no FAIL. The report gives, per quantity, the count
 compared, the count failed, the largest difference and its security-day, and every failure.
+
+**First run (2026-11-18, the sample, rules unchanged): both checks pass, no FAIL, nothing
+NOT_COMPARABLE.** FIELD: 165,030 comparisons over 88 quantities; SYNC01 W21/W63 means within
+4e-7, the leading eigenvalue within 6.4e-4 of about 22.7 (3e-5 relative), every DEP01 pair within
+8.5e-4 (HYG.XHB), SUB01 overlaps within 3e-6. Prices: 86,656 comparisons over 108 quantities;
+Intrinio's raw closes equal Tiingo's exactly on all 4,608 security-sessions compared (the 63
+sessions before each T); the largest return difference is 2.7e-5 (TSM 2026-09-16, a dividend
+ex-date: the two vendors' dividend factors). Older differences (a 52-week high 0.09 off for XHB,
+`beta_1y` 0.0018 for XHB) come from bars before the compared close history, inside the bands. Two
+tool faults were fixed after the first run, neither a band: the port lacked the engine's SPY
+self-pair (`spy_pairs_of`: SPY's one-year correlation is 1 over the window), and a 2e-16
+cross-body difference was filed as a failure where the rule says listed. The two vendors agree
+because they carry the same official closes: this check shows the engine computes what it
+declares from correct closes; it does not test what neither vendor could get wrong (both may
+share an exchange's error), the options, intraday and seeded-null quantities listed above, or
+any date outside the sample.
