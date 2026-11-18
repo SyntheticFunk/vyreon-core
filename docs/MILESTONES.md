@@ -372,8 +372,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
 - **Sample: 2026-11-02 and 2026-11-09 published (02:20, 02:38 UTC; 237 and 258 min with the
   window download); 2026-11-03 published 06:08 UTC in 226 min (2,688 exported, 0 failed).** Later
   days are not much faster than the first. 11:27 UTC: 6 of 10 published (11-10 252 min, 11-04 282,
-  11-11 272); days are lengthening a little (226 → 282 min), cause not yet looked at; the sample
-  ends near 20:00–21:00 UTC.
+  11-11 272). Block 2's stages per day (11-02 / 03 / 04, min): input preparation 65 / 61 / 75,
+  intent A 78 / 77 / 85, intent B 68 / 64 / 89, export index 3 / 3 / 10, FIELD 13 / 13 / 14, the
+  rest about 5. The next day's download (47–52 min) overlaps compute, so compute is the bound.
+  11-04's longer intent B is the main difference (hypothesis: the session after the 11-03
+  midterm election, a busier tape; not checked). Sample ends near 20:00–21:00 UTC.
 - **02:40 UTC: owner decision: fix round x's other twelve in their simplest form (core #1 2 7 8 9 12
   17 19 in `/home/diggz/wt/core-fix-y`; engine #3 10 14 15 16 in `/home/diggz/wt/fx30`), then NO
   further audit of the operations features.** Reason: three rounds (v, w, x) keep finding the same
