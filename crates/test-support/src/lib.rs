@@ -76,3 +76,11 @@ pub const WORKER_LOG_REFUSED_DAY: &str = include_str!("../fixtures/worker-fill-l
 /// the engine's frozen exports of that day (`vyreon-cli/tests/fixtures/exports-2025-12-10`, engine
 /// 9ac5010c), copied 2026-11-17. Its SHA-256 is the one its export index states (326760d7…).
 pub const ENGINE_FAULT_BODY_XLB: &str = include_str!("../fixtures/engine-fault-body-2025-12-10-XLB-SAI-EXQ01.json");
+
+/// A real reference-check report (C-054): the suite's report of 2025-12-16 from the engine's B0
+/// census (`python3 -m refcheck run` on the B0 panel's day, 2026-10-25), with its per-comparison
+/// `results` and `per_object` rows left out (as a worker leaves them out past core's limits),
+/// gzipped; the engine's `tests/fixtures/refcheck` holds the same bytes. 91,066 comparisons
+/// checked, 3,958 failed (on B0's build, before the decisions since), 384
+/// failure classes over 108 measurements.
+pub const REFCHECK_REPORT_2025_12_16: &[u8] = include_bytes!("../fixtures/refcheck-report-2025-12-16-b0-slim.json.gz");
