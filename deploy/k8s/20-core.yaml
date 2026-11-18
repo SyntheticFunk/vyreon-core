@@ -12,6 +12,8 @@ metadata:
   name: vyreon-core
   namespace: vyreon
 spec:
+  # one core at a time (C-053): a second pod refuses to serve while this one holds the database's
+  # single-instance lock, so a rollout stops the old pod first
   replicas: 1
   strategy:
     type: Recreate
