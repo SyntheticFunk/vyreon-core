@@ -371,7 +371,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   at phase 1's start) and `vyreon-core:01ca9d7` (deploy after the sample).
 - **Sample: 2026-11-02 and 2026-11-09 published (02:20, 02:38 UTC; 237 and 258 min with the
   window download); 2026-11-03 published 06:08 UTC in 226 min (2,688 exported, 0 failed).** Later
-  days are not much faster than the first: about 3.7 h a day, so the sample ends near 17:00–18:00 UTC.
+  days are not much faster than the first. 11:27 UTC: 6 of 10 published (11-10 252 min, 11-04 282,
+  11-11 272); days are lengthening a little (226 → 282 min), cause not yet looked at; the sample
+  ends near 20:00–21:00 UTC.
 - **02:40 UTC: owner decision: fix round x's other twelve in their simplest form (core #1 2 7 8 9 12
   17 19 in `/home/diggz/wt/core-fix-y`; engine #3 10 14 15 16 in `/home/diggz/wt/fx30`), then NO
   further audit of the operations features.** Reason: three rounds (v, w, x) keep finding the same
