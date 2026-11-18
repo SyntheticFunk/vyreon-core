@@ -378,6 +378,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   major verification."** Both read the sample from core (not day dumps). The step-5 count of
   published and withheld slots is the "coverage count" (not the B0/B1 census, which included
   the reference checks). Then phase 1's first tranche runs with refcheck in the worker, gated.
+  **19:20 UTC: Cboe check PASSES on the 8 published days** (bands committed first, 4cabd03,
+  `tools/external/`; report `~/claude-artifacts/checks/2026-11-18-cboe-sample-8days.json`).
+  Index minus our VS-IVS01 iv30, points (band -1..8), and correlation over the 8 days: VIX/SPY
+  3.3..7.6, 0.998; VXN/QQQ 2.9..6.1, 0.997; RVX/IWM 2.3..4.8, 0.996; OVX/USO 3.8..5.3, 0.997;
+  GVZ/GLD 1.9..3.3 (GVZ moved only 1.8 points, so its correlation, 0.69, is reported, not
+  judged). Widest gap 11-05 (VIX 28.2): the skew premium widens with the level, as expected,
+  but sits near the band's top. EDGAR check being built (declaration committed before comparing).
 - **03:40 UTC: round x's other twelve fixed and merged; no audit (owner).** Core main 58cf628 (#1 the
   archive outcome checks its place; #2 cancelling a repair opens NOT_DERIVED; #7 digest tally in one
   statement; #8 a "not packed" beside KEPT is not listed; #9 a block archives only days it marked
