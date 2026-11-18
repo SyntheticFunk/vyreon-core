@@ -508,7 +508,7 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   exact; earnings 8-Ks missing (AMD 2026-11-03, NVDA 2026-08-26, PLTR 2026-08-03); periodic
   `accepted_at` at midnight UTC for 12 of 17 companies, possible one-session look-ahead for filings
   after 17:30 New York (AMD AMZN AVGO PLTR). All under diagnosis. OCC terms: owner reads in a browser.
-  20:55 UTC: Cboe permission email SENT by the owner (internal validation use of the 14 indices;
+  20:45 UTC: Cboe permission email SENT by the owner (internal validation use of the 14 indices;
   whether the methodology page may name them). Owner reading OCC's terms. DataShop order still
   being prepared by Cboe. Tiingo checks started (FIELD correlation recompute, prices; tolerances
   committed first). Sample ends near 20:00–21:00 UTC.
