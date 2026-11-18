@@ -357,6 +357,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
   label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
   when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
+- **19:10 UTC Nov 18: gap found, owner decision: the reference check runs on the worker, before the
+  raws are deleted.** `refcheck run` recomputes from each day's raw inputs, and workers delete them
+  once the day publishes, so none of the sample's published days can be checked (criterion 4).
+  Owner: raws cannot be stored for all of phase 1, so the worker runs refcheck between publishing
+  and pruning, and the report goes to core. To build before phase 1: refcheck in the worker image
+  (QuantLib 1.43, TA-Lib 0.8.2), its report recorded per session in core, a disagreement as one
+  notice; its time per day measured (it adds node-hours). The sample's criterion 4 (and 7, the
+  image diff) then from one sample day re-run on the new image. The owner's key file
+  `spaces-only-key.txt` is gitignored (the repo is public).
 - **03:40 UTC: round x's other twelve fixed and merged; no audit (owner).** Core main 58cf628 (#1 the
   archive outcome checks its place; #2 cancelling a repair opens NOT_DERIVED; #7 digest tally in one
   statement; #8 a "not packed" beside KEPT is not listed; #9 a block archives only days it marked
