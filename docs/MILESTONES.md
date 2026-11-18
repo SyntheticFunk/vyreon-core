@@ -471,7 +471,22 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   deploy what u need")**: migrations to 0024 by the init container; first without the webhook,
   1 unsent post marked sent, then with it: notices live, 0 posted at switch-on, no open problem;
   digest 🟡 (1 provider gap 11-13). Perishable archive still off (switched on with the first
-  real-day run). Owner setting up Tiingo. Sample ends near 20:00–21:00 UTC.
+  real-day run). Owner setting up Tiingo.
+  **Tiingo Commercial key works** (`tiingo.txt`, gitignored, mode 600; SPY 2025-04-08..10 read).
+  **Coverage misses diagnosed (20:50 UTC; scripts `scratchpad/vol/`):** (1) SOURCE_VOLUME_RECONCILIATION_FAILED
+  is a PROVIDER CHANGE: from 2026-11-06 Intrinio's replay files grew ~2.4x (CTA B 28.8 -> 76 GB)
+  and carry 1-10% fewer trades in every 15-minute bin (TIP 11-12: 9,294 prints vs the trades
+  API's 9,742, which matches official volume to 0.01%); 11-02..05 fail 3-9 of 64, 11-06..13 56-63
+  of 64. The D-089 2% gate is right. Fix (owner's call, series basis): days within the trades
+  API's 7-day reach take their trade stream from the API, the replay stays the quote source; raise
+  the 11-06 change with Intrinio. Phase-1 dates before 11-06 unaffected. (2)
+  EVENT_SOURCE_NOT_RETAINED is the 5-session retention window (`fill::prints_retained`,
+  D-103/D-263): the sample ran 11-18, so only 11-12/13 qualified; the archive is upload-only and
+  not the cause. The droplet holds the cohort prints from 2026-10-23: a read path (D-263, C-052)
+  recovers those days; phase 1 before 10-23 stays withheld for SAI-EXQ01, M0-PRINT-SIZE.
+  **Correction: criterion (2) is NOT clean:** EWJ VS-O02 (open interest) ENGINE_FAULT on 11-02 and
+  11-03, with PARENT_ENGINE_FAULT in VS-O03, O04, OIJ01, SAI-G01 and FIELD-OPTBR01/SUP01 (one
+  object each). To diagnose and fix (C-041). INT-ACT-TV15 0.64 not yet diagnosed. Sample ends near 20:00–21:00 UTC.
 - **02:40 UTC: owner decision: fix round x's other twelve in their simplest form (core #1 2 7 8 9 12
   17 19 in `/home/diggz/wt/core-fix-y`; engine #3 10 14 15 16 in `/home/diggz/wt/fx30`), then NO
   further audit of the operations features.** Reason: three rounds (v, w, x) keep finding the same
