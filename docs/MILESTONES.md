@@ -486,7 +486,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   recovers those days; phase 1 before 10-23 stays withheld for SAI-EXQ01, M0-PRINT-SIZE.
   **Correction: criterion (2) is NOT clean:** EWJ VS-O02 (open interest) ENGINE_FAULT on 11-02 and
   11-03, with PARENT_ENGINE_FAULT in VS-O03, O04, OIJ01, SAI-G01 and FIELD-OPTBR01/SUP01 (one
-  object each). To diagnose and fix (C-041). INT-ACT-TV15 0.64 not yet diagnosed. Sample ends near 20:00–21:00 UTC.
+  object each). **Diagnosed:** two code defects. (A) `h3-o02 history.rs`
+  `select_minimal_source_for_asset` never treats a full 200-session window as exhausted, so EWJ
+  (open interest withheld PROVIDER_OI_INCOMPLETE ~99 sessions Jan-Jun 2026; 95 eligible changes of
+  126) faults instead of publishing; (B) `acq.rs` `before_first_chain` is vacuously true at the
+  window's oldest session, so from 11-04 EWJ got a false CAPTURED_HISTORY_START terminal (O04,
+  OIJ01 state a false history start). Fixing in engine `pass-fx42` (D-364..), surface check of
+  O04, OIJ01, L01. INT-ACT-TV15: structural (a bin pair with zero cohort trades on thin names;
+  common support complete); a clearer reason code would help. Sample ends near 20:00–21:00 UTC.
 - **02:40 UTC: owner decision: fix round x's other twelve in their simplest form (core #1 2 7 8 9 12
   17 19 in `/home/diggz/wt/core-fix-y`; engine #3 10 14 15 16 in `/home/diggz/wt/fx30`), then NO
   further audit of the operations features.** Reason: three rounds (v, w, x) keep finding the same
