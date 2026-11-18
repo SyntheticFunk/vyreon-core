@@ -31,7 +31,9 @@
 //! company`); `tickers`, for each member's asset key every ticker it traded under,
 //! `[{ticker, from, to}]` oldest first, dates inclusive and `to` null while open (a day's history
 //! windows cross ticker changes: Meta is FB to 2022-06-08, META from 2022-06-09); `sources`, each
-//! provider source's first date; `tape_history_from`. A day bundle states the members listed on
+//! provider source's first date; `tape_history_from`; `adjustments` (C-055), for each member with
+//! one its dated OCC contract adjustments, the engine's `VYREON-ADJUSTMENTS@1` `assets`
+//! (`crate::adjustments`), `{}` when none has one. A day bundle states the members listed on
 //! its day (`listed_members`, the asset keys with a ticker in `days`), and core refuses one that
 //! differs from its own (C-036).
 //!
@@ -179,11 +181,14 @@ async fn claim(State(app): Shared, headers: HeaderMap, Json(request): Json<Claim
         })
         .map_err(|e| failed(e.to_string()))?;
     let manifest: Value = serde_json::from_str(&manifest).map_err(|e| failed(e.to_string()))?;
+    // C-055: the OCC adjustment ledger's entries of the same members
+    let members = manifest["tickers"].as_object().into_iter().flat_map(|t| t.keys().map(String::as_str));
+    let adjustments = crate::adjustments::for_members(members).map_err(failed)?;
     ok(json!({
         "job_id": c.job_id, "kind": c.kind, "profile_id": c.profile_id, "engine_build": c.engine_build, "sessions": c.sessions,
         "scope": c.scope.as_deref().map(serde_json::from_str::<Value>).transpose().map_err(|e| failed(e.to_string()))?,
         "attempt": c.attempt, "lease_token": c.token, "expires_at": c.expires_at, "lease_seconds": app.config.lease_seconds,
-        "days": manifest["days"], "sources": manifest["sources"], "tickers": manifest["tickers"],
+        "days": manifest["days"], "sources": manifest["sources"], "tickers": manifest["tickers"], "adjustments": adjustments,
         // E4: where this database's tape history starts (its first scheduled tape session), so
         // every worker of a build reads the same history; null while no tape job is scheduled
         "tape_history_from": manifest["tape_history_from"],
