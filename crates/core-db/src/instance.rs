@@ -13,8 +13,14 @@ const KEY: &str = "vyreon-core serve";
 
 /// Takes the single-instance lock for this session. False: another session holds it. The lock
 /// lasts until this session ends (PostgreSQL releases a session-level advisory lock when its
-/// connection closes).
+/// connection closes). Round x, 5: the server probes this session's connection after 30 s idle,
+/// every 10 s, and ends it after 3 probes unanswered (its `tcp_keepalives_*`, PostgreSQL 16
+/// manual, "Connection Settings"; the system's default waits about two hours), so a core cut off
+/// from the database (a node lost behind a partition) frees the lock within about a minute.
 pub async fn take(c: &impl GenericClient) -> Result<bool, String> {
+    c.batch_execute("SET tcp_keepalives_idle = 30; SET tcp_keepalives_interval = 10; SET tcp_keepalives_count = 3")
+        .await
+        .map_err(|e| e.as_db_error().map_or_else(|| e.to_string(), |d| d.message().to_owned()))?;
     c.query_one("SELECT pg_try_advisory_lock(hashtextextended($1, 0))", &[&KEY])
         .await
         .map(|r| r.get(0))

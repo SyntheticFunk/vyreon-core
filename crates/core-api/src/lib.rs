@@ -20,6 +20,12 @@ use serde_json::json;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
+use std::time::{Duration, Instant};
+
+/// `/live` fails once the watch (every minute) has not started a tick for this long, and
+/// Kubernetes' liveness probe restarts the service, so a frozen core never keeps the
+/// single-instance lock (C-053 amended, audit round x, 5).
+pub const LIVE_WITHIN: Duration = Duration::from_secs(900);
 
 /// The service's settings.
 #[derive(Debug, Clone)]
@@ -45,11 +51,20 @@ pub struct App {
     /// ~0.7 GB here and ~0.6 GB in its database backend), and takes seconds.
     publishing: tokio::sync::Mutex<()>,
     spooled: AtomicU64,
+    /// When the watch last started a tick (the service's start before its first).
+    watched: std::sync::Mutex<Instant>,
 }
 
 impl App {
     pub fn new(pool: Pool, config: Config) -> Arc<App> {
-        Arc::new(App { pool, config, publishing: tokio::sync::Mutex::new(()), spooled: AtomicU64::new(0) })
+        Arc::new(App { pool, config, publishing: tokio::sync::Mutex::new(()), spooled: AtomicU64::new(0), watched: std::sync::Mutex::new(Instant::now()) })
+    }
+
+    /// The watch is starting a tick.
+    pub fn watching(&self, at: Instant) {
+        if let Ok(mut w) = self.watched.lock() {
+            *w = at;
+        }
     }
 
     async fn db(&self) -> Result<Object, ApiError> {
@@ -63,6 +78,7 @@ pub fn router(app: Arc<App>) -> axum::Router {
     axum::Router::new()
         .route("/health", get(|| async { "ok" }))
         .route("/ready", get(ready))
+        .route("/live", get(live))
         .nest("/worker/v1", worker::routes())
         .nest("/v1", reader::routes().layer(tower_http::compression::CompressionLayer::new()))
         .with_state(app)
@@ -72,6 +88,17 @@ async fn ready(axum::extract::State(app): axum::extract::State<Arc<App>>) -> Res
     let client = app.db().await?;
     client.query_one("SELECT 1", &[]).await.map_err(|e| ApiError(StatusCode::SERVICE_UNAVAILABLE, e.to_string()))?;
     Ok("ready")
+}
+
+/// Kubernetes' liveness probe: fails (503) when the watch has not started a tick within
+/// `LIVE_WITHIN`, so a core whose loops stalled is restarted and its lock freed. It reads no
+/// database: a database that is down is `/ready`'s, and a restart would not help it.
+async fn live(axum::extract::State(app): axum::extract::State<Arc<App>>) -> Result<&'static str, ApiError> {
+    let since = app.watched.lock().map_or(Duration::MAX, |w| w.elapsed());
+    if since > LIVE_WITHIN {
+        return Err(ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("the watch has not ticked for {} s", since.as_secs())));
+    }
+    Ok("live")
 }
 
 /// Ends leases that were not renewed, every half minute, so their jobs become claimable (and

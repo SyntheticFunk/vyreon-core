@@ -1,6 +1,8 @@
 //! The worker API, under `/worker/v1`. JSON in and out unless noted.
 //!
-//!   POST /claims                     {kind, engine_build, worker}       -> the claim, or 204 when nothing is claimable
+//!   POST /claims                     {kind, engine_build, worker[, daily]} -> the claim, or 204 when nothing is claimable;
+//!                                                                          `daily: true` (the daily CronJob's worker) claims
+//!                                                                          only a daily run's job (C-051 amended, round x 13)
 //!   POST /lease/heartbeat                                               -> {expires_at, paused}
 //!   POST /lease/finish                                                  -> {job_id}
 //!   POST /lease/fail                 {stage, message, log}              -> {requeued}
@@ -120,6 +122,8 @@ struct ClaimRequest {
     kind: String,
     engine_build: String,
     worker: String,
+    #[serde(default)]
+    daily: bool,
 }
 
 async fn claim(State(app): Shared, headers: HeaderMap, Json(request): Json<ClaimRequest>) -> Reply {
@@ -131,7 +135,7 @@ async fn claim(State(app): Shared, headers: HeaderMap, Json(request): Json<Claim
         return Err(refused("a claim names its worker"));
     }
     let mut client = app.db().await?;
-    let Some(c) = work::claim(&mut client, kind, &request.engine_build, &request.worker, app.config.lease_seconds).await.map_err(failed)? else {
+    let Some(c) = work::claim_as(&mut client, kind, &request.engine_build, &request.worker, app.config.lease_seconds, request.daily).await.map_err(failed)? else {
         return Ok(StatusCode::NO_CONTENT.into_response());
     };
     // the member manifest: for each session, who is listed and under which ticker; and for each

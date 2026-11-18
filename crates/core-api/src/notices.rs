@@ -106,6 +106,8 @@ pub fn spawn_watch(app: Arc<App>, settings: core_db::watch::Settings, every: Dur
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             tick.tick().await;
+            // `/live` (round x, 5): a tick that never ends leaves this time behind
+            app.watching(std::time::Instant::now());
             let Ok(mut client) = app.pool.get().await else {
                 eprintln!("vyreon-core: watch: no database connection");
                 continue;

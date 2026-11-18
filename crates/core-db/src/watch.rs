@@ -219,17 +219,17 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open])
     }
     failed_jobs(c, &mut found).await?;
     provider(c, now, open, &mut found).await?;
-    // C-051: daily runs that cannot be given work are a problem until they can
-    if let Some(d) = &s.daily
-        && let Some(why) = daily::build_stopped(c, d).await?
-    {
-        found.push(Found {
-            kind: "DAILY_STOPPED",
-            key: d.build.clone(),
-            summary: format!("Daily runs stopped: build {} {why}, so no new session is queued", d.build),
-            command: "vyreon-core daily".into(),
-            detail: None,
-        });
+    // C-051: daily runs that cannot be given work are a problem until they can; and (round x, 11)
+    // so is a session due and not queued: the tick queues before it checks, so one is left only
+    // when queueing failed, and no digest of that minute is green
+    if let Some(d) = &s.daily {
+        let why = match daily::build_stopped(c, d).await? {
+            Some(why) => Some(format!("build {} {why}, so no new session is queued", d.build)),
+            None => daily::due(c, d, now).await?.first().map(|oldest| format!("a session due is not queued (the oldest {oldest}): queueing failed, the service's log says why")),
+        };
+        if let Some(why) = why {
+            found.push(Found { kind: "DAILY_STOPPED", key: d.build.clone(), summary: format!("Daily runs stopped: {why}"), command: "vyreon-core daily".into(), detail: None });
+        }
     }
     // C-052: perishable archives missing past the configured age
     if let Some(a) = &s.archive
