@@ -592,7 +592,7 @@ Intrinio snapshot at 15:45 (the listing gives 15:44), so its XLK quotes are NO_S
   not list; 3,106 absent from the snapshot, which D-079 drops) and the ex-date mislabelling; on
   Cboe-listed contracts XLK agrees on 89.1%.
 - Open interest: same-day convention confirmed (SPY/TSLA/UUP 100% same day, 36% shifted).
-  SPY, TSLA, UUP 100% equal (339,784 contracts). ETHA 120 DIFFs, all on 10-07 and 10-08: new
+  SPY, TSLA, UUP 100% equal (338,784 contracts). ETHA 120 DIFFs, all on 10-07 and 10-08: new
   standard-root listings after the reverse split carry OI where OCC has 0 (39 equal to the ETHA1
   twin's OI). XLK 414 DIFFs, 105 on the ex-date. EOD and the 15:45 snapshot carry the same OI as
   the engine's 15:55 snapshot on every compared contract.
