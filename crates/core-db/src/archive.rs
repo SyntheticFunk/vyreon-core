@@ -282,12 +282,13 @@ pub async fn request(client: &mut Client, spaces: &Spaces, token: &str, r: &Requ
 }
 
 /// Refused unless `lease` is a day block's and its job has published `session` (its base, its own
-/// build): a day's perishables are archived (or reported not packed) once it is published.
+/// build): a day's perishables are archived (or reported not packed), and its reference check kept
+/// (C-054), once it is published.
 /// Revisions do not record their job; a day the job published is one it has marked done
 /// (`work::day_done`, which needs the day's base of the job's build published, and which the
 /// worker sends after publishing, before its archive phase): a day before the job's next, never
 /// the next itself (audit round x, 9: a block just leased on a day published by hand before it).
-async fn published_by(tx: &impl GenericClient, lease: &work::Held, session: &str) -> Result<(), LeaseError> {
+pub(crate) async fn published_by(tx: &impl GenericClient, lease: &work::Held, session: &str) -> Result<(), LeaseError> {
     if lease.kind != "DAY_BLOCK" {
         return Err(LeaseError::Refused(format!("job {} is not a day block", lease.job_id)));
     }
@@ -304,7 +305,7 @@ async fn published_by(tx: &impl GenericClient, lease: &work::Held, session: &str
         .map_err(|e| LeaseError::Failed(db(e)))?
         .get(0);
     if !published {
-        return Err(LeaseError::Refused(format!("{session} is not a day job {} has published: a day's perishables are archived once it is published", lease.job_id)));
+        return Err(LeaseError::Refused(format!("{session} is not a day job {} has published: a day's perishables are archived, and its reference check kept, once it is published", lease.job_id)));
     }
     Ok(())
 }

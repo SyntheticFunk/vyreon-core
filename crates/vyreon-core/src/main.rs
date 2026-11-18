@@ -19,6 +19,12 @@
 //!   vyreon-core evidence list [<job>]                 the failure evidence workers left (C-049), newest first
 //!   vyreon-core evidence show <job> [--attempt N]     one attempt's evidence in full (the latest by default):
 //!                                                     its stop message, the input plan's refusals and its log excerpt
+//!   vyreon-core refcheck list [<first> [<last>]]    the reference checks (C-054) of the sessions, newest first: each
+//!                                                     day's outcome, counts and cost; "superseded" when the day has been
+//!                                                     published again since
+//!   vyreon-core refcheck show <date> [--report]       a day's latest check in full: its record, the measurements with a
+//!                                                     failure or a reference error, and each failure class with an example
+//!                                                     (with --report, the suite's report as JSON instead)
 //!   vyreon-core archive list [<date>]                 the perishable archive (C-052): each object requested, kept or
 //!                                                     failed with its endpoint, bucket and key (the newest sessions, or
 //!                                                     one session), each category a worker could not pack, and what is missing
@@ -55,14 +61,17 @@
 //!                                                     the archive is off). VYREON_CORE_ARCHIVE_FROM (the first session whose
 //!                                                     published day must have its archives; unset: the daily runs' first
 //!                                                     session) and VYREON_CORE_ARCHIVE_ALERT_DAYS (a missing archive older
-//!                                                     than this is a problem; unset: only counted in the digest)
+//!                                                     than this is a problem; unset: only counted in the digest).
+//!                                                     The reference check (C-054): VYREON_CORE_REFCHECK_FROM (the first
+//!                                                     session whose published day must have a report; unset: only the
+//!                                                     reports workers send are judged)
 //!   vyreon-core engine-store export <date> <dir>      bundles and inventories of a day from a store in
 //!                                                     the engine's schema (VYREON_ENGINE_PG[_FILE]; read-only)
 //!
 //! The database connection string comes from `VYREON_CORE_PG`, or from the file named by
 //! `VYREON_CORE_PG_FILE`. It is a secret and is never printed.
 mod engine_store;
-use core_db::{archive, build, daily, evidence, migrate, notice, publish, universe, watch, work};
+use core_db::{archive, build, daily, evidence, migrate, notice, publish, refcheck, universe, watch, work};
 use std::path::Path;
 use tokio_postgres::Client;
 use std::process::ExitCode;
@@ -232,7 +241,9 @@ fn watch_settings() -> Result<watch::Settings, String> {
             Some(watch::ArchiveWatch { expected_from, alert_days })
         }
     };
-    Ok(watch::Settings { profile, deadlines_from, volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64), deadline_hour, daily, archive })
+    // C-054: every published day from this session is expected to have its reference check
+    let refcheck_from = date_setting("VYREON_CORE_REFCHECK_FROM")?;
+    Ok(watch::Settings { profile, deadlines_from, volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64), deadline_hour, daily, archive, refcheck_from })
 }
 
 /// The perishable archive's bucket and key (C-052): all five settings or none. The key's files
@@ -535,6 +546,104 @@ async fn evidence_show(job: &str, attempt: Option<&str>) -> Result<(), String> {
     Ok(())
 }
 
+/// One report as `refcheck list` prints it.
+fn refcheck_line(r: &serde_json::Value) -> String {
+    let n = |k: &str| r[k].as_i64().unwrap_or(0);
+    let min = |k: &str| r[k].as_f64().map(|s| format!("{:.0}", s / 60.0));
+    let what = if r["outcome"] == "COMPLETED" {
+        format!(
+            "{} checked, {} failed ({} classes, {} measurements), {} skipped, {} reference errors",
+            n("checked"),
+            n("failed"),
+            n("failure_classes"),
+            n("measurements_failing"),
+            n("skipped"),
+            n("reference_errors")
+        )
+    } else {
+        r["why"].as_str().and_then(|w| w.lines().next()).unwrap_or_default().chars().take(120).collect()
+    };
+    let cost = match (min("suite_seconds"), min("cpu_seconds")) {
+        (Some(w), Some(c)) => format!("suite {w} min, {c} CPU min{}", if r["cpu_complete"] == true { "" } else { " or more" }),
+        (Some(w), None) => format!("suite {w} min"),
+        _ => format!("{} min", min("wall_seconds").unwrap_or_default()),
+    };
+    format!(
+        "{} {:<9} {what} · {cost}, {} jobs · job {} attempt {} by {} · report {} {}{}",
+        r["session"].as_str().unwrap_or_default(),
+        r["outcome"].as_str().unwrap_or_default(),
+        r["jobs"],
+        r["job_id"],
+        r["attempt"],
+        r["worker"].as_str().unwrap_or_default(),
+        r["report_id"],
+        r["stored_at"].as_str().unwrap_or_default(),
+        if r["current"] == true { "" } else { " (superseded)" },
+    )
+}
+
+/// `refcheck list [<first> [<last>]]`: one line per report, newest session first.
+async fn refcheck_list(from: Option<&str>, to: Option<&str>) -> Result<(), String> {
+    for d in [from, to].into_iter().flatten() {
+        if !core_contract::is_date(d) {
+            return Err(format!("{d} is not a date written YYYY-MM-DD"));
+        }
+    }
+    let rows = refcheck::list(&connect().await?, from, to, 500).await?;
+    if rows.is_empty() {
+        println!("no reference check reports");
+    }
+    for r in &rows {
+        println!("{}", refcheck_line(r));
+    }
+    Ok(())
+}
+
+/// `refcheck show <date> [--report]`: the record, the measurements with a failure, and each
+/// failure class with its example and the objects it names (or the report itself).
+async fn refcheck_show(session: &str, whole: bool) -> Result<(), String> {
+    let Some((record, summary, report)) = refcheck::show(&connect().await?, session, None).await? else {
+        return Err(format!("no reference check report for {session}"));
+    };
+    if whole {
+        if report.is_empty() {
+            return Err(format!("the report of {session} holds no report ({})", record["outcome"].as_str().unwrap_or_default()));
+        }
+        println!("{report}");
+        return Ok(());
+    }
+    println!("{}", refcheck_line(&record));
+    println!("{}", serde_json::to_string_pretty(&record).map_err(|e| e.to_string())?);
+    let failing: Vec<String> = summary
+        .as_object()
+        .into_iter()
+        .flatten()
+        .filter(|(_, v)| v["failed"].as_i64().unwrap_or(0) > 0 || v["reference_errors"].as_i64().unwrap_or(0) > 0)
+        .map(|(m, v)| format!("{m}: {} checked, {} failed, {} skipped, {} reference errors", v["checked"], v["failed"], v["skipped"], v["reference_errors"].as_i64().unwrap_or(0)))
+        .collect();
+    println!("== measurements with a failure or a reference error: {}", failing.len());
+    failing.iter().for_each(|l| println!("{l}"));
+    if report.is_empty() {
+        return Ok(());
+    }
+    let report: serde_json::Value = serde_json::from_str(&report).map_err(|e| format!("the stored report: {e}"))?;
+    let classes = report["failure_classes"].as_array().cloned().unwrap_or_default();
+    println!("== failure classes: {}", classes.len());
+    for c in &classes {
+        let objects: Vec<&str> = c["objects"].as_array().into_iter().flatten().filter_map(|o| o.as_str()).collect();
+        let shown = objects.iter().take(20).copied().collect::<Vec<_>>().join(" ");
+        let more = if objects.len() > 20 { format!(" and {} more", objects.len() - 20) } else { String::new() };
+        println!("{} {} [{}]: {} ({shown}{more})", c["measurement_id"].as_str().unwrap_or_default(), c["role_id"].as_str().unwrap_or_default(), c["class"].as_str().unwrap_or_default(), c["count"]);
+        if let Some(alt) = c["matches_alternative"].as_object().filter(|a| !a.is_empty()) {
+            println!("    matches an alternative reading: {}", serde_json::Value::Object(alt.clone()));
+        }
+        if !c["example"].is_null() {
+            println!("    e.g. {}", c["example"]);
+        }
+    }
+    Ok(())
+}
+
 async fn run_migrate() -> Result<(), String> {
     let mut client = connect().await?;
     let set = migrate::embedded().map_err(|e| e.to_string())?;
@@ -582,6 +691,11 @@ async fn main() -> ExitCode {
         ["evidence", "list", job] => evidence_list(Some(job)).await,
         ["evidence", "show", job] => evidence_show(job, None).await,
         ["evidence", "show", job, "--attempt", attempt] => evidence_show(job, Some(attempt)).await,
+        ["refcheck", "list"] => refcheck_list(None, None).await,
+        ["refcheck", "list", from] => refcheck_list(Some(from), None).await,
+        ["refcheck", "list", from, to] => refcheck_list(Some(from), Some(to)).await,
+        ["refcheck", "show", session] => refcheck_show(session, false).await,
+        ["refcheck", "show", session, "--report"] => refcheck_show(session, true).await,
         ["archive", "list"] => archive_list(None).await,
         ["archive", "list", date] => archive_list(Some(date)).await,
         ["problems"] => problems().await,
@@ -628,6 +742,32 @@ mod tests {
         assert_eq!(
             archive_line(&row),
             "2025-12-10 act01-auto   4242 bytes https://nyc3.digitaloceanspaces.com/vyreon-data/perishables/act01-auto/2025-12-10/4ef2e745.tar.zst job 7 by w1: KEPT 2025-12-11T13:06:00Z"
+        );
+    }
+
+    /// C-054: a report's line says the day, outcome, counts, cost and who sent it, and whether the
+    /// day has been published again since (counts of the real B0-census report of 2025-12-16).
+    #[test]
+    fn a_refcheck_line_counts_and_costs_the_day() {
+        let row = serde_json::json!({
+            "report_id": 3, "session": "2025-12-16", "outcome": "COMPLETED", "why": null, "checked": 91066, "passed": 87108, "failed": 3958,
+            "skipped": 3751, "reference_errors": 0, "failure_classes": 384, "measurements_failing": 41, "wall_seconds": 2460.0,
+            "suite_seconds": 2400.0, "cpu_seconds": 16800.0, "cpu_complete": true, "jobs": 8, "deadline_seconds": 7200, "job_id": 7,
+            "attempt": 1, "worker": "w1", "engine_build": "9bc02f2d+90a50956a51d", "base_revision": 17, "report_bytes": 520916,
+            "report_trimmed": null, "stored_at": "2026-11-19T03:00:00Z", "current": false,
+        });
+        assert_eq!(
+            super::refcheck_line(&row),
+            "2025-12-16 COMPLETED 91066 checked, 3958 failed (384 classes, 41 measurements), 3751 skipped, 0 reference errors · suite 40 min, 280 CPU min, 8 jobs · job 7 attempt 1 by w1 · report 3 2026-11-19T03:00:00Z (superseded)"
+        );
+        let timeout = serde_json::json!({
+            "report_id": 4, "session": "2025-12-17", "outcome": "TIMEOUT", "why": "not done in 120 min: its process group was killed; its log ends:\nstarted",
+            "wall_seconds": 7203.0, "suite_seconds": 7200.0, "cpu_seconds": null, "cpu_complete": false, "jobs": 8, "job_id": 7, "attempt": 1,
+            "worker": "w1", "stored_at": "2026-11-19T05:00:00Z", "current": true,
+        });
+        assert_eq!(
+            super::refcheck_line(&timeout),
+            "2025-12-17 TIMEOUT   not done in 120 min: its process group was killed; its log ends: · suite 120 min, 8 jobs · job 7 attempt 1 by w1 · report 4 2026-11-19T05:00:00Z"
         );
     }
 
