@@ -182,8 +182,11 @@ Pass = no value or history FAIL and no LOOKAHEAD. Seen: the research pilot compa
 ## EDGAR filing times for CDD-EVENTS01 (`edgar.py events`)
 
 From the submissions files `edgar.py fetch` already caches (`events.sql` gives the bodies).
-EDGAR's `acceptanceDateTime` is written with a `Z` but is Eastern time (the filing index shows the
-same clock time as "Accepted"); it is read in America/New_York and converted to UTC. T's close is
+EDGAR's `acceptanceDateTime` is UTC, as its `Z` says. (Corrected 2026-11-18 before any comparison:
+the first declaration said it was Eastern time written with a `Z`. Evidence, outside the compared
+window: Apple's item-2.02 8-Ks of 2023-2024, all released at 16:30 New York, read 20:30Z under
+daylight time and 21:30Z under standard time, and a Form 4 accepted 2015-10-08T01:43Z carries
+filing date 2015-10-07, i.e. 21:43 New York before the 22:00 Section 16 cut-off.) T's close is
 16:00 New York.
 
 1. `sec_filing.earnings_release_8k_at` and every cell of its `.history`: equal, to the second, to
@@ -199,7 +202,7 @@ same clock time as "Accepted"); it is read in America/New_York and converted to 
    provider did not state, published as one). Clock against the latest original 10-K, 10-Q, 20-F
    or 40-F accepted by T's close: MATCH, LAG (listed), LOOKAHEAD (failed).
 3. A withheld coordinate or history is NOT_COMPARABLE with its reason. A match that holds only
-   when `acceptanceDateTime` is read as UTC is FAIL (`ZONE`).
+   when `acceptanceDateTime` is read as New York time is FAIL (`ZONE`).
 
 Not compared: expected earnings (a provider forecast, stated as such), dividends and splits
 (Tiingo, not bought), insider filings (their selection rule differs from EDGAR's listing).
