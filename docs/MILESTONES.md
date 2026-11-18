@@ -539,6 +539,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (D-370: worker runs refcheck after archive, before prune; 120-min bound; venv QuantLib 1.43,
   TA-Lib 0.8.2 pinned, build fails on mismatch) merges with the other engine branches. Set
   `VYREON_CORE_REFCHECK_FROM` to phase 1's first session. Never yet run on a real day.
+  Owner on its cost: if the real day shows it is large, the fallback is the full check daily on
+  the most volatile families and the whole suite weekly ("quite practical"); scaling out with more
+  nodes is also acceptable.
   **Owner (21:10 UTC): after the new image's real day and BEFORE phase 1: hand off to a fresh
   session (this one is 3 days old), with all documentation updated, and remind the owner to fill
   in the time sheet and engineering log.** Reporter is its own side quest, started during phase 1's
