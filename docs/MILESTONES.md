@@ -542,6 +542,17 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   Owner on its cost: if the real day shows it is large, the fallback is the full check daily on
   the most volatile families and the whole suite weekly ("quite practical"); scaling out with more
   nodes is also acceptable.
+  **DataShop check (rules 39208e3 first; tool f6fd4da; reports `checks/2026-11-18-datashop-*.json`)
+  FAILS on quotes, volume and open interest; faults cluster on corporate actions:** open interest
+  100% on SPY/TSLA/UUP (338,784 contracts), same-day dating confirmed; quotes at 15:45 equal on
+  quiet contracts except ~0.3% stale far-OTM; volume 96.8-99.4% of traded contracts (Intrinio drops
+  prints; daily totals 0.1-1% low, worst -3.4%). **XLK split day 2025-12-05: the snapshot labels new
+  contracts at half their strike (0 of 196 agree)**; leftover pre-split contracts inflate EOD volume
+  14.8%; ETHA's new contracts carry copied open interest after the reverse split. Registered as
+  P-11..P-15 in `docs/PROVIDER_FAULTS.md`. Engine fix needed before phase 1 reaches 2025-12-05:
+  quotes that violate no-arbitrage bounds for their stated strike are rejected (a general rule,
+  not a date rule), plus the post-split OI and leftover-contract handling. Not tested: busy
+  contracts' quotes (they moved after 15:45).
   **Owner (21:10 UTC): after the new image's real day and BEFORE phase 1: hand off to a fresh
   session (this one is 3 days old), with all documentation updated, and remind the owner to fill
   in the time sheet and engineering log.** Reporter is its own side quest, started during phase 1's
