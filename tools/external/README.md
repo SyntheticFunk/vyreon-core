@@ -461,8 +461,9 @@ NOT_COMPARABLE.** FIELD: 165,030 comparisons over 88 quantities; SYNC01 W21/W63 
 8.5e-4 (HYG.XHB), SUB01 overlaps within 3e-6. Prices: 86,656 comparisons over 108 quantities;
 Intrinio's raw closes equal Tiingo's exactly on all 4,608 security-sessions compared (the 63
 sessions before each T); the largest return difference is 2.7e-5 (TSM 2026-09-16, a dividend
-ex-date: the two vendors' dividend factors). Older differences (a 52-week high 0.09 off for XHB,
-`beta_1y` 0.0018 for XHB) come from bars before the compared close history, inside the bands. Two
+ex-date: the two vendors' dividend factors). The largest older differences (XHB: 52-week high
+0.09 off, `return_1y` 7.6e-4, `beta_1y` 0.0018) match Tiingo stating XHB's 0.076 dividend twice
+(ex 2026-03-23 and 03-26; 0.076 / 99 = 0.077%), most likely Tiingo's duplicate; inside the bands. Two
 tool faults were fixed after the first run, neither a band: the port lacked the engine's SPY
 self-pair (`spy_pairs_of`: SPY's one-year correlation is 1 over the window), and a 2e-16
 cross-body difference was filed as a failure where the rule says listed. The two vendors agree
