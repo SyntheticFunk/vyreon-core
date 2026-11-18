@@ -553,6 +553,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   quotes that violate no-arbitrage bounds for their stated strike are rejected (a general rule,
   not a date rule), plus the post-split OI and leftover-contract handling. Not tested: busy
   contracts' quotes (they moved after 15:45).
+  **DataShop order backed up to Spaces (owner):** `vyreon-data/reference/cboe-datashop/order_000107661/`,
+  66 objects (65 zips + SHA256SUMS, each with x-amz-meta-sha256), private (anonymous read 403),
+  read-back identical. Laptop copy kept. Owner: a field job may deploy 2026-11-21 (tentative).
   **Owner (21:10 UTC): after the new image's real day and BEFORE phase 1: hand off to a fresh
   session (this one is 3 days old), with all documentation updated, and remind the owner to fill
   in the time sheet and engineering log.** Reporter is its own side quest, started during phase 1's
