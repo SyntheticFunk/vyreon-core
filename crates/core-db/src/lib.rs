@@ -11,6 +11,7 @@ pub mod instance;
 pub mod migrate;
 pub mod notice;
 pub mod publish;
+pub mod refcheck;
 pub mod tape;
 pub mod universe;
 pub mod watch;

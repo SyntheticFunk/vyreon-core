@@ -199,7 +199,42 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
     let fetched = as_key(&owner, &format!("2025-12-03/macro/{}", test_support::MACRO_CAPTURE_IDENTITY)).await.unwrap().bytes().await.unwrap();
     assert_eq!(fetched.as_ref(), test_support::MACRO_CAPTURE);
     assert_eq!(as_key(&owner, &format!("2025-12-04/macro/{}", test_support::MACRO_CAPTURE_IDENTITY)).await.unwrap().status(), StatusCode::NOT_FOUND);
+    // C-054: before its day's check is kept, the day must be done; then the worker's document
+    // (the real B0-census report as this day's) is kept once; a document carrying a credential,
+    // or one sent for another day, is refused
+    let refcheck = |session: &str, body: Vec<u8>| s.http.put(format!("{}/worker/v1/refcheck/{session}", s.url)).bearer_auth(token).body(body).send();
+    let report = {
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut flate2::read::GzDecoder::new(test_support::REFCHECK_REPORT_2025_12_16), &mut text).unwrap();
+        text
+    };
+    let check_document = |report: &str| {
+        let r: Value = serde_json::from_str(report).unwrap();
+        let summary = r["summary"].as_object().unwrap();
+        let sum = |k: &str| summary.values().map(|m| m[k].as_i64().unwrap_or(0)).sum::<i64>();
+        let account = json!({
+            "schema": "VYREON-REFCHECK@1", "session": "2025-12-10", "outcome": "COMPLETED", "why": null, "wall_seconds": 2460.0,
+            "suite_seconds": 2400.0, "cpu_seconds": 16800.0, "cpu_complete": true, "jobs": 8, "deadline_seconds": 7200,
+            "counts": {"checked": sum("checked"), "passed": sum("passed"), "failed": sum("failed"), "skipped": sum("skipped"),
+                       "reference_errors": sum("reference_errors"), "failure_classes": r["failure_classes"].as_array().unwrap().len(),
+                       "measurements_failing": summary.values().filter(|m| m["failed"].as_i64().unwrap_or(0) > 0).count()},
+            "summary": r["summary"],
+        });
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        std::io::Write::write_all(&mut gz, format!("{account}\n{report}").as_bytes()).unwrap();
+        gz.finish().unwrap()
+    };
+    let early = refcheck("2025-12-10", check_document(&report)).await.unwrap();
+    assert_eq!(early.status(), StatusCode::UNPROCESSABLE_ENTITY, "not done yet");
     assert_eq!(s.post("/days/2025-12-10/done", token, json!({})).await.0, StatusCode::OK);
+    let kept: Value = refcheck("2025-12-10", check_document(&report)).await.unwrap().json().await.unwrap();
+    assert_eq!(kept["new"], true, "{kept}");
+    let again: Value = refcheck("2025-12-10", check_document(&report)).await.unwrap().json().await.unwrap();
+    assert_eq!((again["new"].clone(), again["report_id"].clone()), (json!(false), kept["report_id"].clone()));
+    let leaked = report.replacen("\"dump\": \"", "\"dump\": \"https://api-v2.intrinio.com/x?api_key=OmRlYWRiZWVm ", 1);
+    assert_eq!(refcheck("2025-12-10", check_document(&leaked)).await.unwrap().status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(refcheck("2025-12-09", check_document(&report)).await.unwrap().status(), StatusCode::UNPROCESSABLE_ENTITY, "the account is of another day");
+    assert_eq!(refcheck("yesterday", check_document(&report)).await.unwrap().status(), StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(s.post("/lease/finish", token, json!({})).await.0, StatusCode::OK);
 
     // the ordered pass: the day's history sensors, on the base it read

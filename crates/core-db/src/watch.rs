@@ -20,7 +20,7 @@
 //! one more function returning `Found` rows into `current`, with its kind added to
 //! `core.problem`'s check; nothing else changes.
 use crate::daily::{self, Daily};
-use crate::{archive, evidence, notice};
+use crate::{archive, evidence, notice, refcheck};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use tokio_postgres::{Client, GenericClient};
@@ -77,6 +77,9 @@ pub struct Settings {
     pub daily: Option<Daily>,
     /// The perishable archive (C-052); None: it is off and not watched.
     pub archive: Option<ArchiveWatch>,
+    /// C-054: from this session every published day is expected to have a reference-check report
+    /// (`VYREON_CORE_REFCHECK_FROM`); None: only the reports workers send are judged.
+    pub refcheck_from: Option<String>,
 }
 
 /// What the watch checks of the perishable archive (C-052).
@@ -252,6 +255,15 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open])
                 detail: None,
             });
         }
+    }
+    // C-054: a published day whose reference check disagrees, and one whose check did not run, are
+    // two problems, each one alert however many days it holds
+    let checks = refcheck::state(c, &s.profile, s.refcheck_from.as_deref(), now).await?;
+    if let Some(summary) = checks.disagree_summary() {
+        found.push(Found { kind: "REFCHECK_DISAGREES", key: "refcheck".into(), summary, command: "vyreon-core refcheck list".into(), detail: None });
+    }
+    if let Some(summary) = checks.not_run_summary() {
+        found.push(Found { kind: "REFCHECK_NOT_RUN", key: "refcheck".into(), summary, command: "vyreon-core refcheck list".into(), detail: None });
     }
     if let Some(volume) = s.volume_bytes.filter(|v| *v > 0) {
         let size: i64 = c.query_one("SELECT pg_database_size(current_database())", &[]).await.map_err(db)?.get(0);
@@ -888,6 +900,9 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
             None => "Perishable archive: nothing missing".into(),
             Some(m) => format!("Perishable archive: {} missing (the oldest {} {}, {})", missing.len(), m.session, m.category, age(m.age)),
         });
+    }
+    if let Some(line) = refcheck::digest_line(c, now, s.refcheck_from.is_some()).await? {
+        lines.push(line);
     }
     if s.daily.is_some() {
         lines.push(daily::digest_line(c, s.daily.as_ref(), now, ZONE).await?);

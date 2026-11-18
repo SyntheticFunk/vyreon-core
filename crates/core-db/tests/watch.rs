@@ -36,7 +36,7 @@ async fn ready(test: &str) -> (Scratch, Client, String) {
 
 fn settings(from: Option<&str>) -> Settings {
     // the deadline hour of C-050 (10:00 MT): the mechanism is the same at any hour
-    Settings { profile: PROFILE.into(), deadlines_from: from.map(str::to_owned), volume_bytes: None, deadline_hour: 10, daily: None, archive: None }
+    Settings { profile: PROFILE.into(), deadlines_from: from.map(str::to_owned), volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None }
 }
 
 /// The slice's base revision header (2025-12-10) as the published revision of `day`, written as

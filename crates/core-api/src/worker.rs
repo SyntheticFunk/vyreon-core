@@ -7,6 +7,7 @@
 //!   POST /lease/finish                                                  -> {job_id}
 //!   POST /lease/fail                 {stage, message, log}              -> {requeued}
 //!   PUT  /evidence                   body: the attempt's failure evidence (application/gzip) -> {new} (C-049)
+//!   PUT  /refcheck/{session}         body: the day's reference-check document (application/gzip) -> {new, report_id} (C-054)
 //!   POST /days                       body: a day bundle                 -> what was published
 //!   PUT  /tape-caches/{session}/{asset}?method_version=V[&absence=WHY]  body: the packed cache -> {new}
 //!   POST /tape-caches/{session}/done[?method_version=V]                 the tape job's session is complete (under V; without
@@ -50,6 +51,15 @@
 //! `core_db::evidence::MAX_DOCUMENT_BYTES` (413 above); a document in which a credential pattern
 //! survives is refused (422) and nothing is stored.
 //!
+//! A reference check (C-054) is what the worker found when it recomputed a day its job published
+//! with the reference suite, before deleting the day's raw inputs: a gzip of one JSON line (`schema`
+//! `VYREON-REFCHECK@1`, `session`, `outcome` COMPLETED | TIMEOUT | CRASHED | NOT_RUN, `why`, times,
+//! `counts`, `summary`) and the suite's report as JSON after it (a completed check's; the account
+//! alone otherwise), credentials removed by the worker. Sent under the live lease of the day block
+//! that published the session (its base, its build), once per lease and session: the same again is
+//! answered `new: false` with the first's id. At most `core_db::refcheck::MAX_DOCUMENT_BYTES` (413
+//! above); a document in which a credential pattern survives is refused (422) and nothing is stored.
+//!
 //! A perishable archive (C-052) is one category of a day the job published (`core_db::archive::
 //! CATEGORIES`), packed by the worker. Core decides the object's key and answers with a pre-signed
 //! PUT URL valid for minutes, which signs the archive's length, its `Content-MD5` and its
@@ -75,6 +85,7 @@ use core_db::evidence;
 use core_db::tape::{self, Cache};
 use core_db::work::{self, Held, Kind};
 use core_db::publish;
+use core_db::refcheck;
 use futures_util::StreamExt;
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -93,6 +104,7 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/lease/finish", post(finish))
         .route("/lease/fail", post(fail))
         .route("/evidence", put(evidence_put))
+        .route("/refcheck/{session}", put(refcheck_put))
         .route("/days", post(publish_day))
         .route("/days/{session}/done", post(day_done))
         .route("/tape-caches/{session}", get(tape_get))
@@ -359,6 +371,19 @@ async fn evidence_put(State(app): Shared, headers: HeaderMap, body: Body) -> Rep
     let checked = tokio::task::spawn_blocking(move || evidence::check(document)).await.map_err(|e| failed(e.to_string()))?.map_err(refused)?;
     let mut client = app.db().await?;
     ok(json!({"new": evidence::put(&mut client, &token, &checked).await?}))
+}
+
+async fn refcheck_put(State(app): Shared, headers: HeaderMap, Path(session): Path<String>, body: Body) -> Reply {
+    let token = bearer(&headers)?.to_owned();
+    if !core_contract::is_date(&session) {
+        return Err(refused(format!("{session} is not a date written YYYY-MM-DD")));
+    }
+    let document = read_limited(body, refcheck::MAX_DOCUMENT_BYTES, "a reference check's document").await?;
+    // read to its end and its report parsed to check it (tens of MB unpacked): off the async threads
+    let checked = tokio::task::spawn_blocking(move || refcheck::check(document, &session)).await.map_err(|e| failed(e.to_string()))?.map_err(refused)?;
+    let mut client = app.db().await?;
+    let (new, id) = refcheck::put(&mut client, &token, &checked).await?;
+    ok(json!({"new": new, "report_id": id}))
 }
 
 #[derive(Deserialize)]

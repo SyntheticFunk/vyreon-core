@@ -1193,3 +1193,56 @@ the first session ends).
   since it was read") and the row stays as the newer request left it. No fencing token: the
   place is the evidence. Ordinary day: unchanged. Test:
   `core-db/tests/perishable_archive.rs::an_outcome_read_in_the_old_place_is_not_recorded_on_an_archive_moved_since`.
+
+## C-054 Every published day's reference check is kept per lease and session; a disagreement or a check not run is a problem, never an unpublished day (owner decision, 2026-11-18; engine D-370)
+The owner (2026-11-18): the reference suite (`refcheck`: QuantLib, TA-Lib) recomputes each day from
+its raw inputs, which workers delete once the day publishes, so it runs on the worker between
+publishing and pruning and the report goes to core; the added node-hours are accepted. Phase 1's
+tranche gate (a) is "refcheck in the worker on every day" (MILESTONES, 19:31 UTC). Engine D-370 is the
+worker's side. Migration 0025; `crates/core-db/src/refcheck.rs`.
+- **The path:** the failure evidence's (C-049): one gzip document, its first line the account
+  (`VYREON-REFCHECK@1`: outcome COMPLETED | TIMEOUT | CRASHED | NOT_RUN, the reason when it did not
+  complete, wall, suite and CPU seconds, jobs, deadline, the counts summed over the report's
+  measurements, the per-measurement summary, the suite's versions), the suite's report as JSON after
+  it. The worker redacts; core refuses a document in which a credential pattern survives
+  (`evidence::unredacted`), and the worker then sends the account alone. Not the evidence table
+  itself: that is one per lease and for failures; a check is one per day and mostly a success.
+- **Kept:** `core.refcheck_report`, one row per (lease, session) (`PUT /worker/v1/refcheck/<T>`,
+  under the live lease of the day block whose job published T and marked it done:
+  `archive::published_by`, the archive's rule), with the job, attempt, worker, build and the day's
+  published base revision of that build at that moment (what was checked); the counts, times and
+  summary as columns (queryable); the document as sent (compressed; a real day's report is about
+  42 MB of JSON, 3.5 MB gzipped; at most 32 MiB sent, 256 MiB unpacked). The same lease and day again
+  is answered `new: false` with the first's id. A report outlives its revision (`ON DELETE SET
+  NULL`); it is "current" while that revision is still the day's published base.
+- **Never the day's outcome:** a disagreement does not withhold or unpublish anything; the day stays
+  as published, and the problem says go look (C-050).
+- **Problems (C-050: one alert when it opens, one "Resolved", counts never lists):** judged on each
+  published day's latest current report.
+  - `REFCHECK_DISAGREES` (key `refcheck`): while any such report completed with a failed comparison.
+    "Reference check disagrees with N published days: F comparisons failed, the oldest D." It
+    resolves when every such day's latest report agrees, which takes a recomputation (a fix, then the
+    affected days published again and checked); bands are not moved after the fact.
+  - `REFCHECK_NOT_RUN` (key `refcheck`), distinct: a latest report that TIMEOUT, CRASHED, NOT_RUN or
+    completed with reference errors (the suite's own failure on a measurement), and, from
+    `VYREON_CORE_REFCHECK_FROM` (a session; unset: not judged), a published base revision with no
+    report `GRACE_HOURS` (4) after it was published (the worker's 2 h deadline after the archive
+    phase, with room). "Reference check did not run on N published days (1 timed out, 2 with no
+    report), the oldest D."
+  - Both point to `vyreon-core refcheck list`; `vyreon-core refcheck show <date>` gives the day's
+    record, the measurements with a failure and each failure class with its example and the objects
+    it names (the tickers stay behind the command); `--report` prints the report.
+- **Digest:** "Reference checks in the last 24 hours: N (a agree, d disagree, n did not run) · typical
+  W min, C CPU min per day" (medians), shown when any check came in or a report is expected; the
+  owner's cost number per phase-1 day.
+- **Not judged here:** the history-derived profile (the ordered pass's twelve measurements) is left
+  out on the worker (D-370); its check needs the built store's histories (MILESTONES step 5).
+- **Deploy:** migration 0025 with the next core image; set `VYREON_CORE_REFCHECK_FROM` to phase 1's
+  first session when its tranche is scheduled (unset, only reports workers send are judged).
+- Tests: `core-db/tests/refcheck.rs` (a real report, the B0 census's of 2025-12-16, as the document:
+  checked, every malformed account refused, a credential in the report refused; on the real slice of
+  2025-12-10 published by a block: refused before the day is done, kept once, bound to the base,
+  listed and shown; the day with no report opens REFCHECK_NOT_RUN past the grace, the report resolves
+  it and opens REFCHECK_DISAGREES once, alerted once, counted in the digest; the day published again
+  resolves it); `core-api/tests/worker_api.rs` (the same over HTTP: before done 422, kept, again,
+  a credential 422, another day's account 422); `refcheck::tests` (the summaries count, never list).
