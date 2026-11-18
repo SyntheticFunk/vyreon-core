@@ -76,16 +76,16 @@ spec:
             # have its archives (default: VYREON_CORE_DAILY_FROM); VYREON_CORE_ARCHIVE_ALERT_DAYS:
             # a missing archive older than this is a problem on the channel (unset: only counted
             # in the digest; the provider keeps the prints about five sessions).
-            # - name: VYREON_CORE_SPACES_ENDPOINT
-            #   value: "https://nyc3.digitaloceanspaces.com"
-            # - name: VYREON_CORE_SPACES_REGION
-            #   value: "nyc3"
-            # - name: VYREON_CORE_SPACES_BUCKET
-            #   value: "vyreon-data"
-            # - name: VYREON_CORE_SPACES_KEY_ID_FILE
-            #   value: /etc/vyreon-core/spaces/key-id
-            # - name: VYREON_CORE_SPACES_SECRET_FILE
-            #   value: /etc/vyreon-core/spaces/secret
+            - name: VYREON_CORE_SPACES_ENDPOINT
+              value: "https://nyc3.digitaloceanspaces.com"
+            - name: VYREON_CORE_SPACES_REGION
+              value: "nyc3"
+            - name: VYREON_CORE_SPACES_BUCKET
+              value: "vyreon-data"
+            - name: VYREON_CORE_SPACES_KEY_ID_FILE
+              value: /etc/vyreon-core/spaces/key-id
+            - name: VYREON_CORE_SPACES_SECRET_FILE
+              value: /etc/vyreon-core/spaces/secret
             # - name: VYREON_CORE_ARCHIVE_ALERT_DAYS
             #   value: "2"
           ports:
