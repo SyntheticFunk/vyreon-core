@@ -473,7 +473,7 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   digest 🟡 (1 provider gap 11-13). Perishable archive still off (switched on with the first
   real-day run). Owner setting up Tiingo.
   **Tiingo Commercial key works** (`tiingo.txt`, gitignored, mode 600; SPY 2025-04-08..10 read).
-  **Coverage misses diagnosed (20:50 UTC; scripts `scratchpad/vol/`):** (1) SOURCE_VOLUME_RECONCILIATION_FAILED
+  **Coverage misses diagnosed (20:15 UTC; scripts `scratchpad/vol/`):** (1) SOURCE_VOLUME_RECONCILIATION_FAILED
   is a PROVIDER CHANGE: from 2026-11-06 Intrinio's replay files grew ~2.4x (CTA B 28.8 -> 76 GB)
   and carry 1-10% fewer trades in every 15-minute bin (TIP 11-12: 9,294 prints vs the trades
   API's 9,742, which matches official volume to 0.01%); 11-02..05 fail 3-9 of 64, 11-06..13 56-63
