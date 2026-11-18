@@ -1,0 +1,66 @@
+{
+ "schema": "VYREON-ADJUSTMENTS@1",
+ "assets": {
+  "AMZN": [
+   {"ex_date": "2022-06-06", "kind": "split", "ratio": 0.05, "evidence": "OCC Information Memo #50496 (https://infomemo.theocc.com/infomemos?number=50496), dated 2022-05-26: Amazon.com, Inc. - 20 For 1 Stock Split; 20-for-1 effective 2022-06-06; AMZN/1AMZN/2AMZN remain; deliverable 100 shares. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/AMZN_split__50496.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2022-06-06: split_ratio 0.05."}
+  ],
+  "AVGO": [
+   {"ex_date": "2024-07-15", "kind": "split", "ratio": 0.1, "evidence": "OCC Information Memo #54716 (https://infomemo.theocc.com/infomemos?number=54716): Broadcom Inc. - 10 For 1 Stock Split; 10-for-1 effective 2024-07-15; AVGO/2AVGO remain; deliverable 100 shares. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/AVGO_Split_54716.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2024-07-15: split_ratio 0.1."}
+  ],
+  "BABA": [
+   {"ex_date": "2024-06-13", "kind": "other", "root": "BABA1", "evidence": "OCC Information Memo #54634 (https://infomemo.theocc.com/infomemos?number=54634), dated 2024-05-24: Alibaba Group Holding Limited - Cash Distribution; special cash dividend approximately $0.66 per ADS; effective 2024-06-13 BABA changes to BABA1 (2BABA to 2BABA1), strikes unchanged, deliverable 100 ADS + approximately $66.00 cash. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/BABA_Dividend_54634.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2024-06-13: split_ratio 1.0, dividend record(s) 0.66 and 1."},
+   {"ex_date": "2025-06-12", "kind": "other", "root": "BABA2", "evidence": "OCC Information Memo #56574 (https://infomemo.theocc.com/infomemos?number=56574), dated 2025-05-19: Alibaba Group Holding Limited - Cash Distribution; special cash dividend approximately $0.95 per ADS; effective 2025-06-12 BABA changes to BABA2 (1BABA to 1BABA2, 2BABA to 2BABA2), strikes unchanged, deliverable 100 ADS + approximately $95.00 cash. The existing BABA1 series were re-adjusted in place (engine D-170 cites OCC #56575, final #56857; not re-read here): no position moves to another root, so they are no entry. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/BABA_Dividend__56574.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2025-06-12: split_ratio 1.0, dividend record(s) 1.05 and 0.95."}
+  ],
+  "EMB": [
+   {"ex_date": "2024-12-30", "kind": "other", "strike_offset": 0.25, "evidence": "OCC Information Memo #55816 (https://infomemo.theocc.com/infomemos?number=55816), dated 2024-12-27: iShares J.P. Morgan USD Emerging Markets Bond ETF - Cash Distribution; special cash dividend $0.254515; effective 2024-12-30 strikes reduced by 0.254515 rounded to the nearest penny (40.00 to 39.75); EMB remains EMB; the offset is the reduction in cents of every strike, the distribution rounded to the nearest penny (0.25). Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/EMB_distribution_55816.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2024-12-30: split_ratio 1.0, dividend record(s) 0.2545."}
+  ],
+  "ETHA": [
+   {"ex_date": "2026-10-06", "kind": "other", "root": "ETHA1", "evidence": "OCC Information Memo #59890 (https://infomemo.theocc.com/infomemos?number=59890), dated 2026-10-05: iShares Ethereum Trust ETF - Reverse Split; 1-for-3 reverse split effective 2026-10-06; ETHA changes to ETHA1 (2ETHA to 2ETHA1, 4ETHA to 4ETHA1); deliverable 33 (new) ETHA shares + cash in lieu of about 0.3333 share; strike divisor 1. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/ETHA_Reverse_Split_59890.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2026-10-06: split_ratio 3.0."}
+  ],
+  "EWJ": [
+   {"ex_date": "2025-12-16", "kind": "other", "strike_offset": 0.16, "evidence": "OCC Information Memo #57919 (https://infomemo.theocc.com/infomemos?number=57919), dated 2025-12-15: iShares MSCI Japan ETF - Cash Distribution; special cash dividend $0.157024; effective 2025-12-16 strikes reduced by 0.157024 rounded to the nearest penny (35.00 to 34.84); EWJ/2EWJ remain; the offset is the reduction in cents of every strike, the distribution rounded to the nearest penny (0.16). Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/EWJ_Capital_Gains_57919.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2025-12-16: split_ratio 1.0, dividend record(s) 3.0614."}
+  ],
+  "FXI": [
+   {"ex_date": "2023-06-08", "kind": "other", "strike_offset": 0.15, "evidence": "OCC Information Memo #52545 (https://infomemo.theocc.com/infomemos?number=52545), dated 2023-06-07: iShares China Large-Cap ETF - Cash Distribution; special cash dividend $0.148983, ex-date 2023-06-07; on 2023-06-07 strikes unchanged and the deliverable 100 shares + $14.90 for one day; effective 2023-06-08 strikes reduced by 0.148983 rounded to the nearest penny (10.00 to 9.85); FXI remains FXI. The ledger dates the strike reduction (2023-06-08), the session the old strikes stop being listed; the offset is the reduction in cents of every strike, the distribution rounded to the nearest penny (0.15). Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/FXI_distribution_52545.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2023-06-07: split_ratio 1.0, dividend record(s) 0.1544."}
+  ],
+  "GOOGL": [
+   {"ex_date": "2022-07-18", "kind": "split", "ratio": 0.05, "evidence": "OCC Information Memo #50542 (https://infomemo.theocc.com/infomemos?number=50542), dated 2022-06-06: Alphabet Inc. Class A - 20 For 1 Stock Split; 20-for-1 effective 2022-07-18; GOOGL/2GOOGL remain; deliverable 100 Class A shares. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/GOOGL_Split__50542.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2022-07-18: split_ratio 0.05."}
+  ],
+  "MSTR": [
+   {"ex_date": "2024-08-08", "kind": "split", "ratio": 0.1, "evidence": "OCC Information Memo #54883 (https://infomemo.theocc.com/infomemos?number=54883), dated 2024-07-18: MicroStrategy Incorporated - 10 For 1 Stock Split; 10-for-1 effective 2024-08-08; MSTR/1MSTR/2MSTR remain; deliverable 100 Class A shares. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/MSTR_Split_54883.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2024-08-08: split_ratio 0.1."}
+  ],
+  "NVDA": [
+   {"ex_date": "2024-06-10", "kind": "split", "ratio": 0.1, "evidence": "OCC Information Memo #54623 (https://infomemo.theocc.com/infomemos?number=54623), dated 2024-05-23: NVIDIA Corporation - 10 For 1 Stock Split; 10-for-1 effective 2024-06-10; NVDA/1NVDA/2NVDA remain; deliverable 100 shares. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/NVDA_Split_54623.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2024-06-10: split_ratio 0.1."}
+  ],
+  "QQQ": [
+   {"ex_date": "2023-12-27", "kind": "other", "strike_offset": 0.22, "evidence": "OCC Information Memo #53847 (https://infomemo.theocc.com/infomemos?number=53847), dated 2023-12-26: Invesco QQQ Trust, Series 1 - Cash Distribution; special cash dividend $0.21584; effective 2023-12-27 strikes reduced by 0.21584 rounded to the nearest penny (130.00 to 129.78); QQQ/2QQQ/4QQQ remain; the offset is the reduction in cents of every strike, the distribution rounded to the nearest penny (0.22). Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/QQQ_Distribution_53847.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2023-12-27: split_ratio 1.0, dividend record(s) 0.21584."}
+  ],
+  "SMH": [
+   {"ex_date": "2023-05-05", "kind": "split", "ratio": 0.5, "evidence": "OCC Information Memo #52283 (https://infomemo.theocc.com/infomemos?number=52283), dated 2023-04-19: VanEck Semiconductor ETF - 2 For 1 Stock Split; 2-for-1 effective 2023-05-05; SMH remains; deliverable 100 shares. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/SMH_Split_52283.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2023-05-05: split_ratio 0.5."}
+  ],
+  "TSLA": [
+   {"ex_date": "2022-08-25", "kind": "split", "ratio": 0.333333333333333, "evidence": "OCC Information Memo #50828 (https://infomemo.theocc.com/infomemos?number=50828), dated 2022-08-05: Tesla, Inc. - 3 For 1 Stock Split; 3-for-1 effective 2022-08-25; TSLA/2TSLA remain; deliverable 100 shares. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/TSLA__Split_50828.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2022-08-25: split_ratio 0.333333333333333."}
+  ],
+  "UNG": [
+   {"ex_date": "2024-01-24", "kind": "other", "root": "UNG1", "evidence": "OCC Information Memo #53931 (https://infomemo.theocc.com/infomemos?number=53931), dated 2024-01-10: United States Natural Gas Fund, LP - Reverse Split; 1-for-4 reverse split effective 2024-01-24; UNG changes to UNG1; deliverable 25 (new) UNG shares; strike divisor 1. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/UNG_Reverse_Split_53931.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2024-01-24: split_ratio 4.0."}
+  ],
+  "WMT": [
+   {"ex_date": "2024-02-26", "kind": "split", "ratio": 0.333333333333333, "evidence": "OCC Information Memo #54057 (https://infomemo.theocc.com/infomemos?number=54057), dated 2024-02-02: Walmart Inc. - 3 For 1 Stock Split; 3-for-1 effective 2024-02-26; WMT/2WMT remain; deliverable 100 shares. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/WMT_Split_54057.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2024-02-26: split_ratio 0.333333333333333."}
+  ],
+  "XLB": [
+   {"ex_date": "2025-12-05", "kind": "split", "ratio": 0.5, "evidence": "OCC Information Memo #57732 (https://infomemo.theocc.com/infomemos?number=57732), dated 2025-11-25: The Materials Select Sector SPDR Fund - 2 For 1 Stock Split; 2-for-1 effective 2025-12-05; XLB/2XLB remain; deliverable 100 shares. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/XLB_Split_57732.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2025-12-05: split_ratio 0.5."}
+  ],
+  "XLE": [
+   {"ex_date": "2025-12-05", "kind": "split", "ratio": 0.5, "evidence": "OCC Information Memo #57734 (https://infomemo.theocc.com/infomemos?number=57734), dated 2025-11-25: The Energy Select Sector SPDR Fund - 2 For 1 Stock Split; 2-for-1 effective 2025-12-05; XLE/2XLE remain; deliverable 100 shares. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/XLE_Split_57734.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2025-12-05: split_ratio 0.5."}
+  ],
+  "XLK": [
+   {"ex_date": "2025-12-05", "kind": "split", "ratio": 0.5, "evidence": "OCC Information Memo #57735 (https://infomemo.theocc.com/infomemos?number=57735), dated 2025-11-25: The Technology Select Sector SPDR Fund - 2 For 1 Stock Split; 2-for-1 effective 2025-12-05; XLK/1XLK/2XLK remain; deliverable 100 shares. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/XLK_Split_57735.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2025-12-05: split_ratio 0.5."}
+  ],
+  "XLU": [
+   {"ex_date": "2025-12-05", "kind": "split", "ratio": 0.5, "evidence": "OCC Information Memo #57736 (https://infomemo.theocc.com/infomemos?number=57736), dated 2025-11-25: The Utilities Select Sector SPDR Fund - 2 For 1 Stock Split; 2-for-1 effective 2025-12-05; XLU/2XLU remain; deliverable 100 shares. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/XLU_Split_57736.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2025-12-05: split_ratio 0.5."}
+  ],
+  "XLY": [
+   {"ex_date": "2025-12-05", "kind": "split", "ratio": 0.5, "evidence": "OCC Information Memo #57733 (https://infomemo.theocc.com/infomemos?number=57733), dated 2025-11-25: The Consumer Discretionary Select Sector SPDR Fund - 2 For 1 Stock Split; 2-for-1 effective 2025-12-05; XLY/1XLY/2XLY remain; deliverable 100 shares. Memo read from MIAX's copy https://www.miaxglobal.com/sites/default/files/alert-files/XLY_Split_57733.pdf (infomemo.theocc.com refuses automated reads). Intrinio prices/adjustments 2025-12-05: split_ratio 0.5."}
+  ]
+ }
+}

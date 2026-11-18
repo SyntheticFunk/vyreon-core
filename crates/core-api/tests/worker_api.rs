@@ -142,6 +142,13 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
         json!([{"ticker": "FB", "from": "2012-05-18", "to": "2022-06-08"}, {"ticker": "META", "from": "2022-06-09", "to": null}])
     );
     assert_eq!(day["tickers"]["ETHA"], json!([{"ticker": "ETHA", "from": "2024-07-23", "to": null}]));
+    // C-055: and the OCC adjustment ledger's entries of its members, as the engine reads them
+    // (`VYREON-ADJUSTMENTS@1`'s `assets`): every ledger asset is one of the 64
+    assert_eq!(day["adjustments"], core_api::adjustments::ledger().unwrap()["assets"]);
+    let ewj = &day["adjustments"]["EWJ"][0];
+    assert_eq!((ewj["ex_date"].as_str(), ewj["kind"].as_str(), ewj["strike_offset"].as_f64()), (Some("2025-12-16"), Some("other"), Some(0.16)));
+    assert_eq!(day["adjustments"]["ETHA"][0]["root"], "ETHA1");
+    assert!(day["adjustments"].get("AAPL").is_none(), "no OCC adjustment of AAPL since 2022-05-27");
     // the bundle states the day's listed members: the asset keys with a ticker that day
     let listed: Vec<&str> = members.iter().filter(|m| m["ticker"].is_string()).map(|m| m["asset_key"].as_str().unwrap()).collect();
     assert_eq!(listed, test_support::slice::members_except(&[]));
