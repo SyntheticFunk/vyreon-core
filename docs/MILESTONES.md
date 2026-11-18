@@ -497,7 +497,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   **Owner (20:40 UTC): daily runs take trades from the trades API, quotes from the replay**
   ("especially after launch of the core... some more volatile component is fine"; the API's
   7-day prints kept like the other perishables). Engine D-089 amendment queued after `pass-fx40`;
-  request cost being measured (NVDA, SPY, TIP on 2026-11-17).
+  request cost measured on 2026-11-17 (pages of 10,000, sequential within a security): NVDA
+  4,970,460 trades, 498 requests, 1.04 GB JSON, 25 min; SPY 954,761, 96, 196 MB, 6 min; TIP 13,026,
+  2, 2 MB, 3 s. All 64: likely a few thousand requests a day (vs ~39k per day now), several GB of
+  JSON, NVDA the long pole unless split by time window.
   **Free gate checks run (f392ff9; bands 480066e, 7fff827; reports `checks/2026-11-18-{cboe14,occ,fred,edgar-events}-sample.json`):**
   Cboe 14 pairs: all 140 sessions inside band 1; correlation FAILS VXSLV/SLV 0.887, VXFXI/FXI 0.824
   (single-day divergences, cause open). OCC standard roots: 522 of 576 inside, 54 fail (TLT 11-11
