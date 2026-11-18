@@ -589,6 +589,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   overlay; every published OI equals Cboe's on 414,902 contract-days. P-15: no staleness rule
   (610 of 670 old quotes equal Cboe). Follow-up: ACT01 picks its cohort by raw strike, guarded only
   by `ex_date=`. **All five engine branches done; merging into `pass-fx45` (one clean suite).**
+  **Core `core-ledger` merged (C-055; suite 105 passed incl. database):** the OCC adjustment ledger
+  (`crates/core-api/data/occ-adjustments.json`, compiled into core, narrowed to each claim's
+  members) with 21 entries, every one citing its OCC Information Memo: 13 forward splits (AMZN,
+  GOOGL, TSLA, SMH, WMT, NVDA, AVGO, MSTR; XLB XLE XLK XLU XLY 2025-12-05), 4 strike offsets (FXI
+  0.15 2023-06-08 #52545, QQQ 0.22 2023-12-27 #53847, EMB 0.25 2024-12-30 #55816, EWJ 0.16 2025-12-16
+  #57919), 4 adjusted roots (UNG1, BABA1, BABA2, ETHA1 #59890). A new entry needs a new core image.
+  Follow-ups: the engine's QQQ 174.78 `residue_strikes` example is OCC #53847; FXI's date (cash
+  06-07, strikes 06-08) for the engine to confirm; record the ledger's hash with each published
+  day (provenance). Pre-2022-05-27 adjustments are outside phase 1's 39-month relevance.
   **DataShop check (rules 39208e3 first; tool f6fd4da; reports `checks/2026-11-18-datashop-*.json`)
   FAILS on quotes, volume and open interest; faults cluster on corporate actions:** open interest
   100% on SPY/TSLA/UUP (338,784 contracts), same-day dating confirmed; quotes at 15:45 equal on
