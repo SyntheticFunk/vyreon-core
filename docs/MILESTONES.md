@@ -563,6 +563,21 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   change silently; any unusual flag that changes is explained; the external checks are the second
   net. Optimizations and value fixes land as separate commits so each changed value is
   attributable.
+  **Engine `pass-fx42` done (49d28013, e918525c, 89e45be1; suite 1,390 passed):** D-364 a history
+  holding the whole 200-session window counts as exhausted (VS-O02, O04, L01, OIJ01; the
+  percentile ranks the eligible changes it holds, from 63); D-365 a history start needs a published
+  empty chain before it (also `occ::first_option_session_after`). EWJ 11-02/03 publish; 11-04..13
+  lose the false terminal. **EWJ's withheld open interest explained:** OCC cut every EWJ strike by
+  $0.16 on 2025-12-16; the provider dates it only for 21 sessions, then its stale pre-adjustment
+  listings trip the 1% gate; fixed by a core ledger entry. **Core never built the adjustment
+  ledger the engine reads** (`h5-universe/adjustments.json`, VYREON-ADJUSTMENTS@1): `core-ledger`
+  started (C-055; entries backed by OCC Information Memos for all 64 since 2022-05-27).
+  **Engine `pass-fx40` D-390 done (f781f10b, 47e50889, 8a1f895a):** ETHA 11-12 34,199 contracts, put
+  share 0.513; rows carry `deliverable_factor` and `open_interest_contracts`; schema
+  CI-OPTION-EOD-ARROW@3 (every option source requoted); VS-O06 volume `contracts_traded`; DLM-
+  OPTIONS-VOLUME 1.4.0, DLM-UNUSUAL-CONTRACTS 2.1.0; the unit table in D-390. Before merge: requote
+  the shared `workspace/fixtures/etha-first-chain`. Shared-target interference made every
+  agent's full suite unclean: the merged tip gets one clean full run.
   **DataShop check (rules 39208e3 first; tool f6fd4da; reports `checks/2026-11-18-datashop-*.json`)
   FAILS on quotes, volume and open interest; faults cluster on corporate actions:** open interest
   100% on SPY/TSLA/UUP (338,784 contracts), same-day dating confirmed; quotes at 15:45 equal on
