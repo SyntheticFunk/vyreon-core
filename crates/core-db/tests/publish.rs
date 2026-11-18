@@ -624,3 +624,47 @@ async fn a_replaced_day_local_or_history_revision_takes_down_what_read_it() {
     assert_eq!(not_derived(&mut client).await, 0);
     scratch.drop().await;
 }
+
+/// Audit round x, 2: a republish queues the finished ordered pass of a day whose history fell, so
+/// no problem opens; cancelling that pass before it publishes leaves the day's history absent with
+/// no job to derive it: the cancel opens NOT_DERIVED, open until the history is published again.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_cancelled_repair_pass_leaves_its_day_a_problem() {
+    let (scratch, mut client) = ready("cancel_repair").await;
+    let day_local = derived_profile(&mut client, "DLM-MAX-PAIN", "DAY-LOCAL", true).await;
+    let history = derived_profile(&mut client, "DLM-IV30", "HISTORY", false).await;
+    let send = async |client: &mut Client, (h, s, f): &(Header, Scalars, Vec<SlotFiles>)| {
+        publish(client, &bundle(&format!("cancel-repair-{}", h.profile_revision), h, s, f)).await.unwrap()
+    };
+    let base = parts(BASE);
+    for profile in [&base, &day_local, &history] {
+        send(&mut client, profile).await;
+    }
+    // the day's ordered pass, finished
+    let (profile, build) = (history.0.profile_id.clone(), history.0.engine_build.clone());
+    core_db::work::schedule(&mut client, core_db::work::Kind::OrderedPass, &profile, &build, "2025-12-10", "2025-12-10", 1).await.unwrap();
+    client.execute("UPDATE core.job SET state = 'DONE', next_session = NULL, finished_at = now() WHERE kind = 'ORDERED_PASS'", &[]).await.unwrap();
+    let settings = core_db::watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: 20, daily: None, archive: None };
+    let not_derived = async |client: &mut Client| -> Vec<String> {
+        let now = core_db::watch::now(&*client).await.unwrap();
+        core_db::watch::check(client, &settings, &now).await.unwrap();
+        client.query("SELECT summary FROM core.problem WHERE kind = 'NOT_DERIVED' AND resolved_at IS NULL", &[]).await.unwrap().iter().map(|r| r.get(0)).collect()
+    };
+    // the day-local revision again: the history falls, the finished pass is queued again
+    assert_eq!(send(&mut client, &day_local).await.superseded, 2);
+    let pass: i64 = client.query_one("SELECT job_id FROM core.job WHERE kind = 'ORDERED_PASS' AND state = 'QUEUED'", &[]).await.unwrap().get(0);
+    assert!(not_derived(&mut client).await.is_empty(), "the queued pass will derive it");
+    // cancelled: the day has no job and no history
+    assert_eq!(core_db::work::cancel(&mut client, &[pass]).await.unwrap(), 1);
+    assert_eq!(not_derived(&mut client).await, ["Cancelling their ordered pass left 1 days that no job derives again: 2025-12-10"]);
+    let posted: String = client.query_one("SELECT message FROM core.notice WHERE post ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    assert!(posted.starts_with("🔴 Cancelling their ordered pass left 1 days"), "{posted}");
+    // cancelled again (it is cancelled already): nothing more
+    assert_eq!(core_db::work::cancel(&mut client, &[pass]).await.unwrap(), 0);
+    assert_eq!(not_derived(&mut client).await.len(), 1);
+    // the history published again: resolved
+    send(&mut client, &history).await;
+    assert!(not_derived(&mut client).await.is_empty());
+    scratch.drop().await;
+}
