@@ -115,7 +115,15 @@ first publication of either; ideally free and paid are ready together. Google Ad
    which rest on one case and should be retired or restated, and where a missing threshold
    needs the population's evidence. Outcome: a short list of rule changes (each then a scoped
    recalculation), and the rules that stand.
-6. **(4) Reporter on the phase 1 database.** First a proper paid report (none has been produced
+6. **Verification on vyreon-web (owner, 2026-11-18: "we definitely need to expose what we are doing
+   in the marketing. Major verification and checking areas should all be highlighted on
+   vyreon-web eventually").** A methodology/verification page listing each external check (Cboe
+   volatility indices, SEC EDGAR, OCC volume, FRED, a second vendor's prices, QuantLib/TA-Lib
+   recompute, Cboe DataShop sample): what is compared, the declared band, the latest result, and
+   the failures and their fixes. Within the plain-voice rules (no "accurate", "audited",
+   "institutional-grade"): specific, dated, failures shown. Naming Cboe's indices waits on Cboe's
+   permission reply; check each provider's naming terms (Tiingo, OCC) before publishing.
+   **(4) Reporter on the phase 1 database.** First a proper paid report (none has been produced
    **Weekly comparison idea (owner, 2026-11-17):** per sensor, plot this week against last week on
    one chart. State readings (IV term structure, skew, open interest by strike, levels) compare the
    week's closing reading (Friday against last Friday); flow readings (volume, activity, intraday
