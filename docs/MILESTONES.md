@@ -510,7 +510,7 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   after 17:30 New York (AMD AMZN AVGO PLTR). All under diagnosis. OCC terms: owner reads in a browser.
   20:45 UTC: Cboe permission email SENT by the owner (internal validation use of the 14 indices;
   whether the methodology page may name them). Owner reading OCC's terms. DataShop order still
-  being prepared by Cboe. Tiingo checks started (FIELD correlation recompute, prices; tolerances
+  being prepared by Cboe; OCC's terms read by the owner: fine for our use. Tiingo checks started (FIELD correlation recompute, prices; tolerances
   committed first). Sample ends near 20:00–21:00 UTC.
 - **02:40 UTC: owner decision: fix round x's other twelve in their simplest form (core #1 2 7 8 9 12
   17 19 in `/home/diggz/wt/core-fix-y`; engine #3 10 14 15 16 in `/home/diggz/wt/fx30`), then NO
