@@ -471,3 +471,99 @@ because they carry the same official closes: this check shows the engine compute
 declares from correct closes; it does not test what neither vendor could get wrong (both may
 share an exchange's error), the options, intraday and seeded-null quantities listed above, or
 any date outside the sample.
+
+## Cboe DataShop option EOD (`datashop.py`)
+
+**Declared 2026-11-18, before any Intrinio value was compared with Cboe's** (nothing here is
+`seen`). Per contract, Intrinio's option inputs as the engine fetches them against Cboe
+DataShop's *Option EOD Summary* with Calcs (order 000107661, bought and licensed to the owner;
+kept **outside the repo** under `~/claude-artifacts/datashop/`, never committed; `datashop.py`
+refuses a zip that differs from the order's `SHA256SUMS`). The only independent per-contract
+check of Intrinio's option quotes, volume and open interest.
+
+| Item | Underlying | Sessions | Event inside |
+|---|---|---|---|
+| 000122947 | SPY, TSLA, UUP | 2025-04-01..30 (21) | none |
+| 000122949 | XLK | 2025-12-01..31 (22) | 2-for-1 split, ex 2025-12-05; 12-24 closes 13:00 |
+| 000122951 | ETHA | 2026-10-01..30 (22) | 1-for-3 reverse split 2026-10-06 (adjusted root ETHA1) |
+
+**Cboe's fields** (Cboe, *Option EOD Summary* layout v1.1, `datashop.cboe.com/documents/
+Option_EOD_Summary_Layout.pdf`, read 2026-11-18; copy beside the data, sha256 8d39ee5d...):
+`bid_1545`/`ask_1545` are the OPRA national best bid and offer at 15:45 ET, **12:45 ET on an
+early-close day** (note 5); their sizes are "the largest size from an options exchange
+participant" at the best price (OPRA's BBO appendix); `trade_volume` is the contracts traded in
+the series on the date (regular trading hours); `open_interest` is OCC's **start-of-day** open
+interest (DataShop FAQ: the previous night's OCC end-of-day figure); `delivery_code` and
+`implied_underlying_price_1545` are deprecated (empty and 0). The structure check (roots,
+row counts, `delivery_code`) was read before this declaration; no value was compared.
+
+**Intrinio, as the engine fetches it** (engine `pass-s3i` at 9bc02f2d, read only; key in an
+`Authorization: Bearer` header, never in a URL or log):
+
+- Snapshot: `GET /options/snapshots?at_datetime=<UTC>`, exactly one snapshot listed, its files
+  streamed by ascending part (gzip, every member), rows kept for the item's roots and their
+  adjusted roots (one digit before or after the symbol: `close_quotes::row_owner`), never the
+  whole-market file. The **engine's snapshot** is the listing at close - 5 minutes, admitted when
+  taken 15 to 2 minutes before the close (D-071, D-072; `close_quotes::listing_url`, `admit`). The
+  **comparison snapshot** is the listing at Cboe's instant (15:45 ET; 12:45 on 2025-12-24),
+  admitted only when its own time equals that instant. A side priced 0.00 with size 0 or blank is
+  "no quote" (D-072). A contract on two rows with different values is DUPLICATE (D-175: unknown).
+- EOD: `GET /options/prices/by_ticker/<root>/eod?date=D&include_related_symbols=true&page_size=
+  10000&recalculate_stats=false`, every `next_page` (binding `INTRINIO-OPTION-EOD-STORED@3`). A
+  null volume is no trade (D-025).
+- Contract key: (root, expiration, strike, C/P); Intrinio's OSI code and snapshot id parsed to it.
+- Filtered rows, the EOD bodies (gzip) and `fetched.json` (url without query or key, sha256 of
+  the provider bytes, snapshot time, fetch time) are kept in `~/claude-artifacts/datashop/
+  intrinio-side/`; `compare` refuses a file that differs from `fetched.json`.
+
+**Comparisons and rules:**
+
+1. **Quotes at the same instant (judged).** Comparison snapshot bid and ask (and the no-quote
+   state) per contract against `bid_1545`/`ask_1545`: **exact** (prices parse to the same cents;
+   no-quote equals no-quote). Same OPRA NBBO, same instant: any difference is a delivery fault
+   unless the quote moved at the instant. Which rows can be judged follows from the row's own
+   `LAST BID/ASK TIMESTAMP` (the later of the two, t), against Cboe's instant I:
+   - t < I - 1 s: **judged**. The quote held for over a second before I, so it was in force at I
+     whatever the two capture clocks' sub-second offsets. EQUAL or DIFF.
+   - I - 1 s <= t < I + 1 s: BOUNDARY (the snapshot-boundary second: which side of I each
+     system put the update cannot be told). Reported, not judged.
+   - t >= I + 1 s: AFTER (the quote changed after I, before the snapshot's cut; Cboe's quote is
+     not in the row). Reported, not judged.
+   - No timestamp on a side quoted by Intrinio: NOT_COMPARABLE, reported.
+   Sizes (`bid_size_1545`, `ask_size_1545`) on judged rows: agreement rate **reported, not
+   judged** (Intrinio does not state whether its size is the BBO participant's or aggregated).
+   Reported separately, not judged: the engine's 15:55 snapshot against Cboe's 15:45 and against
+   `bid_eod`/`ask_eod` (agreement rates, mid differences).
+2. **Volume (judged).** The engine's per-contract volume (EOD `volume`; where null and the 15:55
+   snapshot shows a trade inside the session, the snapshot's `TOTAL TRADE VOLUME`: D-125) against
+   `trade_volume`: **exact**. Contracts absent from one source count as 0 there, so they enter
+   the totals. Reported: raw EOD volume, the totals per underlying-day (Intrinio, Cboe, relative
+   difference, largest per-contract differences), and the sign of each difference (OCC showed
+   EOD missing large prints).
+3. **Open interest (judged).** The engine's per-contract open interest (the 15:55 snapshot's
+   `OPEN INTEREST`, D-079) against `open_interest`, **same quote_date, exact**. Convention: both
+   carry OCC's figure from the previous night (Cboe's layout says start-of-day; OPRA disseminates
+   OCC's prior-night open interest before the open, and a snapshot taken during the session can
+   only carry that). This alignment is tested, not assumed: the agreement of the shifted
+   alignment (Intrinio T against Cboe's next session, and Cboe T against Intrinio's next) is
+   reported; if a shifted alignment agrees better, the report says CONVENTION and the judged
+   verdicts stand as declared. Reported, not judged: the comparison snapshot's OI and EOD's
+   `open_interest` against Cboe.
+4. **Coverage (reported).** Contracts in one source and not the other, per source pair (Cboe
+   against the comparison snapshot, the engine's snapshot and EOD), by root (standard, adjusted
+   such as ETHA1, FLEX such as 4SPY: README's OCC root kinds), expiration and strike. A Cboe
+   contract with a two-sided 15:45 quote, volume or OI that the engine's snapshot lacks is
+   listed (MISSING_LIVE). Intrinio EOD rows the snapshot lacks are split into those with and
+   without volume and OI (dead listings and split phantoms, D-078/D-079). `delivery_code`: its
+   values counted (expected all empty, deprecated).
+5. **IV (reported, not judged).** The engine publishes no per-contract IV (core stores sensor
+   readings) and no independent American, discrete-dividend recompute is built here, so the
+   engine is not compared. Reported only: Intrinio's EOD `implied_volatility` (the provider's,
+   at its 16:00+ mark) against `implied_volatility_1545` (Cboe: binomial, discrete dividends,
+   NBBO mid at 15:45) on contracts with |Cboe delta| 0.25-0.75 and 7-60 calendar days, as
+   median and 90th percentile absolute differences per underlying; different instants and models,
+   so no band is declared.
+
+**Verdicts:** per contract and judged field, EQUAL or DIFF; the others as listed. Pass = no DIFF
+in comparisons 1-3. The report gives agreement rates per field, underlying and month, the
+largest differences with their contracts, and every DIFF (capped listing, full counts).
