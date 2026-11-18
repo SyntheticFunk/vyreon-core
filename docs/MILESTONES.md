@@ -385,6 +385,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   GVZ/GLD 1.9..3.3 (GVZ moved only 1.8 points, so its correlation, 0.69, is reported, not
   judged). Widest gap 11-05 (VIX 28.2): the skew premium widens with the level, as expected,
   but sits near the band's top. EDGAR check being built (declaration committed before comparing).
+  **Phase-1 tranche gate (agreed with the owner, 19:50 UTC; "the consequences of a wrong number
+  are unfortunately quite large"):** each tranche passes, before the next starts, (a) refcheck in
+  the worker on every day, (b) the Cboe bands, (c) EDGAR; and, once 63 sessions of history exist,
+  (d) a flag-agreement test, declared and committed before phase 1 runs: when a Cboe index is in
+  the top tenth of its own last 63 sessions, our matching iv30 is flagged too. A failed check
+  stops phase 1: diagnose, fix, recompute the affected days. Bands are not moved after the fact.
+  Phase 1 opens two days after VIX's 2025-04-08 peak (~52): the SPY band's top (8) meets real
+  stress in its first tranche.
 - **03:40 UTC: round x's other twelve fixed and merged; no audit (owner).** Core main 58cf628 (#1 the
   archive outcome checks its place; #2 cancelling a repair opens NOT_DERIVED; #7 digest tally in one
   statement; #8 a "not packed" beside KEPT is not listed; #9 a block archives only days it marked
