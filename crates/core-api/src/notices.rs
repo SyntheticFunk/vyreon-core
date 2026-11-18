@@ -33,10 +33,21 @@ const BATCH: usize = 20;
 enum Outcome {
     /// Discord returned the saved message.
     Delivered,
-    /// Discord answered with an error, or was never reached: send it again.
+    /// Discord refused it (a 4xx), or was never reached: send it again.
     NotSent(String),
-    /// The request may have reached Discord, but no saved message came back.
+    /// The request may have reached Discord, but no saved message came back (no answer, a 5xx, or
+    /// a 2xx without the message).
     Unknown(String),
+}
+
+/// The webhook URL to post to: the configured one with its own `wait` parameters removed and
+/// `wait=true` added, so that only one `wait` is sent (audit round x, 19: a configured
+/// `wait=false` beside it would leave Discord to choose). Err never holds the URL (a secret).
+pub fn waiting_url(webhook: &str) -> Result<reqwest::Url, String> {
+    let mut url = reqwest::Url::parse(webhook).map_err(|e| format!("the webhook is not a URL ({e})"))?;
+    let kept: Vec<(String, String)> = url.query_pairs().filter(|(k, _)| k != "wait").map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
+    url.query_pairs_mut().clear().extend_pairs(kept).append_pair("wait", "true");
+    Ok(url)
 }
 
 /// Posts one message with `wait=true`: Discord's Execute Webhook then "waits for server
@@ -45,7 +56,11 @@ enum Outcome {
 /// (https://docs.discord.com/developers/resources/webhook#execute-webhook, read 2026-11-17).
 /// Delivered only when the saved message (its `id`) comes back.
 async fn post(http: &reqwest::Client, webhook: &str, message: &str) -> Outcome {
-    let response = match http.post(webhook).query(&[("wait", "true")]).timeout(POST_TIMEOUT).json(&payload(message)).send().await {
+    let url = match waiting_url(webhook) {
+        Ok(url) => url,
+        Err(e) => return Outcome::NotSent(e),
+    };
+    let response = match http.post(url).timeout(POST_TIMEOUT).json(&payload(message)).send().await {
         Ok(r) => r,
         // never connected: nothing reached Discord
         Err(e) if e.is_connect() || e.is_builder() => return Outcome::NotSent(e.without_url().to_string()),
@@ -57,6 +72,11 @@ async fn post(http: &reqwest::Client, webhook: &str, message: &str) -> Outcome {
         let wait = response.json::<Value>().await.ok().and_then(|v| v["retry_after"].as_f64()).unwrap_or(2.0).clamp(0.5, 30.0);
         tokio::time::sleep(Duration::from_secs_f64(wait)).await;
         return Outcome::NotSent("rate limited".to_owned());
+    }
+    // a 5xx (a gateway's 502, 503 or 504 among them) may come after Discord saved the post: its
+    // outcome is unknown (audit round x, 12; RFC 9110, 15.6); a 4xx is a definite refusal
+    if response.status().is_server_error() {
+        return Outcome::Unknown(format!("status {status}"));
     }
     if !response.status().is_success() {
         return Outcome::NotSent(format!("status {status}"));
@@ -147,4 +167,24 @@ pub fn spawn_sender(app: Arc<App>, webhook: String, every: Duration) -> tokio::t
             }
         }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Audit round x, 19: one `wait`, `true`, whatever the configured URL carries; its other
+    /// parameters kept.
+    #[test]
+    fn the_webhook_url_carries_one_wait_true() {
+        for (configured, sent) in [
+            ("https://discord.com/api/webhooks/1/a-token", "https://discord.com/api/webhooks/1/a-token?wait=true"),
+            ("https://discord.com/api/webhooks/1/a-token?wait=false", "https://discord.com/api/webhooks/1/a-token?wait=true"),
+            ("https://discord.com/api/webhooks/1/a-token?wait=false&thread_id=7&wait=0", "https://discord.com/api/webhooks/1/a-token?thread_id=7&wait=true"),
+        ] {
+            assert_eq!(waiting_url(configured).unwrap().as_str(), sent);
+        }
+        let why = waiting_url("not a url with a-token").unwrap_err();
+        assert!(!why.contains("a-token"), "{why}");
+    }
 }

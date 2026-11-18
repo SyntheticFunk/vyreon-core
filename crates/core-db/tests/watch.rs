@@ -234,6 +234,17 @@ async fn the_digest_leads_with_its_verdict() {
     let now = watch::now(&client).await.unwrap();
     let today: String = client.query_one("SELECT to_char(now() AT TIME ZONE 'America/Edmonton', 'Dy Mon FMDD')", &[]).await.unwrap().get(0);
 
+    // round x, 7: the tallies in one statement: counted the first time (and kept), read the next,
+    // the same either way
+    let dates = vec!["2025-12-09".to_owned(), "2025-12-10".to_owned()];
+    let tallied = async |c: &Client| c.query_one("SELECT count(*) FROM core.revision_tally", &[]).await.unwrap().get::<_, i64>(0);
+    assert_eq!(tallied(&client).await, 0);
+    let counted = watch::session_tallies(&client, PROFILE, &dates).await.unwrap();
+    assert_eq!(counted.len(), 2);
+    assert_eq!((counted["2025-12-10"].engine_faults, counted["2025-12-09"].engine_faults), (1, 0));
+    assert_eq!(tallied(&client).await, 2);
+    assert_eq!(watch::session_tallies(&client, PROFILE, &dates).await.unwrap(), counted);
+
     // 🟢: nothing open, nothing handled
     check(&mut client, &s, &now).await;
     let green = watch::digest(&client, &s, &now).await.unwrap();
@@ -361,7 +372,7 @@ async fn a_digest_never_says_nothing_is_open_after_an_alert() {
     let (scratch, mut publishing, _) = ready("digest_race").await;
     let s = settings(None);
     let tx = publishing.transaction().await.unwrap();
-    watch::not_derived(&tx, &[("2025-12-11".into(), PROFILE.into(), false)]).await.unwrap();
+    watch::not_derived(&tx, &[("2025-12-11".into(), PROFILE.into(), false)], "A republish left").await.unwrap();
     let mut watching = scratch.client().await;
     let (s2, nine) = (s.clone(), "2025-12-12 09:30:00-07");
     let minute = tokio::spawn(async move {
@@ -455,7 +466,7 @@ async fn a_problem_opens_while_the_digest_counts() {
     // a publish opens a problem meanwhile: it does not wait for the digest
     let mut publishing = scratch.client().await;
     let tx = publishing.transaction().await.unwrap();
-    let opened = tokio::time::timeout(std::time::Duration::from_secs(2), watch::not_derived(&tx, &[("2025-12-11".into(), PROFILE.into(), false)])).await;
+    let opened = tokio::time::timeout(std::time::Duration::from_secs(2), watch::not_derived(&tx, &[("2025-12-11".into(), PROFILE.into(), false)], "A republish left")).await;
     assert!(opened.is_ok(), "the problem opened while the digest was counting");
     tx.commit().await.unwrap();
     hold.rollback().await.unwrap();

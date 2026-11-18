@@ -250,6 +250,9 @@ async fn a_worker_archives_a_published_days_perishables_through_a_url_core_signs
     let published = s.http.post(format!("{}/worker/v1/days", s.url)).bearer_auth(token).body(std::fs::read(&path).unwrap()).send().await.unwrap();
     std::fs::remove_file(&path).unwrap();
     assert_eq!(published.status(), StatusCode::OK);
+    // published, not yet said done (round x, 9): not yet a day the job has published
+    assert_eq!(s.post(&s.url, "/archives", token, asked("act01-auto", &archive)).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(s.post(&s.url, "/days/2025-12-10/done", token, json!({})).await.0, StatusCode::OK);
 
     // the URL core signs is taken by the bucket; core reads the object back and keeps it
     let (status, grant) = s.post(&s.url, "/archives", token, asked("act01-auto", &archive)).await;

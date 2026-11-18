@@ -219,6 +219,39 @@ async fn a_post_is_sent_when_saved_and_an_unknown_outcome_waits_its_window() {
     scratch.drop().await;
 }
 
+/// A gateway that answers 504 after passing the post on (Discord may have saved it).
+async fn timing_out_gateway(State(received): State<Received>, Json(body): Json<Value>) -> StatusCode {
+    received.lock().unwrap().push(body);
+    StatusCode::GATEWAY_TIMEOUT
+}
+
+/// Audit round x, 12: an HTTP 5xx (a gateway timeout) is an unknown outcome, not a refusal: the
+/// post keeps its send mark and is not sent again inside `UNCONFIRMED_SECONDS`; a 4xx is refused
+/// and goes again at the next send.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_gateway_timeout_waits_the_unknown_outcome_window() {
+    let (scratch, client, app) = ready_app("notice_5xx").await;
+    let http = reqwest::Client::new();
+    notice::alert(&client, "maybe saved").await.unwrap();
+    let id: i64 = client.query_one("SELECT min(notice_id) FROM core.notice", &[]).await.unwrap().get(0);
+    let received: Received = Arc::default();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/hook", listener.local_addr().unwrap());
+    let stub = Router::new().route("/hook", post(timing_out_gateway)).with_state(received.clone());
+    tokio::spawn(async move { axum::serve(listener, stub).await.unwrap() });
+    let why = send_unsent(&app, &http, &url).await.unwrap_err();
+    assert!(why.contains("status 504") && why.contains("not sent again for 120 s"), "{why}");
+    assert_eq!(send_unsent(&app, &http, &url).await.unwrap(), 0, "inside the window: not posted again");
+    assert_eq!(received.lock().unwrap().len(), 1);
+    assert_eq!(state(&client, id).await, (false, 1, Some("status 504".into())));
+    // past the window: once more
+    back(&client, id).await;
+    assert!(send_unsent(&app, &http, &url).await.is_err());
+    assert_eq!(received.lock().unwrap().len(), 2);
+    scratch.drop().await;
+}
+
 /// Audit 2026-11-17 round v, 2: the watch runs in its own task; a webhook that never answers holds
 /// the sender, not the watch (which also queues the daily runs, C-051).
 #[tokio::test]
