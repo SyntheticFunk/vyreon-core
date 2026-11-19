@@ -728,7 +728,18 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   core.** First bulk fill found a defect: every other day file failed "error sending request"
   (the file client reused a connection the host closes after ~20 s idle; a capture takes ~25 s),
   so that day's 64 chains went to the API. Fixed: `worker` 8de870cf (no idle connection for files,
-  resend up to 3 tries; D-396 amended); image rebuilding.
+  resend up to 3 tries; D-396 amended); image `8de870cf` built and pushed; A/B restarted on it (07:30 UTC).
+  **Codex audits back (07:40 UTC; reports `audits/2026-11-19-bulk-round-y/`): D-395 is broken at its
+  default.** The transport refuses more than 16 connections (`with_connection_limit`: 17..128 →
+  InvalidCredential) and every grant reserves MAX_PAGE_BYTES × worker_count against the batch's
+  byte budget (1 GiB daily and recapture batches: at 64 every later grant is denied), so at 64 in
+  flight daily bars and every API fallback fail (operator confirmed both by reading). The real day
+  (image e329b3c8) predates D-395. A/B continues at 16 in flight until fixed. Other bulk findings:
+  STRIKE in thousandths on the 2025-12-31 file unchecked against the OSI code, quoted fields,
+  duplicate headers, undo errors, D-264 filter skipped, signed URL as Referer on a redirect, and
+  more; own-analytics findings: Q01/Q05 provider-analytic counts still exported as support, core
+  `read` routes serve full bodies, V03 own-IV change still carries a provider-method
+  qualification, FIELD-OPTBR01 method identity unchanged, Reporter copy. Triage running.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
