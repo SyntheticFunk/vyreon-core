@@ -766,6 +766,21 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   `comparison_qualification` still says METHOD_CONTINUITY_UNKNOWN; Reporter's VS-Q05 entry needs
   the internal stub. Repeat audit (round z) started; image rebuilding. Laptop: merged worktrees
   fx46..fx49, fx51 removed, target-s3i (156 GB) and target-fx51 deleted (target-fx50 kept for round z).
+  **Round z (repeat audit of f634f7c7; triage `audits/2026-11-19-bulk-round-z/triage/`):** main round-y
+  fixes confirmed (64 in flight, P-19 strikes). Bulk 10 real (1 wrong-number, latent: a row with an
+  empty or wrong SYMBOL drops out unseen), ownanalytics 8 real. Blocking: bulk 1; bulk 4 (a provider
+  404 is classed retryable → ENGINE_FAULT on every API path: the policy matches "HTTP 404", the
+  ledger writes "HttpStatus(404)"; pre-existing); ownanalytics 1 (VS-Q01's exported counts are
+  post-overlay analytic coverage, not delivery: D-118 item 4; they move with Intrinio's IV) and 3
+  (V03 kernel contract still lists VS-Q05). Fix track `pass-fx52` started 09:20 UTC (D-398/399/401).
+  Reporter list (before issue 1): FIELD panel `provider_iv_median.*` → `iv_median.*`, M0 copy,
+  VS-Q05 entry → internal stub, Q01 analytic rows and "delivered" sentence, decode V03-MATCHED's
+  `support_qualification`. Before phase 1: check core holds no PUBLISHED day_revision from a
+  pre-D-397 build that phase 1 will not supersede.
+  **A/B (fixed image f634f7c7, pod ab-bulk3):** 2026-11-03 options from the API at 64 in flight
+  started 08:35 UTC (SPY ~4 min vs 12 at 4 in flight; whole fill ~1 h vs 3 h 05 m); the earlier
+  bulk run on 8de870cf processed ~22 s per day file (171 of ~225 days in 64 min; 2025-12-31's 64
+  chains correctly DEGENERATE → API).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
