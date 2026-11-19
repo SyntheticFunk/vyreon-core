@@ -993,6 +993,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   `vyreon-worker:97d0e7d8` (build 97d0e7d8+b50e1b7a3e6a) pushed: the candidate for the next real day
   (measures pass 1). Droplets: 4 of 30 (Telemetry-Backend web, vyreon-engine-shared-8vcpu-amd, core,
   one worker): up to 27 workers; retiring the old engine droplet after daily runs move frees a 28th.**
+  **Block run day 1 (2026-11-02, AMD, image 48d87154, bulk), measured so far:** inputs 242 min (bulk
+  option history ~60, snapshots ~110, requote 31, macro/company/ACT01 ~41; Intel 11-03: 410), in-day
+  preparation 73 min (Intel 100), intent A 88 min (Intel 163) while day 2's download ran alongside,
+  exports 4 min (Intel 13). AMD runs these stages at 0.54–0.73 of the Intel time.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
