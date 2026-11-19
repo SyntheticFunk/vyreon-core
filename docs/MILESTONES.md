@@ -884,6 +884,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   revision may stay PUBLISHED in a report's window (core still holds 2022-06, 2025-04-11, 2025-12-10/11
   and the 2026-11 sample from older builds; phase 1 supersedes all but 2022-06). To verify against a
   real 48d87154 revision (the block run) before merging.
+  **Round bb (fourth pass, medium reasoning, on 48d87154; `audits/2026-11-19-bulk-round-bb/`): every
+  round-aa engine finding FIXED or FIXED WITH A NEW DEFECT; no wrong sensor number, no
+  nondeterminism. 6 findings:** two stored-label edge cases (a T 404 relabelled ENGINE_FAULT by
+  another chain's retryable failure in the same batch; a whole-fill key stop overwriting recorded
+  causes), a presigned-file 403 misread as a refused key (stops later categories), request cost
+  after a refused key, and two reference-suite containment/labelling gaps. Fix track `pass-fx55`
+  (verifies each first; no separate triage this pass). **Timings so far:** A/B 2025-04-11 API fill
+  3,989 s in parallel with bulk; block run (AMD, alone) captured 123 bulk day files in 31 min (~15 s
+  per file vs ~28 s on Intel alone: still to be benchmarked under control).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
