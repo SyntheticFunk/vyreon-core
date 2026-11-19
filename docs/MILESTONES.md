@@ -924,6 +924,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   contracts at $100 (API) vs $10 (file); (d) 22 dates from 2024-06-21: no-bid null vs 0.00 size 0.
   From 2025-03-05 to 2025-04-11 the two sources agree on every value. Investigation running (which
   source is right, by OI continuity, OCC/Cboe and the split memo; and the engine rule).
+  **Investigation done (`checks/2026-11-19-bulk-vs-api-2024.json`): all 240 bulk files in the window
+  are original next-morning releases; three patterns are provider faults.** 2024-07-02: the API mixes
+  in 07-03 data on seven chains (P-21), the file is right. OI 18724 is a placeholder (P-20): on 23,862
+  new listings in the files (API 0, right) and on 978 existing contracts in both sources, including
+  AMZN 2025-04-10 (phase 1). NVDA 2024-06-10 split ex-date: both sources mis-scale strikes (P-11
+  extended to EOD); before it the file's coding is right. No-bid null vs 0.00/size 0: same meaning.
+  External: OCC's volume query refuses dates older than two years; no DataShop overlap. Engine track
+  fx56 started (first-session OI > 0 unknown, 18724 a stated absence, post-close stamps fail a chain,
+  0/size-0 is no quote, D-391 on NVDA 2024-06-10 EOD); a scan of all phase-1 files for P-19/P-20/P-21
+  patterns started on the A/B node.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
