@@ -997,6 +997,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   option history ~60, snapshots ~110, requote 31, macro/company/ACT01 ~41; Intel 11-03: 410), in-day
   preparation 73 min (Intel 100), intent A 88 min (Intel 163) while day 2's download ran alongside,
   exports 4 min (Intel 13). AMD runs these stages at 0.54–0.73 of the Intel time.
+  **23:54 UTC: block day 1 2026-11-02 PUBLISHED (revisions 53/54; 2,853 slots, 7,818 reader scalars;
+  derived 1,105).** AMD compute after "inputs ready": intent A 88 min, exports 4, intent B (T) 72 (Intel
+  122), export index 3, FIELD 13 (Intel 35), bundle + derived 3: **185 min** (Intel 348), plus in-day
+  preparation 73 (Intel 100): **258 min of compute per day (Intel 448), with day 2's download running
+  on the same node meanwhile.** Day 1 total from start: 501 min (8 h 21 m; inputs 242 + compute 258).
+  Reference check started 23:55 (fixed suite).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
