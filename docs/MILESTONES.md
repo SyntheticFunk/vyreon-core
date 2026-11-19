@@ -668,7 +668,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   exceeds their day-to-day moves; our surfaces are dense; no engine fix. Sample ends near 20:00–21:00 UTC.
   **Owner (02:45 UTC Nov 19): in phase 1, SLV/FXI correlation is judged on 63-session panels only**
   (declared before phase-1 data, tools/external README a38f03f; threshold 0.9 and band 1 per
-  tranche unchanged; the sample's failures stay failures). Phase-1 spend: owner will approve,
+  tranche unchanged; the sample's failures stay failures). **Engine D-396 built (pass-fx47, not
+  merged: 11fd1a60 code, 1a92b508 tests, a842e5f0 docs; 1,426 tests pass):** option EOD from the
+  bulk day files behind `VYREON_OPTION_EOD_SOURCE=api|bulk` (default api until the A/B), new
+  source id `intrinio_bulk_options_prices_eod`, page identity binds the file's sha256 and the
+  chain's rows, API fallback per asset and date; 64 chains of a day captured in 6.5 s on the
+  laptop. **Finding: older dates' provider IV/Greeks differ between file and API** (P-16; prices
+  and contracts equal); they feed V02, G01 and M0 native profiles. Daily bars from bulk not built
+  (plan in D-396). Snapshot/requote stage of the real day runs one session at a time (~32 s each,
+  ~25% of one CPU): an optimization-pass target. Phase-1 spend: owner will approve,
   wants the totals first. Startup with BLACKFRIDAY: owner starts it before Nov 27 (code's end
   date unstated).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
