@@ -666,6 +666,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   NVDA 11-05 puts 495,279 short) or over (BABA deep-ITM single prints); ETHA's fractional volume
   explains 9 of its 10 fails. SLV/FXI correlation: the thin indices' intraday range (2.4-2.9 pts)
   exceeds their day-to-day moves; our surfaces are dense; no engine fix. Sample ends near 20:00–21:00 UTC.
+  **Owner (02:45 UTC Nov 19): in phase 1, SLV/FXI correlation is judged on 63-session panels only**
+  (declared before phase-1 data, tools/external README a38f03f; threshold 0.9 and band 1 per
+  tranche unchanged; the sample's failures stay failures). Phase-1 spend: owner will approve,
+  wants the totals first. Startup with BLACKFRIDAY: owner starts it before Nov 27 (code's end
+  date unstated).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
