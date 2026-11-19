@@ -901,6 +901,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   expired rows dropped, 342 chains to the API: 181 ETHA and 126 IBIT sessions before their options
   listed (no row: one wasted request each; skip by the listing start), 35 chains on 2024-05-22, a
   second bulk file without closing quotes (P-17 extended). Comparison running.
+  **Owner (17:10 UTC): a test census belongs in step 4.** List every ignored or skipped test with its
+  reason (105 reference tests skip for the absent golden dump; 33 engine tests ignored, many awaiting
+  the retained-fixture refreeze) and every test guarding a retired decision (provider-IV reader
+  shapes, old role names, the pre-bulk option path); then refreeze, run where the data is (the
+  cluster), or retire each with the reason recorded. Keep the API-path tests (fallback), Reporter's
+  provider-value refusal, and the internal provider-check tests.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
