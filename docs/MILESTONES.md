@@ -907,6 +907,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   shapes, old role names, the pre-bulk option path); then refreeze, run where the data is (the
   cluster), or retire each with the reason recorded. Keep the API-path tests (fallback), Reporter's
   provider-value refusal, and the internal provider-check tests.
+  **A/B 2025-04-11 comparison (window back to 2024-05-21): NOT equal on older dates.** 14,294 chains
+  each; 31,459,100 API rows vs 31,458,604 bulk. Besides second-precision times and analytics (as on
+  11-03), real differences: (1) AMD, EMB, META 2024-07-02: the API has 62/50/112 more contracts and
+  different prices, volume and OI on the same contracts (AMD 250117C155: close 28.53 vs 28.50, open
+  28.45 vs 25.10, volume 6 vs 170, OI 2,941 vs 3,005): one source holds another session's data;
+  (2) NVDA 2024-05-21..: two contracts per day coded $100 in the API and $10 in the file (around the
+  2024-06-10 10:1 split); (3) "no bid" as null in the API and 0.00 with size 0 in the file on ~460 k
+  rows (2024-06/07); (4) value differences on open interest (32,445 rows), volume, close/open/high/low
+  (~8 k rows). Per-date breakdown running; which source is right is to be settled against OCC/Cboe
+  before bulk is used for those dates.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
