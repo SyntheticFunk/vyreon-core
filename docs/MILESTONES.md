@@ -739,7 +739,17 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   duplicate headers, undo errors, D-264 filter skipped, signed URL as Referer on a redirect, and
   more; own-analytics findings: Q01/Q05 provider-analytic counts still exported as support, core
   `read` routes serve full bodies, V03 own-IV change still carries a provider-method
-  qualification, FIELD-OPTBR01 method identity unchanged, Reporter copy. Triage running.
+  qualification, FIELD-OPTBR01 method identity unchanged, Reporter copy.
+  **Triage (`.../triage/`): bulk 14 real (3 wrong-number, latent), 2 not real, 1 by decision, 1
+  uncertain; own analytics 9 real (0 wrong-number; 3 stored labels: V03 own-IV change carries a
+  false METHOD_CONTINUITY_UNKNOWN, VS-Q05 provider counts exported to readers, FIELD-OPTBR01 keeps
+  its old method label), 1 not real, 2 by decision.** Blocking phase 1: D-395 (transport cap 16,
+  byte reservation × worker_count), STRIKE unchecked against the OSI code (P-19: the 2025-12-31
+  file states strikes in thousandths), the three stored labels. Fix tracks started 08:00 UTC:
+  A `pass-fx50` (bulk + D-395, D-398/399), B `pass-fx51` (own analytics, D-400/401). Open, not
+  engine: Reporter's FIELD panel still selects `provider_iv_median.*` and M0 copy says provider
+  figures (before issue 1, 2027-01-10); core `read` routes serve full bodies (by decision while
+  only Reporter and the owner hold keys).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
