@@ -690,6 +690,26 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (owner):** "Individual and Startup include the same APIs, endpoints, and datasets"; 2K calls/min,
   1 RPM bulk/paging; $999/qtr ×2, $1,998 ×2, $2,997 after. WebSocket: our options stream is
   `opra_derived_realtime` (Intrinio's synthetic price), so no use as an input; dropped.
+- **02:05 UTC Nov 19: owner direction: use the bulk files wherever they exist and match the API,
+  transient per day like the other inputs (no Spaces copy needed), tested on a cluster node before
+  swapping everything.** Network from the core node: 1.1–1.75 Gbps to public test files, Intrinio's
+  S3 1.56 Gbps with 6 files at once (the 21 Mbps seen was request handling, not the link).
+  **Parity (`checks/2026-11-19-bulk-parity.json`): bulk equals the API in every case**: option EOD
+  SPY 2026-11-03 both pages (12,800), ETHA 10-07/10-08 reverse split with ETHA1, XLK 2025-12-05
+  split, EWJ 2026-08-26 null volumes, SPY/AAPL/ETHA 2026-06-15 (no later corrections); every
+  contract present, no extras, 0 mismatches within 1e-4 on 14 fields; the only difference is the
+  API's float32 values (45.04999923706055) vs the file's decimals (45.05), max relative 5.7e-8,
+  floating-point noise to report on the first switched day. EWJ 08-26: 793 API rows with null
+  `exercise_style` where bulk says "A" (engine default American: confirm). Daily bars: the 5-year
+  stock-price bulk equals the API on 35 days across SPY, NVDA, ETHA and XLK splits (key rows by
+  security id: IBIT's ticker was a Defiance ETF in 2022–23). **Replaceable: option EOD and daily
+  bars** (with snapshots and replay already files). Not replaceable: act01 intervals and exq01
+  trades (per contract), company (bulk fundamentals are standardized only, no acceptance times),
+  macro. Files arrive T+1 ~07:10 UTC (options), ~04:30 UTC (bars). **Engine work next:** a bulk
+  source whose identity is the file's hash plus the extracted rows; the operation id is pinned in
+  receipts (h2-engine request.rs; h3-asset node.rs, q01_execution.rs, h4_quality.rs, h4_g01.rs;
+  h3-q04; h3-m0-contract), so a new source id or an accepted alias. Then an A/B: 2026-11-03 on
+  the bulk source vs tonight's API-sourced result.
 - **02:40 UTC: owner decision: fix round x's other twelve in their simplest form (core #1 2 7 8 9 12
   17 19 in `/home/diggz/wt/core-fix-y`; engine #3 10 14 15 16 in `/home/diggz/wt/fx30`), then NO
   further audit of the operations features.** Reason: three rounds (v, w, x) keep finding the same
