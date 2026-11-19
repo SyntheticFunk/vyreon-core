@@ -893,6 +893,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (verifies each first; no separate triage this pass). **Timings so far:** A/B 2025-04-11 API fill
   3,989 s in parallel with bulk; block run (AMD, alone) captured 123 bulk day files in 31 min (~15 s
   per file vs ~28 s on Intel alone: still to be benchmarked under control).
+  **17:00 UTC: round-bb fixes merged, `worker` 04e2ed1b (pushed); full suite 1,462 passed, 0 failed;
+  reference 53 passed; image `vyreon-worker:04e2ed1b` built.** Left by choice: a refused bulk
+  listing falls back to the API (a 403 there may be a missing bulk entitlement; the API's first batch
+  stops the fill on a bad key). **A/B 2025-04-11 fills:** API 3,989 s, 18,437 requests; bulk 6,815 s
+  (shared node), 4,313 requests; both nothing missing; bulk 13,952 chains from 224 files, 165,909
+  expired rows dropped, 342 chains to the API: 181 ETHA and 126 IBIT sessions before their options
+  listed (no row: one wasted request each; skip by the listing start), 35 chains on 2024-05-22, a
+  second bulk file without closing quotes (P-17 extended). Comparison running.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
