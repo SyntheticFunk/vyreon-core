@@ -978,6 +978,17 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   needs a merged multi-asset batch or a multi-writer ledger, not speed-only; matters only for API-
   source days), requote (already 8 sources at once; pass-2 candidates: the double prepare at first
   admission and requote, dropping the A/B-only `bulk_snapshot_absent` re-read, 16 workers).
+  **Owner (22:45 UTC): compute should be where the cost is; optimization passes are granular and repeat
+  until the expected gain no longer justifies a pass** (the bottleneck will move several times).
+  Working stop rule: continue while a pass's measured saving clearly exceeds ~a day of work plus
+  verification (phase 1: each 10% of compute ≈ 200 node-hours ≈ 1 day on 8 nodes; daily runs: every
+  hour saved publishes every day an hour earlier). Compute passes start from a per-task profile of
+  intent A/B (sensor family × asset), not stage totals. **Rough phase-1 totals given to the owner
+  (estimates, to be replaced by the block run's measurements):** ~405 sessions; first day of a block
+  ~6.2 h on AMD after pass 1, later days ~4.5 h, reference check ~0.7 h; ~5.3 node-h per day,
+  ~2,100 node-h (1,700–2,500); 8 nodes ~11 days, 16 ~5.5, 24 ~3.7; ~$290–420 of AMD worker time
+  (above the $300 cluster ceiling: owner's approval on final totals). Limits now: AMD capacity in
+  nyc1 and the 30-droplet account limit, not Intrinio requests.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
