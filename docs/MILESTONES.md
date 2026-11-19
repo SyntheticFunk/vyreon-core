@@ -811,6 +811,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (`tools/golden/fixture.py`): every P01 and V03 receipt and task key in `retained-2025-12-10`,
   `retained-2026-09-18` and `final-results/h4-m0-measurement-dev1/{spy,qqq}-inline-vs-p01`; their
   tests stay ignored until then.** Image building.
+  **A/B 2026-11-03 on f634f7c7 (pod ab-bulk3):** API fill 4,332 s (72 min), 19,890 requests, nothing
+  missing; bulk fill 6,253 s (104 min, ~28 s per day file, sequential), 5,255 requests (daily bars +
+  66 chains to the API: 64 on 2025-12-31 P-17, QQQ 2026-09-29 no rows, SPY 2026-09-28 sizes/times
+  empty), 14,270 chains from 224 files, 1,192 expired rows dropped, nothing missing. **The
+  contract-by-contract comparison was lost: my comparer loaded both homes into memory, the node
+  ran out and the pod was evicted with its emptyDir (11:33 UTC).** Rerun on the next image with a
+  streaming comparer and a memory limit. So far: bulk saves ~14,600 option requests per day but is
+  slower in wall time until the per-file capture is parallelised (optimization pass).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
