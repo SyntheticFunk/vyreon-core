@@ -960,6 +960,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   quotes ~30–38 k a day across the market, a stable set per root (NVDA 2,125, AVGO 988, QQQ ~700,
   MSTR 618: contracts without quotes, not whole chains; the overlay takes the snapshot);
   4.83 M expired rows (dropped, P-18). SYMBOL ≠ code root: none.
+  **Step 3 (A/B) done; A/B node day-std-3a1hrq deleted (21:12 UTC).** Results saved:
+  `checks/2026-11-19-ab-20250411-{compare,bydate}.json`, `checks/2026-11-19-bulk-phase1-scan.json`,
+  `checks/2026-11-19-bulk-vs-api-2024.json`. Verdict: bulk equals the API on contracts and prices
+  for 2025-03-05 onward; earlier dates differ where the provider is wrong (P-20, P-21, P-11 EOD),
+  the file being right in two of three; the engine now handles all of them (D-398, D-399).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
