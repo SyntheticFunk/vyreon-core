@@ -869,6 +869,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   optimization pass, the cost of the 2nd and 3rd day of a block, AMD vs Intel, and the real-day check
   of the merged batches. Fourth audit pass (round bb, combined, medium reasoning to fit the remaining
   Codex allowance; owner's suggestion) started. A/B 2025-04-11 running on day-std-3a1hrq.
+  **Owner (15:40 UTC): the optimization pass runs twice** ("agents never get everything done in one;
+  the audits demonstrate this"): pass 1 from the block run's profile, each change its own commit,
+  measured on a real day; pass 2 on what pass 1's measurement shows is left. Node choice by a
+  controlled benchmark (same image, same day files, same command, AMD and Intel at once, alone;
+  then parse-only vs write to separate CPU from disk), not by the first AMD reading (~20 s per
+  bulk file vs ~28 s on Intel, confounded by disk, build, dates and neighbours).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
