@@ -792,7 +792,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (same class as V03's; changes P01 pins, fix with the retained-fixture refreeze before phase 1);
   bulk 6 (gate deadline) by decision. **A/B API fill done: 72 min at 64 in flight, 19,890 requests
   (~276/min: not rate-bound; per-asset batches serialise), nothing missing.** Round-aa audit started;
-  image building.
+  image `3b76925f` built and pushed.
+  **Round aa (third pass on 3b76925f; triage `audits/2026-11-19-bulk-round-aa/triage/`): findings now
+  mostly need a local filesystem failure, a parent-only kill or a revoked key.** One blocks phase 1:
+  a withheld VS-Q01 has no reader view (projection requires the count matrix; pre-existing; every
+  contained asset-day and EMPTY_DELIVERED_POPULATION, e.g. QQQ 2026-09-29), and its headline scalars
+  vanish. Conditional: one 404 in an asset batch masks another date's failure (blocking if batch 404s
+  appear in ledgers). Fix track `pass-fx53` started 11:00 UTC for every real one, plus the V03 and P01
+  kernel contracts. **Codex allowance 96% of the week used (resets 2026-11-20 14:51 UTC): the fourth
+  pass waits for it.**
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
