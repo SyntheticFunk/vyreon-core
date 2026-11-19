@@ -713,6 +713,22 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   IV/Greeks, stale descriptions, new decision). Next: review, merge to `worker`, Codex audit, one
   image (D-395 + D-396 + fx48), A/B 2026-11-03 and 2025-04-11 api vs bulk without publishing over
   core's day, optimization pass, phase-1 totals, hand-off.
+  **07:20 UTC: engine merged, `worker` e738b4a5** (fx47: D-396 + amendment, 1,430 passed; fx48:
+  D-397, 1,432 passed, reference pytest 34): bulk expired rows dropped (P-18), a chain with a read
+  field empty on every row or no listed row goes to the API (DEGENERATE, P-17; also 218 delisted
+  quoteless chains such as PWSC, one request each), `bulk-fallback.json` recorded; contracts the
+  snapshot shows active that a bulk chain lacks are only measured (`bulk_snapshot_absent` at the
+  requote: acting needs a re-capture design). D-397: M0 INTRINIO_NATIVE groups private, FIELD-OPTBR01
+  on own IV, rule 18. Open from the agent: overlay 12's spec table (byte-locked) not edited, D-397
+  holds the text; native groups still in the raw stream routes (`/stream/events`, as SAI-G01).
+  Codex audits started (`audits/2026-11-19-bulk-round-y/`: bulk, ownanalytics) on e738b4a5.
+  Image `vyreon-worker:e738b4a5` built and pushed (QuantLib 1.43, TA-Lib 0.8.2). **A/B plan: fills
+  only, in a pod `ab-bulk` (label app=vyreon-worker so delete-idle spares its node) on a second
+  day-std node (AMD refused again: no capacity); scripts `cluster-scratch/ab/`; nothing goes to
+  core.** First bulk fill found a defect: every other day file failed "error sending request"
+  (the file client reused a connection the host closes after ~20 s idle; a capture takes ~25 s),
+  so that day's 64 chains went to the API. Fixed: `worker` 8de870cf (no idle connection for files,
+  resend up to 3 tries; D-396 amended); image rebuilding.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
