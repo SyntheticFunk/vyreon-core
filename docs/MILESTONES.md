@@ -917,6 +917,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   rows (2024-06/07); (4) value differences on open interest (32,445 rows), volume, close/open/high/low
   (~8 k rows). Per-date breakdown running; which source is right is to be settled against OCC/Cboe
   before bulk is used for those dates.
+  **Per-date breakdown (`tasks/…/bl9bz0u2g.output`): 80 dates differ on values.** (a) 2024-06-10 (NVDA
+  split ex-date) and 2024-07-02: whole-chain differences in close/open/high/low/volume/OI/quotes, and
+  on 07-02 six chains list different contracts; (b) 2024-11-04..2025-03-04: open interest differs on
+  22–716 rows every session, never after 03-04; (c) 2024-05-21..06-10: one NVDA chain a day codes two
+  contracts at $100 (API) vs $10 (file); (d) 22 dates from 2024-06-21: no-bid null vs 0.00 size 0.
+  From 2025-03-05 to 2025-04-11 the two sources agree on every value. Investigation running (which
+  source is right, by OI continuity, OCC/Cboe and the split memo; and the engine rule).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
