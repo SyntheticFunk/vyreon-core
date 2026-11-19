@@ -686,6 +686,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   IV/Greeks is needed before phase 1** (those values go into the phase-1 database); scoping running
   (consumers of provider analytics; what the engine already computes). Measuring file vs API
   against Cboe DataShop's 15:45 IV/Greeks (2025-04 SPY/TSLA/UUP, 2025-12 XLK) as a quality check.
+  **File stamps (S3 Last-Modified of all 1,448 day files, `~/claude-artifacts/checks/2026-11-19-
+  bulk-eod-stamps.json`):** 2021–2023 all rewritten later (bulk rewrites 2024-03-03..09,
+  2025-11-21, 2026-08-17). Phase-1 range (2025-04-10 on): 373 of 427 files stamped 1–3 days after
+  T; 54 later: 2025-11-01..26 (rewritten 2026-01-05..07), 2025-11-28..12-30 (2026-08-17),
+  2026-04-17 (2026-04-23), 2026-08-20..09-28 (5 files, 2026-10-21). A stamp shows the last write,
+  not whether the analytics changed. 2025-08-01's file is stamped 08-04 yet differs from the API:
+  the API side recomputed.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
