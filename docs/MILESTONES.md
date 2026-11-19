@@ -951,6 +951,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   **`worker` c2a627ac pushed; full suite 1,470 passed, 0 failed; image `vyreon-worker:c2a627ac`
   (build c2a627ac+4c19b3d5e622) pushed.** The block run continues on 48d87154 (its profile is still
   valid: D-398/399 change no ordinary-day value).
+  **Phase-1 file scan done (all 427 bulk day files 2025-04-10..2026-11-17, 795.9 M rows, 0 errors;
+  `/work/scan-phase1.json` on the A/B pod, summary in the task output):** strike ≠ OSI code only on
+  2025-11-27, 2025-12-25, 2026-01-01 (market holidays: files exist but no session reads them) and
+  2025-12-31 (P-19, already handled); 18724 on 129 rows over 110 days, a few on universe roots
+  (D-398's snapshot rule handles them); rows stamped after their day only in the 2026-09-28 file
+  (55,171 rows, rewritten 2026-10-21: D-399 sends those chains to the API); rows with no closing
+  quotes ~30–38 k a day across the market, a stable set per root (NVDA 2,125, AVGO 988, QQQ ~700,
+  MSTR 618: contracts without quotes, not whole chains; the overlay takes the snapshot);
+  4.83 M expired rows (dropped, P-18). SYMBOL ≠ code root: none.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
