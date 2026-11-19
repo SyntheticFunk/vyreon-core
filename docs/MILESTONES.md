@@ -965,6 +965,19 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   `checks/2026-11-19-bulk-vs-api-2024.json`. Verdict: bulk equals the API on contracts and prices
   for 2025-03-05 onward; earlier dates differ where the provider is wrong (P-20, P-21, P-11 EOD),
   the file being right in two of three; the engine now handles all of them (D-398, D-399).
+  **Step 4, optimization pass 1 (input stages), `pass-fx57` (D-401; D-395/D-396 amended): merged into
+  `worker`, suite and image in progress.** Byte-identical outputs, proven on real frozen data per
+  change: bulk day files 3 at a time (`VYREON_BULK_FILES_IN_FLIGHT`, est. 25–50 min saved per window
+  on AMD); closing snapshots 8 sessions at a time, written in session order, markers derived in
+  parallel (`VYREON_SNAPSHOTS_IN_FLIGHT`; est. 110–135 → 10–20 min if the file host limits per
+  connection); marker rewrite in parallel; `h5_surface` longest chains first and T/T−5 surfaces at
+  once (est. 10–35 min of the 73–100 min in-day preparation, which is T's input plan plus the two
+  surfaces); ACT01 cohorts 8 assets at once (it never used the batch setting: est. 24 → 3–4 min).
+  None measured yet (no full-size files on the laptop): the next real day on the cluster measures
+  them. Not changed: several assets' API batches at once (one account writer lock per batch process;
+  needs a merged multi-asset batch or a multi-writer ledger, not speed-only; matters only for API-
+  source days), requote (already 8 sources at once; pass-2 candidates: the double prepare at first
+  admission and requote, dropping the A/B-only `bulk_snapshot_absent` re-read, 16 workers).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
