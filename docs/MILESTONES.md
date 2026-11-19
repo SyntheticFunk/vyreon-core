@@ -826,6 +826,21 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   3 min: **compute 7 h 28 m** (the 110–160 min of 2026-11-09 was the AMD node and an older build:
   phase-1 sizing must use measured compute on the node size we can get). Reference check started
   13:30 (deadline 600 min). A/B rerun on 8e0d831c: API fill 4,788 s (in parallel with bulk).
+  **14:32 UTC: job ended, node day-std-3a0sym deleted.** Day published in 509 min of worker time
+  (inputs 410 + compute ~450 on the same clock: the download log counts from 23:10). Intrinio
+  requests by category: captures 25,011, company 2,747, api_json 288, carry 256, macro 86.
+  **Reference check CRASHED after 59.5 min (318 CPU min, 8 jobs), report 1 in core:** the intraday
+  reference reads `consolidated/<T>/capture/trades.raw`, which a worker never has (tape caches come
+  from core; the raw tape is retired under D-159), and one symbol's FileNotFoundError aborted the
+  whole suite. Fix track `pass-fx54` started (state unverifiable per symbol, contain per-symbol
+  crashes, cost analysis). Problem open in core: "Reference check did not run on 1 published day".
+  **Diff against the stored 11-03 (revision 35, build 05837898):** 0 slot-state changes; 2,210 of
+  2,853 bodies changed (provenance and labels), VS-O06 method @2→@3 (D-382/383, all 64); reader
+  scalars 7,691 of 7,744 identical, 8 withheld (CDD-FND01 BABA and TSM: D-361 foreign-filer
+  cross-period withholding, P-07), 26 float-noise (≤1e-14), 19 changed: FIELD-OPTBR01 15 (one more
+  member's OI call share supported, support 0.984→1, cross-section stats move ≤4%), VS-IVS01 DBA
+  skew30 −0.02288→−0.02388 and UUP +0.2%, VS-V03-CURRENT UUP put IV −0.2%: thin chains requoted under
+  D-391/D-394. All tied to merged decisions.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
