@@ -841,6 +841,22 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   member's OI call share supported, support 0.984→1, cross-section stats move ≤4%), VS-IVS01 DBA
   skew30 −0.02288→−0.02388 and UUP +0.2%, VS-V03-CURRENT UUP put IV −0.2%: thin chains requoted under
   D-391/D-394. All tied to merged decisions.
+  **A/B 2026-11-03 result (image 8e0d831c, streaming comparer): the bulk files deliver the same
+  option history as the API.** 14,336 chains each, 38,326,866 rows each, the same contracts in every
+  chain; every price, size, volume and open-interest field equal. Differences: (1) quote and trade
+  times are whole seconds in the file (`21:00:02Z`) where the API has milliseconds
+  (`21:00:02.396Z`), on ~37.6 M rows: no engine rule compares those times below a second (EOD quotes
+  are replaced by the 15:55 snapshot, D-071; occ.rs takes the max per contract); (2) provider IV and
+  Greeks differ on 6.5–9.1 M rows, mostly the dates whose files were rewritten (P-16; internal only
+  under D-397); (3) exercise style null in the API but `A` in the file on 498,208 rows (all 64 are
+  American: same value under D-199). Requests: API 19,890, bulk 5,255 (daily bars + 66 degenerate
+  chains). Time: API 72 min alone / 80 min shared; bulk 104 min alone / 148 min shared (per-file
+  capture is sequential: optimization target). 2025-04-11 A/B started 14:58 UTC (same pod).
+  **Merging `pass-fx54` (reference check: raw tape absent → unverifiable per role, per-symbol and
+  per-family crashes contained, `incomplete` and `timings` in the report; D-370 amended).** Owner
+  decision needed: verify the tape owners independently by running the reference tape reader on the
+  tape worker (which still has the raw tape) and keeping its verdict with the cache, or accept them
+  as unverifiable on worker days.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
