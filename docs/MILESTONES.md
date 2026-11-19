@@ -801,6 +801,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   appear in ledgers). Fix track `pass-fx53` started 11:00 UTC for every real one, plus the V03 and P01
   kernel contracts. **Codex allowance 96% of the week used (resets 2026-11-20 14:51 UTC): the fourth
   pass waits for it.**
+  **11:25 UTC: round-aa fixes merged, `worker` 8e0d831c (pushed); full suite 1,456 passed, 0 failed;
+  reference 44 passed.** A withheld VS-Q01 has a reader view (each role WITHHELD with the body's
+  reason); each failed capture in a batch classified on its own; space-padded codes; a stuck bulk
+  chain is that asset's ENGINE_FAULT (not the whole day Stale) and the fill exits 1; a refused key
+  stops the fill; V03 and P01 kernel contracts describe the code (digests V03 14604cef…, P01
+  97eb2b5f…); FIELD M0 members need an own derivation class and a 64-hex index digest; golden guard
+  by build ancestry; small bulk provenance fixes. **Retained fixtures need a real run of this build
+  (`tools/golden/fixture.py`): every P01 and V03 receipt and task key in `retained-2025-12-10`,
+  `retained-2026-09-18` and `final-results/h4-m0-measurement-dev1/{spy,qqq}-inline-vs-p01`; their
+  tests stay ignored until then.** Image building.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
