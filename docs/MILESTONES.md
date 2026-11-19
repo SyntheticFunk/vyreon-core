@@ -666,6 +666,30 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   NVDA 11-05 puts 495,279 short) or over (BABA deep-ITM single prints); ETHA's fractional volume
   explains 9 of its 10 fails. SLV/FXI correlation: the thin indices' intraday range (2.4-2.9 pts)
   exceeds their day-to-day moves; our surfaces are dense; no engine fix. Sample ends near 20:00–21:00 UTC.
+- **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
+  real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
+  in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
+  16 → 517, 64 → 1,372, median 1.8/1.7/2.0 s, 0 refusals. **Engine D-395 (`worker` 69f987e9,
+  pushed): `VYREON_CAPTURE_IN_FLIGHT`, default 64, max 128; speed only** (322 tests pass with
+  `VYREON_FIXTURES` set). In the next worker image; the running day stays on e329b3c8.
+  **Cluster budget:** core's leases (C-025) already share 1,800/min across workers; one node at 64
+  can take most of it. **Owner rule for phase 1: start another node only when the download budget
+  has headroom** (core's lease use below 1,800 minus one node's steady draw; measure the steady
+  draw on the first block). Real day's ledger at 01:50 UTC: 17,746 requests, option EOD history
+  13,125 (23.7 GB), daily bars 4,621.
+  **Bulk option EOD files found (`bulk` access code on our account):** one whole-market CSV per
+  day, 2021-09-27..2026-11-17 (1,448 files, ~130 MB zipped, 516 MB / 2.08M contracts for
+  2026-11-03, released ~07:10 UTC the next day), 115 GB in all; plus US stock prices (5 y, 0.6 GB)
+  and fundamentals. **Parity on 2026-11-03 vs the API rows the worker captured:** AAPL 3,376,
+  ETHA 2,728 (ETHA + ETHA1), SPY 10,000 (page 1): every contract present; close, bid, ask,
+  volume, open interest, high, low, open and mark identical; counts also equal for NVDA, EWJ,
+  UNG, SPY (12,800). One request a day replaces 64, and the whole phase-1 window could be fetched
+  once (~10 h at the 1/min bulk limit) into Spaces so runs and rebuilds use no option-EOD budget.
+  Before adopting: wider parity (a split day, ETHA's reverse split, a null-volume day, the 3am
+  release vs later corrections) and an engine source path from the CSV. **Startup checkout
+  (owner):** "Individual and Startup include the same APIs, endpoints, and datasets"; 2K calls/min,
+  1 RPM bulk/paging; $999/qtr ×2, $1,998 ×2, $2,997 after. WebSocket: our options stream is
+  `opra_derived_realtime` (Intrinio's synthetic price), so no use as an input; dropped.
 - **02:40 UTC: owner decision: fix round x's other twelve in their simplest form (core #1 2 7 8 9 12
   17 19 in `/home/diggz/wt/core-fix-y`; engine #3 10 14 15 16 in `/home/diggz/wt/fx30`), then NO
   further audit of the operations features.** Reason: three rounds (v, w, x) keep finding the same
