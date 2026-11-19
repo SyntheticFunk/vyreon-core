@@ -703,7 +703,7 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   IV/Greeks** — the native channel leaves the served set (kept stored as a provider check;
   revises D-101's dual representation), FIELD-OPTBR01's two IV mappings move to the own IV; the
   provider checks stay internal, fed from the files. Before phase 1.
-  **In flight at 06:30 UTC Nov 19 (owner leaving for a rig job ~8 h away; laptop goes along):**
+  **In flight at 06:30 UTC Nov 19:**
   real day 2026-11-03 (Job `v-real-1103`, core job 1382, node day-std-3a0sym, image e329b3c8)
   in compute since 06:01 UTC; inputs took 6 h 51 m (API history 3 h 05 m at 4 in flight, snapshots
   ~2 h 15 m sequential, requote 50 m, ACT01 24 m, rest 10 m); then the reference check, then
