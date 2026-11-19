@@ -860,6 +860,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   **15:05 UTC: `worker` 48d87154 (fx54 merged, pushed); full suite 1,457 passed, 0 failed; image
   `vyreon-worker:48d87154` (build 48d87154+fe2ce9137923) pushed: the candidate for the next real day
   and the optimization pass.**
+  **Owner (15:15 UTC): go ahead with the Reporter changes; continue with steps 3 and 4, then 5–7.**
+  Reporter branch `d397-own-analytics` (worktree outside the checkout) in progress. **15:30 UTC: build
+  48d87154+fe2ce9137923 registered and admitted (`cluster-scratch/evidence-48d87154.json`); day-block
+  job 1383 scheduled for 2026-11-02..04 as one 3-session block; Job `v-block-1102`
+  (`VYREON_OPTION_EOD_SOURCE=bulk`, 64 in flight) on an AMD node (pool `day` resized to 1: nyc1 had
+  capacity this time; node day-3az1af).** Purpose: the compute profile of the current build for the
+  optimization pass, the cost of the 2nd and 3rd day of a block, AMD vs Intel, and the real-day check
+  of the merged batches. Fourth audit pass (round bb, combined, medium reasoning to fit the remaining
+  Codex allowance; owner's suggestion) started. A/B 2025-04-11 running on day-std-3a1hrq.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
