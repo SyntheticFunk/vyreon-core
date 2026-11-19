@@ -699,7 +699,7 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   **Engine inventory:** the engine already computes per-contract American IV/Greeks from the 15:55
   snapshot (h3-iv-surface); provider analytics remain only in Q01/Q05 (delivery support), V02 and
   SAI-G01 (internal), M0 IV profile/change native channel and FIELD-OPTBR01's 2 IV mappings
-  (served), FIELD-SUP01 (support). **Owner (06:20 UTC Nov 19): readers get only the engine's own
+  (served), FIELD-SUP01 (support). **Owner (~05:55 UTC Nov 19): readers get only the engine's own
   IV/Greeks** — the native channel leaves the served set (kept stored as a provider check;
   revises D-101's dual representation), FIELD-OPTBR01's two IV mappings move to the own IV; the
   provider checks stay internal, fed from the files. Before phase 1.
