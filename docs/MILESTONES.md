@@ -857,6 +857,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   decision needed: verify the tape owners independently by running the reference tape reader on the
   tape worker (which still has the raw tape) and keeping its verdict with the cache, or accept them
   as unverifiable on worker days.
+  **15:05 UTC: `worker` 48d87154 (fx54 merged, pushed); full suite 1,457 passed, 0 failed; image
+  `vyreon-worker:48d87154` (build 48d87154+fe2ce9137923) pushed: the candidate for the next real day
+  and the optimization pass.**
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
