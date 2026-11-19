@@ -750,6 +750,22 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   engine: Reporter's FIELD panel still selects `provider_iv_median.*` and M0 copy says provider
   figures (before issue 1, 2027-01-10); core `read` routes serve full bodies (by decision while
   only Reporter and the owner hold keys).
+  **08:30 UTC: fixes merged, `worker` f634f7c7 (pushed); full suite 1,442 passed, 0 failed.** Track A
+  (pass-fx50; D-395/D-396 amended): idle pool ≤16 separate from concurrency (1..=128), byte
+  reservation per request in flight (+ wait, not deny), OSI disagreement → degenerate chain (P-19),
+  quoted/duplicate-header files refused, Last-Modified/ETag recorded, every whole-file failure
+  recorded per chain, interrupted bulk attempts undone and re-planned, 403 relists once, per-date
+  errors kept to their date, no Referer/redirect on the bulk client, D-264 filter before bulk, O01
+  checks the binding's operation. Track B (pass-fx51; D-400, D-397/D-196 amended): V03-MATCHED's
+  own-IV change carries no METHOD_CONTINUITY_UNKNOWN (method `…TWO-ENDPOINT@3-D-400`), V03-CURRENT
+  no longer reads Q05 (one task fewer per asset), VS-Q05 internal, FIELD-OPTBR01 relabelled
+  (`…overlay-12/D-397`, `H5-FIELD-OPTIONS@2`), old provider roles private on reprojection, M0
+  serves only `VYR_*` representations, `try_exists` for FIELD members, independent own-IV
+  reference. Open: refreeze the retained-* V03 fixtures and re-pin `golden_day.DUMP` from a run of
+  this build (two h3-asset tests ignored meanwhile); INT-IVSC01's internal
+  `comparison_qualification` still says METHOD_CONTINUITY_UNKNOWN; Reporter's VS-Q05 entry needs
+  the internal stub. Repeat audit (round z) started; image rebuilding. Laptop: merged worktrees
+  fx46..fx49, fx51 removed, target-s3i (156 GB) and target-fx51 deleted (target-fx50 kept for round z).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
