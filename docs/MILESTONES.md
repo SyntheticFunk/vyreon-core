@@ -819,6 +819,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   ran out and the pod was evicted with its emptyDir (11:33 UTC).** Rerun on the next image with a
   streaming comparer and a memory limit. So far: bulk saves ~14,600 option requests per day but is
   slower in wall time until the per-file capture is parallelised (optimization pass).
+  **13:29 UTC: real day 2026-11-03 PUBLISHED (core revisions 51 and 52: 2,853 slots, 7,763 reader
+  scalars; derived 1,105 slots).** Image e329b3c8 on the regular Intel node (day-std, s-8vcpu-16gb).
+  Profile: inputs 410 min (above); in-day input preparation 100 min (06:01–07:41); intent A history
+  nodes 163 min; exports 13 min; intent B (T) 122 min; export index 7 min; FIELD 35 min; derived
+  3 min: **compute 7 h 28 m** (the 110–160 min of 2026-11-09 was the AMD node and an older build:
+  phase-1 sizing must use measured compute on the node size we can get). Reference check started
+  13:30 (deadline 600 min). A/B rerun on 8e0d831c: API fill 4,788 s (in parallel with bulk).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
