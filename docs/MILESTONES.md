@@ -703,6 +703,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   IV/Greeks** — the native channel leaves the served set (kept stored as a provider check;
   revises D-101's dual representation), FIELD-OPTBR01's two IV mappings move to the own IV; the
   provider checks stay internal, fed from the files. Before phase 1.
+  **In flight at 06:30 UTC Nov 19 (owner leaving for a rig job ~8 h away; laptop goes along):**
+  real day 2026-11-03 (Job `v-real-1103`, core job 1382, node day-std-3a0sym, image e329b3c8)
+  in compute since 06:01 UTC; inputs took 6 h 51 m (API history 3 h 05 m at 4 in flight, snapshots
+  ~2 h 15 m sequential, requote 50 m, ACT01 24 m, rest 10 m); then the reference check, then
+  publish. When it ends: `cluster-scratch/delete-idle.sh`, then refcheck/problems/diff/profile.
+  Engine agent working: PART A on pass-fx47 (P-17 empty-field and missing-row API fallback, P-18
+  expired rows dropped, D-396 amendment), PART B on new pass-fx48 off fx47 (readers on own
+  IV/Greeks, stale descriptions, new decision). Next: review, merge to `worker`, Codex audit, one
+  image (D-395 + D-396 + fx48), A/B 2026-11-03 and 2025-04-11 api vs bulk without publishing over
+  core's day, optimization pass, phase-1 totals, hand-off.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
