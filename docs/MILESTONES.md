@@ -781,6 +781,18 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   started 08:35 UTC (SPY ~4 min vs 12 at 4 in flight; whole fill ~1 h vs 3 h 05 m); the earlier
   bulk run on 8de870cf processed ~22 s per day file (171 of ~225 days in 64 min; 2025-12-31's 64
   chains correctly DEGENERATE → API).
+  **10:00 UTC: round-z fixes merged, `worker` 3b76925f (pushed); full suite 1,449 passed, 0 failed;
+  reference 42 passed.** Q01's reader view drops the five analytic rows and two masks (retitled
+  "Option-population support on the closing-snapshot basis"); V03 kernel contract parents P01,
+  Q01–Q04; bulk rows kept by SYMBOL or code root, mismatch → degenerate; 404/401/403 classified from
+  one formatter (D-262 amended); FIELD carrier must match the M0 index digest; bulk undo order,
+  attempt lock, synced bodies, SHA-mismatch record, relist on 400, per-date listing failure, prune,
+  exact-decimal strike compare; requote diagnostic reads through the index; M0 projection also checks
+  derivation class and unit; reference robustness. Open: P01's kernel contract still names VS-Q03
+  (same class as V03's; changes P01 pins, fix with the retained-fixture refreeze before phase 1);
+  bulk 6 (gate deadline) by decision. **A/B API fill done: 72 min at 64 in flight, 19,890 requests
+  (~276/min: not rate-bound; per-asset batches serialise), nothing missing.** Round-aa audit started;
+  image building.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
