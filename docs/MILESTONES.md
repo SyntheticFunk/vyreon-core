@@ -875,6 +875,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   controlled benchmark (same image, same day files, same command, AMD and Intel at once, alone;
   then parse-only vs write to separate CPU from disk), not by the first AMD reading (~20 s per
   bulk file vs ~28 s on Intel, confounded by disk, build, dates and neighbours).
+  **Reporter D-397/D-400 changes done** (branch `d397-own-analytics` from `engine-v1-remediation`
+  326cb88, worktree `/home/diggz/wt/reporter-d397`, not pushed; f926b8a FIELD-OPTBR01 own IV, 3587ab1 M0
+  copy and dead INTRINIO_NATIVE code, c7d6d64 VS-Q01 title/labels from the view's axes and withheld
+  wording, b26f422 VS-Q05 internal stub, f9e6d7f V03-MATCHED `support_qualification`; tests: unit 194,
+  contract 22, rendering 12). Reporter now refuses (fails the asset build) any coordinate in a
+  provider-IV unit or a non-`VYR_*` M0 group: fail-closed; before Reporter reads core, no pre-D-397
+  revision may stay PUBLISHED in a report's window (core still holds 2022-06, 2025-04-11, 2025-12-10/11
+  and the 2026-11 sample from older builds; phase 1 supersedes all but 2022-06). To verify against a
+  real 48d87154 revision (the block run) before merging.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
