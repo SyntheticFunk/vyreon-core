@@ -934,6 +934,20 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   fx56 started (first-session OI > 0 unknown, 18724 a stated absence, post-close stamps fail a chain,
   0/size-0 is no quote, D-391 on NVDA 2024-06-10 EOD); a scan of all phase-1 files for P-19/P-20/P-21
   patterns started on the A/B node.
+  **Engine track fx56 merged into `worker` c2a627ac (suite and image in progress):** D-398 (a
+  contract's first-session positive OI is unknown unless the snapshot says 0; an EOD 18724 the
+  snapshot does not repeat is set aside: a named value, no general rule avoided discarding good rows;
+  the local real 18724 SPY260116C00700000 2025-04-08 is a true count repeated by the snapshot and
+  Cboe); D-399 (a trade/bid/ask stamped on a later New York day fails the chain: bulk → API, API →
+  stated absence; P-01 same-day stubs untouched); D-072 amended (EOD 0.00 with size 0 is no quote:
+  19,501 rows on the reachable real data, staleness flips on 51); NVDA 2024-06-10: D-391 checks the
+  snapshot's quotes at each EOD row's stated strike, so the chain is withheld either way (bulk file:
+  42.6–46.6% of quotes outside bounds). Overlay rules now D-398: every option source requoted; shared
+  fixture `workspace/fixtures/etha-first-chain` requoted in place (original kept as
+  `etha-first-chain.pre-d398`). **Owner decision: pre-listing sessions in bulk plans** (181 ETHA +
+  126 IBIT wasted requests per window): (1) core records each asset's first option session and sends
+  it with the claim (recommended), (2) treat a root with no rows as the empty chain, (3) pay the
+  requests. **Block run (AMD):** requote 31 min (Intel 50).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
