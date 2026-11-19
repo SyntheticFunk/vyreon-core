@@ -692,7 +692,17 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   T; 54 later: 2025-11-01..26 (rewritten 2026-01-05..07), 2025-11-28..12-30 (2026-08-17),
   2026-04-17 (2026-04-23), 2026-08-20..09-28 (5 files, 2026-10-21). A stamp shows the last write,
   not whether the analytics changed. 2025-08-01's file is stamped 08-04 yet differs from the API:
-  the API side recomputed.
+  the API side recomputed. **Against Cboe's 15:45 IV the API's recomputation is closer** where the
+  two differ (P-16; a different underlying level in the first computation; both far worse than
+  Cboe on call–put agreement). New faults P-17 (2025-12-31 file without closing quotes) and P-18
+  (files carry the previous session's expired contracts): pass-fx47 handles neither yet.
+  **Engine inventory:** the engine already computes per-contract American IV/Greeks from the 15:55
+  snapshot (h3-iv-surface); provider analytics remain only in Q01/Q05 (delivery support), V02 and
+  SAI-G01 (internal), M0 IV profile/change native channel and FIELD-OPTBR01's 2 IV mappings
+  (served), FIELD-SUP01 (support). **Owner (06:20 UTC Nov 19): readers get only the engine's own
+  IV/Greeks** — the native channel leaves the served set (kept stored as a provider check;
+  revises D-101's dual representation), FIELD-OPTBR01's two IV mappings move to the own IV; the
+  provider checks stay internal, fed from the files. Before phase 1.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
