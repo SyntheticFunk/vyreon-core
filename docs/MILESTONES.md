@@ -679,6 +679,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   ~25% of one CPU): an optimization-pass target. Phase-1 spend: owner will approve,
   wants the totals first. Startup with BLACKFRIDAY: owner starts it before Nov 27 (code's end
   date unstated).
+  **Owner (05:50 UTC Nov 19): history takes the provider analytics from the bulk files (first
+  computation), not the API's recomputation, even where a recomputation looks closer to a
+  reference: guards against silent bias.** Re-issued files (stamped well after T) are later
+  computations too: their stamps are recorded and counted. **Owner: engine-computed per-contract
+  IV/Greeks is needed before phase 1** (those values go into the phase-1 database); scoping running
+  (consumers of provider analytics; what the engine already computes). Measuring file vs API
+  against Cboe DataShop's 15:45 IV/Greeks (2025-04 SPY/TSLA/UUP, 2025-12 XLK) as a quality check.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
