@@ -989,6 +989,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   ~2,100 node-h (1,700–2,500); 8 nodes ~11 days, 16 ~5.5, 24 ~3.7; ~$290–420 of AMD worker time
   (above the $300 cluster ceiling: owner's approval on final totals). Limits now: AMD capacity in
   nyc1 and the 30-droplet account limit, not Intrinio requests.
+  **`worker` 97d0e7d8 (pass 1 merged, pushed); full suite 1,477 passed, 0 failed; image
+  `vyreon-worker:97d0e7d8` (build 97d0e7d8+b50e1b7a3e6a) pushed: the candidate for the next real day
+  (measures pass 1). Droplets: 4 of 30 (Telemetry-Backend web, vyreon-engine-shared-8vcpu-amd, core,
+  one worker): up to 27 workers; retiring the old engine droplet after daily runs move frees a 28th.**
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
