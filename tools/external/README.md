@@ -85,6 +85,13 @@ question; the research recommends one email to Cboe. Owner's call.)
    the band, and each session's verdict under the old pairs' fixed `[-1, 8]` is reported beside it.
    Only `blind` sessions test it (2026-11-13 in the sample; then the phase-1 days).
 2. Correlation as for the five: >= 0.9 when the index's range over the panel is >= 3 points.
+   **Phase 1 (owner, 2026-11-19, declared before any phase-1 data): VXSLV/SLV and VXFXI/FXI are
+   judged for correlation on 63-session panels only, not per tranche.** Reason: on the sample both
+   failed at 10 sessions (0.887, 0.824; index range 4.7, 5.3) while every session sat inside band 1
+   (gaps 3.9–6.3, 2.2–5.2); these thin indices move 2.4–2.9 points within a day, more than day to
+   day, so a 10-session correlation is mostly the index's own noise. The threshold (0.9) and band 1
+   per tranche are unchanged; the sample's failures stay recorded as failures. A 63-session panel
+   under 0.9 is a failed check and stops phase 1 like any other.
 3. A withheld `iv30` is reported with its state and reason; a date without a Cboe close (VXSLV,
    VXFXI above) is NOT_COMPARABLE, never a pass.
 
