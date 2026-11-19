@@ -948,6 +948,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   126 IBIT wasted requests per window): (1) core records each asset's first option session and sends
   it with the claim (recommended), (2) treat a root with no rows as the empty chain, (3) pay the
   requests. **Block run (AMD):** requote 31 min (Intel 50).
+  **`worker` c2a627ac pushed; full suite 1,470 passed, 0 failed; image `vyreon-worker:c2a627ac`
+  (build c2a627ac+4c19b3d5e622) pushed.** The block run continues on 48d87154 (its profile is still
+  valid: D-398/399 change no ordinary-day value).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
