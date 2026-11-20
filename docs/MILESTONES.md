@@ -1195,6 +1195,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   classes not seen on 11-02 (24 and 35, 58 and 71 failures; mostly per-expiry forward keys of the
   ruled families; new: DLM-DRAWDOWN on COIN/ETHA/IBIT/MSTR, one ETHA max-pain 1.5e-11, two sigma
   states, one UUP vega) being triaged under the current suite (`pass-fx67`).
+  **Triage done (`worker` 5da7a4ac, reference 94 passed, D-370 amended;
+  `checks/2026-11-20-refcheck-1103-1104-triage.md`): 0 engine defects.** Drawdown: already ruled
+  (D-118 1, 253-close window; the reference's 252 picks the next close); one reference defect fixed
+  (AAPL σ on a crossed quote: the reference now requires ask ≥ bid, as the engine and Cboe's VIX
+  rule); UUP vega is D-119's ±0.01 reading (named alternative); DBA's long-dated deep-ITM put σ state
+  unprovable (surface file deleted), so a failed state now carries quote, inputs and QuantLib prices.
+  Expected unexplained under the current suite: 4 (11-03) and 9 (11-04), forward-quality signals and
+  one σ state; to confirm on the next real checks. Owner-visible note: DLM-PRICE-LEVELS' 52-week
+  range uses 252 bars while drawdown's 1-year high uses 253 closes (no wrong number; consistency
+  question).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
