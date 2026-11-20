@@ -1287,6 +1287,17 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   Stopping rule (owner): reality judges; 200/250 are napkin numbers. Rank each next optimization by
   measured gain against the effort to get it (5% is still meaningful at this scale); stop when the
   best remaining one no longer pays for its effort.
+  **Round cc audits done (16:25 UTC, ~15 min); triage running. Core (`triage/c.md`): 8 real (1
+  wrong number), 2 not real, 1 by decision, 1 uncertain.** Wrong number: ARKK's 2021-12-29 $0.78
+  special is missing from the OCC ledger, so since D-120's amendment it is projected as a recurring
+  dividend (~2% of spot in ARKK's forward, 2022–2023 sessions; outside phase 1's range: the 1,096-day
+  window from 2025-04-10 starts 2022-04-09); the ledger's coverage must reach back to 2019-05-27 for
+  every asset. Others: refcheck report bound to the revision current at arrival; DIFFER alert
+  resolved by NOT_COMPARED; tape sample counts; digest MATCH arithmetic; lease check outside the
+  insert's transaction; worker failure messages not scrubbed by core; datashop fetch outside the
+  request budget. **Digest false alarm (owner saw 🔴 at 10:00 MT):** a superseded crash counted as
+  "did not run", stale problem texts, old-suite failures shown as unexplained, ETA wrong; fixing in
+  `core-digest-fix` together with the core findings.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
