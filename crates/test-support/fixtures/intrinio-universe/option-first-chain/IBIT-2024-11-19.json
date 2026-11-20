@@ -1,0 +1,83 @@
+{
+  "prices": [
+    {
+      "option": {
+        "code": "IBIT241220C00030000",
+        "ticker": "IBIT",
+        "expiration": "2024-12-20",
+        "strike": 30.0,
+        "type": "call"
+      },
+      "price": {
+        "date": "2024-11-19",
+        "close": 25.01,
+        "close_size": 100,
+        "close_time": "2024-11-19T20:59:20.364Z",
+        "close_bid": 21.2,
+        "close_bid_size": 219,
+        "close_bid_time": "2024-11-19T21:00:00.962Z",
+        "close_ask": 25.0,
+        "close_ask_size": 31,
+        "close_ask_time": "2024-11-19T21:00:00.962Z",
+        "volume": 542,
+        "open": 22.4,
+        "open_ask": null,
+        "open_bid": null,
+        "open_interest": 0,
+        "high": 25.01,
+        "low": 22.4,
+        "mark": 23.1,
+        "ask_high": null,
+        "ask_low": null,
+        "bid_high": null,
+        "bid_low": null,
+        "exercise_style": "A",
+        "implied_volatility": 1.18725,
+        "delta": 0.96502,
+        "gamma": 0.00424,
+        "theta": -0.02607,
+        "vega": 0.01186
+      }
+    },
+    {
+      "option": {
+        "code": "IBIT241220C00031000",
+        "ticker": "IBIT",
+        "expiration": "2024-12-20",
+        "strike": 31.0,
+        "type": "call"
+      },
+      "price": {
+        "date": "2024-11-19",
+        "close": null,
+        "close_size": null,
+        "close_time": null,
+        "close_bid": 20.2,
+        "close_bid_size": 205,
+        "close_bid_time": "2024-11-19T21:00:04.802Z",
+        "close_ask": 24.1,
+        "close_ask_size": 14,
+        "close_ask_time": "2024-11-19T21:00:04.802Z",
+        "volume": null,
+        "open": null,
+        "open_ask": null,
+        "open_bid": null,
+        "open_interest": 0,
+        "high": null,
+        "low": null,
+        "mark": 22.15,
+        "ask_high": null,
+        "ask_low": null,
+        "bid_high": null,
+        "bid_low": null,
+        "exercise_style": "A",
+        "implied_volatility": 1.16421,
+        "delta": 0.95948,
+        "gamma": 0.00487,
+        "theta": -0.02856,
+        "vega": 0.01337
+      }
+    }
+  ],
+  "next_page": "MjAyNC0xMi0yMHxmYWxzZXwzMTAwMA=="
+}
