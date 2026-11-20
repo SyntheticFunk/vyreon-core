@@ -1181,6 +1181,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   Bounded to 128 chains (least recently read let go); outputs unchanged; real-data test fails without
   the bound. Batches measured flat at 16/64 in flight (byte-reservation path cleared). Defaults 3 bulk
   files / 8 snapshot sessions kept; the Job's 2/2 override is dropped on the fixed image.
+  **Image 4944a182 (build 4944a182+56c30ad6ed6d, 1,495 passed) admitted; job 1384 (pinned to
+  3b85b4f6) cancelled; test block 2026-10-28..30 rescheduled on it at default in-flight, 14 GiB
+  limit, history on; working set and top processes sampled every 2 min from the start
+  (`checks/2026-11-20-block-1028-memory-4944a182.tsv`).**
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
