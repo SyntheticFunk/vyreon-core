@@ -1070,6 +1070,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   scatter rule merged (`worker` aed8b73d, reference only, D-370 amended; the 10-30/10-31/11-04 forward
   rulings now recorded in DECISIONS; replay: SURFACE-FORWARD unexplained 9 → 7). First-option-session
   track (`pass-fx61` + core `core-first-option`) in progress.
+  **C-057 merged and deployed (core main 69006a5, `vyreon-core:69006a5`; core suite 0 failed incl.
+  database):** `core.option_listing` holds each asset's first option session with the provider's
+  evidence (ETHA 2025-04-11, IBIT 2024-11-19; frozen answers under test-support), sent in every claim
+  as `first_option_sessions`. Engine `pass-fx61` (D-396 amended) merging: a bulk chain before its
+  asset's first option session whose file has no rows is the file's empty chain (no API request); not
+  dropped from the plan, because history start (C-034, D-365), OCC detection and T−5 read that empty
+  chain (dropping it would change ETHA/IBIT values on their first sessions). After the date, a chain
+  with no rows is still degenerate and goes to the API. Saves ~307 requests per affected window; no
+  published value changes.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
