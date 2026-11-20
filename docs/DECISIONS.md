@@ -280,6 +280,13 @@ lines; digests, text, JSONB, receipts, versions, states, scalar values).
   ticker in use (none when not listed), group and company flag, and the provider sources' first
   dates. The engine ignores it until E6.
 
+- **Amended 2026-11-20 (audit 2026-11-20-pass1-round-cc, core.md, triage c.md, 12): requests outside the budget.** The budget covers the
+  workers; a tool run by hand with the same key (`tools/external/datashop.py fetch`) is not drawn
+  from it and takes the provider's margin above the ceiling (200 a minute at the default 1,800;
+  the cluster runs 1,500). Such a tool runs one thread and at most one keyed call every 0.7 s
+  (under 100 a minute, retries included) and is not run while a build holds the budget
+  (`tools/external/README.md`). Ordinary day: no change (no worker path).
+
 ## C-026 The reader API, and what it cannot serve yet (2026-11-10)
 `crates/core-api/src/reader.rs` (VYREON-CORE-API@1), the shape of AGENTS.md and C-009: sessions from
 the calendar with NOT_PUBLISHED explicit; an asset's history session by session, `detail=full` (each
@@ -735,6 +742,15 @@ Engine D-351 is the worker's side.
   loses its lease.
 - **Deploying:** the core image (migration 0017, applied by the `migrate` init container) and the
   engine's worker image; no new secret, setting or service.
+
+- **Amended 2026-11-20 (audit 2026-11-20-pass1-round-cc, core.md, triage c.md, 11): no credential pattern is kept from a failure.** The
+  evidence endpoint refused a document carrying an unredacted credential, but a lease's `fail`
+  stored its stage, message and log as sent, logged the message in the requeue and pause notices,
+  and `pause` kept any reason as given; `vyreon-core log` and `jobs` print them. Now each passes
+  through `work::scrubbed` (`evidence::unredacted`'s patterns): withheld whole, "(not kept: it
+  carried a credential pattern, an unredacted api_key=)", never cut around. The worker's own
+  redaction stays the first line. Ordinary day: no change. Test:
+  `core-db/tests/work.rs::a_failure_message_with_a_credential_is_never_kept`.
 
 ## C-050 The owner's channel carries problems, a daily verdict and a weekly check (owner-approved design, 2026-11-17)
 The owner: "I want to open it and immediately know if i gotta go look at it or its running ok." The
@@ -1326,6 +1342,22 @@ worker's side. Migration 0025; `crates/core-db/src/refcheck.rs`.
     the_clusters_checks_are_judged_on_each_days_current_check` (the cluster's five reports and
     revisions at their recorded times), `a_published_days_check_is_kept_once_and_judged_until_the_day_is_published_again`
     (the B0 account, without rulings: 🟡, no problem), `refcheck::tests::a_check_without_rulings_or_with_reference_errors_is_not_fully_judged_never_not_run`.
+- **Amended 2026-11-20 (audit 2026-11-20-pass1-round-cc, core.md, triage c.md, 5): a report is bound to what the worker checked.** `put` bound
+  a report to whichever base of the build was published when it arrived, so a day published again
+  by the same build during the check (a hand publish, a scoped republish under C-055) got a report
+  of a revision it never read, and the new revision's missing check was hidden; currentness looked
+  at the base only. The worker's account already states `revisions` (the base, then the day-local
+  revision: `[53, 54]` on 2026-11-02, `[59, 60]` on 10-28): no wire change. Core now requires
+  them to be a base revision of the session, profile and lease's build and a day-local revision on
+  it (published or since superseded), refuses others, and stores both (migration 0030,
+  `day_local_revision`). A report is current, judged and listed as current, while both are
+  published; an account that states no revision is kept bound to nothing (it judges no day, and
+  from `VYREON_CORE_REFCHECK_FROM` the day counts as with no report). A report sent again by the
+  same lease is answered with the first before any check, as before. Ordinary day: no change (the
+  engine states the ids it published). Deploy: migration 0030 with this core image; reports already
+  stored keep their base and have no day-local id (judged on the base, as before). Test:
+  `core-db/tests/refcheck.rs::a_published_days_check_is_kept_once_and_judged_until_the_day_is_published_again`.
+
 ## C-055 Every claim carries the OCC adjustment ledger, committed data with an OCC memo behind each entry (2026-11-18; engine audit 9 finding 1, D-170, D-290..D-294)
 The engine reads an optional per-asset ledger of dated OCC contract adjustments
 (`<home>/h5-universe/adjustments.json`, `VYREON-ADJUSTMENTS@1`, engine `adjustments::parse_ledger`)
@@ -1500,6 +1532,13 @@ Migration 0028; `crates/core-db/src/tape.rs`, `refcheck.rs`.
   `core-api/tests/worker_api.rs` (over HTTP: kept once, another asset's refused, a stranger's
   lease refused, served in the session's tar); `refcheck::tests` (the summaries).
 
+- **Amended 2026-11-20 (audit 2026-11-20-pass1-round-cc, core.md, triage c.md, 4): a cache or verdict is stored under its lease, locked.** The
+  cache and verdict PUTs checked the lease without a lock and then stored in a separate statement,
+  so a lease cancelled or expired between the two could still store (and a replacement worker's
+  PUT be refused). The lease check (`work::held`, `FOR UPDATE`) and the insert are now one
+  transaction; a cancel in progress makes the PUT wait and then answers it 410. Ordinary day: no
+  change. Test: `core-api/tests/worker_api.rs::a_cache_sent_while_its_lease_is_cancelled_is_not_stored`.
+
 ## C-059 The tape caches stored before the verdicts are verified by a sample of their sessions, downloaded again and recomputed; a verdict is kept beside a stored cache only when the recomputation equals it (owner decision, 2026-11-20; engine D-370 amended 2026-11-20)
 The caches stored before C-058 never get a verdict: their raw tapes are gone. The owner: verify a
 sample instead, about twenty sessions spread over the tape history, each downloaded again and
@@ -1568,3 +1607,33 @@ mechanism the smallest the queue allows.* Migration 0029; `crates/core-db/src/ta
   resolves; a verdict already there stands; a verify job out of attempts pauses nothing);
   `core-api/tests/worker_api.rs` (over HTTP: the claim's scope and unmoved tape history, a cache and
   a verdict PUT refused, a check kept, the verdict served with the stored cache); `tape::tests`.
+- **Amended 2026-11-20 (audit 2026-11-20-pass1-round-cc, core.md, triage c.md, 6, 7, 8, 10).**
+  - *A recomputed-equal cache the reader FAILS is a disagreement (6; the decision's own rule
+    changed).* A verdict already kept beside a cache stands (C-058's write-once), so a later MATCH
+    whose reader verdict is FAIL left the kept PASS in place and raised nothing, against C-058's
+    rule that a failed verdict is a disagreement. Now such a check, while the verdict kept beside
+    that cache is not itself a FAIL (counted by C-058 already), opens REFCHECK_DISAGREES: "the tape
+    reader disagrees with a cache the sample recomputed byte for byte on N asset-sessions, the
+    oldest S". The kept verdict is not replaced (what the day workers read stays what they read);
+    it resolves as below. Consistent with C-058 (FAIL on the newest cache is a disagreement) and
+    with "go look": the reader and the stored bytes disagree.
+  - *Only a comparison resolves a difference, and only the newest cache is judged (8).* The
+    problem read each asset-session's latest check of any outcome, so a later NOT_COMPARED (the
+    provider refused the session) resolved a DIFFER; and it judged supersession by the check's
+    time, so a DIFFER of a superseded cache, checked after the newer cache existed, opened it. Now
+    it reads the latest MATCH or DIFFER check of each cache (session, asset, method version), only
+    while no cache of that asset-session was stored after it (C-058's supersession).
+  - *A session passes only with every listed member checked (7).* The sample's pass counted the
+    checks received, so a job stopped after one member passed its session "1 of 1". Now a session
+    passes when every member listed on it (the checking job's profile, `members_on`) has a latest
+    MATCH check with PASS (or WITHHELD); members without a check are "not checked", counted in the
+    line and listed by `tape checks`, and the asset-sessions' denominator is the members listed.
+  - *Verdict counts are of MATCH checks only (10).* A verdict on a recomputed cache that differs
+    from the stored one names other bytes; counting it under PASS/FAIL made "MATCH − PASS −
+    WITHHELD" (the equal caches the reader did not agree with) cancel out. `tape checks` prints
+    "c of n listed members checked, m match (PASS, WITHHELD, FAIL, NOT_RUN, without a verdict)".
+  - Ordinary day: none (no verify job runs); on the cluster's 20 sampled sessions the digest's line
+    is unchanged if every listed member was checked and passed (20 of 20 sessions, 1,276 of 1,276
+    asset-sessions on 2026-11-20). Tests: `core-db/tests/tape_check.rs` (three members of 64
+    checked; a NOT_COMPARED after a DIFFER; a MATCH whose reader FAILS beside a kept PASS; a newer
+    method version's cache superseding the checked one), `tape::tests`.
