@@ -1383,6 +1383,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   in the local derive contained; read_dir errors are faults; sidecar ok from the binding check.
   Ordinary days: no value changes (PATH-L01/L02 receipts' kernel contract digest changes). Left: the
   ordered derive (derive/mod.rs) still fails the whole object on a population load failure.
+  **Core 139a21b deployed (18:40 UTC; C-058 amended): a cache's current verdict is its latest
+  reader's (builds ordered by admission), for the alarm and for `GET /tape-caches`.** The 51 old-reader
+  FAILs no longer alarm, and day workers read the fixed reader's PASS. Digest now: one 🔴, 10-28's 254
+  unexplained (triaged: QQQ, fixed by D-403/D-404; clears when 10-28 is republished on the new build).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
