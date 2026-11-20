@@ -10,9 +10,12 @@
 //! stores the document as sent, with the account's counts as columns.
 //!
 //! A report is never the day's outcome: the day stays published whatever it says. Its problems
-//! (`watch`): REFCHECK_DISAGREES while a published day's latest check found a disagreement, and
-//! REFCHECK_NOT_RUN while one's latest check timed out, crashed, did not run or had reference
-//! errors, or (from `VYREON_CORE_REFCHECK_FROM`) a published day has no report at all.
+//! (`watch`), judged on each published day's latest check of its current base revision:
+//! REFCHECK_DISAGREES while one found failures the rulings table does not explain, and
+//! REFCHECK_NOT_RUN while one timed out, crashed or did not run, or (from
+//! `VYREON_CORE_REFCHECK_FROM`) a published day has no report at all. A completed check from a
+//! suite without rulings (no `failed_unexplained`) or with reference errors is not fully judged:
+//! counted in the digest, never an alert (C-054 amended 2026-11-20).
 //!
 //! C-058: the tape worker's verdicts on the tape caches (`tape::put_verdict`) are the tape owners'
 //! half of the check. A FAIL on an asset-session's newest cache is a disagreement to look at
@@ -320,7 +323,7 @@ pub async fn show(client: &impl GenericClient, session: &str, id: Option<i64>) -
 }
 
 /// The state the problems are judged on: for each session whose published base revision has a
-/// report, its latest such report.
+/// report, its latest such report (a report of a revision since superseded judges nothing).
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct State {
     /// Days whose latest check completed with a disagreement (C-056: a failure the rulings table
@@ -328,10 +331,20 @@ pub struct State {
     pub disagree: i64,
     pub failed: i64,
     pub disagree_oldest: Option<String>,
+    /// Days whose latest check completed with failures but from a suite without rulings (no
+    /// `failed_unexplained`): not yet triaged, never counted as unexplained; their failures.
+    pub untriaged: i64,
+    pub untriaged_failed: i64,
+    /// Days whose latest completed check has reference errors (comparisons the reference suite
+    /// itself could not make); their count.
+    pub reference_error_days: i64,
+    pub reference_errors: i64,
+    /// The oldest day of either of the two above (not fully judged).
+    pub unjudged_days: i64,
+    pub unjudged_oldest: Option<String>,
     pub timeout: i64,
     pub crashed: i64,
     pub not_run: i64,
-    pub reference_errors: i64,
     /// Published days (from `VYREON_CORE_REFCHECK_FROM`, published `GRACE_HOURS` ago or more) with
     /// no report at all.
     pub unreported: i64,
@@ -360,17 +373,22 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
                  SELECT d.represented_date AS session FROM vyreon.day_revision d
                  WHERE $2::text IS NOT NULL AND d.represented_date >= $2::text::date AND d.profile_id = $1 AND d.state = 'PUBLISHED'
                    AND d.base_revision IS NULL AND d.published_at <= $3::text::timestamptz - make_interval(secs => $4::float8 * 3600)
-                   AND NOT EXISTS (SELECT FROM core.refcheck_report r WHERE r.base_revision = d.revision_id AND r.stored_at <= $3::text::timestamptz))
-             SELECT (SELECT count(*) FROM latest WHERE outcome = 'COMPLETED' AND COALESCE(failed_unexplained, failed) > 0),
-                    (SELECT COALESCE(sum(COALESCE(failed_unexplained, failed)), 0)::bigint FROM latest WHERE outcome = 'COMPLETED' AND COALESCE(failed_unexplained, failed) > 0),
-                    (SELECT min(session)::text FROM latest WHERE outcome = 'COMPLETED' AND COALESCE(failed_unexplained, failed) > 0),
+                   AND NOT EXISTS (SELECT FROM core.refcheck_report r WHERE r.base_revision = d.revision_id AND r.stored_at <= $3::text::timestamptz)),
+             disagree AS (SELECT * FROM latest WHERE outcome = 'COMPLETED' AND failed_unexplained > 0),
+             untriaged AS (SELECT * FROM latest WHERE outcome = 'COMPLETED' AND failed_unexplained IS NULL AND failed > 0),
+             referr AS (SELECT * FROM latest WHERE outcome = 'COMPLETED' AND reference_errors > 0),
+             unjudged AS (SELECT session FROM untriaged UNION SELECT session FROM referr)
+             SELECT (SELECT count(*) FROM disagree), (SELECT COALESCE(sum(failed_unexplained), 0)::bigint FROM disagree),
+                    (SELECT min(session)::text FROM disagree),
                     (SELECT count(*) FROM latest WHERE outcome = 'TIMEOUT'),
                     (SELECT count(*) FROM latest WHERE outcome = 'CRASHED'),
                     (SELECT count(*) FROM latest WHERE outcome = 'NOT_RUN'),
-                    (SELECT count(*) FROM latest WHERE outcome = 'COMPLETED' AND reference_errors > 0),
                     (SELECT count(*) FROM unreported),
-                    (SELECT min(s)::text FROM (SELECT session AS s FROM latest WHERE outcome <> 'COMPLETED' OR reference_errors > 0
-                                               UNION ALL SELECT session FROM unreported) x)",
+                    (SELECT min(s)::text FROM (SELECT session AS s FROM latest WHERE outcome <> 'COMPLETED'
+                                               UNION ALL SELECT session FROM unreported) x),
+                    (SELECT count(*) FROM untriaged), (SELECT COALESCE(sum(failed), 0)::bigint FROM untriaged),
+                    (SELECT count(*) FROM referr), (SELECT COALESCE(sum(reference_errors), 0)::bigint FROM referr),
+                    (SELECT count(*) FROM unjudged), (SELECT min(session)::text FROM unjudged)",
             &[&profile, &from, &now, &GRACE_HOURS],
         )
         .await
@@ -412,9 +430,14 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
         timeout: r.get(3),
         crashed: r.get(4),
         not_run: r.get(5),
-        reference_errors: r.get(6),
-        unreported: r.get(7),
-        not_run_oldest: r.get(8),
+        unreported: r.get(6),
+        not_run_oldest: r.get(7),
+        untriaged: r.get(8),
+        untriaged_failed: r.get(9),
+        reference_error_days: r.get(10),
+        reference_errors: r.get(11),
+        unjudged_days: r.get(12),
+        unjudged_oldest: r.get(13),
     })
 }
 
@@ -457,39 +480,56 @@ impl State {
         }
     }
 
-    /// REFCHECK_NOT_RUN's summary, when any day's check did not run.
+    /// REFCHECK_NOT_RUN's summary, when any day's current check did not run (a completed check
+    /// with reference errors ran: it is counted by `unjudged_line`, never here).
     pub fn not_run_summary(&self) -> Option<String> {
-        let parts: Vec<String> = [
-            (self.timeout, "timed out"),
-            (self.crashed, "crashed"),
-            (self.not_run, "not run"),
-            (self.reference_errors, "with reference errors"),
-            (self.unreported, "with no report"),
-        ]
-        .iter()
-        .filter(|(n, _)| *n > 0)
-        .map(|(n, w)| format!("{n} {w}"))
-        .collect();
-        let n = self.timeout + self.crashed + self.not_run + self.reference_errors + self.unreported;
+        let parts: Vec<String> = [(self.timeout, "timed out"), (self.crashed, "crashed"), (self.not_run, "not run"), (self.unreported, "with no report")]
+            .iter()
+            .filter(|(n, _)| *n > 0)
+            .map(|(n, w)| format!("{n} {w}"))
+            .collect();
+        let n = self.timeout + self.crashed + self.not_run + self.unreported;
         (n > 0).then(|| format!("Reference check did not run on {} ({}), the oldest {}", days(n), parts.join(", "), self.not_run_oldest.as_deref().unwrap_or("?")))
+    }
+
+    /// The digest's line on the published days whose current check completed but is not fully
+    /// judged: failures from a suite without rulings (not yet triaged against them, never presented
+    /// as unexplained), or reference errors. None when there is none; never an alert.
+    pub fn unjudged_line(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        if self.untriaged > 0 {
+            parts.push(format!("{} with {} failed comparisons from a suite without rulings, not yet triaged against them", self.untriaged, self.untriaged_failed));
+        }
+        if self.reference_error_days > 0 {
+            parts.push(format!("{} with {} reference errors", self.reference_error_days, self.reference_errors));
+        }
+        (self.unjudged_days > 0).then(|| {
+            format!("Reference checks not fully judged: {} ({}), the oldest {}", days(self.unjudged_days), parts.join("; "), self.unjudged_oldest.as_deref().unwrap_or("?"))
+        })
     }
 }
 
 /// The digest's line: the checks stored in the 24 hours before `now`, by outcome, and what they
 /// cost (median suite wall and processor minutes per day); with none, a line only when every
-/// published day is `expected` to have one.
+/// published day is `expected` to have one. Each check is counted once: did not run (not
+/// completed), disagree (unexplained failures), not triaged (failures from a suite without
+/// rulings, shown only when there is one), else agree; reference errors are stated beside them
+/// (the check ran), never as a check that did not run.
 pub async fn digest_line(c: &impl GenericClient, now: &str, expected: bool) -> Result<Option<String>, String> {
     let r = c
         .query_one(
-            "SELECT count(*), count(*) FILTER (WHERE outcome = 'COMPLETED' AND COALESCE(failed_unexplained, failed) = 0 AND reference_errors = 0),
-                    count(*) FILTER (WHERE outcome = 'COMPLETED' AND COALESCE(failed_unexplained, failed) > 0), count(*) FILTER (WHERE outcome <> 'COMPLETED' OR reference_errors > 0),
+            "SELECT count(*), count(*) FILTER (WHERE outcome = 'COMPLETED' AND (failed = 0 OR failed_unexplained = 0)),
+                    count(*) FILTER (WHERE outcome = 'COMPLETED' AND failed_unexplained > 0),
+                    count(*) FILTER (WHERE outcome = 'COMPLETED' AND failed_unexplained IS NULL AND failed > 0),
+                    count(*) FILTER (WHERE outcome <> 'COMPLETED'), COALESCE(sum(reference_errors), 0)::bigint,
                     percentile_cont(0.5) WITHIN GROUP (ORDER BY suite_seconds), percentile_cont(0.5) WITHIN GROUP (ORDER BY cpu_seconds) FILTER (WHERE cpu_complete)
              FROM core.refcheck_report WHERE stored_at > $1::text::timestamptz - interval '24 hours' AND stored_at <= $1::text::timestamptz",
             &[&now],
         )
         .await
         .map_err(db)?;
-    let (n, agree, disagree, not_run, wall, cpu): (i64, i64, i64, i64, Option<f64>, Option<f64>) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5));
+    let (n, agree, disagree, untriaged, not_run, reference_errors, wall, cpu): (i64, i64, i64, i64, i64, i64, Option<f64>, Option<f64>) =
+        (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6), r.get(7));
     if n == 0 {
         return Ok(expected.then(|| "Reference checks in the last 24 hours: none".into()));
     }
@@ -498,7 +538,9 @@ pub async fn digest_line(c: &impl GenericClient, now: &str, expected: bool) -> R
         (Some(w), None) => format!(" · typical {:.0} min per day", w / 60.0),
         _ => String::new(),
     };
-    Ok(Some(format!("Reference checks in the last 24 hours: {n} ({agree} agree, {disagree} disagree, {not_run} did not run){cost}")))
+    let untriaged = if untriaged > 0 { format!(", {untriaged} not triaged against rulings") } else { String::new() };
+    let errors = if reference_errors > 0 { format!("; {reference_errors} reference errors") } else { String::new() };
+    Ok(Some(format!("Reference checks in the last 24 hours: {n} ({agree} agree, {disagree} disagree{untriaged}, {not_run} did not run{errors}){cost}")))
 }
 
 /// C-058: the digest's line on the tape verdicts: the tape caches stored in the 24 hours before
@@ -575,5 +617,36 @@ mod tests {
             "Reference check: the tape reader disagrees with the engine's tape cache on 1 asset-session, the oldest 2025-04-14; the tape sample recomputed a cache other than the stored one on 2 asset-sessions, the oldest 2024-04-09 (vyreon-core tape checks)"
         );
         assert_eq!(d.not_run_summary(), None);
+    }
+
+    /// C-054 amended 2026-11-20, on the cluster's reports as they stood at the 10:00 MT digest of
+    /// 2026-11-20 (`refcheck list`): 11-02, 11-03 (its crash superseded) and 11-04 by a suite
+    /// without rulings, 1,982, 2,489 and 2,146 failed and 9 reference errors each; 10-28 with 254
+    /// unexplained of 2,228. The live digest said "did not run on 1 published day (1 crashed)" and
+    /// "1982 comparisons failed"; the state now says what holds.
+    #[test]
+    fn a_check_without_rulings_or_with_reference_errors_is_not_fully_judged_never_not_run() {
+        let s = State {
+            disagree: 1,
+            failed: 254,
+            disagree_oldest: Some("2026-10-28".into()),
+            untriaged: 3,
+            untriaged_failed: 1982 + 2489 + 2146,
+            reference_error_days: 3,
+            reference_errors: 27,
+            unjudged_days: 3,
+            unjudged_oldest: Some("2026-11-02".into()),
+            ..State::default()
+        };
+        assert_eq!(s.disagree_summary().unwrap(), "Reference check disagrees with 1 published day: 254 comparisons failed unexplained, the oldest 2026-10-28");
+        assert_eq!(s.not_run_summary(), None, "a completed check with reference errors ran");
+        assert_eq!(
+            s.unjudged_line().unwrap(),
+            "Reference checks not fully judged: 3 published days (3 with 6617 failed comparisons from a suite without rulings, not yet triaged against them; 3 with 27 reference errors), the oldest 2026-11-02"
+        );
+        // the untriaged days alone open no problem
+        let alone = State { disagree: 0, failed: 0, disagree_oldest: None, ..s };
+        assert_eq!((alone.disagree_summary(), alone.not_run_summary()), (None, None));
+        assert_eq!(State::default().unjudged_line(), None);
     }
 }

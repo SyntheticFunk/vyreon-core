@@ -128,6 +128,8 @@ pub struct Open {
 pub struct Change {
     pub opened: Vec<String>,
     pub resolved: Vec<String>,
+    /// Open problems whose summary changed (restated without a post).
+    pub restated: Vec<String>,
 }
 
 /// One line of at most `max` characters, with nothing a credential pattern matches (a stop
@@ -524,6 +526,14 @@ pub async fn check(client: &mut Client, s: &Settings, now: &str) -> Result<Chang
         if !is_open(&open, f.kind, &f.key) && open_one(&tx, f, Some(now)).await? {
             change.opened.push(f.summary.clone());
         }
+        // C-050 amended 2026-11-20: an open problem says what holds now (its counts, its oldest
+        // day), not what held when it opened; nothing is posted (one alert, one "Resolved")
+        if let Some(o) = open.iter().find(|o| o.kind == f.kind && o.key == f.key)
+            && (o.summary != f.summary || o.command != f.command)
+        {
+            tx.execute("UPDATE core.problem SET summary = $2, command = $3 WHERE problem_id = $1", &[&o.id, &f.summary, &f.command]).await.map_err(db)?;
+            change.restated.push(f.summary.clone());
+        }
     }
     for o in &open {
         if !found.iter().any(|f| f.kind == o.kind && f.key == o.key) {
@@ -642,14 +652,32 @@ pub async fn session_tallies(c: &impl GenericClient, profile: &str, sessions: &[
     Ok(rows.iter().map(|r| (r.get(0), Tally { slots: r.get(1), withheld: r.get(2), provider_withheld: r.get(3), engine_faults: r.get(4) })).collect())
 }
 
-/// The verdict: 🔴 when anything is open (the oldest named), else 🟡 naming what was handled,
-/// else 🟢.
-pub fn verdict(open: &[Open], handled: &[String]) -> String {
+/// "(and 1 more problem)": the other open problems, counted as problems (never read as more days
+/// of the first one's).
+fn more_problems(n: usize) -> String {
+    match n {
+        0 => String::new(),
+        1 => " (and 1 more problem)".into(),
+        n => format!(" (and {n} more problems)"),
+    }
+}
+
+/// The verdict: 🔴 when anything is open (the oldest named), else 🟡 naming what was handled and
+/// what is not fully judged (C-054 amended 2026-11-20), else 🟢.
+pub fn verdict(open: &[Open], handled: &[String], unjudged: &[String]) -> String {
     match open {
-        [first] => format!("🔴 Needs you: {}", first.summary),
-        [first, rest @ ..] => format!("🔴 Needs you: {} (and {} more)", first.summary, rest.len()),
-        [] if !handled.is_empty() => format!("🟡 Running; handled: {}", handled.join(", ")),
-        [] => "🟢 Running fine".into(),
+        [first, rest @ ..] => format!("🔴 Needs you: {}{}", first.summary, more_problems(rest.len())),
+        [] if handled.is_empty() && unjudged.is_empty() => "🟢 Running fine".into(),
+        [] => {
+            let mut text = "🟡 Running".to_string();
+            if !handled.is_empty() {
+                text.push_str(&format!("; handled: {}", handled.join(", ")));
+            }
+            if !unjudged.is_empty() {
+                text.push_str(&format!("; not fully judged: {}", unjudged.join(", ")));
+            }
+            text
+        }
     }
 }
 
@@ -679,6 +707,64 @@ pub fn compose(first: &str, lines: &[String], open: &[Open]) -> String {
         text.push_str(&line);
     }
     text
+}
+
+/// A running day block: its live lease's start, the times its days published under that lease
+/// (epoch seconds, in order), and the sessions it has left (the one computing among them).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Running {
+    pub granted: f64,
+    pub published: Vec<f64>,
+    pub remaining: i64,
+}
+
+/// What the backfill line can say of its finish.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Pace {
+    NoneRunning,
+    Unmeasured,
+    /// `finish` in epoch seconds; `parallel`: the running blocks the estimate assumes go on
+    /// running, when blocks wait for a worker.
+    Measured { hours_a_day: f64, first_days_only: bool, finish: f64, parallel: Option<usize> },
+}
+
+/// The backfill's pace from the running blocks' own days: a day after a block's first takes the
+/// time from the previous publication to its own (the next day downloads while one computes, and
+/// the reference check runs between, so this is the whole cycle); a block's first day takes from
+/// its lease to its publication and includes the block's download, so it is used only when no
+/// later day has published (an overestimate, stated). The median of what was measured. Each block
+/// finishes its remaining days after its last publication (or its lease), never before `now` plus
+/// the days after the one computing; with `waiting` sessions in blocks not yet claimed, the whole
+/// remainder at the running blocks' combined pace.
+pub fn pace(running: &[Running], waiting: i64, now: f64) -> Pace {
+    if running.is_empty() {
+        return Pace::NoneRunning;
+    }
+    let mut later = Vec::new();
+    let mut first = Vec::new();
+    for r in running {
+        let mut at = r.granted;
+        for (i, p) in r.published.iter().enumerate() {
+            if i == 0 { first.push(p - at) } else { later.push(p - at) }
+            at = *p;
+        }
+    }
+    let first_days_only = later.is_empty();
+    let Some(day) = median(if first_days_only { first } else { later }) else {
+        return Pace::Unmeasured;
+    };
+    let mut finish = now;
+    let mut left = 0;
+    for r in running {
+        let since = r.published.last().copied().unwrap_or(r.granted);
+        finish = finish.max(since + r.remaining as f64 * day).max(now + (r.remaining - 1).max(0) as f64 * day);
+        left += r.remaining;
+    }
+    let parallel = (waiting > 0).then(|| {
+        finish = finish.max(now + (left + waiting) as f64 * day / running.len() as f64);
+        running.len()
+    });
+    Pace::Measured { hours_a_day: day / 3600.0, first_days_only, finish, parallel }
 }
 
 fn kind_words(kind: &str) -> &'static str {
@@ -858,33 +944,56 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
     lines.push(if parts.is_empty() { "Work queue: nothing waiting or running".into() } else { format!("Work queue: {}", parts.join(" · ")) });
     let backfill = c
         .query_one(
-            "WITH b AS (SELECT DISTINCT engine_build FROM core.job WHERE kind = 'DAY_BLOCK' AND profile_id = $2 AND state IN ('QUEUED', 'LEASED', 'FAILED')),
-                  j AS (SELECT * FROM core.job WHERE kind = 'DAY_BLOCK' AND profile_id = $2 AND state <> 'CANCELLED' AND engine_build IN (SELECT engine_build FROM b))
+            "WITH b AS (SELECT DISTINCT engine_build FROM core.job WHERE kind = 'DAY_BLOCK' AND profile_id = $1 AND state IN ('QUEUED', 'LEASED', 'FAILED')),
+                  j AS (SELECT * FROM core.job WHERE kind = 'DAY_BLOCK' AND profile_id = $1 AND state <> 'CANCELLED' AND engine_build IN (SELECT engine_build FROM b))
              SELECT count(*), count(*) FILTER (WHERE j.next_session IS NULL OR s.session < j.next_session),
-                    (SELECT count(DISTINCT d.represented_date) FROM vyreon.day_revision d
-                     WHERE d.profile_id = $2 AND d.base_revision IS NULL AND d.engine_build IN (SELECT engine_build FROM b)
-                       AND d.published_at > $1::text::timestamptz - interval '24 hours' AND d.published_at <= $1::text::timestamptz)
+                    count(*) FILTER (WHERE j.state = 'QUEUED' AND s.session >= j.next_session)
              FROM j JOIN core.session s ON s.session BETWEEN j.first_session AND j.last_session",
-            &[&now, &s.profile],
+            &[&s.profile],
         )
         .await
         .map_err(db)?;
-    let (total, done, rate): (i64, i64, i64) = (backfill.get(0), backfill.get(1), backfill.get(2));
+    let (total, done, waiting): (i64, i64, i64) = (backfill.get(0), backfill.get(1), backfill.get(2));
     if total > done {
-        let eta = if rate > 0 {
-            let hours = (total - done) as f64 * 24.0 / rate as f64;
-            let at: String = c
-                .query_one(
-                    "SELECT CASE WHEN $2::float8 <= 144 THEN to_char(t, 'Dy HH24:MI') || ' MT' ELSE to_char(t, 'Mon FMDD') END
-                     FROM (SELECT ($1::text::timestamptz + make_interval(secs => $2::float8 * 3600)) AT TIME ZONE 'America/Edmonton' AS t) x",
-                    &[&now, &hours],
-                )
-                .await
-                .map_err(db)?
-                .get(0);
-            format!("expected to finish about {at}")
-        } else {
-            "no session finished in the last 24 hours, so no estimate".into()
+        // C-050 amended 2026-11-20: the pace is measured on the running blocks' own days (their
+        // live leases' publications), never a 24-hour count that a block's first day dominates
+        let running = c
+            .query(
+                "SELECT extract(epoch FROM l.granted_at)::float8,
+                        ARRAY(SELECT extract(epoch FROM d.published_at)::float8 FROM vyreon.day_revision d
+                              WHERE d.profile_id = j.profile_id AND d.engine_build = j.engine_build AND d.base_revision IS NULL
+                                AND d.represented_date BETWEEN j.first_session AND j.last_session
+                                AND d.published_at >= l.granted_at AND d.published_at <= $2::text::timestamptz
+                              ORDER BY d.published_at),
+                        (SELECT count(*) FROM core.session s WHERE s.session BETWEEN j.next_session AND j.last_session)
+                 FROM core.job j JOIN core.lease l ON l.job_id = j.job_id AND l.ended_at IS NULL
+                 WHERE j.kind = 'DAY_BLOCK' AND j.profile_id = $1 AND j.state = 'LEASED' AND j.next_session IS NOT NULL
+                 ORDER BY j.job_id",
+                &[&s.profile, &now],
+            )
+            .await
+            .map_err(db)?
+            .iter()
+            .map(|r| Running { granted: r.get(0), published: r.get(1), remaining: r.get(2) })
+            .collect::<Vec<_>>();
+        let now_epoch: f64 = c.query_one("SELECT extract(epoch FROM $1::text::timestamptz)::float8", &[&now]).await.map_err(db)?.get(0);
+        let eta = match pace(&running, waiting, now_epoch) {
+            Pace::NoneRunning => "no block running, so no estimate".to_string(),
+            Pace::Unmeasured => "finish unknown until a running block publishes a day".to_string(),
+            Pace::Measured { hours_a_day, first_days_only, finish, parallel } => {
+                let at: String = c
+                    .query_one(
+                        "SELECT CASE WHEN $2::float8 - extract(epoch FROM $1::text::timestamptz) <= 144 * 3600 THEN to_char(t, 'Dy HH24:MI') || ' MT' ELSE to_char(t, 'Mon FMDD') END
+                         FROM (SELECT to_timestamp($2::float8) AT TIME ZONE 'America/Edmonton' AS t) x",
+                        &[&now, &finish],
+                    )
+                    .await
+                    .map_err(db)?
+                    .get(0);
+                let basis = if first_days_only { " (a block's first day, with its download)" } else { "" };
+                let parallel = parallel.map_or(String::new(), |n| format!(" with {n} {} running", if n == 1 { "block" } else { "blocks" }));
+                format!("about {hours_a_day:.1} h a day{basis} · expected to finish about {at}{parallel}")
+            }
         };
         lines.push(format!("Backfill progress: {done} of {total} sessions done · {eta}"));
     }
@@ -903,6 +1012,13 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
     }
     if let Some(line) = refcheck::digest_line(c, now, s.refcheck_from.is_some()).await? {
         lines.push(line);
+    }
+    // C-054 amended 2026-11-20: published days whose current check ran but is not fully judged
+    let checks = refcheck::state(c, &s.profile, s.refcheck_from.as_deref(), now).await?;
+    let mut unjudged = Vec::new();
+    if let Some(line) = checks.unjudged_line() {
+        lines.push(line);
+        unjudged.push(format!("reference checks of {}", if checks.unjudged_days == 1 { "1 published day".into() } else { format!("{} published days", checks.unjudged_days) }));
     }
     if let Some(line) = refcheck::tape_digest_line(c, now).await? {
         lines.push(line);
@@ -926,7 +1042,7 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
     if retried > 0 {
         handled.push(format!("{retried} retried {}", if retried == 1 { "attempt" } else { "attempts" }));
     }
-    Ok(compose(&format!("{} · {today}", verdict(open, &handled)), &lines, open))
+    Ok(compose(&format!("{} · {today}", verdict(open, &handled, &unjudged)), &lines, open))
 }
 
 /// The Saturday check at `now`: this week's sessions (Monday to the day before), each published
@@ -975,8 +1091,7 @@ async fn weekly_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
         format!("🔴 Weekly check: Sunday's report at risk, {} of {} sessions not published ({})", missing.len(), watched.len(), missing.join(", "))
     } else if let Some(oldest) = open.first() {
         // an open problem is red whatever the week's deadlines (C-050; round w, 12)
-        let more = if open.len() > 1 { format!(" (and {} more)", open.len() - 1) } else { String::new() };
-        format!("🔴 Weekly check: Sunday's report is not cleared while a problem is open: {}{more}", one_line(&oldest.summary, 200))
+        format!("🔴 Weekly check: Sunday's report is not cleared while a problem is open: {}{}", one_line(&oldest.summary, 200), more_problems(open.len() - 1))
     } else if week.is_empty() {
         "🟡 Weekly check: no trading session this week".to_string()
     } else if watched.is_empty() {
@@ -1083,18 +1198,55 @@ mod tests {
 
     #[test]
     fn the_verdict_says_first_whether_to_look() {
-        assert_eq!(verdict(&[], &[]), "🟢 Running fine");
-        assert_eq!(verdict(&[], &["2 provider gaps".into(), "1 retried attempt".into()]), "🟡 Running; handled: 2 provider gaps, 1 retried attempt");
+        assert_eq!(verdict(&[], &[], &[]), "🟢 Running fine");
+        assert_eq!(verdict(&[], &["2 provider gaps".into(), "1 retried attempt".into()], &[]), "🟡 Running; handled: 2 provider gaps, 1 retried attempt");
         let late = problem(1, "Mon Nov 16 not published by its Tue 10:00 MT deadline");
-        assert_eq!(verdict(std::slice::from_ref(&late), &["2 provider gaps".into()]), "🔴 Needs you: Mon Nov 16 not published by its Tue 10:00 MT deadline");
-        assert_eq!(verdict(&[late.clone(), problem(2, "x"), problem(3, "y")], &[]), "🔴 Needs you: Mon Nov 16 not published by its Tue 10:00 MT deadline (and 2 more)");
+        assert_eq!(verdict(std::slice::from_ref(&late), &["2 provider gaps".into()], &[]), "🔴 Needs you: Mon Nov 16 not published by its Tue 10:00 MT deadline");
+        assert_eq!(verdict(&[late.clone(), problem(2, "x"), problem(3, "y")], &[], &[]), "🔴 Needs you: Mon Nov 16 not published by its Tue 10:00 MT deadline (and 2 more problems)");
+        // the live digest of 2026-11-20 10:00 MT read "(and 1 more)" after a summary naming days
+        assert_eq!(verdict(&[late.clone(), problem(2, "x")], &[], &[]), "🔴 Needs you: Mon Nov 16 not published by its Tue 10:00 MT deadline (and 1 more problem)");
+        // C-054 amended 2026-11-20: a check not fully judged is yellow, never red
+        let unjudged = ["reference checks of 3 published days".to_string()];
+        assert_eq!(verdict(&[], &[], &unjudged), "🟡 Running; not fully judged: reference checks of 3 published days");
+        assert_eq!(verdict(&[], &["1 provider gap".into()], &unjudged), "🟡 Running; handled: 1 provider gap; not fully judged: reference checks of 3 published days");
+        assert!(verdict(&[late], &[], &unjudged).starts_with("🔴"));
+    }
+
+    /// C-050 amended 2026-11-20: the backfill's finish from the running block's own days, on the
+    /// cluster's recorded times (`core.lease`, `vyreon.day_revision.published_at`, read 2026-11-20).
+    #[test]
+    fn the_backfill_finish_is_measured_on_the_running_blocks_days() {
+        // job 1420 (2026-10-28 to 10-30): lease 964 granted 08:08:16.87Z, 10-28 published
+        // 14:19:16.67Z, two sessions left; at the 10:00 MT digest (16:00Z). The live digest said
+        // "Sun 09:26" (2 sessions x 24 h / 1 published in 24 h); its first day took 6.18 h
+        let block_1420 = Running { granted: 1795162096.867582, published: vec![1795184356.666791], remaining: 2 };
+        let Pace::Measured { hours_a_day, first_days_only, finish, parallel } = pace(std::slice::from_ref(&block_1420), 0, 1795190400.0) else { panic!() };
+        assert_eq!((format!("{hours_a_day:.2}"), first_days_only, parallel), ("6.18".into(), true, None));
+        assert_eq!(finish.round(), (1795184356.666791_f64 + 2.0 * (1795184356.666791 - 1795162096.867582)).round(), "Sat 02:41Z, Fri 20:41 MT");
+        // job 1383 (2026-11-02 to 11-04), lease 926 granted 2026-11-19 15:32:27.78Z: 11-02
+        // published 23:55:19.60Z (8.4 h, with the download), 11-03 04:21:17.89Z (4.43 h); at
+        // 06:00Z one session left: about 08:47Z, and 11-04 really published at 09:15:31Z
+        let block_1383 = Running { granted: 1795102347.781976, published: vec![1795132519.59603, 1795148477.88756], remaining: 1 };
+        let Pace::Measured { hours_a_day, first_days_only, finish, .. } = pace(std::slice::from_ref(&block_1383), 0, 1795154400.0) else { panic!() };
+        assert_eq!((format!("{hours_a_day:.2}"), first_days_only), ("4.43".into(), false));
+        assert!((finish - 1795166131.050349).abs() < 30.0 * 60.0, "within half an hour of the real publication");
+        // a day running late: never before now plus the days after the one computing
+        let Pace::Measured { finish, .. } = pace(std::slice::from_ref(&block_1383), 0, 1795166000.0) else { panic!() };
+        assert_eq!(finish, 1795166000.0);
+        // nothing published under the running lease yet; none running
+        assert_eq!(pace(&[Running { published: vec![], ..block_1420.clone() }], 0, 1795190400.0), Pace::Unmeasured);
+        assert_eq!(pace(&[], 3, 1795190400.0), Pace::NoneRunning);
+        // blocks waiting: the whole remainder at the running blocks' pace, from now
+        let Pace::Measured { finish, parallel, .. } = pace(&[block_1420.clone()], 3, 1795190400.0) else { panic!() };
+        assert_eq!(parallel, Some(1));
+        assert!((finish - (1795190400.0 + 5.0 * (1795184356.666791 - 1795162096.867582))).abs() < 1.0);
     }
 
     #[test]
     fn a_post_stays_under_discords_limit_with_many_problems() {
         let open: Vec<Open> = (0..200).map(|i| problem(i, &format!("Day 2025-01-{:02} failed for the last time (job {i}): {}", i % 28 + 1, "x".repeat(150)))).collect();
         let lines = vec!["Latest session stored: Mon Nov 16 · 98.4% of its measurements have a value (typical 98.1%) · 0 engine faults".to_string(); 6];
-        let text = compose(&verdict(&open, &[]), &lines, &open);
+        let text = compose(&verdict(&open, &[], &[]), &lines, &open);
         assert!(text.chars().count() <= LIMIT && LIMIT < 2000, "{}", text.chars().count());
         assert!(text.contains("Open problems (200):"));
         let shown = text.lines().filter(|l| l.starts_with("• Day ")).count();
