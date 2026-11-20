@@ -1418,6 +1418,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   plan's own transient peak (~3.6 GB at 64 symbols) remains, beside the next day's fill (5–6 GB).
   Goes into the image after the byte-proof pair (which stays on 3d043daf). Pass-2 block day 1 (11-05):
   inputs 124 min; intent A started at 20:39 beside the surfaces (overlap working).
+  **22:29 UTC: old-image test block 2026-10-28..30 COMPLETE (4944a182, history on).** Day 3 (10-30)
+  published 210 min after its start including a 30.2-min reference check (2,554 failed, 252
+  unexplained: QQQ's gap, fixed on the new build). Block history 563,952 files / 1.84 GB, removed.
+  Node day-36nz9i deleted. Old-image later-day baseline: 248 (day 2) and 210 (day 3) min, start →
+  published incl. the check.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
