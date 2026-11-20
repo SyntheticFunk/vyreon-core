@@ -1430,6 +1430,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   that, the overlap worked: day start → intent B plan 114 min (old first day: prep 64 + A 88 + exports
   ≈ 156); intent A 101 min at 8 workers beside the surfaces. Evidence saved
   (`checks/2026-11-20-job1421-evidence.txt`); cause being found (`pass-fx78`) before any rerun.
+  **Cause found and reproduced (D-405 amended, `pass-fx78` merged):** pass 2's FD-backup lockstep
+  runs each contract's eight scenario searches on threads inside each of M0's eight threads: ~72
+  allocating threads per persistent worker, each getting a glibc arena reserving 64 MiB of address
+  space, so workers hit their 2 GiB RLIMIT_AS (D-007) at ~31 arenas; a failed allocation aborts the
+  worker ("IPC stream closed"), and survivors failed to mmap option shards (ENOMEM), which the reader
+  reported as "Corrupt". Fix: each persistent worker caps arenas at M0 threads + 1 (M_ARENA_MAX)
+  before any thread starts (measured 7–8 arenas, 565 MiB, same speed); a shard I/O error now reads
+  `Io(…)`, not Corrupt. Ruled out: AVX2, thread env, batched admissions, D-404/D-406 directories,
+  surfaces overlap. Image building; block 11-05..06 reruns on it.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
