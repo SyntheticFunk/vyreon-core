@@ -1079,6 +1079,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   chain (dropping it would change ETHA/IBIT values on their first sessions). After the date, a chain
   with no rows is still degenerate and goes to the API. Saves ~307 requests per affected window; no
   published value changes.
+  **`worker` 3b342af7 (fx61 merged, pushed): full suite 1,482 passed, 0 failed; reference 76 passed;
+  image `vyreon-worker:3b342af7` (build 3b342af7+5d6db5661e39) pushed: current candidate.** Tape
+  verification track (`pass-fx62` + core `core-tape-verdict`) started.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
