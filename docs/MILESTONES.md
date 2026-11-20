@@ -1173,6 +1173,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   so the suspect is audit round y's per-request byte reservation (`live_batch.rs` `byte_grant`, 64
   slots re-asking every 50 ms). Job stopped (core requeues 1384), node day-36n2pj deleted; cause and
   fix in `pass-fx66` with a local real-batch reproduction. Test block re-runs on the fixed image.
+  **Cause found (`worker` 4944a182, D-401 amended): not the batch and not snapshot parallelism (the
+  first eviction's attribution above was wrong).** OCC detection's per-process chain cache
+  (`occ.rs` `eod_chain`) never let go; D-398's `unlisted` (between 48d87154 and 3b85b4f6, verified
+  by ancestry) made it read every session's own and previous chain for all 64 securities, so the
+  quotes stage kept the whole window: ~83 MB a session × ~150 sessions ≈ 12.5 GB (evicted at 12.4).
+  Bounded to 128 chains (least recently read let go); outputs unchanged; real-data test fails without
+  the bound. Batches measured flat at 16/64 in flight (byte-reservation path cleared). Defaults 3 bulk
+  files / 8 snapshot sessions kept; the Job's 2/2 override is dropped on the fixed image.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
