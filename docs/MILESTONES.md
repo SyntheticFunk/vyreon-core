@@ -1032,6 +1032,17 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   REFCHECK_DISAGREES and the digest count only unexplained failures (otherwise the alarm stays open
   every day on ruled conventions). **Owner decision:** extend the 2026-11-04 forward-scatter ruling
   so the price test also applies where a σ half-width exists (scatter only beyond the larger).
+  **01:45 UTC Nov 20: reference fixes merged, `worker` ff210b97 (R1–R6, OI-sum tolerance, D-110 2 text,
+  per-class rulings outcome, `failed_unexplained` in the account; replay of the 11-02 report: 1,982
+  failed, 67 unexplained, 9 after every fix) — full suite 1,478 passed; image `vyreon-worker:ff210b97`
+  (build ff210b97+aee419a45e7e) pushed. Core C-056 (migration 0026: REFCHECK_DISAGREES and the
+  digest count `COALESCE(failed_unexplained, failed)`; core suite 105 passed incl. database) merged
+  (main 9fd433d) and deployed (`vyreon-core:9fd433d`, set image on core and migrate; rolled out).**
+  The open REFCHECK_DISAGREES for 11-02 stays until a day is checked by a worker that sends the field
+  (the block run is on 48d87154). EWJ 2026-12-18: the engine projects last December's whole 3.0614
+  payment, including the 0.157024 OCC classed as special (memo #57919, strikes cut 0.16): D-120's
+  open case; explains ~17 bp of the ~131 bp gap (the rest is weak 12-18 quotes). Same gap: FXI
+  2023-06-08, QQQ 2023-12-27, EMB 2024-12-30, EWJ 2025-12-16 (only EWJ's is inside phase 1).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
