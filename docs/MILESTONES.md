@@ -1335,6 +1335,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   need agreeing amounts; refused or empty T expected as the engine withholds; QuantLib cache key;
   ProcessPoolExecutor so a killed child fails at once as CRASHED; tape verdicts written as judged).
   Not yet run on a real refused/empty day (no raw inputs on the laptop).
+  **Day 2 (2026-10-29) of the test block: prep 73 min; intent A 46 min = 62,592 tasks, 61,828 reused,
+  764 executed, 4.5 CPU-min.** History reuse removes the history compute (332 → 4.5 CPU-min), but
+  the stage is ~44 ms of serialized controller work per reused task (admission file + fsync + one
+  SQLite transaction each; Codex item 8): ~45 min of a later day spent on bookkeeping. Batching the
+  warm admission is now the top later-day lever (sent to the M0/admission track, fx71).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
