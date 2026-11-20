@@ -1065,6 +1065,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   sessions); (4) the tape owners verified independently: the tape worker runs the reference tape
   reader while it holds the raw tape and core keeps the verdict with the cache. Phase-1 spend waits on
   the optimization passes' measured totals.**
+  **03:00 UTC: `worker` d0abefa1 full suite 1,480 passed, 0 failed; image `vyreon-worker:d0abefa1`
+  (build d0abefa1+473867ee3d30) pushed (D-120 specials; needs core ≥ a9acc36, deployed). Forward-
+  scatter rule merged (`worker` aed8b73d, reference only, D-370 amended; the 10-30/10-31/11-04 forward
+  rulings now recorded in DECISIONS; replay: SURFACE-FORWARD unexplained 9 → 7). First-option-session
+  track (`pass-fx61` + core `core-first-option`) in progress.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
