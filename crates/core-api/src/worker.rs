@@ -33,7 +33,9 @@
 //! windows cross ticker changes: Meta is FB to 2022-06-08, META from 2022-06-09); `sources`, each
 //! provider source's first date; `tape_history_from`; `adjustments` (C-055), for each member with
 //! one its dated OCC contract adjustments, the engine's `VYREON-ADJUSTMENTS@1` `assets`
-//! (`crate::adjustments`), `{}` when none has one. A day bundle states the members listed on
+//! (`crate::adjustments`), `{}` when none has one; `first_option_sessions` (C-057), for each member
+//! with one the first session its option EOD chain holds a contract (`core.option_listing`), `{}`
+//! when none has one. A day bundle states the members listed on
 //! its day (`listed_members`, the asset keys with a ticker in `days`), and core refuses one that
 //! differs from its own (C-036).
 //!
@@ -165,18 +167,21 @@ async fn claim(State(app): Shared, headers: HeaderMap, Json(request): Json<Claim
                          SELECT m.asset_key,
                                 jsonb_agg(jsonb_build_object('ticker', t.ticker, 'from', lower(t.during), 'to', upper(t.during) - 1) ORDER BY lower(t.during)) AS spans
                          FROM core.member m JOIN core.ticker_span t ON t.security_id = m.security_id
-                         WHERE m.profile_id = $1 GROUP BY m.asset_key) x)
+                         WHERE m.profile_id = $1 GROUP BY m.asset_key) x),
+                    (SELECT COALESCE(jsonb_object_agg(m.asset_key, o.first_session ORDER BY m.ordinal), '{}'::jsonb)::text
+                     FROM core.member m JOIN core.option_listing o USING (asset_key) WHERE m.profile_id = $1)
              FROM core.session s WHERE s.session = ANY($2::text[]::date[])",
             &[&c.profile_id, &c.sessions],
         )
         .await
         .map(|r| {
             format!(
-                "{{\"days\":{},\"sources\":{},\"tape_history_from\":{},\"tickers\":{}}}",
+                "{{\"days\":{},\"sources\":{},\"tape_history_from\":{},\"tickers\":{},\"first_option_sessions\":{}}}",
                 r.get::<_, String>(0),
                 r.get::<_, String>(1),
                 r.get::<_, String>(2),
-                r.get::<_, String>(3)
+                r.get::<_, String>(3),
+                r.get::<_, String>(4)
             )
         })
         .map_err(|e| failed(e.to_string()))?;
@@ -189,6 +194,9 @@ async fn claim(State(app): Shared, headers: HeaderMap, Json(request): Json<Claim
         "scope": c.scope.as_deref().map(serde_json::from_str::<Value>).transpose().map_err(|e| failed(e.to_string()))?,
         "attempt": c.attempt, "lease_token": c.token, "expires_at": c.expires_at, "lease_seconds": app.config.lease_seconds,
         "days": manifest["days"], "sources": manifest["sources"], "tickers": manifest["tickers"], "adjustments": adjustments,
+        // C-057: each member's first session with a listed option chain, where core has the
+        // provider's evidence of it (`core.option_listing`); `{}` when none has one
+        "first_option_sessions": manifest["first_option_sessions"],
         // E4: where this database's tape history starts (its first scheduled tape session), so
         // every worker of a build reads the same history; null while no tape job is scheduled
         "tape_history_from": manifest["tape_history_from"],
