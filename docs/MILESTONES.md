@@ -1216,6 +1216,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   4 of 8 workers (recorded `admitted_workers 4`). Day 1 intent A took 106 min (88 before), so this
   block's intent-A timings understate pass 1. Fix in `pass-fx68` (working set = current −
   inactive_file, as the kubelet measures). The C-001 history-off run goes on the fixed image.
+  **Fix merged (`worker` b4966fc1, D-007 amended, D-401 note; full tests + image building).**
+  Correction: the plan was made while day 2's fill still overlapped (anonymous ~9 GB, not ~4 GB;
+  cache only 1–2.4 GB), so the fixed measure admits 7–8 there, not a clean 8. Pass-2 lever: admission
+  is decided once per intent, so an intent started under the next day's fill stays narrow after the
+  fill exits (~11:03); re-plan admission between waves.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
