@@ -1106,6 +1106,17 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (`pass-fx64`, D-402) started:** per-task timing in the index (exact profiles), history endpoints kept
   across a block, M0 T−5 reuse and longest-first scheduling; byte-identical outputs. Spot-check
   mechanism (`pass-fx63` + core `core-tape-sample`) in progress.
+  **C-059 deployed (core main e9da254, `vyreon-core:e9da254`, migration 0029; core suite 112 passed
+  incl. database):** `vyreon-core tape verify <profile> <build> <session>…` schedules TAPE jobs with
+  scope verify: the worker re-captures the session's tapes, recomputes each member's cache, takes
+  only the fetch-time fields from the stored cache (listed in the check), compares every other byte,
+  runs the reference tape reader; MATCH keeps the verdict beside the stored cache, DIFFER opens
+  REFCHECK_DISAGREES (never replaces a cache), NOT_COMPARED says why; `vyreon-core tape checks` and the
+  digest line report it. Stored caches: 41,784 at the current method version (`…8cbc8c46…`), 128 at an
+  older one. Engine `pass-fx63` merging. Sample (20 sessions: tape history start, first session of
+  every second month, NVDA 2024-06-10 and AVGO 2024-07-15 splits, 2025-12-05 ETF splits, 2026-11-06
+  replay change) ~0.7–0.8 TB download, ~4,000 requests, ~6–9 min per session on a tape pod: run after
+  the engine image is built. A DIFFER's resolution is the owner's call (recheck vs replace).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
