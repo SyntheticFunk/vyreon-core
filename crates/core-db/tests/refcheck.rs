@@ -109,6 +109,18 @@ fn a_document_is_checked_before_anything_is_stored() {
     refused(whole[..whole.len() - 4].to_vec(), "not a gzip");
     refused(Vec::new(), "empty");
     refused(vec![0u8; refcheck::MAX_DOCUMENT_BYTES + 1], "at most");
+    // C-056: the failures the rulings table does not explain; an account without them counts every
+    // failure (None), one with them is checked against `failed`
+    assert_eq!(c.counts.unwrap().failed_unexplained, None);
+    let mut a = completed("2025-12-10");
+    a["counts"]["failed_unexplained"] = json!(67);
+    assert_eq!(refcheck::check(document(&a, &report), "2025-12-10").unwrap().counts.unwrap().failed_unexplained, Some(67));
+    let mut a = completed("2025-12-10");
+    a["counts"]["failed_unexplained"] = json!(3959);
+    refused(document(&a, ""), "is more than failed");
+    let mut a = completed("2025-12-10");
+    a["counts"]["failed_unexplained"] = json!(-1);
+    refused(document(&a, ""), "failed_unexplained");
 }
 
 /// The reference check's lines of a check's change (the calendar's end and the others are not ours).
@@ -190,7 +202,7 @@ async fn a_published_days_check_is_kept_once_and_judged_until_the_day_is_publish
 
     // a report that disagrees: one problem, counted; the day without a report is resolved
     let change = watch::check(&mut client, &settings, &after(6)).await.unwrap();
-    assert_eq!(ours(change.opened), ["Reference check disagrees with 1 published day: 3958 comparisons failed, the oldest 2025-12-10"]);
+    assert_eq!(ours(change.opened), ["Reference check disagrees with 1 published day: 3958 comparisons failed unexplained, the oldest 2025-12-10"]);
     assert_eq!(ours(change.resolved), ["Reference check did not run on 1 published day (1 with no report), the oldest 2025-12-10"]);
     assert!(ours(watch::check(&mut client, &settings, &after(7)).await.unwrap().opened).is_empty(), "alerted once");
     let alerts: Vec<String> = client
@@ -215,7 +227,7 @@ async fn a_published_days_check_is_kept_once_and_judged_until_the_day_is_publish
     // nothing published any more; the disagreement resolves
     client.execute("UPDATE vyreon.day_revision SET state = 'SUPERSEDED' WHERE revision_id = $1", &[&published.revision_id]).await.unwrap();
     let change = watch::check(&mut client, &settings, &after(8)).await.unwrap();
-    assert_eq!(ours(change.resolved), ["Reference check disagrees with 1 published day: 3958 comparisons failed, the oldest 2025-12-10"]);
+    assert_eq!(ours(change.resolved), ["Reference check disagrees with 1 published day: 3958 comparisons failed unexplained, the oldest 2025-12-10"]);
     assert!(problems(&client).await.is_empty());
     assert_eq!(refcheck::list(&client, None, None, 10).await.unwrap()[0]["current"], false);
     scratch.drop().await;
