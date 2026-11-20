@@ -1276,6 +1276,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   resources, over-wide withholding edges).
   **Image e9c216f7 (build e9c216f7+aabffe6e62a2, 1,497 passed) admitted: D-403 + reference fixes.**
   Next cluster run (the C-001 history-off block) goes on it, or on D-404's image if that lands first.
+  **Owner (2026-11-20 09:10 MT, back ~21:00 MT):** if the optimization passes finish before then, run
+  them again; and a Codex optimization audit regardless (scope `round-cc/scopes/optimization.md`, with
+  the measured profile; runs after round cc's audits).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
