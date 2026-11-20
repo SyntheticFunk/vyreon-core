@@ -1043,6 +1043,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   payment, including the 0.157024 OCC classed as special (memo #57919, strikes cut 0.16): D-120's
   open case; explains ~17 bp of the ~131 bp gap (the rest is weak 12-18 quotes). Same gap: FXI
   2023-06-08, QQQ 2023-12-27, EMB 2024-12-30, EWJ 2025-12-16 (only EWJ's is inside phase 1).
+  **D-120 amended (engine `pass-fx59` merging; core C-055 amended, main a9acc36, deployed
+  `vyreon-core:a9acc36` first as required):** the ledger states OCC's special behind each strike offset
+  (EWJ 0.157024 #57919, FXI 0.148983 #52545 ex 2023-06-07, QQQ 0.21584 #53847, EMB 0.254515 #55816);
+  the surface projects the ordinary part only (EWJ's December recurrence 3.0614 → 2.904376 on 11-02's
+  real records; a paid row equal to the special is the whole special); `H5-SURFACE@22`. Changes on an
+  ordinary day: EWJ from 2025-12-16 (forward/carry for expiries after the projected December, ~+17 bp
+  on 12-18), EMB to ~2026-01-13, QQQ to 2025-12-19 only if D-149's test flips; other 60 assets bit-
+  identical. Days built at @21 (the block run, 48d87154) and @22 are different method versions in
+  derived histories: phase 1 starts on one image anyway.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
