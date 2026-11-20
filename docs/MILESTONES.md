@@ -1166,6 +1166,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (jobs 1416–1419, Job `v-tape-reverify2`). The memory figure first sampled was cgroup usage
   including ~12 GB reclaimable page cache; the sampler now records the working set (what eviction
   uses).
+  **07:22 UTC: test block evicted again, this time with 2 bulk files and 2 snapshot sessions in flight.
+  Not page cache, a leak:** working set flat ~1.5 GB through the bulk files; then one
+  `h2-engine live-capture-batch` (started 07:07) grew anonymous memory linearly 0.1 → 12.4 GB in 15 min
+  until eviction (`checks/2026-11-20-block-1028-memory.tsv`). The old image (48d87154) never did this,
+  so the suspect is audit round y's per-request byte reservation (`live_batch.rs` `byte_grant`, 64
+  slots re-asking every 50 ms). Job stopped (core requeues 1384), node day-36n2pj deleted; cause and
+  fix in `pass-fx66` with a local real-batch reproduction. Test block re-runs on the fixed image.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
