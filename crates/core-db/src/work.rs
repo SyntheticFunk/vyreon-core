@@ -604,6 +604,9 @@ async fn finished(db_client: &impl GenericClient, job: &tokio_postgres::Row, by:
 /// log. Returns true when the job was queued again, false when it is out of attempts (the queue
 /// is then paused).
 pub async fn fail(client: &mut Client, token: &str, stage: &str, message: &str, log: &str) -> Result<bool, LeaseError> {
+    // round cc, 11 (C-049's principle): a credential pattern the worker's redaction missed is never
+    // stored, logged or printed: the text is withheld whole
+    let (stage, message, log) = (&scrubbed(stage), &scrubbed(message), &scrubbed(log));
     let tx = client.transaction().await.map_err(failed)?;
     let lease = held(&tx, token).await?;
     tx.execute(
@@ -617,11 +620,21 @@ pub async fn fail(client: &mut Client, token: &str, stage: &str, message: &str, 
     Ok(again)
 }
 
+/// A worker's text as core keeps it: whole, or withheld whole when a credential pattern is in it
+/// (`evidence::unredacted`, the patterns C-049's evidence is refused on).
+pub fn scrubbed(text: &str) -> String {
+    match crate::evidence::unredacted(text) {
+        Some(found) => format!("(not kept: it carried a credential pattern, {found})"),
+        None => text.to_owned(),
+    }
+}
+
 /// Stops claims until `resume`. The first reason is kept: it is what stopped the queue. Call it in
 /// a transaction: the pause and its notice are one event (C-027), and a restart between two
 /// autocommitted statements would leave the queue paused with no notice (a second `pause` then
 /// changes nothing, so would not repair it).
 pub async fn pause(db_client: &impl GenericClient, reason: &str) -> Result<(), String> {
+    let reason = &scrubbed(reason);
     let paused = db_client
         .execute("UPDATE core.queue_control SET paused = true, reason = $1, changed_at = now() WHERE NOT paused", &[&reason])
         .await
