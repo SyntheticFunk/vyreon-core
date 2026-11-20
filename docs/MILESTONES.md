@@ -1095,6 +1095,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   image `vyreon-worker:e31ece49` (build e31ece49+28ab1516eee1) pushed: current candidate (needs core
   ≥ 996ad69, deployed).** Recommended to the owner for historical tapes: verify a sample (~20 sessions,
   about one a month, re-downloaded; a forced-recapture option for chosen sessions).
+  **Owner (04:12 UTC Nov 20): spot-check approved** — ~20 historical sessions (about one a month
+  across the tape history) re-downloaded and verified; the rest stated "not verified by its own
+  verdict, cache code verified by sample".
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
