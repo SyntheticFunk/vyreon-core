@@ -1052,6 +1052,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   on 12-18), EMB to ~2026-01-13, QQQ to 2025-12-19 only if D-149's test flips; other 60 assets bit-
   identical. Days built at @21 (the block run, 48d87154) and @22 are different method versions in
   derived histories: phase 1 starts on one image anyway.
+  **Correction (02:15 UTC):** the merged fx59 tip 76169889 failed one test (h3-asset
+  `each_m0_label_pins_its_method_code`: M0-ANALYTICS, M0-GAMMA, M0-GAMMA-CHANGE hash the surface
+  stage's code), and my build chain pushed `worker` and image `vyreon-worker:76169889` anyway (it ran
+  the push after a failed suite): **do not use image 76169889.** Fixed in e1461087 (pins updated,
+  labels unchanged per D-295: the method is the same, the moved input is the surface @22) and
+  d0abefa1 (D-120 note); full suite with --no-fail-fast running; the build now runs only when the
+  suite exits 0.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
