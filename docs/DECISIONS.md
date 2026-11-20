@@ -1429,6 +1429,37 @@ meets the December 2025 adjustments.
   Tests: `adjustments::tests` (the four specials; each new rule refuses an altered real entry);
   `worker_api.rs` (the claim carries EWJ's special).
 
+- **Amended 2026-11-20 (audit 2026-11-20-pass1-round-cc, core.md, triage c.md, 1): coverage from
+  2019-05-27.** Engine D-120 as amended takes a ledger special out of every ex-date in its 1,096-day
+  dividend window, so the database's first session (2022-05-27) reads distributions from
+  2019-05-27; without its entry, ARKK's 2021-12-29 capital gains (0.7826 in Intrinio) recurred as a
+  projected dividend (engine `a_due_unpaid_recurrence_is_not_projected`: 0.7826 at 2023-12-27 for
+  T 2023-03-01). Coverage is now every OCC strike-offset special of the 64 with an ex-date from
+  2019-05-27. Five entries added, each memo read from MIAX's copy and its figures quoted: ARKK
+  2020-12-29 2.04431 (offset 2.04, #48070) and 2021-12-29 0.78257 (0.78, #49856), both capital
+  gains; EEM 0.266326 (0.27, #46168), the older form like FXI's: cash in the deliverable on the
+  ex-date 2019-12-16, strikes reduced 2019-12-17 (the entry's date; `special_ex_date` 2019-12-16);
+  XLE 2019-12-30 1.791209 (1.79, #46261); XLV 2019-12-30 0.66554 (0.67, #46260). Nine strike
+  offsets in all. **How found:** every MIAX Options corporate-action alert dated 2019-05-20 to
+  2022-06-05 (691, all loaded; 8 without a PDF, none of the 64) and each attachment's name; Intrinio
+  `prices/adjustments/dividends` for each asset over the window gave the candidates (62 calls). The
+  only other alerts for the 64 were non-cash (the AAPL, TSLA, NVDA and AMZN splits, USO's reverse
+  split, FB to META). **Not established, so not in the ledger** (Intrinio candidates with no OCC
+  alert found; an entry is never written without its memo): ARKK 2019-12-27 0.19063; DBA
+  2019-12-23 0.25717; UUP 2019-12-23 0.52612; URA 2021-12-30 1.308965; EFA 2021-12-30 0.163147
+  and EWZ 2021-12-30 0.160947 (iShares EWG's like payment was adjusted, memo #49872); the large
+  iShares semiannual payments of 2021-12-13 (INDA 2.879402, EWZ 1.983642, EWY 1.678518, EFA
+  1.352231, EWJ 0.888134; EWT's was adjusted, memo #49743); XRT 2021-12-20 0.932859; XBI
+  2020-12-21 0.176; TSM 2019-06-24 1.2887; the iShares bond funds' recurring December extras (TIP
+  2021-12-16 0.7862; EMB, HYG, LQD 0.2564 to 0.4411; TLT 0.1639 to 0.2176). The absence of an alert
+  is not OCC's statement that it did not adjust; only MIAX's Options listing was crawled (an alert
+  posted only on Pearl or Emerald could be missing). Intrinio's gaps met on the way:
+  `docs/PROVIDER_FAULTS.md` P-22 (EEM has no dividend record in the window; XLV two on 2019-12-30).
+  `adjustments::check` has no date floor; the engine's `parse_ledger` reads any date (checked read
+  only). Ordinary day: a claim of ARKK, EEM, XLE or XLV carries the new entries; the engine's
+  surfaces whose dividend window holds them change (the special is no longer projected). A day
+  already published is republished by asset under the next build (C-055: a ledger change is a
+  scoped republish). Tests: `adjustments::tests` (the five specials and memos; nine offsets).
 ## C-056 A reference-check disagreement is a failure the rulings table does not explain (2026-11-20; engine D-370 amended)
 The first complete worker check (2026-11-02, build 48d87154) failed 1,982 comparisons; 1,915 of them
 match conventions the owner has ruled as the definition (the suite's rulings table names each), so
