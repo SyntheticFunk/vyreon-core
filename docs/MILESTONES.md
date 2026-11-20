@@ -1098,6 +1098,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   **Owner (04:12 UTC Nov 20): spot-check approved** — ~20 historical sessions (about one a month
   across the tape history) re-downloaded and verified; the rest stated "not verified by its own
   verdict, cache code verified by sample".
+  **Compute profile (day 2, from result-file times, lower bounds; `checks/2026-11-20-compute-profile-
+  day2-mtime.txt`):** intent A is the O02/O04/OIJ01/L01 history endpoints (4 × 12,619 tasks, ~200 past
+  sessions × 64 assets recomputed daily; ~82 min) — the block worker never passes D-038's shared
+  endpoint-history run; intent B is mostly M0 (M0-ANALYTICS 128 tasks for T and T−5, ~205 task-min,
+  SPY 16.6 min per task; IV-CHANGE 46, GAMMA 31, GAMMA-CHANGE 30, IV-PROFILE 15). **Compute pass 1
+  (`pass-fx64`, D-402) started:** per-task timing in the index (exact profiles), history endpoints kept
+  across a block, M0 T−5 reuse and longest-first scheduling; byte-identical outputs. Spot-check
+  mechanism (`pass-fx63` + core `core-tape-sample`) in progress.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
