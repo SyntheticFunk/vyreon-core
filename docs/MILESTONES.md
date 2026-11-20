@@ -1117,6 +1117,18 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   every second month, NVDA 2024-06-10 and AVGO 2024-07-15 splits, 2025-12-05 ETF splits, 2026-11-06
   replay change) ~0.7–0.8 TB download, ~4,000 requests, ~6–9 min per session on a tape pod: run after
   the engine image is built. A DIFFER's resolution is the owner's call (recheck vs replace).
+  **05:00 UTC: `worker` 4276d889 (fx63 merged; 1,489 passed; image `vyreon-worker:4276d889`). Compute
+  pass 1 (`pass-fx64`, D-402; D-038, D-007 amended) merged into `worker` 3b85b4f6, suite and image in
+  progress:** per-task start/finish/CPU times in a sidecar (`task-times/<intent>.jsonl`) and a
+  per-measurement summary in acceptance.log (no published byte); one endpoint-history run per block
+  (`<home>/block-history`; `VYREON_WORKER_HISTORY=off` restores per-day) — est. intent A on later
+  days 83 → 25–45 min; reused endpoints keep their earlier cutoff so only provenance digests differ;
+  M0 kernels start largest chain first. Not done (reasons in D-402): T−5 M0 reuse (needs ≥6-session
+  blocks; newest-first build; a rule change), internal M0 parallelism (edits every M0
+  method_sha256). Next lever found: history reuse costs ~22 ms per reused task, serial. **Block run:
+  day 2 (11-03) published (revisions 55/56; worker day 265 min after inputs); its reference check
+  completed (93,087 checked, 2,489 failed in 160 classes on the old suite; replaces the crashed 11-03
+  check). Day 3 computing.**
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
