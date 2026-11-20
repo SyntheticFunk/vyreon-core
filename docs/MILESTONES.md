@@ -1260,6 +1260,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   or §5.13's scan back until 126 eligible (floor almost never bites).
   **Owner (2026-11-20): fixed span** ("scan back is going to produce weird behavior"). D-404
   implementation started (`pass-fx70`): engine + reference, one shared floor, before/after numbers.
+  **One-year window (owner, 2026-11-20):** no exchange/regulator definition of the 52-week high
+  exists (vendors differ: calendar vs 252 sessions, close vs intraday); adopt one definition of "a
+  year" for every measurement, anchored on `return_1y` (the close 252 sessions back, 253 closes),
+  so DLM-PRICE-LEVELS' range moves to it. First a census of every 1-year/52-week window (span, close
+  vs intraday basis) and one decision with before/after (D-118 changed the drawdown without one).
+  Queued behind D-404.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
