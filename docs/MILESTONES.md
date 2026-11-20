@@ -1237,6 +1237,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   DEPENDENCY_WITHHELD: possible over-withholding against the scope rule. Rest: SAI-G01 strike axis on
   ~8 names, one flip-distance class, DBA/INDA forward. Triage `pass-fx69`. Day 2 (10-29) compute
   started 14:48 (its download 69 min).
+  **Owner ruling (2026-11-20), history windows over missing sessions:** compute over the sessions
+  present, never interpolate, state each missing session with its reason, withhold only comparisons
+  that need a missing endpoint; completeness floor 75% of the window's expected observations (CAP126:
+  95, was MIN63) for every history window, cited to 40 CFR Part 50 App. K §2.3 and App. T §3.1
+  (verified; WMO-No. 1203 §4.4 agrees in principle, secondary sources). Replaces the day-level plan
+  withholding that blanked QQQ's window sensors after one refused session. Engine + reference in
+  `pass-fx69`, with before/after coverage counts. Open: a consecutive-gap limit (WMO uses 5 days),
+  not ruled.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
