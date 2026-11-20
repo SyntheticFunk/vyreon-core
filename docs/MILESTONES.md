@@ -1423,6 +1423,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   unexplained: QQQ's gap, fixed on the new build). Block history 563,952 files / 1.84 GB, removed.
   Node day-36nz9i deleted. Old-image later-day baseline: 248 (day 2) and 210 (day 3) min, start →
   published incl. the check.
+  **22:39 UTC: pass-2 block (3d043daf) day 1 (2026-11-05) HELD in intent B ("too many faulted
+  slots"): persistent workers died ("H3 IPC stream closed before a frame") on M0-ANALYTICS, then
+  hundreds of "… directory: Corrupt" faults (population 188, option 139, Q05 118, O06/V03/L01
+  admitted dirs).** Job stopped (core requeued 1421; the requeued pod killed), node deleted. Before
+  that, the overlap worked: day start → intent B plan 114 min (old first day: prep 64 + A 88 + exports
+  ≈ 156); intent A 101 min at 8 workers beside the surfaces. Evidence saved
+  (`checks/2026-11-20-job1421-evidence.txt`); cause being found (`pass-fx78`) before any rerun.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
