@@ -1357,7 +1357,7 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   =off`. Estimated: −30–45 min of a later day's start→published plus −28 min between days (to be
   measured). Byte proof on the cluster: one block twice, switches off vs default. Noted: the
   `vyreon-worker run` process holds 3.6 GB after the plan and 5.3 GB on day 2 (grows per day).
-  **Core 8a53f67 deployed (17:50 UTC; migration 0030):** digest fixes and the 8 round-cc core
+  **Core 8a53f67 deployed (~17:10 UTC; migration 0030):** digest fixes and the 8 round-cc core
   findings live; the stale "did not run" is gone and the ETA now reads Fri 19:41 MT. New false alarm
   from the stricter verdict rule: the old reader's 51 FAIL verdicts (fixed reference defects) count
   as disagreements next to the fixed reader's PASSes on the same bytes; fix (a later reader's verdict
@@ -1383,7 +1383,7 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   in the local derive contained; read_dir errors are faults; sidecar ok from the binding check.
   Ordinary days: no value changes (PATH-L01/L02 receipts' kernel contract digest changes). Left: the
   ordered derive (derive/mod.rs) still fails the whole object on a population load failure.
-  **Core 139a21b deployed (18:40 UTC; C-058 amended): a cache's current verdict is its latest
+  **Core 139a21b deployed (17:40 UTC; C-058 amended): a cache's current verdict is its latest
   reader's (builds ordered by admission), for the alarm and for `GET /tape-caches`.** The 51 old-reader
   FAILs no longer alarm, and day workers read the fixed reader's PASS. Digest now: one 🔴, 10-28's 254
   unexplained (triaged: QQQ, fixed by D-403/D-404; clears when 10-28 is republished on the new build).
