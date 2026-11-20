@@ -357,6 +357,11 @@ pub struct State {
     /// (while that cache is still the asset-session's newest); the oldest session.
     pub sample_differ: i64,
     pub sample_differ_oldest: Option<String>,
+    /// C-059 amended 2026-11-20 (round cc, 6): asset-sessions whose latest sample check recomputed
+    /// the stored cache byte for byte and the tape reader FAILED it, while the verdict kept beside
+    /// that cache is not a FAIL (one already there stands); the oldest session.
+    pub sample_reader_failed: i64,
+    pub sample_reader_failed_oldest: Option<String>,
 }
 
 /// The reference checks' state at `now` (`from`: the first session every published day of which
@@ -406,15 +411,28 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
         )
         .await
         .map_err(db)?;
-    // C-059: the latest check of each asset-session, until a newer cache supersedes the one it found
+    // C-059 (amended 2026-11-20, round cc 6 and 8): the latest comparison (MATCH or DIFFER; a
+    // NOT_COMPARED compared nothing and resolves nothing) of each cache, while that cache is its
+    // asset-session's newest (no cache stored after it: C-058's supersession, by method version,
+    // never by the check's time); a DIFFER, or a MATCH whose reader verdict is FAIL where no FAIL
+    // verdict is kept beside the cache already (counted by C-058)
     let d = c
         .query_one(
-            "SELECT count(*), min(session)::text FROM (
-                 SELECT DISTINCT ON (session, asset_key) session, asset_key, outcome, checked_at FROM core.tape_check
-                 WHERE checked_at <= $1::text::timestamptz ORDER BY session, asset_key, checked_at DESC, tape_check_id DESC) k
-             WHERE k.outcome = 'DIFFER'
-               AND NOT EXISTS (SELECT FROM core.tape_cache n WHERE n.session = k.session AND n.asset_key = k.asset_key
-                               AND n.stored_at > k.checked_at AND n.stored_at <= $1::text::timestamptz)",
+            "WITH k AS (
+                 SELECT DISTINCT ON (session, asset_key, method_version) session, asset_key, method_version, outcome, verdict_outcome
+                 FROM core.tape_check WHERE checked_at <= $1::text::timestamptz AND outcome IN ('MATCH', 'DIFFER')
+                 ORDER BY session, asset_key, method_version, checked_at DESC, tape_check_id DESC),
+             newest AS (
+                 SELECT k.* FROM k JOIN core.tape_cache t USING (session, asset_key, method_version)
+                 WHERE t.stored_at <= $1::text::timestamptz
+                   AND NOT EXISTS (SELECT FROM core.tape_cache n WHERE n.session = k.session AND n.asset_key = k.asset_key
+                                   AND n.stored_at > t.stored_at AND n.stored_at <= $1::text::timestamptz)),
+             reader AS (
+                 SELECT * FROM newest k WHERE k.outcome = 'MATCH' AND k.verdict_outcome = 'FAIL'
+                   AND NOT EXISTS (SELECT FROM core.tape_verdict v WHERE v.session = k.session AND v.asset_key = k.asset_key
+                                   AND v.method_version = k.method_version AND v.outcome = 'FAIL' AND v.stored_at <= $1::text::timestamptz))
+             SELECT (SELECT count(*) FROM newest WHERE outcome = 'DIFFER'), (SELECT min(session)::text FROM newest WHERE outcome = 'DIFFER'),
+                    (SELECT count(*) FROM reader), (SELECT min(session)::text FROM reader)",
             &[&now],
         )
         .await
@@ -422,6 +440,8 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
     Ok(State {
         sample_differ: d.get(0),
         sample_differ_oldest: d.get(1),
+        sample_reader_failed: d.get(2),
+        sample_reader_failed_oldest: d.get(3),
         tape_failed: t.get(0),
         tape_failed_oldest: t.get(1),
         disagree: r.get(0),
@@ -464,6 +484,14 @@ impl State {
                 self.sample_differ,
                 if self.sample_differ == 1 { "" } else { "s" },
                 self.sample_differ_oldest.as_deref().unwrap_or("?")
+            ));
+        }
+        if self.sample_reader_failed > 0 {
+            tapes.push(format!(
+                "the tape reader disagrees with a cache the sample recomputed byte for byte on {} asset-session{}, the oldest {} (vyreon-core tape checks)",
+                self.sample_reader_failed,
+                if self.sample_reader_failed == 1 { "" } else { "s" },
+                self.sample_reader_failed_oldest.as_deref().unwrap_or("?")
             ));
         }
         let tape = (!tapes.is_empty()).then(|| tapes.join("; "));
