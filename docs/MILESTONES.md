@@ -1410,6 +1410,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   **The day-block process itself grows a day at a time: `vyreon-worker` RSS 3.6 GB (day 1) → 5.3
   (day 2) → 6.7 (day 3).** At that rate a ~15-day phase-1 block would not fit a 16 GB node: cause and
   fix being found (`pass-fx77`) before long blocks.
+  **Cause: glibc arena high-water, not retained data (D-407, merged `worker` f7ca1ecc).** Of 6.73 GB
+  resident on the live pod, 6.2 GB sat in ~95 thread arenas left by each day's in-process plan (8
+  threads parsing the quote-file window). Fix: drop the OCC chain cache after the plan and
+  `malloc_trim(0)` after each plan and each day (logged as `memory after <T>`). Laptop, real 8-symbol
+  slice, 8 days: resident after each plan 748 → 1,516 MiB before; 32–66 MiB after the trim. The
+  plan's own transient peak (~3.6 GB at 64 symbols) remains, beside the next day's fill (5–6 GB).
+  Goes into the image after the byte-proof pair (which stays on 3d043daf). Pass-2 block day 1 (11-05):
+  inputs 124 min; intent A started at 20:39 beside the surfaces (overlap working).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
