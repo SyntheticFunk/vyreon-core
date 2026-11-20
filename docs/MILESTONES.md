@@ -1357,6 +1357,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   =off`. Estimated: −30–45 min of a later day's start→published plus −28 min between days (to be
   measured). Byte proof on the cluster: one block twice, switches off vs default. Noted: the
   `vyreon-worker run` process holds 3.6 GB after the plan and 5.3 GB on day 2 (grows per day).
+  **Core 8a53f67 deployed (17:50 UTC; migration 0030):** digest fixes and the 8 round-cc core
+  findings live; the stale "did not run" is gone and the ETA now reads Fri 19:41 MT. New false alarm
+  from the stricter verdict rule: the old reader's 51 FAIL verdicts (fixed reference defects) count
+  as disagreements next to the fixed reader's PASSes on the same bytes; fix (a later reader's verdict
+  supersedes) in progress.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
