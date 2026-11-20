@@ -124,6 +124,10 @@ async fn a_sample_check_keeps_the_verdict_only_beside_an_equal_cache_and_a_diffe
     assert_eq!((spy.outcome.as_str(), spy.why.as_deref()), ("NOT_COMPARED", Some("core holds a stated absence: TAPE_PROVIDER_REFUSED: only AAPL's tape is on this machine")));
     let msft = tape::put_check(&mut client, &claim.token, S, "MSFT", V1, &parsed(&check("MSFT", Some(&sha256_hex(TAPE_AAPL)), None, None), "MSFT")).await.unwrap();
     assert_eq!(msft.why.as_deref(), Some("core holds no tape cache of MSFT 2025-12-10 under engine-v1"));
+    // round cc, 7: three members checked of the 64 listed: the rest are counted not checked
+    let sample = tape::sample(&client).await.unwrap();
+    assert_eq!((sample[0]["listed"].as_i64(), sample[0]["checked"].as_i64(), sample[0]["unchecked"].as_i64(), &sample[0]["passed"]), (Some(64), Some(3), Some(61), &json!(false)));
+    assert!(tape::sample_line(&sample).unwrap().ends_with("(0 of 64 asset-sessions recomputed byte for byte with the tape reader agreeing; 1 differ from the stored cache, 2 not compared, 61 not checked)"));
     let e = tape::put_check(&mut client, &claim.token, S, "ZZZZ", V1, &parsed(&check("ZZZZ", None, Some("x"), None), "ZZZZ")).await.unwrap_err();
     assert!(matches!(&e, LeaseError::Refused(m) if m.contains("is not listed on 2025-12-10")), "{e}");
     for m in members.iter().filter(|m| !["AAPL", "SPY", "MSFT"].contains(&m.as_str())) {
@@ -188,5 +192,46 @@ async fn a_sample_check_keeps_the_verdict_only_beside_an_equal_cache_and_a_diffe
         .map(|r| (r.get(0), r.get(1)))
         .unwrap();
     assert_eq!((state.as_str(), paused), ("FAILED", false));
+    work::cancel(&mut client, &[jobs[0]]).await.unwrap();
+
+    // round cc: one verify job a step, AAPL's check alone, the job then cancelled
+    async fn verify_aapl(client: &mut tokio_postgres::Client, b: &str, method: &str, v: Value) -> tape::Checked {
+        let jobs = work::schedule_verify(client, P, b, &[S]).await.unwrap();
+        let claim = work::claim(client, Kind::Tape, b, "verify-cc", 3600.0).await.unwrap().unwrap();
+        let checked = tape::put_check(client, &claim.token, S, "AAPL", method, &tape::check_check(&serde_json::to_vec(&v).unwrap(), "AAPL", S, method).unwrap()).await.unwrap();
+        work::cancel(client, &jobs).await.unwrap();
+        checked
+    }
+    let disagree = |s: &refcheck::State| (s.sample_differ, s.sample_reader_failed);
+    // 8: a DIFFER, then a check that compared nothing (the provider refused the session): the
+    // difference stands until a later comparison matches
+    assert_eq!(verify_aapl(&mut client, &b, V1, check("AAPL", Some(&differ), Some(said), None)).await.outcome, "DIFFER");
+    assert_eq!(disagree(&refcheck::state(&client, P, None, LATER).await.unwrap()), (1, 0));
+    assert_eq!(verify_aapl(&mut client, &b, V1, check("AAPL", None, Some("its tapes were not captured: HTTP 500"), None)).await.outcome, "NOT_COMPARED");
+    assert_eq!(disagree(&refcheck::state(&client, P, None, LATER).await.unwrap()), (1, 0), "a check that compared nothing resolves nothing");
+    // 6: recomputed byte for byte and the reader now FAILS, beside the PASS kept earlier: the
+    // verdict there stands, and the disagreement is raised
+    let mut fail = pass(&whole);
+    fail["outcome"] = json!("FAIL");
+    fail["why"] = json!("the reader's bins differ");
+    fail["differences"] = json!([{"bin": "trades", "engine": 1, "reader": 2}]);
+    let c = verify_aapl(&mut client, &b, V1, check("AAPL", Some(&whole), None, Some(fail))).await;
+    assert_eq!((c.outcome.as_str(), c.verdict_kept), ("MATCH", false));
+    let state = refcheck::state(&client, P, None, LATER).await.unwrap();
+    assert_eq!(disagree(&state), (0, 1));
+    assert_eq!(
+        state.disagree_summary().unwrap(),
+        "Reference check: the tape reader disagrees with a cache the sample recomputed byte for byte on 1 asset-session, the oldest 2025-12-10 (vyreon-core tape checks)"
+    );
+    // 10: the sample counts that FAIL as a MATCH the reader did not agree with, and the DIFFER's
+    // verdict-less check under no verdict count
+    let line = tape::sample_line(&tape::sample(&client).await.unwrap()).unwrap();
+    assert!(line.ends_with("(0 of 64 asset-sessions recomputed byte for byte with the tape reader agreeing; 1 recomputed equal, the tape reader not agreeing, 63 not compared)"), "{line}");
+    // 8: a newer method version's cache supersedes the one checked: neither its FAIL nor a later
+    // DIFFER of the superseded cache is raised
+    assert!(tape::put(&client, "AAPL", S, "engine-v2", &Cache::Body(TAPE_AAPL.to_vec())).await.unwrap());
+    assert_eq!(disagree(&refcheck::state(&client, P, None, LATER).await.unwrap()), (0, 0));
+    assert_eq!(verify_aapl(&mut client, &b, V1, check("AAPL", Some(&differ), Some(said), None)).await.outcome, "DIFFER");
+    assert_eq!(disagree(&refcheck::state(&client, P, None, LATER).await.unwrap()), (0, 0), "a check of a superseded cache");
     scratch.drop().await;
 }
