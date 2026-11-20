@@ -1349,6 +1349,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   change (scoped republish of affected published days: only the 2022-06 sample days, superseded
   anyway). Before merge: the tests' hand-written tape verdict documents are being replaced by real
   ones from core.tape_check (D-102).
+  **Pass 2 critical-path track merged (`worker` 5eed4a2e; fx73 suite 1,504 passed; D-405):** intent A
+  runs beside the two surfaces (waited for just before intent B); FIELD's panels beside intent B; a
+  day's reference check beside the next day (nice 19, starts after the next download with ≥7 GiB
+  free, killed and rerun if memory falls below 2 GiB, never two at once; the last day checks at
+  once); heartbeat held until core has the outcome. Switches `VYREON_OVERLAP_SURFACES|FIELD|REFCHECK
+  =off`. Estimated: −30–45 min of a later day's start→published plus −28 min between days (to be
+  measured). Byte proof on the cluster: one block twice, switches off vs default. Noted: the
+  `vyreon-worker run` process holds 3.6 GB after the plan and 5.3 GB on day 2 (grows per day).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
