@@ -1417,3 +1417,72 @@ Migration 0028; `crates/core-db/src/tape.rs`, `refcheck.rs`.
   counted in the digest and `show`, and resolves when the cache is redone again and passes);
   `core-api/tests/worker_api.rs` (over HTTP: kept once, another asset's refused, a stranger's
   lease refused, served in the session's tar); `refcheck::tests` (the summaries).
+
+## C-059 The tape caches stored before the verdicts are verified by a sample of their sessions, downloaded again and recomputed; a verdict is kept beside a stored cache only when the recomputation equals it (owner decision, 2026-11-20; engine D-370 amended 2026-11-20)
+The caches stored before C-058 never get a verdict: their raw tapes are gone. The owner: verify a
+sample instead, about twenty sessions spread over the tape history, each downloaded again and
+recomputed with the current build. Tape jobs keep their default: they never recapture a cache core
+holds. *No published standard covers sampling a derived cache; the rule is the owner's, the
+mechanism the smallest the queue allows.* Migration 0029; `crates/core-db/src/tape.rs`, `work.rs`.
+- **The job:** a verify job is a TAPE job whose scope is `{"verify": true}`, one per session,
+  scheduled by `vyreon-core tape verify <profile> <build> <session>...` (`work::schedule_verify`:
+  each a trading session where core holds a cache, with no unfinished tape job of the profile; all
+  or none). It holds nothing back: no day block waits on it (`core.claimable_job`, 0029), the
+  claim's `tape_history_from` and the daily runs' "is the session's tape job queued" ignore it, and
+  one out of attempts is logged, never a queue pause (`work::requeue`). It stores nothing in place
+  of a cache: a cache PUT or a verdict PUT under its lease is refused (422).
+- **The check** (`PUT /worker/v1/tape-caches/<S>/<asset>/check?method_version=V`, under the job's
+  lease, one per listed member; `VYREON-TAPE-CHECK@1`, at most 2 MiB, JSON, no unredacted
+  credential): the worker's recomputed cache's packed digest (or none, with why: the provider
+  refused the session, the member's capture failed), the fetch facts it took from the stored cache
+  with both values (`stamped`), what still differs (`differences`), the tape reader's verdict on
+  the recomputed cache (C-058's document, whose `cache_sha256` must be that digest), and the
+  session's replay bytes downloaded. **Core compares the digest with the cache it holds:** MATCH
+  when equal, and the verdict is then kept beside the stored cache (`tape::put_verdict`, C-058; a
+  verdict already there stands); DIFFER when not, the verdict kept only in the check; NOT_COMPARED
+  when either side has no cache (none stored under V, a stated absence, nothing recomputed). The
+  stored cache is never touched. One check per job and member: another is answered `new: false`.
+  The session is done when every member listed on it has its check (`tape::session_done`).
+- **Equal, byte for byte, means this** (engine D-370 amended 2026-11-20, `tape_check::stamp`): a
+  cache records when it was fetched and from which local daily-bar page (the manifest's request
+  and retrieval times, each tape's retrieval time, the official bar's page digest and attempt name,
+  D-268), which no recomputation repeats; the recomputed cache takes those from the stored one
+  before it is packed, and every other byte is its own (bins, counts, tape identities and stream
+  digests, the official volume, the round-lot basis). A recomputed digest equal to the stored one
+  is therefore the stored cache recomputed from the tape by this build, and the reader's verdict
+  names the stored cache's very files. A DIFFER's `differences` say which: a tape's ETag, size or
+  stream digest means the provider's file changed since the cache was made (a provider change,
+  `docs/PROVIDER_FAULTS.md`); the same tapes with other bins or counts mean the code changed.
+- **Judged (C-050, C-056's logic):** the latest check of an asset-session that is DIFFER, while
+  the cache it found is still the asset-session's newest, is a disagreement: REFCHECK_DISAGREES
+  ("the tape sample recomputed a cache other than the stored one on N asset-sessions, the oldest
+  S (vyreon-core tape checks)", beside the days' and the verdicts' parts). It resolves when a later
+  check of the asset-session matches or a newer cache supersedes the one checked: the owner's call
+  which. A FAIL verdict kept beside a matching cache opens it through C-058.
+- **Presented:** the digest carries, once any check exists, "Tape cache code verified by sample
+  (C-059): p of n sessions passed (a of b asset-sessions recomputed byte for byte with the tape
+  reader agreeing; d differ from the stored cache, e recomputed equal, the tape reader not agreeing,
+  x not compared)", the misses named only when there are any. A session passes when every listed
+  member's latest check is MATCH with a PASS verdict (WITHHELD for a capture withheld whole).
+  `vyreon-core tape checks` prints that line, a line per session (counts, replay GB, job, time) and
+  every member not passed with why.
+- **Cost per session (the engine's tape capture, D-089; not measured for a verify job):** the
+  session's three replay files streamed whole and never stored, only the 64 securities' messages
+  kept (AAPL's raw histories 5.2 MB): 30.1 GB on 2025-12-10 (CTA A 6.1, CTA B 13.2, UTP 10.8),
+  33.6 GB 2026-09-18, 37.8 GB 2026-10-15, and about 2.4 times that from 2026-11-06 (CTA B 76 GB).
+  Intrinio requests: the three replay listings (and one more each time a presigned URL expires
+  mid-stream), up to 64 security records and each member's daily bars (the session and its
+  round-lot evaluation month): about 130 to 200, read from the code; the job's log prints them by
+  category. The file bytes are presigned object reads, not drawn from the request budget. Time: a
+  tape pod took 6 to 9 minutes per late-2025 session; the reader about a minute more (C-058,
+  estimated).
+- **Deploy:** migration 0029 with this core image, before the engine image that sends checks; the
+  verify jobs are scheduled for that engine build only (a job is claimed by its own build; an older
+  build would fail its attempts harmlessly: its caches are refused and its session never done).
+- Tests: `core-db/tests/tape_check.rs` (the real AAPL cache of 2025-12-10: malformed checks refused
+  before anything is stored; nothing to verify without a cache, not over an unfinished tape job; no
+  day block held back; a DIFFER keeps no verdict, leaves the cache untouched, opens the problem and
+  states the sample in the digest; a MATCH keeps the verdict beside the cache and the problem
+  resolves; a verdict already there stands; a verify job out of attempts pauses nothing);
+  `core-api/tests/worker_api.rs` (over HTTP: the claim's scope and unmoved tape history, a cache and
+  a verdict PUT refused, a check kept, the verdict served with the stored cache); `tape::tests`.
