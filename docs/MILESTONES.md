@@ -1188,6 +1188,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   **08:17 UTC: tape sample COMPLETE: 20 of 20 sessions passed (1,276 of 1,276 asset-sessions
   recomputed byte for byte with the reference tape reader agreeing).** The historical tape caches
   carry "cache code verified by sample" (C-059). Node day-std-36n2pr deleted.
+  **09:50 UTC: block 2026-11-02..04 COMPLETE (image 48d87154, job 1383, 1 attempt): published in 291,
+  265 and 294 min; reference checks 31–32 min each (166–169 CPU-min); 11-03 2,489 and 11-04 2,146
+  failed of ~93k checked.** Node day-3az1af deleted. Test block on 4944a182 past the old leak point:
+  fill peak 6.7 GB anonymous (requote stage), then falling: memory fix holds. 11-03/11-04 failure
+  classes not seen on 11-02 (24 and 35, 58 and 71 failures; mostly per-expiry forward keys of the
+  ruled families; new: DLM-DRAWDOWN on COIN/ETHA/IBIT/MSTR, one ETHA max-pain 1.5e-11, two sigma
+  states, one UUP vega) being triaged under the current suite (`pass-fx67`).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
