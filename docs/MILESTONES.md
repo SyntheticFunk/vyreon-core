@@ -1387,6 +1387,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   reader's (builds ordered by admission), for the alarm and for `GET /tape-caches`.** The 51 old-reader
   FAILs no longer alarm, and day workers read the fixed reader's PASS. Digest now: one 🔴, 10-28's 254
   unexplained (triaged: QQQ, fixed by D-403/D-404; clears when 10-28 is republished on the new build).
+  **Pass 2 M0/admission track ready (`pass-fx71`, D-405; speed only, value bytes identical, merging
+  after the running test):** M0 solves SPY 2.1×, DIA 1.43×, HYG 1.40× faster (FD backup one
+  elimination per step size with lockstep scenario searches ~3×; lattice layers on AVX2, no FMA,
+  lane-wise IEEE: 13–15%; solve digests identical on 9 real surface files); admission re-plans every
+  15 s and grows to the CPU slots as memory frees (replayed 4 → 7 → 8); VYREON_M0_THREADS passed to
+  workers; FIELD threads = CPU slots; warm history reuses committed in batches (one transaction, files
+  synced in parallel, crash-safe): 7.26 → 1.40 ms per task on the laptop (cluster was ~44 ms: the
+  next block's `reuse_commits` log shows the real figure). Left: encode-once (~2.5%), parent-stream
+  re-reads (needs a real-day profile), anything that changes σ bits.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
