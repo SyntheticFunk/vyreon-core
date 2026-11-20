@@ -110,9 +110,12 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
     assert_eq!(put.json::<Value>().await.unwrap()["new"], true);
     // C-058: the tape reader's verdict on the cache it stored, kept once beside it (here the
     // reference suite's own answer on this cache, which holds no raw tape: NOT_RUN with why)
-    let verdict = json!({"schema": "VYREON-TAPE-VERDICT@1", "asset": "AAPL", "session": "2025-12-10", "outcome": "NOT_RUN",
-                         "why": "the reference reader failed: RawTapeAbsent: AAPL 2025-12-10: UNVERIFIABLE: raw tape absent",
-                         "method_version": "engine-v1", "cache_sha256": sha256_hex(TAPE_AAPL), "engine_build": s.base_build, "versions": null});
+    // (no NOT_RUN occurred on the cluster: the real PASS verdict, bound to this cache, with only its
+    // outcome, reader digest and reason changed, the reason the suite's own answer on this cache)
+    let mut verdict = test_support::tape_verdict_bound(test_support::TAPE_CHECK_AAPL_PASS, "AAPL", "2025-12-10", "engine-v1", &sha256_hex(TAPE_AAPL));
+    verdict["outcome"] = json!("NOT_RUN");
+    verdict["reader_bins_sha256"] = Value::Null;
+    verdict["why"] = json!("the reference reader failed: RawTapeAbsent: AAPL 2025-12-10: UNVERIFIABLE: raw tape absent");
     let put_verdict = |asset: &str, v: &Value| s.http.put(format!("{caches}/{asset}/verdict?method_version=engine-v1")).bearer_auth(token).json(v).send();
     for (status, new) in [(StatusCode::OK, true), (StatusCode::OK, false)] {
         let r = put_verdict("AAPL", &verdict).await.unwrap();
@@ -346,7 +349,7 @@ async fn a_refused_bundle_pauses_the_queue_and_a_failing_worker_sends_its_log() 
 
 /// C-059: a verify job over HTTP. Its claim says it verifies and leaves the tape history where the
 /// tape jobs put it; it may store no cache and no verdict of its own; its check of AAPL (recomputed
-/// equal to the real cache core holds, with a PASS standing for the tape reader's on a raw tape)
+/// equal to the real cache core holds, with the cluster's real PASS check and verdict bound to it)
 /// keeps the verdict beside the stored cache, which the day workers then read with it.
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
@@ -366,14 +369,18 @@ async fn a_verify_job_checks_the_stored_caches_over_http_and_stores_none() {
     let r = s.http.put(format!("{caches}/AAPL?method_version=engine-v1")).bearer_auth(token).body(TAPE_AAPL).send().await.unwrap();
     assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY, "a verify job stores no cache");
     let whole = sha256_hex(TAPE_AAPL);
-    let verdict = json!({"schema": "VYREON-TAPE-VERDICT@1", "asset": "AAPL", "session": S, "outcome": "PASS", "why": null, "differences": [],
-                         "reader_bins_sha256": "a".repeat(64), "method_version": "engine-v1", "cache_sha256": whole, "engine_build": s.base_build, "versions": null});
+    // the real check and verdict (the cluster's of AAPL's 2025-12-01 cache), bound to this cache
+    let verdict = test_support::tape_verdict_bound(test_support::TAPE_CHECK_AAPL_PASS, "AAPL", S, "engine-v1", &whole);
     let r = s.http.put(format!("{caches}/AAPL/verdict?method_version=engine-v1")).bearer_auth(token).json(&verdict).send().await.unwrap();
     assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY, "nor a verdict of its own");
+    // a member compared with nothing (no NOT_COMPARED occurred on the cluster): the real check
+    // with only its recomputed digest, reason and verdict changed
     let check = |asset: &str, recomputed: Option<&str>, verdict: Option<&Value>| {
-        json!({"schema": "VYREON-TAPE-CHECK@1", "asset": asset, "session": S, "method_version": "engine-v1", "engine_build": s.base_build,
-               "recomputed_sha256": recomputed, "why": recomputed.is_none().then_some("only AAPL's tape is on this machine"), "tape_bytes": 30_056_637_434_i64,
-               "stamped": [], "differences": [], "verdict": verdict})
+        let mut c = test_support::tape_check_bound(test_support::TAPE_CHECK_AAPL_PASS, asset, S, "engine-v1", &whole);
+        c["recomputed_sha256"] = json!(recomputed);
+        c["why"] = json!(recomputed.is_none().then_some("only AAPL's tape is on this machine"));
+        c["verdict"] = verdict.cloned().unwrap_or(Value::Null);
+        c
     };
     let r = s.http.put(format!("{caches}/AAPL/check?method_version=engine-v1")).bearer_auth(token).json(&check("AAPL", Some(&whole), Some(&verdict))).send().await.unwrap();
     assert_eq!(r.status(), StatusCode::OK);
@@ -399,5 +406,32 @@ async fn a_verify_job_checks_the_stored_caches_over_http_and_stores_none() {
     }
     assert_eq!((entries[0].0.as_str(), entries[0].1.as_slice()), ("AAPL", TAPE_AAPL));
     assert_eq!(serde_json::from_slice::<Value>(&entries[2].1).unwrap(), json!({"AAPL": verdict}));
+    s.scratch.drop().await;
+}
+
+/// Round cc, 4: a tape cache PUT checks its lease and stores the cache in one transaction, the
+/// lease locked (`work::held`): sent while the job is being cancelled, it waits for the cancel and
+/// is then refused as a lease gone, and nothing is stored (the real AAPL cache of 2025-12-10).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_cache_sent_while_its_lease_is_cancelled_is_not_stored() {
+    let s = service("api_tape_race").await;
+    let mut admin = s.scratch.client().await;
+    work::schedule(&mut admin, Kind::Tape, PROFILE, &s.base_build, "2025-12-10", "2025-12-10", 1).await.unwrap();
+    let tape: Value = s.claim("tape", &s.base_build, "tape-1").await.json().await.unwrap();
+    let token = tape["lease_token"].as_str().unwrap().to_owned();
+    let job = tape["job_id"].as_i64().unwrap();
+    // the cancel, as `work::cancel` writes it, not yet committed
+    let tx = admin.transaction().await.unwrap();
+    tx.execute("UPDATE core.job SET state = 'CANCELLED', finished_at = now() WHERE job_id = $1", &[&job]).await.unwrap();
+    tx.execute("UPDATE core.lease SET ended_at = now(), outcome = 'CANCELLED', failure = 'the job was cancelled' WHERE job_id = $1 AND ended_at IS NULL", &[&job]).await.unwrap();
+    let url = format!("{}/worker/v1/tape-caches/2025-12-10/AAPL?method_version=engine-v1", s.url);
+    let http = s.http.clone();
+    let put = tokio::spawn(async move { http.put(url).bearer_auth(token).body(TAPE_AAPL).send().await.unwrap().status() });
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(!put.is_finished(), "the PUT waits for the lease's lock");
+    tx.commit().await.unwrap();
+    assert_eq!(put.await.unwrap(), StatusCode::GONE);
+    assert_eq!(admin.query_one("SELECT count(*) FROM core.tape_cache", &[]).await.unwrap().get::<_, i64>(0), 0);
     s.scratch.drop().await;
 }

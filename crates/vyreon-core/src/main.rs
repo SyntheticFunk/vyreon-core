@@ -139,10 +139,11 @@ fn sample_session_line(s: &serde_json::Value) -> String {
     let gb = s["tape_bytes"].as_i64().map_or_else(|| "replay bytes not stated".to_owned(), |b| format!("{:.1} GB of replay files", b as f64 / 1e9));
     let jobs: Vec<String> = s["jobs"].as_array().into_iter().flatten().map(|j| j.to_string()).collect();
     format!(
-        "{} {}: {} checked, {} match ({} PASS, {} WITHHELD, {} FAIL, {} NOT_RUN, {} without a verdict), {} differ, {} not compared · {gb} · job {} · {}",
+        "{} {}: {} of {} listed members checked, {} match ({} PASS, {} WITHHELD, {} FAIL, {} NOT_RUN, {} without a verdict), {} differ, {} not compared · {gb} · job {} · {}",
         s["session"].as_str().unwrap_or("?"),
         if s["passed"] == true { "passed" } else { "NOT passed" },
         n("checked"),
+        n("listed"),
         n("MATCH"),
         n("PASS"),
         n("WITHHELD"),
@@ -611,7 +612,12 @@ fn refcheck_line(r: &serde_json::Value) -> String {
             n("checked"),
             n("failed"),
             // C-056: the failures the worker's rulings table does not explain
-            r["failed_unexplained"].as_i64().map(|u| format!(" ({u} unexplained)")).unwrap_or_default(),
+            // C-054 amended 2026-11-20: an account from a suite without rulings is not triaged
+            match r["failed_unexplained"].as_i64() {
+                Some(u) => format!(" ({u} unexplained)"),
+                None if n("failed") > 0 => " (not triaged against rulings)".into(),
+                None => String::new(),
+            },
             n("failure_classes"),
             n("measurements_failing"),
             n("skipped"),
@@ -840,7 +846,7 @@ mod tests {
         });
         assert_eq!(
             super::refcheck_line(&row),
-            "2025-12-16 COMPLETED 91066 checked, 3958 failed (384 classes, 41 measurements), 3751 skipped, 0 reference errors · suite 40 min, 280 CPU min, 8 jobs · job 7 attempt 1 by w1 · report 3 2026-11-19T03:00:00Z (superseded)"
+            "2025-12-16 COMPLETED 91066 checked, 3958 failed (not triaged against rulings) (384 classes, 41 measurements), 3751 skipped, 0 reference errors · suite 40 min, 280 CPU min, 8 jobs · job 7 attempt 1 by w1 · report 3 2026-11-19T03:00:00Z (superseded)"
         );
         let timeout = serde_json::json!({
             "report_id": 4, "session": "2025-12-17", "outcome": "TIMEOUT", "why": "not done in 120 min: its process group was killed; its log ends:\nstarted",

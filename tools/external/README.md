@@ -504,6 +504,12 @@ interest (DataShop FAQ: the previous night's OCC end-of-day figure); `delivery_c
 `implied_underlying_price_1545` are deprecated (empty and 0). The structure check (roots,
 row counts, `delivery_code`) was read before this declaration; no value was compared.
 
+**Fetching draws on the account core budgets (round cc, 12):** `fetch`'s keyed calls are not
+drawn from core's request budget (C-025: 1,800 a minute of the provider's 2,000 by default), so it runs one thread
+and at most one keyed call every 0.7 s (under 100 a minute, retries included); the presigned file
+downloads are not keyed requests. **Do not run `fetch` while a build or backfill holds the
+budget**: it would take the margin the workers' retries rely on.
+
 **Intrinio, as the engine fetches it** (engine `pass-s3i` at 9bc02f2d, read only; key in an
 `Authorization: Bearer` header, never in a URL or log):
 

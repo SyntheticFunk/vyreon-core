@@ -2,36 +2,31 @@
 //! stores, kept once beside the cache, served with it, and judged: a FAIL on an asset-session's
 //! newest cache is a disagreement (REFCHECK_DISAGREES), none or NOT_RUN a cache not verified (the
 //! digest and `show`). The cache is the real one (`test_support::TAPE_AAPL`, AAPL's of 2025-12-10).
-//! The NOT_RUN verdict is the reference suite's own answer on that cache (it holds no raw tape:
-//! `tools/reference/tests/test_tape_verdict.py` in the engine); the PASS and FAIL documents stand for
-//! what a tape worker holding the raw tape sends. Run with `cargo test -- --ignored`.
+//! The PASS and FAIL verdicts are real (D-102): the tape reader's on AAPL's cache of 2025-12-01 on
+//! the cluster (`test_support::TAPE_CHECK_AAPL_PASS`, `_FAIL`), bound to this cache (asset,
+//! session, method version and cache digest changed, nothing else). No real NOT_RUN exists on the
+//! cluster: the NOT_RUN is the real PASS with only its outcome, reader digest and reason changed,
+//! the reason the reference suite's own answer on this cache (it holds no raw tape:
+//! `tools/reference/tests/test_tape_verdict.py` in the engine). Run with `cargo test -- --ignored`.
 use core_contract::sha256_hex;
 use core_db::refcheck;
 use core_db::tape::{self, Cache};
 use core_db::watch::{self, Settings};
 use core_db::{migrate, work};
 use serde_json::{Value, json};
-use test_support::{Scratch, TAPE_AAPL};
+use test_support::{Scratch, TAPE_AAPL, TAPE_CHECK_AAPL_FAIL, TAPE_CHECK_AAPL_PASS, tape_verdict_bound};
 
 const S: &str = "2025-12-10";
 const V1: &str = "engine-v1";
 const LATER: &str = "2099-01-01T00:00:00Z";
 
 fn verdict(method: &str, outcome: &str) -> Value {
-    let mut v = json!({"schema": tape::VERDICT_SCHEMA, "asset": "AAPL", "session": S, "outcome": outcome, "why": null,
-                       "cache": {"manifest_sha256": "a3e2f3abc30f709a1ed77549ed502077c87b1c3ff94a68266c98af36975b3ac6"},
-                       "method_version": method, "cache_sha256": sha256_hex(TAPE_AAPL), "engine_build": "build-x", "versions": null});
-    match outcome {
-        "NOT_RUN" => v["why"] = json!("the reference reader failed: RawTapeAbsent: AAPL 2025-12-10: UNVERIFIABLE: raw tape absent: trades.raw (manifest: 2801962 bytes, sha256 758e3d0669b1a80a), quotes.raw (manifest: 2374468 bytes, sha256 b7017f531e964d1c) at intraday.py:545"),
-        "FAIL" => {
-            v["why"] = json!("the reference reader's bins differ from the engine's cache: 1 bin field differences (volume)");
-            v["differences"] = json!([[7, "volume", 724050, 724051]]); // the cached volume of bin 7, planted one share off
-            v["reader_bins_sha256"] = json!("b".repeat(64));
-        }
-        _ => {
-            v["differences"] = json!([]);
-            v["reader_bins_sha256"] = json!("a".repeat(64));
-        }
+    let real = if outcome == "FAIL" { TAPE_CHECK_AAPL_FAIL } else { TAPE_CHECK_AAPL_PASS };
+    let mut v = tape_verdict_bound(real, "AAPL", S, method, &sha256_hex(TAPE_AAPL));
+    if outcome == "NOT_RUN" {
+        v["outcome"] = json!("NOT_RUN");
+        v["reader_bins_sha256"] = Value::Null;
+        v["why"] = json!("the reference reader failed: RawTapeAbsent: AAPL 2025-12-10: UNVERIFIABLE: raw tape absent: trades.raw (manifest: 2801962 bytes, sha256 758e3d0669b1a80a), quotes.raw (manifest: 2374468 bytes, sha256 b7017f531e964d1c) at intraday.py:545");
     }
     v
 }
@@ -46,7 +41,9 @@ fn a_verdict_is_checked_before_anything_is_stored() {
     let ok = tape::check_verdict(&bytes(&pass), "AAPL", S, V1).unwrap();
     assert_eq!((ok.outcome.as_str(), ok.differences, ok.why.as_deref()), ("PASS", 0, None));
     let fail = tape::check_verdict(&bytes(&verdict(V1, "FAIL")), "AAPL", S, V1).unwrap();
-    assert_eq!((fail.outcome.as_str(), fail.differences), ("FAIL", 1));
+    // the real FAIL lists no bin differences: its reason names the field ("conditional_last_rejected
+    // reader 38, cache 39")
+    assert_eq!((fail.outcome.as_str(), fail.differences, fail.why.as_deref()), ("FAIL", 0, Some("the reference reader's bins differ from the engine's cache: conditional_last_rejected reader 38, cache 39")));
     assert!(tape::check_verdict(&bytes(&verdict(V1, "NOT_RUN")), "AAPL", S, V1).unwrap().reader_bins_sha256.is_none());
     let refused = |v: Value, asset: &str, says: &str| {
         let e = tape::check_verdict(&bytes(&v), asset, S, V1).unwrap_err();
@@ -141,7 +138,8 @@ async fn a_verdict_is_kept_once_beside_its_cache_and_a_failure_is_a_disagreement
     assert!(watch::digest(&client, &settings, &now).await.unwrap().contains(&line));
     let show = refcheck::tape_show(&client, S).await.unwrap();
     assert_eq!(show["counts"], json!({"FAIL": 1, "stated absence": 1}));
-    assert_eq!(show["not_passed"][0]["differences"], 1);
+    // the real FAIL lists no bin differences (its reason names the field)
+    assert_eq!((show["not_passed"][0]["differences"].clone(), show["not_passed"][0]["why"].as_str()), (json!(0), Some("the reference reader's bins differ from the engine's cache: conditional_last_rejected reader 38, cache 39")));
 
     // redone again (a fixed reader is a new method version) and passed: the disagreement resolves
     const V3: &str = "engine-v3";

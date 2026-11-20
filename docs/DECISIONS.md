@@ -280,6 +280,13 @@ lines; digests, text, JSONB, receipts, versions, states, scalar values).
   ticker in use (none when not listed), group and company flag, and the provider sources' first
   dates. The engine ignores it until E6.
 
+- **Amended 2026-11-20 (audit 2026-11-20-pass1-round-cc, core.md, triage c.md, 12): requests outside the budget.** The budget covers the
+  workers; a tool run by hand with the same key (`tools/external/datashop.py fetch`) is not drawn
+  from it and takes the provider's margin above the ceiling (200 a minute at the default 1,800;
+  the cluster runs 1,500). Such a tool runs one thread and at most one keyed call every 0.7 s
+  (under 100 a minute, retries included) and is not run while a build holds the budget
+  (`tools/external/README.md`). Ordinary day: no change (no worker path).
+
 ## C-026 The reader API, and what it cannot serve yet (2026-11-10)
 `crates/core-api/src/reader.rs` (VYREON-CORE-API@1), the shape of AGENTS.md and C-009: sessions from
 the calendar with NOT_PUBLISHED explicit; an asset's history session by session, `detail=full` (each
@@ -736,6 +743,15 @@ Engine D-351 is the worker's side.
 - **Deploying:** the core image (migration 0017, applied by the `migrate` init container) and the
   engine's worker image; no new secret, setting or service.
 
+- **Amended 2026-11-20 (audit 2026-11-20-pass1-round-cc, core.md, triage c.md, 11): no credential pattern is kept from a failure.** The
+  evidence endpoint refused a document carrying an unredacted credential, but a lease's `fail`
+  stored its stage, message and log as sent, logged the message in the requeue and pause notices,
+  and `pause` kept any reason as given; `vyreon-core log` and `jobs` print them. Now each passes
+  through `work::scrubbed` (`evidence::unredacted`'s patterns): withheld whole, "(not kept: it
+  carried a credential pattern, an unredacted api_key=)", never cut around. The worker's own
+  redaction stays the first line. Ordinary day: no change. Test:
+  `core-db/tests/work.rs::a_failure_message_with_a_credential_is_never_kept`.
+
 ## C-050 The owner's channel carries problems, a daily verdict and a weekly check (owner-approved design, 2026-11-17)
 The owner: "I want to open it and immediately know if i gotta go look at it or its running ok." The
 droplet's alerts failed at that: normal states raised as alarms ("provider not published yet"), 64
@@ -907,6 +923,43 @@ published for a week. Migration 0018; `crates/core-db/src/watch.rs`.
     `core-db/tests/watch.rs::the_digest_leads_with_its_verdict` (tallies), `core-api/tests/notices.rs::a_gateway_timeout_waits_the_unknown_outcome_window`,
     `core-api` unit `the_webhook_url_carries_one_wait_true`.
 
+- **Amended 2026-11-20 (the live digest of 10:00 MT, 2026-11-20: a false 🔴 and stale lines).**
+  - *An open problem says what holds now.* Its summary (and command) was written once, when it
+    opened, so the digest showed "did not run on 1 published day (1 crashed), the oldest
+    2026-11-03" 25 h after that day was published again and checked, and "1982 comparisons
+    failed" after a later day became the disagreement. Each minute's check now rewrites an open
+    problem's summary and command when what it finds differs (`Change::restated`), posting
+    nothing (one alert, one "Resolved", nothing in between, as before); it still resolves when
+    its condition clears, and the "Resolved" post carries the latest text. "Open N h" stays the
+    age of the problem (kind and key) continuously open, which may be older than the day it now
+    names.
+  - *"(and 1 more problem)".* The verdict's "(and 1 more)" after a summary naming days read as a
+    further day; it counts problems and now says so (the weekly check's first line too).
+  - *The backfill's estimate is measured on the running blocks' own days.* It was the remaining
+    sessions times 24 h over the sessions published in the last 24 hours, so one day published by
+    a block that had run six hours (job 1420, 2026-10-28) gave 48 h: "Sun 09:26". Now
+    (`watch::pace`): a day after a block's first takes from the previous publication under the
+    block's live lease to its own (the whole cycle: compute, reference check, the next download
+    overlapping); a block's first day, from the lease to its publication, includes the block's
+    download and is used only when no later day has published (stated: "a block's first day, with
+    its download"); the median of those. Each running block finishes its remaining sessions after
+    its last publication, never before now plus the sessions after the one computing; with
+    sessions waiting in blocks not yet claimed, the whole remainder at the running blocks'
+    combined pace ("with N blocks running"). Nothing published yet under a running lease:
+    "finish unknown until a running block publishes a day"; none running: "no block running, so
+    no estimate". On the recorded times: job 1420's first day took 6.18 h, so 2026-10-30 about
+    Fri 20:41 MT; job 1383's second day took 4.43 h, which put 2026-11-04 at 08:47Z, 28 minutes
+    before it published (09:15Z).
+  - *🟡 also names what is not fully judged* (C-054 amended 2026-11-20): "🟡 Running; handled: …;
+    not fully judged: reference checks of N published days".
+  - Ordinary day: the backfill line's wording ("about 4.4 h a day · expected to finish about …");
+    "(and N more problems)"; an open problem's text follows its counts. Tests:
+    `core-db/tests/refcheck.rs::an_open_problem_says_what_holds_now_and_resolves_when_it_no_longer_holds`
+    (the cluster's two problems as the earlier core stored them),
+    `core-db/tests/watch.rs::a_last_failure_and_a_provider_burst_are_problems_from_the_evidence`,
+    `watch::tests::the_backfill_finish_is_measured_on_the_running_blocks_days`,
+    `watch::tests::the_verdict_says_first_whether_to_look`.
+
 ## C-051 Daily runs: core queues each session the morning after; a CronJob starts the worker; the pool scales to zero (owner-approved goal, 2026-11-17)
 Goal (owner): from the day the system is declared ready, each new session is computed and
 published with nobody starting anything; nodes exist only while there is work. Migration 0019;
@@ -1027,6 +1080,10 @@ published with nobody starting anything; nodes exist only while there is work. M
   `work_queued_or_published_by_hand_is_not_queued_again` (a daily-only claim takes the daily tape and then nothing, while the backfill's
   tapes remain), engine `core_client::tests::a_daily_worker_waits_a_bounded_time_for_its_job`.
 
+- **Amended 2026-11-20:** a daily session's day block is counted in the digest's backfill line
+  with the others, and its estimate is now the measured pace of C-050 (amended 2026-11-20), not
+  the last 24 hours' count, so a lone daily block reads "finish unknown until a running block
+  publishes a day" until its first day publishes.
 ## C-052 The cluster archives the perishable inputs to Spaces through upload URLs core signs (owner-approved design, 2026-11-17)
 The owner (2026-11-17): workers stay stateless and hold no storage credential; core alone holds the
 Spaces key and hands a worker a pre-signed upload URL for one named object, valid minutes; the
@@ -1247,6 +1304,60 @@ worker's side. Migration 0025; `crates/core-db/src/refcheck.rs`.
   resolves it); `core-api/tests/worker_api.rs` (the same over HTTP: before done 422, kept, again,
   a credential 422, another day's account 422); `refcheck::tests` (the summaries count, never list).
 
+- **Amended 2026-11-20 (the live digest of 10:00 MT, 2026-11-20; C-056).** Each published day is
+  judged on the latest check of its current base revision only (as before: the crash on
+  2026-11-03's superseded revision 51 judges nothing once revision 55 is checked); what changed is
+  what counts against it.
+  - *Reference errors are not a check that did not run.* A completed check with reference errors
+    (comparisons the reference suite itself could not make: 9 a day on 11-02 to 11-04 by build
+    48d87154's suite, 0 on 10-28 by 4944a182's) ran; counting it as "did not run" kept
+    REFCHECK_NOT_RUN open and the digest's "3 did not run". REFCHECK_NOT_RUN is now TIMEOUT,
+    CRASHED, NOT_RUN or no report past the grace. Reference errors are counted in the digest,
+    never an alert, as a tape cache not verified is (C-058).
+  - *A suite without rulings is not triaged, never "unexplained".* C-056 counted an account
+    without `failed_unexplained` as every failure unexplained, so 11-02's 1,982 failures (1,915 of
+    which match rulings, C-056) opened REFCHECK_DISAGREES. REFCHECK_DISAGREES now needs
+    `failed_unexplained > 0`; an account without it is "not yet triaged against rulings". **Not
+    🔴 alone (decision, notification design):** there is nothing to go and look at that the
+    rulings would not say, and the condition clears only when the day is computed and checked again
+    (the build ahead does it); a standing red would stop meaning "go look" (C-056's reason). It
+    is 🟡 instead, with the counts.
+  - *The digest.* "Reference checks in the last 24 hours: N (a agree, d disagree[, u not triaged
+    against rulings], n did not run[; e reference errors]) · typical …": each report counted once
+    (did not run = not completed; disagree = unexplained failures; not triaged = failures and no
+    `failed_unexplained`; else agree), every report stored in the window (a crash later
+    superseded included: it happened). And, while any published day's current check is not fully
+    judged: "Reference checks not fully judged: N published days (u with F failed comparisons from
+    a suite without rulings, not yet triaged against them; r with E reference errors), the oldest
+    D", and the verdict's 🟡 says "not fully judged: reference checks of N published days" when
+    nothing is open. `refcheck list` prints "(not triaged against rulings)" for such an account.
+  - On the cluster at 10:00 MT (computed read-only with this code's queries): REFCHECK_NOT_RUN
+    resolves at the first check; REFCHECK_DISAGREES reads "1 published day: 254 comparisons failed
+    unexplained, the oldest 2026-10-28"; "4 (0 agree, 1 disagree, 3 not triaged against rulings, 0
+    did not run; 27 reference errors)"; "not fully judged: 3 published days (3 with 6617 …; 3 with
+    27 reference errors), the oldest 2026-11-02".
+  - Ordinary day (a suite with rulings, no reference errors): the 24-hour line reads as before; a
+    completed check with reference errors and no unexplained failure now counts as agreeing
+    (stated beside it) instead of "did not run". Tests: `core-db/tests/refcheck.rs::
+    the_clusters_checks_are_judged_on_each_days_current_check` (the cluster's five reports and
+    revisions at their recorded times), `a_published_days_check_is_kept_once_and_judged_until_the_day_is_published_again`
+    (the B0 account, without rulings: 🟡, no problem), `refcheck::tests::a_check_without_rulings_or_with_reference_errors_is_not_fully_judged_never_not_run`.
+- **Amended 2026-11-20 (audit 2026-11-20-pass1-round-cc, core.md, triage c.md, 5): a report is bound to what the worker checked.** `put` bound
+  a report to whichever base of the build was published when it arrived, so a day published again
+  by the same build during the check (a hand publish, a scoped republish under C-055) got a report
+  of a revision it never read, and the new revision's missing check was hidden; currentness looked
+  at the base only. The worker's account already states `revisions` (the base, then the day-local
+  revision: `[53, 54]` on 2026-11-02, `[59, 60]` on 10-28): no wire change. Core now requires
+  them to be a base revision of the session, profile and lease's build and a day-local revision on
+  it (published or since superseded), refuses others, and stores both (migration 0030,
+  `day_local_revision`). A report is current, judged and listed as current, while both are
+  published; an account that states no revision is kept bound to nothing (it judges no day, and
+  from `VYREON_CORE_REFCHECK_FROM` the day counts as with no report). A report sent again by the
+  same lease is answered with the first before any check, as before. Ordinary day: no change (the
+  engine states the ids it published). Deploy: migration 0030 with this core image; reports already
+  stored keep their base and have no day-local id (judged on the base, as before). Test:
+  `core-db/tests/refcheck.rs::a_published_days_check_is_kept_once_and_judged_until_the_day_is_published_again`.
+
 ## C-055 Every claim carries the OCC adjustment ledger, committed data with an OCC memo behind each entry (2026-11-18; engine audit 9 finding 1, D-170, D-290..D-294)
 The engine reads an optional per-asset ledger of dated OCC contract adjustments
 (`<home>/h5-universe/adjustments.json`, `VYREON-ADJUSTMENTS@1`, engine `adjustments::parse_ledger`)
@@ -1318,6 +1429,37 @@ meets the December 2025 adjustments.
   Tests: `adjustments::tests` (the four specials; each new rule refuses an altered real entry);
   `worker_api.rs` (the claim carries EWJ's special).
 
+- **Amended 2026-11-20 (audit 2026-11-20-pass1-round-cc, core.md, triage c.md, 1): coverage from
+  2019-05-27.** Engine D-120 as amended takes a ledger special out of every ex-date in its 1,096-day
+  dividend window, so the database's first session (2022-05-27) reads distributions from
+  2019-05-27; without its entry, ARKK's 2021-12-29 capital gains (0.7826 in Intrinio) recurred as a
+  projected dividend (engine `a_due_unpaid_recurrence_is_not_projected`: 0.7826 at 2023-12-27 for
+  T 2023-03-01). Coverage is now every OCC strike-offset special of the 64 with an ex-date from
+  2019-05-27. Five entries added, each memo read from MIAX's copy and its figures quoted: ARKK
+  2020-12-29 2.04431 (offset 2.04, #48070) and 2021-12-29 0.78257 (0.78, #49856), both capital
+  gains; EEM 0.266326 (0.27, #46168), the older form like FXI's: cash in the deliverable on the
+  ex-date 2019-12-16, strikes reduced 2019-12-17 (the entry's date; `special_ex_date` 2019-12-16);
+  XLE 2019-12-30 1.791209 (1.79, #46261); XLV 2019-12-30 0.66554 (0.67, #46260). Nine strike
+  offsets in all. **How found:** every MIAX Options corporate-action alert dated 2019-05-20 to
+  2022-06-05 (691, all loaded; 8 without a PDF, none of the 64) and each attachment's name; Intrinio
+  `prices/adjustments/dividends` for each asset over the window gave the candidates (62 calls). The
+  only other alerts for the 64 were non-cash (the AAPL, TSLA, NVDA and AMZN splits, USO's reverse
+  split, FB to META). **Not established, so not in the ledger** (Intrinio candidates with no OCC
+  alert found; an entry is never written without its memo): ARKK 2019-12-27 0.19063; DBA
+  2019-12-23 0.25717; UUP 2019-12-23 0.52612; URA 2021-12-30 1.308965; EFA 2021-12-30 0.163147
+  and EWZ 2021-12-30 0.160947 (iShares EWG's like payment was adjusted, memo #49872); the large
+  iShares semiannual payments of 2021-12-13 (INDA 2.879402, EWZ 1.983642, EWY 1.678518, EFA
+  1.352231, EWJ 0.888134; EWT's was adjusted, memo #49743); XRT 2021-12-20 0.932859; XBI
+  2020-12-21 0.176; TSM 2019-06-24 1.2887; the iShares bond funds' recurring December extras (TIP
+  2021-12-16 0.7862; EMB, HYG, LQD 0.2564 to 0.4411; TLT 0.1639 to 0.2176). The absence of an alert
+  is not OCC's statement that it did not adjust; only MIAX's Options listing was crawled (an alert
+  posted only on Pearl or Emerald could be missing). Intrinio's gaps met on the way:
+  `docs/PROVIDER_FAULTS.md` P-22 (EEM has no dividend record in the window; XLV two on 2019-12-30).
+  `adjustments::check` has no date floor; the engine's `parse_ledger` reads any date (checked read
+  only). Ordinary day: a claim of ARKK, EEM, XLE or XLV carries the new entries; the engine's
+  surfaces whose dividend window holds them change (the special is no longer projected). A day
+  already published is republished by asset under the next build (C-055: a ledger change is a
+  scoped republish). Tests: `adjustments::tests` (the five specials and memos; nine offsets).
 ## C-056 A reference-check disagreement is a failure the rulings table does not explain (2026-11-20; engine D-370 amended)
 The first complete worker check (2026-11-02, build 48d87154) failed 1,982 comparisons; 1,915 of them
 match conventions the owner has ruled as the definition (the suite's rulings table names each), so
@@ -1328,6 +1470,9 @@ digest's agree/disagree on `COALESCE(failed_unexplained, failed)`, so an older a
 every failure. `refcheck list/show` print both. The report itself is kept whole: a ruled failure is
 still evidence, read when a ruling is revisited.
 
+- **Amended 2026-11-20 (C-054 amended):** `COALESCE(failed_unexplained, failed)` is retired: an
+  account without `failed_unexplained` is counted as not triaged against rulings, not as every
+  failure unexplained, and is 🟡, never REFCHECK_DISAGREES.
 ## C-057 Core records each asset's first option session, with the provider's evidence, and every claim carries it (owner decision, 2026-11-20; engine D-396 amended 2026-11-20)
 The bulk A/B of 2025-04-11 sent 181 ETHA and 126 IBIT chains to the Intrinio API, one request each,
 for sessions before their options were listed: the day files hold no row of them, which D-396's
@@ -1418,6 +1563,13 @@ Migration 0028; `crates/core-db/src/tape.rs`, `refcheck.rs`.
   `core-api/tests/worker_api.rs` (over HTTP: kept once, another asset's refused, a stranger's
   lease refused, served in the session's tar); `refcheck::tests` (the summaries).
 
+- **Amended 2026-11-20 (audit 2026-11-20-pass1-round-cc, core.md, triage c.md, 4): a cache or verdict is stored under its lease, locked.** The
+  cache and verdict PUTs checked the lease without a lock and then stored in a separate statement,
+  so a lease cancelled or expired between the two could still store (and a replacement worker's
+  PUT be refused). The lease check (`work::held`, `FOR UPDATE`) and the insert are now one
+  transaction; a cancel in progress makes the PUT wait and then answers it 410. Ordinary day: no
+  change. Test: `core-api/tests/worker_api.rs::a_cache_sent_while_its_lease_is_cancelled_is_not_stored`.
+
 ## C-059 The tape caches stored before the verdicts are verified by a sample of their sessions, downloaded again and recomputed; a verdict is kept beside a stored cache only when the recomputation equals it (owner decision, 2026-11-20; engine D-370 amended 2026-11-20)
 The caches stored before C-058 never get a verdict: their raw tapes are gone. The owner: verify a
 sample instead, about twenty sessions spread over the tape history, each downloaded again and
@@ -1486,3 +1638,33 @@ mechanism the smallest the queue allows.* Migration 0029; `crates/core-db/src/ta
   resolves; a verdict already there stands; a verify job out of attempts pauses nothing);
   `core-api/tests/worker_api.rs` (over HTTP: the claim's scope and unmoved tape history, a cache and
   a verdict PUT refused, a check kept, the verdict served with the stored cache); `tape::tests`.
+- **Amended 2026-11-20 (audit 2026-11-20-pass1-round-cc, core.md, triage c.md, 6, 7, 8, 10).**
+  - *A recomputed-equal cache the reader FAILS is a disagreement (6; the decision's own rule
+    changed).* A verdict already kept beside a cache stands (C-058's write-once), so a later MATCH
+    whose reader verdict is FAIL left the kept PASS in place and raised nothing, against C-058's
+    rule that a failed verdict is a disagreement. Now such a check, while the verdict kept beside
+    that cache is not itself a FAIL (counted by C-058 already), opens REFCHECK_DISAGREES: "the tape
+    reader disagrees with a cache the sample recomputed byte for byte on N asset-sessions, the
+    oldest S". The kept verdict is not replaced (what the day workers read stays what they read);
+    it resolves as below. Consistent with C-058 (FAIL on the newest cache is a disagreement) and
+    with "go look": the reader and the stored bytes disagree.
+  - *Only a comparison resolves a difference, and only the newest cache is judged (8).* The
+    problem read each asset-session's latest check of any outcome, so a later NOT_COMPARED (the
+    provider refused the session) resolved a DIFFER; and it judged supersession by the check's
+    time, so a DIFFER of a superseded cache, checked after the newer cache existed, opened it. Now
+    it reads the latest MATCH or DIFFER check of each cache (session, asset, method version), only
+    while no cache of that asset-session was stored after it (C-058's supersession).
+  - *A session passes only with every listed member checked (7).* The sample's pass counted the
+    checks received, so a job stopped after one member passed its session "1 of 1". Now a session
+    passes when every member listed on it (the checking job's profile, `members_on`) has a latest
+    MATCH check with PASS (or WITHHELD); members without a check are "not checked", counted in the
+    line and listed by `tape checks`, and the asset-sessions' denominator is the members listed.
+  - *Verdict counts are of MATCH checks only (10).* A verdict on a recomputed cache that differs
+    from the stored one names other bytes; counting it under PASS/FAIL made "MATCH − PASS −
+    WITHHELD" (the equal caches the reader did not agree with) cancel out. `tape checks` prints
+    "c of n listed members checked, m match (PASS, WITHHELD, FAIL, NOT_RUN, without a verdict)".
+  - Ordinary day: none (no verify job runs); on the cluster's 20 sampled sessions the digest's line
+    is unchanged if every listed member was checked and passed (20 of 20 sessions, 1,276 of 1,276
+    asset-sessions on 2026-11-20). Tests: `core-db/tests/tape_check.rs` (three members of 64
+    checked; a NOT_COMPARED after a DIFFER; a MATCH whose reader FAILS beside a kept PASS; a newer
+    method version's cache superseding the checked one), `tape::tests`.

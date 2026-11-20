@@ -603,3 +603,37 @@ async fn cancelling_a_job_ends_its_lease_and_takes_it_out_of_the_queue() {
     assert!(work::claim(&mut client, Kind::Tape, &b, "w3", HOUR).await.unwrap().is_none());
     scratch.drop().await;
 }
+
+/// Round cc, 11 (C-049's principle): a worker's failure message carrying a credential pattern its
+/// redaction missed is withheld whole wherever core keeps it: the lease's failure, the log's
+/// requeue and pause notices, the queue's pause reason. (The text is the worker API test's
+/// unredacted-key example.)
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_failure_message_with_a_credential_is_never_kept() {
+    let (scratch, mut client, base, _) = ready("work_scrub").await;
+    admit(&client, &base).await;
+    work::schedule(&mut client, Kind::Tape, "FREE_REPORT_64", &base, "2025-12-10", "2025-12-10", 1).await.unwrap();
+    let leaked = "replay_capture failed: GET https://api-v2.intrinio.com/x?api_key=OmRlYWRiZWVm: HTTP 500";
+    let mut attempts = 0;
+    while let Some(claim) = work::claim(&mut client, Kind::Tape, &base, "tape-1", 3600.0).await.unwrap() {
+        work::fail(&mut client, &claim.token, "tape 2025-12-10", leaked, leaked).await.unwrap();
+        attempts += 1;
+    }
+    assert!(attempts > 1);
+    let kept: Vec<String> = client
+        .query(
+            "SELECT failure FROM core.lease UNION ALL SELECT failure_log FROM core.lease UNION ALL SELECT failed_stage FROM core.lease
+             UNION ALL SELECT message FROM core.notice UNION ALL SELECT reason FROM core.queue_control",
+            &[],
+        )
+        .await
+        .unwrap()
+        .iter()
+        .filter_map(|r| r.get::<_, Option<String>>(0))
+        .collect();
+    assert!(kept.iter().any(|t| t.contains("(not kept: it carried a credential pattern, an unredacted api_key=)")), "{kept:?}");
+    assert!(!kept.iter().any(|t| t.contains("OmRlYWRiZWVm")), "{kept:?}");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.queue_control WHERE paused").await, 1, "the tape job out of attempts paused the queue");
+    scratch.drop().await;
+}

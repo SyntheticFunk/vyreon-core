@@ -10,9 +10,12 @@
 //! stores the document as sent, with the account's counts as columns.
 //!
 //! A report is never the day's outcome: the day stays published whatever it says. Its problems
-//! (`watch`): REFCHECK_DISAGREES while a published day's latest check found a disagreement, and
-//! REFCHECK_NOT_RUN while one's latest check timed out, crashed, did not run or had reference
-//! errors, or (from `VYREON_CORE_REFCHECK_FROM`) a published day has no report at all.
+//! (`watch`), judged on each published day's latest check of its current base revision:
+//! REFCHECK_DISAGREES while one found failures the rulings table does not explain, and
+//! REFCHECK_NOT_RUN while one timed out, crashed or did not run, or (from
+//! `VYREON_CORE_REFCHECK_FROM`) a published day has no report at all. A completed check from a
+//! suite without rulings (no `failed_unexplained`) or with reference errors is not fully judged:
+//! counted in the digest, never an alert (C-054 amended 2026-11-20).
 //!
 //! C-058: the tape worker's verdicts on the tape caches (`tape::put_verdict`) are the tape owners'
 //! half of the check. A FAIL on an asset-session's newest cache is a disagreement to look at
@@ -74,6 +77,10 @@ pub struct Checked {
     pub deadline_seconds: i32,
     pub report_trimmed: Option<String>,
     pub report_bytes: u64,
+    /// The revisions the worker checked, as its account states them (`revisions`: the base, then
+    /// the day-local revision); None where not stated (round cc, 5).
+    pub base_revision: Option<i64>,
+    pub day_local_revision: Option<i64>,
     document: Vec<u8>,
     document_sha256: String,
 }
@@ -153,6 +160,20 @@ pub fn check(document: Vec<u8>, session: &str) -> Result<Checked, String> {
         }
         serde_json::from_str::<&serde_json::value::RawValue>(report).map_err(|e| format!("the report is not JSON: {e}"))?;
     }
+    // round cc, 5: the revisions checked, base first (engine `refcheck::Checked::revisions`)
+    let (base_revision, day_local_revision) = match &a["revisions"] {
+        Value::Null => (None, None),
+        Value::Array(ids) if ids.len() <= 2 => {
+            let id = |i: usize| -> Result<Option<i64>, String> {
+                match ids.get(i) {
+                    None | Some(Value::Null) => Ok(None),
+                    Some(v) => v.as_i64().filter(|n| *n > 0).map(Some).ok_or_else(|| format!("revisions[{i}] {v} is not a revision id")),
+                }
+            };
+            (id(0)?, id(1)?)
+        }
+        v => return Err(format!("revisions {v} is not the base and day-local revision ids")),
+    };
     let positive = |k: &str| -> Result<i32, String> { a[k].as_i64().and_then(|n| i32::try_from(n).ok()).filter(|n| *n > 0).ok_or_else(|| format!("{k} {} is not a whole number from 1", a[k])) };
     Ok(Checked {
         session: session.to_owned(),
@@ -168,6 +189,8 @@ pub fn check(document: Vec<u8>, session: &str) -> Result<Checked, String> {
         deadline_seconds: positive("deadline_seconds")?,
         report_trimmed: a["report_trimmed"].as_str().map(str::to_owned),
         report_bytes: report.len() as u64,
+        base_revision,
+        day_local_revision,
         document_sha256: sha256_hex(&document),
         document,
     })
@@ -176,7 +199,11 @@ pub fn check(document: Vec<u8>, session: &str) -> Result<Checked, String> {
 /// Stores the check of `session` under the live lease the token names, once per lease and
 /// session: (true, id) when stored, (false, id of the first) when this lease already sent it.
 /// Refused unless the lease is a day block's whose job has published the session (its base, of
-/// its build): the report is bound to that base revision.
+/// its build). The report is bound to the revisions its account says it checked (round cc, 5):
+/// the base must be a base revision of this day, profile and build, the day-local one a day-local
+/// revision on that base, published or since superseded (a day published again during the check
+/// leaves the report bound to what it read, not current); refused otherwise. An account that
+/// states no base is kept bound to nothing (it judges no day).
 pub async fn put(client: &mut Client, token: &str, c: &Checked) -> Result<(bool, i64), LeaseError> {
     let failed = |e: tokio_postgres::Error| LeaseError::Failed(db(e));
     let tx = client.transaction().await.map_err(failed)?;
@@ -184,15 +211,37 @@ pub async fn put(client: &mut Client, token: &str, c: &Checked) -> Result<(bool,
     crate::archive::published_by(&tx, &lease, &c.session).await?;
     let row = tx
         .query_one(
-            "SELECT (SELECT revision_id FROM vyreon.day_revision
-                     WHERE represented_date = $2::text::date AND profile_id = $3 AND engine_build = $4 AND state = 'PUBLISHED' AND base_revision IS NULL),
-                    (SELECT count(*)::int FROM core.lease o WHERE o.job_id = l.job_id AND o.lease_id <= l.lease_id)
+            "SELECT (SELECT count(*)::int FROM core.lease o WHERE o.job_id = l.job_id AND o.lease_id <= l.lease_id),
+                    $5::bigint IS NULL OR EXISTS (SELECT FROM vyreon.day_revision d WHERE d.revision_id = $5 AND d.represented_date = $2::text::date
+                                                    AND d.profile_id = $3 AND d.engine_build = $4 AND d.base_revision IS NULL
+                                                    AND d.state IN ('PUBLISHED', 'SUPERSEDED')),
+                    $6::bigint IS NULL OR EXISTS (SELECT FROM vyreon.day_revision d WHERE d.revision_id = $6 AND d.represented_date = $2::text::date
+                                                    AND d.profile_id = $3 AND d.base_revision = $5 AND d.day_local
+                                                    AND d.state IN ('PUBLISHED', 'SUPERSEDED'))
              FROM core.lease l WHERE l.lease_id = $1",
-            &[&lease.lease_id, &c.session, &lease.profile_id, &lease.engine_build],
+            &[&lease.lease_id, &c.session, &lease.profile_id, &lease.engine_build, &c.base_revision, &c.day_local_revision],
         )
         .await
         .map_err(failed)?;
-    let (base, attempt): (Option<i64>, i32) = (row.get(0), row.get(1));
+    let (attempt, base_ok, local_ok): (i32, bool, bool) = (row.get(0), row.get(1), row.get(2));
+    // one per lease and session, whatever the next says: the first is answered before anything else
+    if let Some(first) = tx
+        .query_opt("SELECT refcheck_report_id FROM core.refcheck_report WHERE lease_id = $1 AND session = $2::text::date", &[&lease.lease_id, &c.session])
+        .await
+        .map_err(failed)?
+    {
+        tx.commit().await.map_err(failed)?;
+        return Ok((false, first.get(0)));
+    }
+    if !base_ok || !local_ok || (c.base_revision.is_none() && c.day_local_revision.is_some()) {
+        return Err(LeaseError::Refused(format!(
+            "the account's revisions {:?} are not a base revision of {} for build {} and a day-local revision on it",
+            [c.base_revision, c.day_local_revision],
+            c.session,
+            lease.engine_build
+        )));
+    }
+    let base = c.base_revision;
     let counts = c.counts;
     let get = |f: fn(&Counts) -> i32| counts.as_ref().map(f);
     let inserted = tx
@@ -200,9 +249,9 @@ pub async fn put(client: &mut Client, token: &str, c: &Checked) -> Result<(bool,
             "INSERT INTO core.refcheck_report (lease_id, job_id, attempt, worker, engine_build, session, base_revision, outcome, why,
                                                checked, passed, failed, skipped, reference_errors, failure_classes, measurements_failing, summary,
                                                wall_seconds, suite_seconds, cpu_seconds, cpu_complete, jobs, deadline_seconds, report_trimmed,
-                                               report_bytes, document_sha256, document, failed_unexplained)
+                                               report_bytes, document_sha256, document, failed_unexplained, day_local_revision)
              VALUES ($1, $2, $3, $4, $5, $6::text::date, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::text::jsonb,
-                     $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+                     $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
              ON CONFLICT (lease_id, session) DO NOTHING RETURNING refcheck_report_id",
             &[
                 &lease.lease_id,
@@ -233,6 +282,7 @@ pub async fn put(client: &mut Client, token: &str, c: &Checked) -> Result<(bool,
                 &c.document_sha256,
                 &c.document,
                 &counts.as_ref().and_then(|k| k.failed_unexplained),
+                &c.day_local_revision,
             ],
         )
         .await
@@ -258,7 +308,8 @@ const COLUMNS: &str = "r.refcheck_report_id, r.session::text, r.outcome, r.why, 
      r.failure_classes, r.measurements_failing, r.wall_seconds, r.suite_seconds, r.cpu_seconds, r.cpu_complete, r.jobs, r.deadline_seconds,
      r.job_id, r.attempt, r.worker, r.engine_build, r.base_revision, r.report_bytes, r.report_trimmed,
      to_char(r.stored_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'),
-     EXISTS (SELECT FROM vyreon.day_revision d WHERE d.revision_id = r.base_revision AND d.state = 'PUBLISHED'),
+     EXISTS (SELECT FROM vyreon.day_revision d WHERE d.revision_id = r.base_revision AND d.state = 'PUBLISHED')
+       AND (r.day_local_revision IS NULL OR EXISTS (SELECT FROM vyreon.day_revision d WHERE d.revision_id = r.day_local_revision AND d.state = 'PUBLISHED')),
      r.failed_unexplained";
 
 fn record(r: &tokio_postgres::Row) -> Value {
@@ -320,7 +371,7 @@ pub async fn show(client: &impl GenericClient, session: &str, id: Option<i64>) -
 }
 
 /// The state the problems are judged on: for each session whose published base revision has a
-/// report, its latest such report.
+/// report, its latest such report (a report of a revision since superseded judges nothing).
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct State {
     /// Days whose latest check completed with a disagreement (C-056: a failure the rulings table
@@ -328,10 +379,20 @@ pub struct State {
     pub disagree: i64,
     pub failed: i64,
     pub disagree_oldest: Option<String>,
+    /// Days whose latest check completed with failures but from a suite without rulings (no
+    /// `failed_unexplained`): not yet triaged, never counted as unexplained; their failures.
+    pub untriaged: i64,
+    pub untriaged_failed: i64,
+    /// Days whose latest completed check has reference errors (comparisons the reference suite
+    /// itself could not make); their count.
+    pub reference_error_days: i64,
+    pub reference_errors: i64,
+    /// The oldest day of either of the two above (not fully judged).
+    pub unjudged_days: i64,
+    pub unjudged_oldest: Option<String>,
     pub timeout: i64,
     pub crashed: i64,
     pub not_run: i64,
-    pub reference_errors: i64,
     /// Published days (from `VYREON_CORE_REFCHECK_FROM`, published `GRACE_HOURS` ago or more) with
     /// no report at all.
     pub unreported: i64,
@@ -344,6 +405,11 @@ pub struct State {
     /// (while that cache is still the asset-session's newest); the oldest session.
     pub sample_differ: i64,
     pub sample_differ_oldest: Option<String>,
+    /// C-059 amended 2026-11-20 (round cc, 6): asset-sessions whose latest sample check recomputed
+    /// the stored cache byte for byte and the tape reader FAILED it, while the verdict kept beside
+    /// that cache is not a FAIL (one already there stands); the oldest session.
+    pub sample_reader_failed: i64,
+    pub sample_reader_failed_oldest: Option<String>,
 }
 
 /// The reference checks' state at `now` (`from`: the first session every published day of which
@@ -355,22 +421,31 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
                  SELECT DISTINCT ON (r.session) r.* FROM core.refcheck_report r
                  JOIN vyreon.day_revision d ON d.revision_id = r.base_revision AND d.state = 'PUBLISHED' AND d.profile_id = $1
                  WHERE r.stored_at <= $3::text::timestamptz
+                   AND (r.day_local_revision IS NULL
+                        OR EXISTS (SELECT FROM vyreon.day_revision x WHERE x.revision_id = r.day_local_revision AND x.state = 'PUBLISHED'))
                  ORDER BY r.session, r.stored_at DESC, r.refcheck_report_id DESC),
              unreported AS (
                  SELECT d.represented_date AS session FROM vyreon.day_revision d
                  WHERE $2::text IS NOT NULL AND d.represented_date >= $2::text::date AND d.profile_id = $1 AND d.state = 'PUBLISHED'
                    AND d.base_revision IS NULL AND d.published_at <= $3::text::timestamptz - make_interval(secs => $4::float8 * 3600)
-                   AND NOT EXISTS (SELECT FROM core.refcheck_report r WHERE r.base_revision = d.revision_id AND r.stored_at <= $3::text::timestamptz))
-             SELECT (SELECT count(*) FROM latest WHERE outcome = 'COMPLETED' AND COALESCE(failed_unexplained, failed) > 0),
-                    (SELECT COALESCE(sum(COALESCE(failed_unexplained, failed)), 0)::bigint FROM latest WHERE outcome = 'COMPLETED' AND COALESCE(failed_unexplained, failed) > 0),
-                    (SELECT min(session)::text FROM latest WHERE outcome = 'COMPLETED' AND COALESCE(failed_unexplained, failed) > 0),
+                   AND NOT EXISTS (SELECT FROM core.refcheck_report r WHERE r.base_revision = d.revision_id AND r.stored_at <= $3::text::timestamptz
+                                     AND (r.day_local_revision IS NULL
+                                          OR EXISTS (SELECT FROM vyreon.day_revision x WHERE x.revision_id = r.day_local_revision AND x.state = 'PUBLISHED')))),
+             disagree AS (SELECT * FROM latest WHERE outcome = 'COMPLETED' AND failed_unexplained > 0),
+             untriaged AS (SELECT * FROM latest WHERE outcome = 'COMPLETED' AND failed_unexplained IS NULL AND failed > 0),
+             referr AS (SELECT * FROM latest WHERE outcome = 'COMPLETED' AND reference_errors > 0),
+             unjudged AS (SELECT session FROM untriaged UNION SELECT session FROM referr)
+             SELECT (SELECT count(*) FROM disagree), (SELECT COALESCE(sum(failed_unexplained), 0)::bigint FROM disagree),
+                    (SELECT min(session)::text FROM disagree),
                     (SELECT count(*) FROM latest WHERE outcome = 'TIMEOUT'),
                     (SELECT count(*) FROM latest WHERE outcome = 'CRASHED'),
                     (SELECT count(*) FROM latest WHERE outcome = 'NOT_RUN'),
-                    (SELECT count(*) FROM latest WHERE outcome = 'COMPLETED' AND reference_errors > 0),
                     (SELECT count(*) FROM unreported),
-                    (SELECT min(s)::text FROM (SELECT session AS s FROM latest WHERE outcome <> 'COMPLETED' OR reference_errors > 0
-                                               UNION ALL SELECT session FROM unreported) x)",
+                    (SELECT min(s)::text FROM (SELECT session AS s FROM latest WHERE outcome <> 'COMPLETED'
+                                               UNION ALL SELECT session FROM unreported) x),
+                    (SELECT count(*) FROM untriaged), (SELECT COALESCE(sum(failed), 0)::bigint FROM untriaged),
+                    (SELECT count(*) FROM referr), (SELECT COALESCE(sum(reference_errors), 0)::bigint FROM referr),
+                    (SELECT count(*) FROM unjudged), (SELECT min(session)::text FROM unjudged)",
             &[&profile, &from, &now, &GRACE_HOURS],
         )
         .await
@@ -388,15 +463,28 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
         )
         .await
         .map_err(db)?;
-    // C-059: the latest check of each asset-session, until a newer cache supersedes the one it found
+    // C-059 (amended 2026-11-20, round cc 6 and 8): the latest comparison (MATCH or DIFFER; a
+    // NOT_COMPARED compared nothing and resolves nothing) of each cache, while that cache is its
+    // asset-session's newest (no cache stored after it: C-058's supersession, by method version,
+    // never by the check's time); a DIFFER, or a MATCH whose reader verdict is FAIL where no FAIL
+    // verdict is kept beside the cache already (counted by C-058)
     let d = c
         .query_one(
-            "SELECT count(*), min(session)::text FROM (
-                 SELECT DISTINCT ON (session, asset_key) session, asset_key, outcome, checked_at FROM core.tape_check
-                 WHERE checked_at <= $1::text::timestamptz ORDER BY session, asset_key, checked_at DESC, tape_check_id DESC) k
-             WHERE k.outcome = 'DIFFER'
-               AND NOT EXISTS (SELECT FROM core.tape_cache n WHERE n.session = k.session AND n.asset_key = k.asset_key
-                               AND n.stored_at > k.checked_at AND n.stored_at <= $1::text::timestamptz)",
+            "WITH k AS (
+                 SELECT DISTINCT ON (session, asset_key, method_version) session, asset_key, method_version, outcome, verdict_outcome
+                 FROM core.tape_check WHERE checked_at <= $1::text::timestamptz AND outcome IN ('MATCH', 'DIFFER')
+                 ORDER BY session, asset_key, method_version, checked_at DESC, tape_check_id DESC),
+             newest AS (
+                 SELECT k.* FROM k JOIN core.tape_cache t USING (session, asset_key, method_version)
+                 WHERE t.stored_at <= $1::text::timestamptz
+                   AND NOT EXISTS (SELECT FROM core.tape_cache n WHERE n.session = k.session AND n.asset_key = k.asset_key
+                                   AND n.stored_at > t.stored_at AND n.stored_at <= $1::text::timestamptz)),
+             reader AS (
+                 SELECT * FROM newest k WHERE k.outcome = 'MATCH' AND k.verdict_outcome = 'FAIL'
+                   AND NOT EXISTS (SELECT FROM core.tape_verdict v WHERE v.session = k.session AND v.asset_key = k.asset_key
+                                   AND v.method_version = k.method_version AND v.outcome = 'FAIL' AND v.stored_at <= $1::text::timestamptz))
+             SELECT (SELECT count(*) FROM newest WHERE outcome = 'DIFFER'), (SELECT min(session)::text FROM newest WHERE outcome = 'DIFFER'),
+                    (SELECT count(*) FROM reader), (SELECT min(session)::text FROM reader)",
             &[&now],
         )
         .await
@@ -404,6 +492,8 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
     Ok(State {
         sample_differ: d.get(0),
         sample_differ_oldest: d.get(1),
+        sample_reader_failed: d.get(2),
+        sample_reader_failed_oldest: d.get(3),
         tape_failed: t.get(0),
         tape_failed_oldest: t.get(1),
         disagree: r.get(0),
@@ -412,9 +502,14 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
         timeout: r.get(3),
         crashed: r.get(4),
         not_run: r.get(5),
-        reference_errors: r.get(6),
-        unreported: r.get(7),
-        not_run_oldest: r.get(8),
+        unreported: r.get(6),
+        not_run_oldest: r.get(7),
+        untriaged: r.get(8),
+        untriaged_failed: r.get(9),
+        reference_error_days: r.get(10),
+        reference_errors: r.get(11),
+        unjudged_days: r.get(12),
+        unjudged_oldest: r.get(13),
     })
 }
 
@@ -443,6 +538,14 @@ impl State {
                 self.sample_differ_oldest.as_deref().unwrap_or("?")
             ));
         }
+        if self.sample_reader_failed > 0 {
+            tapes.push(format!(
+                "the tape reader disagrees with a cache the sample recomputed byte for byte on {} asset-session{}, the oldest {} (vyreon-core tape checks)",
+                self.sample_reader_failed,
+                if self.sample_reader_failed == 1 { "" } else { "s" },
+                self.sample_reader_failed_oldest.as_deref().unwrap_or("?")
+            ));
+        }
         let tape = (!tapes.is_empty()).then(|| tapes.join("; "));
         match (self.disagree > 0, tape) {
             (true, tape) => Some(format!(
@@ -457,39 +560,56 @@ impl State {
         }
     }
 
-    /// REFCHECK_NOT_RUN's summary, when any day's check did not run.
+    /// REFCHECK_NOT_RUN's summary, when any day's current check did not run (a completed check
+    /// with reference errors ran: it is counted by `unjudged_line`, never here).
     pub fn not_run_summary(&self) -> Option<String> {
-        let parts: Vec<String> = [
-            (self.timeout, "timed out"),
-            (self.crashed, "crashed"),
-            (self.not_run, "not run"),
-            (self.reference_errors, "with reference errors"),
-            (self.unreported, "with no report"),
-        ]
-        .iter()
-        .filter(|(n, _)| *n > 0)
-        .map(|(n, w)| format!("{n} {w}"))
-        .collect();
-        let n = self.timeout + self.crashed + self.not_run + self.reference_errors + self.unreported;
+        let parts: Vec<String> = [(self.timeout, "timed out"), (self.crashed, "crashed"), (self.not_run, "not run"), (self.unreported, "with no report")]
+            .iter()
+            .filter(|(n, _)| *n > 0)
+            .map(|(n, w)| format!("{n} {w}"))
+            .collect();
+        let n = self.timeout + self.crashed + self.not_run + self.unreported;
         (n > 0).then(|| format!("Reference check did not run on {} ({}), the oldest {}", days(n), parts.join(", "), self.not_run_oldest.as_deref().unwrap_or("?")))
+    }
+
+    /// The digest's line on the published days whose current check completed but is not fully
+    /// judged: failures from a suite without rulings (not yet triaged against them, never presented
+    /// as unexplained), or reference errors. None when there is none; never an alert.
+    pub fn unjudged_line(&self) -> Option<String> {
+        let mut parts = Vec::new();
+        if self.untriaged > 0 {
+            parts.push(format!("{} with {} failed comparisons from a suite without rulings, not yet triaged against them", self.untriaged, self.untriaged_failed));
+        }
+        if self.reference_error_days > 0 {
+            parts.push(format!("{} with {} reference errors", self.reference_error_days, self.reference_errors));
+        }
+        (self.unjudged_days > 0).then(|| {
+            format!("Reference checks not fully judged: {} ({}), the oldest {}", days(self.unjudged_days), parts.join("; "), self.unjudged_oldest.as_deref().unwrap_or("?"))
+        })
     }
 }
 
 /// The digest's line: the checks stored in the 24 hours before `now`, by outcome, and what they
 /// cost (median suite wall and processor minutes per day); with none, a line only when every
-/// published day is `expected` to have one.
+/// published day is `expected` to have one. Each check is counted once: did not run (not
+/// completed), disagree (unexplained failures), not triaged (failures from a suite without
+/// rulings, shown only when there is one), else agree; reference errors are stated beside them
+/// (the check ran), never as a check that did not run.
 pub async fn digest_line(c: &impl GenericClient, now: &str, expected: bool) -> Result<Option<String>, String> {
     let r = c
         .query_one(
-            "SELECT count(*), count(*) FILTER (WHERE outcome = 'COMPLETED' AND COALESCE(failed_unexplained, failed) = 0 AND reference_errors = 0),
-                    count(*) FILTER (WHERE outcome = 'COMPLETED' AND COALESCE(failed_unexplained, failed) > 0), count(*) FILTER (WHERE outcome <> 'COMPLETED' OR reference_errors > 0),
+            "SELECT count(*), count(*) FILTER (WHERE outcome = 'COMPLETED' AND (failed = 0 OR failed_unexplained = 0)),
+                    count(*) FILTER (WHERE outcome = 'COMPLETED' AND failed_unexplained > 0),
+                    count(*) FILTER (WHERE outcome = 'COMPLETED' AND failed_unexplained IS NULL AND failed > 0),
+                    count(*) FILTER (WHERE outcome <> 'COMPLETED'), COALESCE(sum(reference_errors), 0)::bigint,
                     percentile_cont(0.5) WITHIN GROUP (ORDER BY suite_seconds), percentile_cont(0.5) WITHIN GROUP (ORDER BY cpu_seconds) FILTER (WHERE cpu_complete)
              FROM core.refcheck_report WHERE stored_at > $1::text::timestamptz - interval '24 hours' AND stored_at <= $1::text::timestamptz",
             &[&now],
         )
         .await
         .map_err(db)?;
-    let (n, agree, disagree, not_run, wall, cpu): (i64, i64, i64, i64, Option<f64>, Option<f64>) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5));
+    let (n, agree, disagree, untriaged, not_run, reference_errors, wall, cpu): (i64, i64, i64, i64, i64, i64, Option<f64>, Option<f64>) =
+        (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6), r.get(7));
     if n == 0 {
         return Ok(expected.then(|| "Reference checks in the last 24 hours: none".into()));
     }
@@ -498,7 +618,9 @@ pub async fn digest_line(c: &impl GenericClient, now: &str, expected: bool) -> R
         (Some(w), None) => format!(" · typical {:.0} min per day", w / 60.0),
         _ => String::new(),
     };
-    Ok(Some(format!("Reference checks in the last 24 hours: {n} ({agree} agree, {disagree} disagree, {not_run} did not run){cost}")))
+    let untriaged = if untriaged > 0 { format!(", {untriaged} not triaged against rulings") } else { String::new() };
+    let errors = if reference_errors > 0 { format!("; {reference_errors} reference errors") } else { String::new() };
+    Ok(Some(format!("Reference checks in the last 24 hours: {n} ({agree} agree, {disagree} disagree{untriaged}, {not_run} did not run{errors}){cost}")))
 }
 
 /// C-058: the digest's line on the tape verdicts: the tape caches stored in the 24 hours before
@@ -575,5 +697,36 @@ mod tests {
             "Reference check: the tape reader disagrees with the engine's tape cache on 1 asset-session, the oldest 2025-04-14; the tape sample recomputed a cache other than the stored one on 2 asset-sessions, the oldest 2024-04-09 (vyreon-core tape checks)"
         );
         assert_eq!(d.not_run_summary(), None);
+    }
+
+    /// C-054 amended 2026-11-20, on the cluster's reports as they stood at the 10:00 MT digest of
+    /// 2026-11-20 (`refcheck list`): 11-02, 11-03 (its crash superseded) and 11-04 by a suite
+    /// without rulings, 1,982, 2,489 and 2,146 failed and 9 reference errors each; 10-28 with 254
+    /// unexplained of 2,228. The live digest said "did not run on 1 published day (1 crashed)" and
+    /// "1982 comparisons failed"; the state now says what holds.
+    #[test]
+    fn a_check_without_rulings_or_with_reference_errors_is_not_fully_judged_never_not_run() {
+        let s = State {
+            disagree: 1,
+            failed: 254,
+            disagree_oldest: Some("2026-10-28".into()),
+            untriaged: 3,
+            untriaged_failed: 1982 + 2489 + 2146,
+            reference_error_days: 3,
+            reference_errors: 27,
+            unjudged_days: 3,
+            unjudged_oldest: Some("2026-11-02".into()),
+            ..State::default()
+        };
+        assert_eq!(s.disagree_summary().unwrap(), "Reference check disagrees with 1 published day: 254 comparisons failed unexplained, the oldest 2026-10-28");
+        assert_eq!(s.not_run_summary(), None, "a completed check with reference errors ran");
+        assert_eq!(
+            s.unjudged_line().unwrap(),
+            "Reference checks not fully judged: 3 published days (3 with 6617 failed comparisons from a suite without rulings, not yet triaged against them; 3 with 27 reference errors), the oldest 2026-11-02"
+        );
+        // the untriaged days alone open no problem
+        let alone = State { disagree: 0, failed: 0, disagree_oldest: None, ..s };
+        assert_eq!((alone.disagree_summary(), alone.not_run_summary()), (None, None));
+        assert_eq!(State::default().unjudged_line(), None);
     }
 }
