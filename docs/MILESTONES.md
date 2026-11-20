@@ -1129,6 +1129,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   day 2 (11-03) published (revisions 55/56; worker day 265 min after inputs); its reference check
   completed (93,087 checked, 2,489 failed in 160 classes on the old suite; replaces the crashed 11-03
   check). Day 3 computing.**
+  **05:25 UTC: `worker` 3b85b4f6 suite 1,494 passed; image `vyreon-worker:3b85b4f6` (build
+  3b85b4f6+96356aa79bd5) registered and admitted (`cluster-scratch/evidence-3b85b4f6.json`).
+  Scheduled: day-block job 1384 for 2026-10-28..30 (3 sessions, block history on: measures input pass
+  1 + compute pass 1 with exact task times; Job `v-block-1028` on a 2nd AMD node of pool `day`); the
+  repeat of the same block with `VYREON_WORKER_HISTORY=off` (C-001 block-start test) follows when it
+  finishes (core refuses an overlapping unfinished block); tape sample verify jobs 1385–1404 (20
+  sessions; Job `v-tape-sample`, 3 pods in parallel on a day-std Intel node).**
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
