@@ -1006,6 +1006,17 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   **Day 2 (2026-11-03) inputs: 75 min (19:35–20:50), entirely overlapped with day 1's compute** (one
   bulk file, one snapshot, requote of the new session, company, ACT01): a later day in a block costs
   ~its compute (~258 min AMD) plus the reference check if it runs in sequence.
+  **00:26 UTC Nov 20: day 1's reference check COMPLETED (fixed suite) in 30.8 min wall, 167 CPU min
+  (AMD; the crashed Intel run took 59.5 / 318): 92,767 checked, 90,785 passed, 1,982 failed (167
+  classes, 26 measurements), 7,155 skipped, 9 reference errors (INT-TEMP-EVC01), 4,288 unverifiable
+  (tape owners), incomplete: intraday.** Largest: VS-V02 960, SAI-ACT01-INTRADAY 256 (an ARRAY_REF
+  coordinate's support counts: alternative reading), SAI-G01 142 (D-083 B band edges / overlay-
+  cleared rows: alternative reading), VS-Q05 82, DLM-* ~260, CDD-MACRO01 64, SURFACE-FORWARD 59, VS-Q01
+  44. Many carry the reference's own "alternative reading" annotation. Report saved
+  (`checks/2026-11-20-refcheck-2026-11-02-{report.json,show.txt}`); triage agent running (engine
+  defect / reference defect / alternative reading / tolerance). Day 1 total: published in 291 min
+  of the worker's day clock after its download; reference check runs in sequence before day 2's
+  compute.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
