@@ -1136,6 +1136,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   repeat of the same block with `VYREON_WORKER_HISTORY=off` (C-001 block-start test) follows when it
   finishes (core refuses an overlapping unfinished block); tape sample verify jobs 1385–1404 (20
   sessions; Job `v-tape-sample`, 3 pods in parallel on a day-std Intel node).**
+  **Tape sample, first 14 sessions (06:00 UTC): every recomputed cache equals the stored one byte for
+  byte (892 of 892 asset-sessions, 0 differ: the cache code reproduces and Intrinio's old replay files
+  are unchanged); ~3–5 min per session (4–45 GB of replay each). The reference reader's verdict
+  FAILs on 36 asset-sessions, all on VWAP fields only (63 bin differences, 49 vwap_all + 14 vwap_ps,
+  worst relative 5.9e-9; high-priced/active names; 15 on 2025-06-02).** Larger than summation-order
+  noise should give, so the cause (price representation, included prints, accumulation) is being
+  found before any tolerance changes (`pass-fx65`).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
