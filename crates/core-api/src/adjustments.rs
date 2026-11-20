@@ -12,17 +12,25 @@
 //!
 //!   {"ex_date": "2025-12-05", "kind": "split", "ratio": 0.5, "evidence": "..."}       an n-for-1 forward split
 //!                                                                                   (the provider's split_ratio, 1/n)
-//!   {"ex_date": "2025-12-16", "kind": "other", "strike_offset": 0.16, "evidence": "..."}  every strike lowered by a
+//!   {"ex_date": "2025-12-16", "kind": "other", "strike_offset": 0.16, "special_dividend": 0.157024,
+//!    "evidence": "..."}                                                              every strike lowered by a
 //!                                                                                   special distribution
 //!   {"ex_date": "2024-01-24", "kind": "other", "root": "UNG1", "evidence": "..."}      positions moved to an adjusted
 //!                                                                                   root (a changed deliverable)
+//!
+//! A strike offset states the special behind it (engine D-120 as amended 2026-11-20: the special
+//! is not projected as a dividend, the rest of the payment is): `special_dividend`, OCC's exact
+//! special per share from the memo, and `special_ex_date` where the cash went ex before the
+//! strikes were reduced (FXI 2023: cash 06-07, strikes 06-08, memo #52545).
 //!
 //! Core adds its own rules to the engine's parser: every entry is backed by an OCC Information
 //! Memo, cited by number and URL at the head of its evidence (no entry without a source, engine
 //! D-102); a reverse or fractional split is never a `split` (the engine cannot place it: its
 //! positions move to the adjusted root, given as `root`); the engine's `unknown` (a possible
 //! adjustment) is never sent, since a sourced adjustment is certain; an asset's entries are in
-//! ex-date order without repeats.
+//! ex-date order without repeats; every strike offset states its special, the offset is that
+//! special rounded to the nearest penny (OCC's rule, as each memo states it), and its
+//! `special_ex_date`, if any, is not after the strike reduction.
 use core_contract::is_date;
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
@@ -59,7 +67,7 @@ pub fn check(doc: &Value) -> Result<(), String> {
             let e = e.as_object().ok_or_else(|| format!("{asset}: an entry that is not an object"))?;
             let ex = e.get("ex_date").and_then(Value::as_str).filter(|d| is_date(d)).ok_or_else(|| format!("{asset}: an entry without an ex_date"))?;
             let at = format!("{asset} {ex}");
-            if let Some(k) = e.keys().find(|k| !["ex_date", "kind", "ratio", "root", "strike_offset", "evidence"].contains(&k.as_str())) {
+            if let Some(k) = e.keys().find(|k| !["ex_date", "kind", "ratio", "root", "strike_offset", "special_dividend", "special_ex_date", "evidence"].contains(&k.as_str())) {
                 return Err(format!("{at}: a field the engine does not read ({k})"));
             }
             let evidence = e.get("evidence").and_then(Value::as_str).unwrap_or_default();
@@ -78,9 +86,21 @@ pub fn check(doc: &Value) -> Result<(), String> {
                     let root = root.as_str().filter(|r| !r.is_empty() && r.bytes().all(|b| b.is_ascii_uppercase() || b.is_ascii_digit()));
                     format!("root:{}", root.ok_or_else(|| format!("{at}: not an option root"))?)
                 }
-                (Some("other"), None, None, Some(d)) => format!("shift:{d}"),
+                (Some("other"), None, None, Some(d)) => {
+                    let special = num("special_dividend").transpose()?.ok_or_else(|| format!("{at}: a strike offset without its special_dividend (OCC's special per share)"))?;
+                    if ((special * 100.0).round() / 100.0 - d).abs() > 1e-9 {
+                        return Err(format!("{at}: strike offset {d} is not the special {special} rounded to the nearest penny"));
+                    }
+                    if let Some(when) = e.get("special_ex_date") {
+                        when.as_str().filter(|w| is_date(w) && *w <= ex).ok_or_else(|| format!("{at}: special_ex_date is not a date on or before the ex_date"))?;
+                    }
+                    format!("shift:{d}")
+                }
                 _ => return Err(format!("{at}: not a split, an adjusted root or a strike offset")),
             };
+            if e.get("strike_offset").is_none() && (e.contains_key("special_dividend") || e.contains_key("special_ex_date")) {
+                return Err(format!("{at}: a special dividend on an entry that is no strike offset"));
+            }
             if ex < last.as_str() || !seen.insert((ex.to_owned(), image)) {
                 return Err(format!("{at}: out of ex-date order or repeated"));
             }
@@ -142,6 +162,14 @@ mod tests {
         assert_eq!(entry("XLE", "2025-12-05")["ratio"].as_f64(), Some(0.5));
         assert_eq!(entry("UNG", "2024-01-24")["root"], "UNG1");
         assert_eq!(memo(entry("EWJ", "2025-12-16")["evidence"].as_str().unwrap()), Some(57919));
+        // the specials behind the four strike offsets, OCC's amounts (memos #57919, #52545, #53847, #55816)
+        let special = |asset: &str, ex: &str| (entry(asset, ex)["special_dividend"].as_f64(), entry(asset, ex)["special_ex_date"].as_str().map(str::to_owned));
+        assert_eq!(special("EWJ", "2025-12-16"), (Some(0.157024), None));
+        assert_eq!(special("FXI", "2023-06-08"), (Some(0.148983), Some("2023-06-07".to_owned())));
+        assert_eq!(special("QQQ", "2023-12-27"), (Some(0.21584), None));
+        assert_eq!(special("EMB", "2024-12-30"), (Some(0.254515), None));
+        let offsets = doc["assets"].as_object().unwrap().values().flat_map(|l| l.as_array().unwrap()).filter(|e| e.get("strike_offset").is_some()).count();
+        assert_eq!(offsets, 4);
     }
 
     /// Each of core's rules refuses a real entry altered to break it.
@@ -189,6 +217,24 @@ mod tests {
             e.insert("ex_date".into(), json!("2025-12-1"));
         })
         .contains("without an ex_date"));
+        // a strike offset without its special, or one that is not the special to the penny
+        assert!(altered("EWJ", "2025-12-16", &|e| {
+            e.remove("special_dividend");
+        })
+        .contains("without its special_dividend"));
+        assert!(altered("EWJ", "2025-12-16", &|e| {
+            e.insert("special_dividend".into(), json!(0.16));
+            e.insert("strike_offset".into(), json!(0.17));
+        })
+        .contains("nearest penny"));
+        assert!(altered("FXI", "2023-06-08", &|e| {
+            e.insert("special_ex_date".into(), json!("2023-06-09"));
+        })
+        .contains("special_ex_date"));
+        assert!(altered("XLE", "2025-12-05", &|e| {
+            e.insert("special_dividend".into(), json!(0.1));
+        })
+        .contains("no strike offset"));
         let mut doc = committed();
         let xle = doc["assets"]["XLE"].as_array_mut().unwrap();
         xle.push(xle[0].clone());

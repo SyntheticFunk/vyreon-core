@@ -147,6 +147,8 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
     assert_eq!(day["adjustments"], core_api::adjustments::ledger().unwrap()["assets"]);
     let ewj = &day["adjustments"]["EWJ"][0];
     assert_eq!((ewj["ex_date"].as_str(), ewj["kind"].as_str(), ewj["strike_offset"].as_f64()), (Some("2025-12-16"), Some("other"), Some(0.16)));
+    // engine D-120 as amended 2026-11-20: with OCC's special behind the offset (memo #57919)
+    assert_eq!(ewj["special_dividend"].as_f64(), Some(0.157024));
     assert_eq!(day["adjustments"]["ETHA"][0]["root"], "ETHA1");
     assert!(day["adjustments"].get("AAPL").is_none(), "no OCC adjustment of AAPL since 2022-05-27");
     // the bundle states the day's listed members: the asset keys with a ticker that day
