@@ -1205,6 +1205,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   one σ state; to confirm on the next real checks. Owner-visible note: DLM-PRICE-LEVELS' 52-week
   range uses 252 bars while drawdown's 1-year high uses 253 closes (no wrong number; consistency
   question).
+  **Test block 4944a182, 12:45 UTC:** day 2's inputs ready in 64 min (09:54 → 10:58, overlapped);
+  day 1 prep 64 min (73 before), intent A running ~100 min. Memory peak 9.2 GB (day 1 compute + day 2
+  fill), now ~4 GB. P-21 extended: the API's QQQ 2026-09-28 chain also holds 09-29 data, so the
+  bulk fallback cannot recover it; QQQ's option-history-window sensors are withheld on 10-28 (stated
+  absence, as designed). Pass-2 lead: intent A runs 4 persistent workers at ~78% CPU each (load 4.1
+  on 8 vCPU) once the overlapping fill ends: half the node idle.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
