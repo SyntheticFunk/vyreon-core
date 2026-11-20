@@ -1331,6 +1331,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   agent took the history-area items, core agent the core findings + digest; pass-2 tracks fx71 (M0,
   admission, threads) and fx73 (critical path: intent A during surfaces, refcheck alongside the next
   day, FIELD earlier, heartbeat).
+  **fx75 merged (`worker` 9363a9e1; reference 109 passed): six reference fixes** (dividend alternatives
+  need agreeing amounts; refused or empty T expected as the engine withholds; QuantLib cache key;
+  ProcessPoolExecutor so a killed child fails at once as CRASHED; tape verdicts written as judged).
+  Not yet run on a real refused/empty day (no raw inputs on the laptop).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
