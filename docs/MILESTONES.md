@@ -1258,6 +1258,8 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   sessions, five sensor crates' endpoint-reason lists, MIN63 written at ~40 sites). Open for the
   owner: "expected observations" = a fixed span of scheduled sessions (40 CFR's reading; recommended)
   or §5.13's scan back until 126 eligible (floor almost never bites).
+  **Owner (2026-11-20): fixed span** ("scan back is going to produce weird behavior"). D-404
+  implementation started (`pass-fx70`): engine + reference, one shared floor, before/after numbers.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
