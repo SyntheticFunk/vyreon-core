@@ -377,18 +377,19 @@ pub async fn show(client: &impl GenericClient, session: &str, id: Option<i64>) -
 /// verdict's `engine_build`); a later reader supersedes an earlier one's verdict, ordered by the
 /// build's admission (registration when never admitted; an unknown build is the earliest), never by
 /// when the verdict came; for one reader, the verdict stored last. `$1`: the moment read (as text).
-/// Columns of `current`: session, asset_key, method_version, outcome, why, differences.
+/// Columns of `current`: session, asset_key, method_version, outcome, why, differences, document
+/// (the verdict as its reader sent it; a sample's verdict names the stored cache's bytes, MATCH).
 pub const CURRENT_VERDICTS: &str = "verdicts AS (
          SELECT v.session, v.asset_key, v.method_version, v.outcome, v.why, v.differences,
-                v.document->>'engine_build' AS reader, v.stored_at AS at, 0 AS source, 0::bigint AS id
+                v.document->>'engine_build' AS reader, v.stored_at AS at, 0 AS source, 0::bigint AS id, v.document
          FROM core.tape_verdict v WHERE v.stored_at <= $1::text::timestamptz
          UNION ALL
          SELECT c.session, c.asset_key, c.method_version, c.verdict_outcome, c.document->'verdict'->>'why',
                 CASE WHEN jsonb_typeof(c.document->'verdict'->'differences') = 'array' THEN jsonb_array_length(c.document->'verdict'->'differences') ELSE 0 END,
-                c.document->'verdict'->>'engine_build', c.checked_at, 1, c.tape_check_id
+                c.document->'verdict'->>'engine_build', c.checked_at, 1, c.tape_check_id, c.document->'verdict'
          FROM core.tape_check c WHERE c.outcome = 'MATCH' AND c.verdict_outcome IS NOT NULL AND c.checked_at <= $1::text::timestamptz),
      current AS (
-         SELECT DISTINCT ON (x.session, x.asset_key, x.method_version) x.session, x.asset_key, x.method_version, x.outcome, x.why, x.differences
+         SELECT DISTINCT ON (x.session, x.asset_key, x.method_version) x.session, x.asset_key, x.method_version, x.outcome, x.why, x.differences, x.document
          FROM verdicts x LEFT JOIN core.engine_build b ON b.engine_build = x.reader
          ORDER BY x.session, x.asset_key, x.method_version, COALESCE(b.admitted_at, b.registered_at) DESC NULLS LAST, x.at DESC, x.source DESC, x.id DESC)";
 

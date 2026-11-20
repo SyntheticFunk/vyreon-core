@@ -1584,9 +1584,13 @@ Migration 0028; `crates/core-db/src/tape.rs`, `refcheck.rs`.
   earliest), never by when the verdict came; for one reader, the verdict stored last.
   REFCHECK_DISAGREES and `refcheck show <date>` read the current verdict
   (`refcheck::CURRENT_VERDICTS`); a later reader's FAIL reopens it, an earlier reader's FAIL sent
-  late does not. The kept verdict is unchanged (evidence, and what `GET /tape-caches` serves the
-  day workers: still the first; serving the current one instead is an engine-facing change, left
-  for the owner). This replaces C-059's round-cc 6 rule (a FAIL in a sample beside a kept
+  late does not. The kept verdict is unchanged (evidence). **The day check reads the current
+  verdict** (owner's decision, 2026-11-21): `GET /tape-caches` serves each cache's current verdict
+  in `verdicts.json` (`tape::verdicts_of_session`, the same order), as its reader sent it, so the
+  day checks of 2025-06-02, 08-01, 12-01 and the 2026 sampled sessions (inside phase 1) read the
+  tape owners under the corrected reader's PASS instead of treating them as unverifiable under the
+  old reader's FAIL. Test: `core-api/tests/worker_api.rs::a_day_worker_is_served_the_latest_readers_verdict`
+  (real 748 then 1768: FAIL served, then PASS). This replaces C-059's round-cc 6 rule (a FAIL in a sample beside a kept
   non-FAIL): it is the same judgement, now with the reader's order. On the cluster (read-only,
   2026-11-21): all 1,276 judged caches have a current PASS, so the tape part of
   REFCHECK_DISAGREES clears and the problem is restated as the day's disagreement alone ("1

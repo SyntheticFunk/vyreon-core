@@ -321,7 +321,11 @@ async fn an_old_readers_fail_is_superseded_by_a_fixed_readers_pass_on_the_same_b
     let now = minute(&client).await;
     assert_eq!(ours(watch::check(&mut client, &settings, &now).await.unwrap().resolved), [opened]);
     assert_eq!(refcheck::tape_show(&client, S).await.unwrap()["counts"], json!({"PASS": 1}));
-    assert_eq!(tape::verdicts_of_session(&client, S, V1).await.unwrap()[0].1["outcome"], "FAIL", "the kept verdict is unchanged");
+    let kept: String = client.query_one("SELECT outcome FROM core.tape_verdict WHERE session = $1::text::date AND asset_key = 'AAPL'", &[&S]).await.unwrap().get(0);
+    assert_eq!(kept, "FAIL", "the kept verdict is unchanged");
+    // the day workers read the current verdict: the fixed reader's PASS, as it sent it
+    let served = tape::verdicts_of_session(&client, S, V1).await.unwrap();
+    assert_eq!(served, vec![("AAPL".to_owned(), test_support::tape_verdict_bound(TAPE_CHECK_AAPL_PASS, "AAPL", S, V1, &whole))]);
     // the same reader again, later (no such verdict exists: the real PASS with only its outcome and
     // reason changed): the verdict stored last counts
     let c = send(&mut client, TAPE_CHECK_AAPL_PASS, &|c| {
