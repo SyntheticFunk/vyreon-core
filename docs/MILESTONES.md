@@ -1017,6 +1017,21 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   defect / reference defect / alternative reading / tolerance). Day 1 total: published in 291 min
   of the worker's day clock after its download; reference check runs in sequence before day 2's
   compute.
+  **Reference check triage (`checks/2026-11-20-refcheck-2026-11-02-triage.md`): 0 engine defects.**
+  1,915 of 1,982 failures match conventions the owner already ruled as the definition (rulings table:
+  D-083 B band edges/forward and overlay-cleared rows = MISSING for V02/Q05/Q01/G01; D-110 12 array
+  support for ACT01-INTRADAY; D-106/107/110/118 for DLM-*); 53 + 9 reference errors are reference
+  defects (R1 frozen post-adjustment listings for the Dec-2025 OCC-adjusted six; R2 EVC priors not on
+  today's share basis across splits; R3 EVC crash on a manifest without body; R4 QuantLib LR tree +inf
+  at σ floor; R5 TSM parent-equity order; R6 INDPRO base label: the engine's 2017 is right, D-110 2's
+  text is wrong); 5 one-ulp OI-sum tolerance (ETHA since D-390); 9 SURFACE-FORWARD uncertain (6 short-
+  dated pair scatter; EWJ 2026-12-18 forward 91.15 vs ~92.3 neighbours: possible projected-dividend
+  defect, to settle before the build reaches Dec-2025 dates; UUP thin chain, D-095). Fix track
+  `pass-fx58` started (R1–R6, tolerance, D-110 2 text, per-class rulings outcome and a
+  `failed_unexplained` count in the worker's report, EWJ investigation). Core change to follow:
+  REFCHECK_DISAGREES and the digest count only unexplained failures (otherwise the alarm stays open
+  every day on ruled conventions). **Owner decision:** extend the 2026-11-04 forward-scatter ruling
+  so the price test also applies where a σ half-width exists (scatter only beyond the larger).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
