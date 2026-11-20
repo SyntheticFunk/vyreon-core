@@ -1302,6 +1302,21 @@ meets the December 2025 adjustments.
   carries only its members' entries); `core-api/tests/worker_api.rs` (a day-block claim over HTTP
   carries the ledger). The engine's own parser reads the file (checked from the engine at
   `pass-s3i`, read only: `parse_ledger`, `universe::write_claim`, `Universe::load`).
+- **Amended 2026-11-20 (engine D-120 as amended, `pass-fx59`; refcheck triage of 2026-11-02,
+  EWJ's 2026-12-18 forward):** every strike offset states the special behind it, OCC's exact
+  amount per share from its memo, as `special_dividend` (EWJ 0.157024 #57919, FXI 0.148983 #52545,
+  QQQ 0.21584 #53847, EMB 0.254515 #55816; each already quoted in its evidence), and FXI's
+  `special_ex_date` 2023-06-07 (the cash went ex the session before the strike reduction). The
+  engine's surface no longer projects the special as a recurring dividend: it projects the payment
+  less OCC's special (EWJ's December: 3.0614 − 0.157024 = 2.904376), not less the penny offset,
+  which is a rounding of OCC's figure. New rules in `check`: a strike offset without its special is
+  refused; the offset must be the special rounded to the nearest penny; `special_ex_date` is a date
+  on or before the entry's ex-date; neither field on an entry that is no strike offset. **Deploy
+  order:** this core image before an engine image that contains D-120's amendment; such an engine
+  faults the surface of an asset whose strike offset in its dividend window states no special
+  (that is, every EWJ, FXI, QQQ and EMB surface since the special, against the current core).
+  Tests: `adjustments::tests` (the four specials; each new rule refuses an altered real entry);
+  `worker_api.rs` (the claim carries EWJ's special).
 
 ## C-056 A reference-check disagreement is a failure the rulings table does not explain (2026-11-20; engine D-370 amended)
 The first complete worker check (2026-11-02, build 48d87154) failed 1,982 comparisons; 1,915 of them
