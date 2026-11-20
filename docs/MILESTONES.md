@@ -1244,7 +1244,8 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (verified; WMO-No. 1203 §4.4 agrees in principle, secondary sources). Replaces the day-level plan
   withholding that blanked QQQ's window sensors after one refused session. Engine + reference in
   `pass-fx69`, with before/after coverage counts. Open: a consecutive-gap limit (WMO uses 5 days),
-  not ruled.
+  not ruled. Scope (owner): the rule covers history-window sensors only; the 2026-11-13
+  withhold-on-missing-input rule stays for sensors without a history window (it was made for them).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
