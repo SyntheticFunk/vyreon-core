@@ -1185,6 +1185,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   3b85b4f6) cancelled; test block 2026-10-28..30 rescheduled on it at default in-flight, 14 GiB
   limit, history on; working set and top processes sampled every 2 min from the start
   (`checks/2026-11-20-block-1028-memory-4944a182.tsv`).**
+  **08:17 UTC: tape sample COMPLETE: 20 of 20 sessions passed (1,276 of 1,276 asset-sessions
+  recomputed byte for byte with the reference tape reader agreeing).** The historical tape caches
+  carry "cache code verified by sample" (C-059). Node day-std-36n2pr deleted.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
