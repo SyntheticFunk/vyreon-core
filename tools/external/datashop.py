@@ -37,8 +37,23 @@ EARLY_CLOSE = {"2025-12-24"}  # NYSE/Cboe 13:00 close inside the order's months
 ITEMS = {"item_000122947": ("SPY", "TSLA", "UUP"), "item_000122949": ("XLK",), "item_000122951": ("ETHA",)}
 HEADER = ("CONTRACT ID,OPEN INTEREST,TRADE PRICE,TRADE SIZE,TOTAL TRADE VOLUME,LAST TRADE TIMESTAMP,"
           "TRADE HIGH PRICE,TRADE LOW PRICE,ASK PRICE,ASK SIZE,LAST ASK TIMESTAMP,BID PRICE,BID SIZE,LAST BID TIMESTAMP")
-PAUSE = 0.3
+# Round cc, 12: the keyed API calls run outside core's request budget (C-025), so they stay well
+# under the margin core leaves (2,000 a minute less core's ceiling, 1,800 by default): one fetch thread and at most
+# one keyed call every 0.7 s (under 100 a minute, retries included). Never run during a build.
+MIN_INTERVAL = 0.7
 LOCK = threading.Lock()
+_PACE = threading.Lock()
+_last_call = 0.0
+
+
+def paced() -> None:
+    """Waits until MIN_INTERVAL has passed since the previous keyed call, in any thread."""
+    global _last_call
+    with _PACE:
+        wait = _last_call + MIN_INTERVAL - time.monotonic()
+        if wait > 0:
+            time.sleep(wait)
+        _last_call = time.monotonic()
 CAP = 200  # listed examples per category; counts are always complete
 
 
@@ -148,10 +163,10 @@ def key() -> str:
 def api_json(path: str) -> tuple[dict, bytes]:
     for attempt in range(5):
         try:
+            paced()
             req = urllib.request.Request(API + path, headers={"Authorization": "Bearer " + key()})
             with urllib.request.urlopen(req, timeout=180) as r:
                 body = r.read()
-            time.sleep(PAUSE)
             return json.loads(body), body
         except Exception as e:  # noqa: BLE001 - retried, then reported without the key
             err = f"{type(e).__name__} {getattr(e, 'code', '')}".strip()
@@ -289,7 +304,7 @@ def fetch(order: str, side: str, dates: list[str]) -> int:
             log_path.write_text(json.dumps(log, indent=1) + "\n")
             print(f"{d} {x}: {e.get('rows', e.get('refused'))} rows", file=sys.stderr, flush=True)
 
-    with ThreadPoolExecutor(4) as ex:
+    with ThreadPoolExecutor(1) as ex:
         for f in [ex.submit(run, j) for j in jobs]:
             f.result()
     return 0
