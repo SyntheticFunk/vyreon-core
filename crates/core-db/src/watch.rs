@@ -904,6 +904,9 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
     if let Some(line) = refcheck::digest_line(c, now, s.refcheck_from.is_some()).await? {
         lines.push(line);
     }
+    if let Some(line) = refcheck::tape_digest_line(c, now).await? {
+        lines.push(line);
+    }
     if s.daily.is_some() {
         lines.push(daily::digest_line(c, s.daily.as_ref(), now, ZONE).await?);
     }

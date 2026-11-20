@@ -13,6 +13,12 @@
 //! (`watch`): REFCHECK_DISAGREES while a published day's latest check found a disagreement, and
 //! REFCHECK_NOT_RUN while one's latest check timed out, crashed, did not run or had reference
 //! errors, or (from `VYREON_CORE_REFCHECK_FROM`) a published day has no report at all.
+//!
+//! C-058: the tape worker's verdicts on the tape caches (`tape::put_verdict`) are the tape owners'
+//! half of the check. A FAIL on an asset-session's newest cache is a disagreement to look at
+//! (REFCHECK_DISAGREES, beside the days'); a cache with no verdict, or a NOT_RUN one, is not verified:
+//! counted in the digest and in `show`, never an alert (every cache stored before the verdicts has
+//! none, and its raw tape is gone).
 use crate::evidence::unredacted;
 use crate::work::{self, LeaseError};
 use core_contract::sha256_hex;
@@ -330,6 +336,10 @@ pub struct State {
     /// no report at all.
     pub unreported: i64,
     pub not_run_oldest: Option<String>,
+    /// C-058: asset-sessions whose newest tape cache's verdict is FAIL (the reference reader's bins
+    /// differ from the engine's cache); the oldest session.
+    pub tape_failed: i64,
+    pub tape_failed_oldest: Option<String>,
 }
 
 /// The reference checks' state at `now` (`from`: the first session every published day of which
@@ -361,7 +371,22 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
         )
         .await
         .map_err(db)?;
+    // C-058: a verdict judged the newest cache of its asset-session (a cache redone under a newer
+    // method version, with its own verdict, supersedes it)
+    let t = c
+        .query_one(
+            "SELECT count(*), min(v.session)::text FROM core.tape_verdict v
+             JOIN core.tape_cache t USING (session, asset_key, method_version)
+             WHERE v.outcome = 'FAIL' AND v.stored_at <= $1::text::timestamptz
+               AND NOT EXISTS (SELECT FROM core.tape_cache n WHERE n.session = v.session AND n.asset_key = v.asset_key
+                               AND n.stored_at > t.stored_at AND n.stored_at <= $1::text::timestamptz)",
+            &[&now],
+        )
+        .await
+        .map_err(db)?;
     Ok(State {
+        tape_failed: t.get(0),
+        tape_failed_oldest: t.get(1),
         disagree: r.get(0),
         failed: r.get(1),
         disagree_oldest: r.get(2),
@@ -379,16 +404,27 @@ fn days(n: i64) -> String {
 }
 
 impl State {
-    /// REFCHECK_DISAGREES's summary, when any day disagrees.
+    /// REFCHECK_DISAGREES's summary, when any day disagrees or any tape verdict failed (C-058).
     pub fn disagree_summary(&self) -> Option<String> {
-        (self.disagree > 0).then(|| {
+        let tape = (self.tape_failed > 0).then(|| {
             format!(
-                "Reference check disagrees with {}: {} comparisons failed unexplained, the oldest {}",
+                "the tape reader disagrees with the engine's tape cache on {} asset-session{}, the oldest {}",
+                self.tape_failed,
+                if self.tape_failed == 1 { "" } else { "s" },
+                self.tape_failed_oldest.as_deref().unwrap_or("?")
+            )
+        });
+        match (self.disagree > 0, tape) {
+            (true, tape) => Some(format!(
+                "Reference check disagrees with {}: {} comparisons failed unexplained, the oldest {}{}",
                 days(self.disagree),
                 self.failed,
-                self.disagree_oldest.as_deref().unwrap_or("?")
-            )
-        })
+                self.disagree_oldest.as_deref().unwrap_or("?"),
+                tape.map_or_else(String::new, |t| format!("; {t}"))
+            )),
+            (false, Some(t)) => Some(format!("Reference check: {t}")),
+            (false, None) => None,
+        }
     }
 
     /// REFCHECK_NOT_RUN's summary, when any day's check did not run.
@@ -435,6 +471,55 @@ pub async fn digest_line(c: &impl GenericClient, now: &str, expected: bool) -> R
     Ok(Some(format!("Reference checks in the last 24 hours: {n} ({agree} agree, {disagree} disagree, {not_run} did not run){cost}")))
 }
 
+/// C-058: the digest's line on the tape verdicts: the tape caches stored in the 24 hours before
+/// `now` (stated absences are no cache), by their verdict; none when no cache was stored.
+pub async fn tape_digest_line(c: &impl GenericClient, now: &str) -> Result<Option<String>, String> {
+    let r = c
+        .query_one(
+            "SELECT count(*), count(*) FILTER (WHERE v.outcome = 'PASS'), count(*) FILTER (WHERE v.outcome = 'FAIL'),
+                    count(*) FILTER (WHERE v.outcome = 'WITHHELD'), count(*) FILTER (WHERE v.outcome = 'NOT_RUN'),
+                    count(*) FILTER (WHERE v.outcome IS NULL)
+             FROM core.tape_cache t LEFT JOIN core.tape_verdict v USING (session, asset_key, method_version)
+             WHERE t.body_sha256 IS NOT NULL AND t.stored_at > $1::text::timestamptz - interval '24 hours' AND t.stored_at <= $1::text::timestamptz",
+            &[&now],
+        )
+        .await
+        .map_err(db)?;
+    let (n, pass, fail, withheld, not_run, none): (i64, i64, i64, i64, i64, i64) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5));
+    Ok((n > 0).then(|| {
+        format!("Tape caches stored in the last 24 hours: {n} ({pass} verified by the tape reader, {fail} disagree, {withheld} withheld whole, {} not verified)", not_run + none)
+    }))
+}
+
+/// C-058: a session's tape verdicts under the newest method version stored for it: the count of
+/// each outcome, the caches without one, and each verdict that did not pass (asset, outcome, why).
+pub async fn tape_show(c: &impl GenericClient, session: &str) -> Result<Value, String> {
+    let rows = c
+        .query(
+            "WITH newest AS (
+                 SELECT DISTINCT ON (asset_key) asset_key, method_version, body_sha256 FROM core.tape_cache
+                 WHERE session = $1::text::date ORDER BY asset_key, stored_at DESC, method_version DESC)
+             SELECT n.asset_key, n.body_sha256 IS NULL, v.outcome, v.why, v.differences FROM newest n
+             LEFT JOIN core.tape_verdict v ON v.session = $1::text::date AND v.asset_key = n.asset_key AND v.method_version = n.method_version
+             ORDER BY n.asset_key COLLATE \"C\"",
+            &[&session],
+        )
+        .await
+        .map_err(db)?;
+    let mut counts = serde_json::Map::new();
+    let mut not_passed = Vec::new();
+    for r in &rows {
+        let (asset, absent, outcome, why, differences): (String, bool, Option<String>, Option<String>, Option<i32>) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4));
+        let key = if absent { "stated absence".to_owned() } else { outcome.clone().unwrap_or_else(|| "none".into()) };
+        let n = counts.get(&key).and_then(Value::as_i64).unwrap_or(0);
+        counts.insert(key, json!(n + 1));
+        if !absent && outcome.as_deref() != Some("PASS") && outcome.as_deref() != Some("WITHHELD") {
+            not_passed.push(json!({"asset": asset, "outcome": outcome, "why": why, "differences": differences}));
+        }
+    }
+    Ok(json!({"session": session, "caches": rows.len(), "counts": counts, "not_passed": not_passed}))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -445,5 +530,11 @@ mod tests {
         assert_eq!(s.disagree_summary().unwrap(), "Reference check disagrees with 2 published days: 41 comparisons failed unexplained, the oldest 2025-04-10");
         assert_eq!(s.not_run_summary().unwrap(), "Reference check did not run on 4 published days (1 timed out, 3 with no report), the oldest 2025-04-11");
         assert_eq!((State::default().disagree_summary(), State::default().not_run_summary()), (None, None));
+        // C-058: a failed tape verdict beside the days, and alone
+        let t = State { tape_failed: 3, tape_failed_oldest: Some("2025-04-14".into()), ..s.clone() };
+        assert_eq!(t.disagree_summary().unwrap(), "Reference check disagrees with 2 published days: 41 comparisons failed unexplained, the oldest 2025-04-10; the tape reader disagrees with the engine's tape cache on 3 asset-sessions, the oldest 2025-04-14");
+        let t = State { tape_failed: 1, tape_failed_oldest: Some("2025-04-14".into()), ..State::default() };
+        assert_eq!(t.disagree_summary().unwrap(), "Reference check: the tape reader disagrees with the engine's tape cache on 1 asset-session, the oldest 2025-04-14");
+        assert_eq!(t.not_run_summary(), None, "a verdict is never a check not run");
     }
 }

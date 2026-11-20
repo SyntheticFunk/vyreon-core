@@ -12,7 +12,9 @@
 //!   PUT  /tape-caches/{session}/{asset}?method_version=V[&absence=WHY]  body: the packed cache -> {new}
 //!   POST /tape-caches/{session}/done[?method_version=V]                 the tape job's session is complete (under V; without
 //!                                                                          it, under the method of the session's newest cache)
-//!   GET  /tape-caches/{session}?method_version=V                        -> a tar: one entry per asset, and absences.json
+//!   GET  /tape-caches/{session}?method_version=V                        -> a tar: one entry per asset, absences.json, and
+//!                                                                          verdicts.json (asset -> the tape worker's verdict, C-058)
+//!   PUT  /tape-caches/{session}/{asset}/verdict?method_version=V        body: the tape verdict (JSON) -> {new} (C-058)
 //!   PUT  /input-captures/{session}/{kind}/{identity}?captured_at=T      body: the capture's archive -> {new} (C-043)
 //!   POST /input-captures/{session}/{kind}/absence  {reason}             a capture the worker could not keep -> {new}
 //!   GET  /input-captures/{session}                                      -> {session, captures: [...]}: every version and absence
@@ -114,6 +116,7 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/tape-caches/{session}", get(tape_get))
         .route("/tape-caches/{session}/done", post(tape_done))
         .route("/tape-caches/{session}/{asset}", put(tape_put))
+        .route("/tape-caches/{session}/{asset}/verdict", put(tape_verdict_put))
         .route("/input-captures/{session}", get(captures_list))
         .route("/input-captures/{session}/{kind}/absence", post(capture_absent))
         .route("/input-captures/{session}/{kind}/{identity}", put(capture_put).get(capture_get))
@@ -300,6 +303,24 @@ async fn tape_put(State(app): Shared, headers: HeaderMap, Path((session, asset))
 }
 
 #[derive(Deserialize)]
+struct VerdictQuery {
+    method_version: String,
+}
+
+/// C-058: the tape worker's verdict on a cache it stored, under the session's tape job's lease,
+/// kept once beside the cache (`tape::put_verdict`).
+async fn tape_verdict_put(State(app): Shared, headers: HeaderMap, Path((session, asset)): Path<(String, String)>, Query(q): Query<VerdictQuery>, body: Body) -> Reply {
+    let bytes = read_limited(body, tape::MAX_VERDICT_BYTES, "a tape verdict").await?;
+    let client = app.db().await?;
+    let lease = caller(&client, &headers).await?;
+    if lease.kind != "TAPE" || lease.next_session.as_deref() != Some(session.as_str()) {
+        return Err(refused(format!("job {} is not the tape job of {session}", lease.job_id)));
+    }
+    let verdict = tape::check_verdict(&bytes, &asset, &session, &q.method_version).map_err(refused)?;
+    ok(json!({"new": tape::put_verdict(&client, &asset, &session, &q.method_version, &verdict).await.map_err(refused)?}))
+}
+
+#[derive(Deserialize)]
 struct DoneQuery {
     method_version: Option<String>,
 }
@@ -344,6 +365,9 @@ async fn tape_get(State(app): Shared, headers: HeaderMap, Path(session): Path<St
         }
     }
     add("absences.json", Value::Object(absences).to_string().as_bytes())?;
+    // C-058: the tape worker's verdict on each cache, beside it (an engine before it reads none)
+    let verdicts: serde_json::Map<String, Value> = tape::verdicts_of_session(&client, &session, &q.method_version).await.map_err(failed)?.into_iter().collect();
+    add("verdicts.json", Value::Object(verdicts).to_string().as_bytes())?;
     let bytes = archive.into_inner().map_err(|e| failed(e.to_string()))?;
     Ok(([(header::CONTENT_TYPE, "application/x-tar")], bytes).into_response())
 }

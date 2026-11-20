@@ -108,6 +108,21 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
     let caches = format!("{}/worker/v1/tape-caches/2025-12-10", s.url);
     let put = s.http.put(format!("{caches}/AAPL?method_version=engine-v1")).bearer_auth(token).body(TAPE_AAPL).send().await.unwrap();
     assert_eq!(put.json::<Value>().await.unwrap()["new"], true);
+    // C-058: the tape reader's verdict on the cache it stored, kept once beside it (here the
+    // reference suite's own answer on this cache, which holds no raw tape: NOT_RUN with why)
+    let verdict = json!({"schema": "VYREON-TAPE-VERDICT@1", "asset": "AAPL", "session": "2025-12-10", "outcome": "NOT_RUN",
+                         "why": "the reference reader failed: RawTapeAbsent: AAPL 2025-12-10: UNVERIFIABLE: raw tape absent",
+                         "method_version": "engine-v1", "cache_sha256": sha256_hex(TAPE_AAPL), "engine_build": s.base_build, "versions": null});
+    let put_verdict = |asset: &str, v: &Value| s.http.put(format!("{caches}/{asset}/verdict?method_version=engine-v1")).bearer_auth(token).json(v).send();
+    for (status, new) in [(StatusCode::OK, true), (StatusCode::OK, false)] {
+        let r = put_verdict("AAPL", &verdict).await.unwrap();
+        assert_eq!(r.status(), status);
+        assert_eq!(r.json::<Value>().await.unwrap()["new"], new);
+    }
+    let r = put_verdict("MSFT", &verdict).await.unwrap();
+    assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY, "another asset's verdict");
+    let r = s.http.put(format!("{caches}/AAPL/verdict?method_version=engine-v1")).bearer_auth("not-a-lease").json(&verdict).send().await.unwrap();
+    assert_ne!(r.status(), StatusCode::OK, "only the session's tape job sends a verdict");
     let (status, early) = s.post("/tape-caches/2025-12-10/done", token, json!({})).await;
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
     assert!(early["error"].as_str().unwrap().starts_with("63 of 64 members have no tape cache"), "{early}");
@@ -166,9 +181,11 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
         entry.read_to_end(&mut bytes).unwrap();
         entries.push((entry.path().unwrap().to_string_lossy().into_owned(), bytes));
     }
-    assert_eq!(entries.len(), 2, "AAPL's cache and the absences");
+    assert_eq!(entries.len(), 3, "AAPL's cache, the absences and the verdicts");
     assert_eq!((entries[0].0.as_str(), entries[0].1.as_slice()), ("AAPL", TAPE_AAPL));
     assert_eq!(serde_json::from_slice::<Value>(&entries[1].1).unwrap().as_object().unwrap().len(), 63);
+    assert_eq!(entries[2].0, "verdicts.json");
+    assert_eq!(serde_json::from_slice::<Value>(&entries[2].1).unwrap(), json!({"AAPL": verdict}));
     assert_eq!(s.post("/lease/heartbeat", token, json!({})).await.1["paused"], false);
     assert_eq!(s.post("/lease/finish", token, json!({})).await.0, StatusCode::UNPROCESSABLE_ENTITY, "its day is not published yet");
     let (header, scalars, files) = parts(BASE);

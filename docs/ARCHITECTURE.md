@@ -122,7 +122,8 @@ Notes:
     last published date), `queue_control` (paused, reason);
   - **budget:** `budget_lease`, `request_usage` (worker, category, count, minute);
   - **coverage:** per day, sensor and asset: states and absences by cause;
-  - **tape_cache:** (asset key, session, method version, digest, compressed body).
+  - **tape_cache:** (asset key, session, method version, digest, compressed body); beside each,
+    `tape_verdict`: the tape worker's reference reading of its raw tape against it (C-058).
   Migrations are checksummed and applied under an advisory lock (telemetry-backend's pattern, C-009).
 - **vyreon-core**, one Rust service (C-007; axum + tokio-postgres). It contains no engine code:
   - **worker API** (private network, per-worker token): claim a block, heartbeat, budget lease, read

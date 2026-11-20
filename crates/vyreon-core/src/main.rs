@@ -24,7 +24,8 @@
 //!                                                     published again since
 //!   vyreon-core refcheck show <date> [--report]       a day's latest check in full: its record, the measurements with a
 //!                                                     failure or a reference error, and each failure class with an example
-//!                                                     (with --report, the suite's report as JSON instead)
+//!                                                     (with --report, the suite's report as JSON instead); and the session's
+//!                                                     tape verdicts (C-058): each outcome's count, every one not passed
 //!   vyreon-core archive list [<date>]                 the perishable archive (C-052): each object requested, kept or
 //!                                                     failed with its endpoint, bucket and key (the newest sessions, or
 //!                                                     one session), each category a worker could not pack, and what is missing
@@ -601,11 +602,28 @@ async fn refcheck_list(from: Option<&str>, to: Option<&str>) -> Result<(), Strin
     Ok(())
 }
 
+/// C-058: a session's tape verdicts as `refcheck show` prints them.
+fn tape_lines(tape: &serde_json::Value) -> Vec<String> {
+    let counts: Vec<String> = tape["counts"].as_object().into_iter().flatten().map(|(k, n)| format!("{n} {k}")).collect();
+    let mut out = vec![format!("== tape verdicts of {} caches: {}", tape["caches"], counts.join(", "))];
+    for v in tape["not_passed"].as_array().into_iter().flatten() {
+        out.push(format!("{} {}: {}", v["asset"].as_str().unwrap_or("?"), v["outcome"].as_str().unwrap_or("none"), v["why"].as_str().unwrap_or("no verdict stored for this cache")));
+    }
+    out
+}
+
 /// `refcheck show <date> [--report]`: the record, the measurements with a failure, and each
 /// failure class with its example and the objects it names (or the report itself).
 async fn refcheck_show(session: &str, whole: bool) -> Result<(), String> {
-    let Some((record, summary, report)) = refcheck::show(&connect().await?, session, None).await? else {
-        return Err(format!("no reference check report for {session}"));
+    let client = connect().await?;
+    let tape = refcheck::tape_show(&client, session).await?;
+    let Some((record, summary, report)) = refcheck::show(&client, session, None).await? else {
+        if whole || tape["caches"].as_i64().unwrap_or(0) == 0 {
+            return Err(format!("no reference check report for {session}"));
+        }
+        println!("no reference check report for {session}");
+        tape_lines(&tape).iter().for_each(|l| println!("{l}"));
+        return Ok(());
     };
     if whole {
         if report.is_empty() {
@@ -628,6 +646,9 @@ async fn refcheck_show(session: &str, whole: bool) -> Result<(), String> {
         .collect();
     println!("== measurements with a failure or a reference error: {}", failing.len());
     failing.iter().for_each(|l| println!("{l}"));
+    if tape["caches"].as_i64().unwrap_or(0) > 0 {
+        tape_lines(&tape).iter().for_each(|l| println!("{l}"));
+    }
     if report.is_empty() {
         return Ok(());
     }
