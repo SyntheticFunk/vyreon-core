@@ -61,7 +61,7 @@ async fn posts(client: &Client) -> Vec<String> {
 }
 
 fn opened(v: &[&str]) -> watch::Change {
-    watch::Change { opened: v.iter().map(|s| s.to_string()).collect(), resolved: vec![] }
+    watch::Change { opened: v.iter().map(|s| s.to_string()).collect(), ..Default::default() }
 }
 
 /// Labor Day week 2025 (Monday 2025-09-01 is no session) in summer time (UTC−6): Friday's
@@ -189,7 +189,11 @@ async fn a_last_failure_and_a_provider_burst_are_problems_from_the_evidence() {
     let now = watch::now(&client).await.unwrap();
     assert_eq!(check(&mut client, &s, &now).await, opened(&["Provider (Intrinio) errors stopped 3 attempts in the last 30 minutes (HTTP 502)"]));
     let in_an_hour = later_text(&client, 1).await;
-    assert_eq!(check(&mut client, &s, &in_an_hour).await, watch::Change::default(), "still open within the quiet hours");
+    // still open within the quiet hours, and (C-050 amended 2026-11-20) restated without a post
+    let still = watch::Change { restated: vec!["Provider (Intrinio) errors are still stopping attempts".into()], ..Default::default() };
+    assert_eq!(check(&mut client, &s, &in_an_hour).await, still, "still open within the quiet hours");
+    assert!(!posts(&client).await.iter().any(|p| p.contains("still stopping")), "a restatement is not posted");
+    assert_eq!(check(&mut client, &s, &in_an_hour).await, watch::Change::default(), "restated once");
     let after_three = later_text(&client, 3).await;
     assert_eq!(check(&mut client, &s, &after_three).await.resolved.len(), 1);
     // the three were retried, not failed: handled, in the digest
@@ -269,7 +273,7 @@ async fn the_digest_leads_with_its_verdict() {
     check(&mut client, &s, &now).await;
     let yellow = watch::digest(&client, &s, &now).await.unwrap();
     assert!(yellow.starts_with(&format!("🟡 Running; handled: 1 retried attempt · {today}\n")), "{yellow}");
-    assert!(yellow.contains("\nAttempts retried in the last 24 hours: 1\nWork queue: day blocks 1 waiting\nBackfill progress: 0 of 1 sessions done · expected to finish about "), "{yellow}");
+    assert!(yellow.contains("\nAttempts retried in the last 24 hours: 1\nWork queue: day blocks 1 waiting\nBackfill progress: 0 of 1 sessions done · no block running, so no estimate\n"), "{yellow}");
 
     // 🔴: the queue paused (as a refused bundle pauses it)
     let tx = client.transaction().await.unwrap();
