@@ -552,9 +552,11 @@ fn refcheck_line(r: &serde_json::Value) -> String {
     let min = |k: &str| r[k].as_f64().map(|s| format!("{:.0}", s / 60.0));
     let what = if r["outcome"] == "COMPLETED" {
         format!(
-            "{} checked, {} failed ({} classes, {} measurements), {} skipped, {} reference errors",
+            "{} checked, {} failed{} ({} classes, {} measurements), {} skipped, {} reference errors",
             n("checked"),
             n("failed"),
+            // C-056: the failures the worker's rulings table does not explain
+            r["failed_unexplained"].as_i64().map(|u| format!(" ({u} unexplained)")).unwrap_or_default(),
             n("failure_classes"),
             n("measurements_failing"),
             n("skipped"),
@@ -619,7 +621,10 @@ async fn refcheck_show(session: &str, whole: bool) -> Result<(), String> {
         .into_iter()
         .flatten()
         .filter(|(_, v)| v["failed"].as_i64().unwrap_or(0) > 0 || v["reference_errors"].as_i64().unwrap_or(0) > 0)
-        .map(|(m, v)| format!("{m}: {} checked, {} failed, {} skipped, {} reference errors", v["checked"], v["failed"], v["skipped"], v["reference_errors"].as_i64().unwrap_or(0)))
+        .map(|(m, v)| {
+            let unexplained = v["failed_unexplained"].as_i64().map(|u| format!(" ({u} unexplained)")).unwrap_or_default();
+            format!("{m}: {} checked, {} failed{unexplained}, {} skipped, {} reference errors", v["checked"], v["failed"], v["skipped"], v["reference_errors"].as_i64().unwrap_or(0))
+        })
         .collect();
     println!("== measurements with a failure or a reference error: {}", failing.len());
     failing.iter().for_each(|l| println!("{l}"));

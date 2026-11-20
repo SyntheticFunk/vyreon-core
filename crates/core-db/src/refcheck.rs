@@ -47,6 +47,9 @@ pub struct Counts {
     pub reference_errors: i32,
     pub failure_classes: i32,
     pub measurements_failing: i32,
+    /// C-056: the failures the worker's rulings table does not explain (None: an account from
+    /// before the field; every failure counts).
+    pub failed_unexplained: Option<i32>,
 }
 
 /// A document that passed `check`: only `check` makes one.
@@ -122,6 +125,16 @@ pub fn check(document: Vec<u8>, session: &str) -> Result<Checked, String> {
             reference_errors: whole(c, "reference_errors")?,
             failure_classes: whole(c, "failure_classes")?,
             measurements_failing: whole(c, "measurements_failing")?,
+            failed_unexplained: match &c["failed_unexplained"] {
+                Value::Null => None,
+                _ => {
+                    let (u, f) = (whole(c, "failed_unexplained")?, whole(c, "failed")?);
+                    if u > f {
+                        return Err(format!("failed_unexplained {u} is more than failed {f}"));
+                    }
+                    Some(u)
+                }
+            },
         }),
     };
     let summary = Some(a["summary"].clone()).filter(|s| !s.is_null());
@@ -181,9 +194,9 @@ pub async fn put(client: &mut Client, token: &str, c: &Checked) -> Result<(bool,
             "INSERT INTO core.refcheck_report (lease_id, job_id, attempt, worker, engine_build, session, base_revision, outcome, why,
                                                checked, passed, failed, skipped, reference_errors, failure_classes, measurements_failing, summary,
                                                wall_seconds, suite_seconds, cpu_seconds, cpu_complete, jobs, deadline_seconds, report_trimmed,
-                                               report_bytes, document_sha256, document)
+                                               report_bytes, document_sha256, document, failed_unexplained)
              VALUES ($1, $2, $3, $4, $5, $6::text::date, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::text::jsonb,
-                     $18, $19, $20, $21, $22, $23, $24, $25, $26, $27)
+                     $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
              ON CONFLICT (lease_id, session) DO NOTHING RETURNING refcheck_report_id",
             &[
                 &lease.lease_id,
@@ -213,6 +226,7 @@ pub async fn put(client: &mut Client, token: &str, c: &Checked) -> Result<(bool,
                 &(c.report_bytes as i64),
                 &c.document_sha256,
                 &c.document,
+                &counts.as_ref().and_then(|k| k.failed_unexplained),
             ],
         )
         .await
@@ -238,7 +252,8 @@ const COLUMNS: &str = "r.refcheck_report_id, r.session::text, r.outcome, r.why, 
      r.failure_classes, r.measurements_failing, r.wall_seconds, r.suite_seconds, r.cpu_seconds, r.cpu_complete, r.jobs, r.deadline_seconds,
      r.job_id, r.attempt, r.worker, r.engine_build, r.base_revision, r.report_bytes, r.report_trimmed,
      to_char(r.stored_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'),
-     EXISTS (SELECT FROM vyreon.day_revision d WHERE d.revision_id = r.base_revision AND d.state = 'PUBLISHED')";
+     EXISTS (SELECT FROM vyreon.day_revision d WHERE d.revision_id = r.base_revision AND d.state = 'PUBLISHED'),
+     r.failed_unexplained";
 
 fn record(r: &tokio_postgres::Row) -> Value {
     json!({
@@ -250,6 +265,7 @@ fn record(r: &tokio_postgres::Row) -> Value {
         "deadline_seconds": r.get::<_, i32>(16), "job_id": r.get::<_, i64>(17), "attempt": r.get::<_, i32>(18), "worker": r.get::<_, String>(19),
         "engine_build": r.get::<_, String>(20), "base_revision": r.get::<_, Option<i64>>(21), "report_bytes": r.get::<_, i64>(22),
         "report_trimmed": r.get::<_, Option<String>>(23), "stored_at": r.get::<_, String>(24), "current": r.get::<_, bool>(25),
+        "failed_unexplained": r.get::<_, Option<i32>>(26),
     })
 }
 
@@ -286,14 +302,14 @@ pub async fn show(client: &impl GenericClient, session: &str, id: Option<i64>) -
         .await
         .map_err(db)?;
     let Some(r) = row else { return Ok(None) };
-    let (document, digest): (Vec<u8>, String) = (r.get(27), r.get(28));
+    let (document, digest): (Vec<u8>, String) = (r.get(28), r.get(29));
     if sha256_hex(&document) != digest {
         return Err(format!("{session}: the stored report does not hash to its digest"));
     }
     let mut text = String::new();
     GzDecoder::new(document.as_slice()).read_to_string(&mut text).map_err(|e| format!("{session}: the stored report: {e}"))?;
     let report = text.split_once('\n').map_or("", |(_, rest)| rest).to_owned();
-    let summary = r.get::<_, Option<String>>(26).and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
+    let summary = r.get::<_, Option<String>>(27).and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
     Ok(Some((record(&r), summary, report)))
 }
 
@@ -301,7 +317,8 @@ pub async fn show(client: &impl GenericClient, session: &str, id: Option<i64>) -
 /// report, its latest such report.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub struct State {
-    /// Days whose latest check completed with a disagreement; their failed comparisons; the oldest.
+    /// Days whose latest check completed with a disagreement (C-056: a failure the rulings table
+    /// does not explain); their unexplained failed comparisons; the oldest.
     pub disagree: i64,
     pub failed: i64,
     pub disagree_oldest: Option<String>,
@@ -330,9 +347,9 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
                  WHERE $2::text IS NOT NULL AND d.represented_date >= $2::text::date AND d.profile_id = $1 AND d.state = 'PUBLISHED'
                    AND d.base_revision IS NULL AND d.published_at <= $3::text::timestamptz - make_interval(secs => $4::float8 * 3600)
                    AND NOT EXISTS (SELECT FROM core.refcheck_report r WHERE r.base_revision = d.revision_id AND r.stored_at <= $3::text::timestamptz))
-             SELECT (SELECT count(*) FROM latest WHERE outcome = 'COMPLETED' AND failed > 0),
-                    (SELECT COALESCE(sum(failed), 0)::bigint FROM latest WHERE outcome = 'COMPLETED' AND failed > 0),
-                    (SELECT min(session)::text FROM latest WHERE outcome = 'COMPLETED' AND failed > 0),
+             SELECT (SELECT count(*) FROM latest WHERE outcome = 'COMPLETED' AND COALESCE(failed_unexplained, failed) > 0),
+                    (SELECT COALESCE(sum(COALESCE(failed_unexplained, failed)), 0)::bigint FROM latest WHERE outcome = 'COMPLETED' AND COALESCE(failed_unexplained, failed) > 0),
+                    (SELECT min(session)::text FROM latest WHERE outcome = 'COMPLETED' AND COALESCE(failed_unexplained, failed) > 0),
                     (SELECT count(*) FROM latest WHERE outcome = 'TIMEOUT'),
                     (SELECT count(*) FROM latest WHERE outcome = 'CRASHED'),
                     (SELECT count(*) FROM latest WHERE outcome = 'NOT_RUN'),
@@ -366,7 +383,7 @@ impl State {
     pub fn disagree_summary(&self) -> Option<String> {
         (self.disagree > 0).then(|| {
             format!(
-                "Reference check disagrees with {}: {} comparisons failed, the oldest {}",
+                "Reference check disagrees with {}: {} comparisons failed unexplained, the oldest {}",
                 days(self.disagree),
                 self.failed,
                 self.disagree_oldest.as_deref().unwrap_or("?")
@@ -398,8 +415,8 @@ impl State {
 pub async fn digest_line(c: &impl GenericClient, now: &str, expected: bool) -> Result<Option<String>, String> {
     let r = c
         .query_one(
-            "SELECT count(*), count(*) FILTER (WHERE outcome = 'COMPLETED' AND failed = 0 AND reference_errors = 0),
-                    count(*) FILTER (WHERE outcome = 'COMPLETED' AND failed > 0), count(*) FILTER (WHERE outcome <> 'COMPLETED' OR reference_errors > 0),
+            "SELECT count(*), count(*) FILTER (WHERE outcome = 'COMPLETED' AND COALESCE(failed_unexplained, failed) = 0 AND reference_errors = 0),
+                    count(*) FILTER (WHERE outcome = 'COMPLETED' AND COALESCE(failed_unexplained, failed) > 0), count(*) FILTER (WHERE outcome <> 'COMPLETED' OR reference_errors > 0),
                     percentile_cont(0.5) WITHIN GROUP (ORDER BY suite_seconds), percentile_cont(0.5) WITHIN GROUP (ORDER BY cpu_seconds) FILTER (WHERE cpu_complete)
              FROM core.refcheck_report WHERE stored_at > $1::text::timestamptz - interval '24 hours' AND stored_at <= $1::text::timestamptz",
             &[&now],
@@ -425,7 +442,7 @@ mod tests {
     #[test]
     fn the_summaries_count_never_list() {
         let s = State { disagree: 2, failed: 41, disagree_oldest: Some("2025-04-10".into()), timeout: 1, unreported: 3, not_run_oldest: Some("2025-04-11".into()), ..State::default() };
-        assert_eq!(s.disagree_summary().unwrap(), "Reference check disagrees with 2 published days: 41 comparisons failed, the oldest 2025-04-10");
+        assert_eq!(s.disagree_summary().unwrap(), "Reference check disagrees with 2 published days: 41 comparisons failed unexplained, the oldest 2025-04-10");
         assert_eq!(s.not_run_summary().unwrap(), "Reference check did not run on 4 published days (1 timed out, 3 with no report), the oldest 2025-04-11");
         assert_eq!((State::default().disagree_summary(), State::default().not_run_summary()), (None, None));
     }
