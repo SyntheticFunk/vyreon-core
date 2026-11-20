@@ -1340,6 +1340,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   the stage is ~44 ms of serialized controller work per reused task (admission file + fsync + one
   SQLite transaction each; Codex item 8): ~45 min of a later day spent on bookkeeping. Batching the
   warm admission is now the top later-day lever (sent to the M0/admission track, fx71).
+  **Core fixes ready (`core-digest-fix`, 13 commits, core tests green; migration 0030):** digest
+  false alarm (a completed check with old-suite reference errors counted as "did not run"; problems
+  restated each check; old-suite failures shown as "not yet triaged", yellow; ETA from the block's own
+  day times) and all 8 round-cc core findings. OCC ledger now from 2019-05-27 with ARKK 2020-12-29
+  $2.04431, ARKK 2021-12-29 $0.78257, EEM $0.266326, XLE $1.791209, XLV $0.66554 (memos read from
+  MIAX); specials with no memo found are listed in C-055, not entered; P-22 added. Their surfaces
+  change (scoped republish of affected published days: only the 2022-06 sample days, superseded
+  anyway). Before merge: the tests' hand-written tape verdict documents are being replaced by real
+  ones from core.tape_check (D-102).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
