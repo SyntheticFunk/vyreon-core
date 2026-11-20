@@ -1221,6 +1221,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   cache only 1–2.4 GB), so the fixed measure admits 7–8 there, not a clean 8. Pass-2 lever: admission
   is decided once per intent, so an intent started under the next day's fill stays narrow after the
   fill exits (~11:03); re-plan admission between waves.
+  **Test block day 1 (2026-10-28) published 14:19 UTC: compute 265 min (prep 64, intent A 106 at 4
+  workers, B 71, tail ~24); 258 before, so pass 1's prep saving (−9) was eaten by the throttled A.**
+  Exact profile (task-times sidecars, `checks/2026-11-20-task-times-1028/`): intent A = 62,587 tasks,
+  332 CPU-min, all history: VS-Q01 83 CPU-min plus four HISTORY-ENDPOINT measurements (O02, O04,
+  OIJ01, L01) at ~62 CPU-min each with identical per-task profiles (12,415 tasks each, 200 dates ×
+  62 assets, ~300 ms a task, SPY heaviest): the same per-session read done four times. Intent B =
+  3,329 tasks, 449 CPU-min, M0-ANALYTICS 328 of it. Pass-2 levers ranked: (1) the four endpoints
+  share one read per (asset, date) (−~185 CPU-min on a block's first day); (2) history reuse
+  across the block's days (day 2 measures it); (3) admission at full width / re-planned between
+  waves; (4) M0-ANALYTICS.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
