@@ -1284,6 +1284,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   were already overlapped (75 → 69). **Owner target: ~200 min start → published for a later day,
   ~250 for a first day.** Levers: reference check off the critical path (next day's compute), M0
   analytics (fx71 profiling), in-day preparation (unprofiled, 64–73 min), history (four reads, reuse).
+  Stopping rule (owner): reality judges; 200/250 are napkin numbers. Rank each next optimization by
+  measured gain against the effort to get it (5% is still meaningful at this scale); stop when the
+  best remaining one no longer pays for its effort.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
