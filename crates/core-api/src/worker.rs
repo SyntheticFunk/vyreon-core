@@ -292,19 +292,25 @@ struct TapeQuery {
     absence: Option<String>,
 }
 
+/// The cache, and its verdict below, are stored in the transaction that holds the lease (locked:
+/// `work::held`), so a lease cancelled or expired after its check stores nothing (round cc, 4).
 async fn tape_put(State(app): Shared, headers: HeaderMap, Path((session, asset)): Path<(String, String)>, Query(q): Query<TapeQuery>, body: axum::body::Bytes) -> Reply {
-    let client = app.db().await?;
-    let lease = caller(&client, &headers).await?;
+    let mut client = app.db().await?;
+    let client: &mut Client = &mut client;
+    let tx = client.transaction().await.map_err(|e| failed(e.to_string()))?;
+    let lease = work::held(&tx, bearer(&headers)?).await?;
     if lease.kind != "TAPE" || lease.next_session.as_deref() != Some(session.as_str()) {
         return Err(refused(format!("job {} is not the tape job of {session}", lease.job_id)));
     }
-    verify_stores_nothing(&client, lease.job_id).await?;
+    verify_stores_nothing(&tx, lease.job_id).await?;
     let cache = match q.absence {
         Some(reason) if body.is_empty() => Cache::Absent(reason),
         Some(_) => return Err(refused("an absence carries no body")),
         None => Cache::Body(body.to_vec()),
     };
-    ok(json!({"new": tape::put(&client, &asset, &session, &q.method_version, &cache).await.map_err(refused)?}))
+    let new = tape::put(&tx, &asset, &session, &q.method_version, &cache).await.map_err(refused)?;
+    tx.commit().await.map_err(|e| failed(e.to_string()))?;
+    ok(json!({"new": new}))
 }
 
 #[derive(Deserialize)]
@@ -316,19 +322,22 @@ struct VerdictQuery {
 /// kept once beside the cache (`tape::put_verdict`).
 async fn tape_verdict_put(State(app): Shared, headers: HeaderMap, Path((session, asset)): Path<(String, String)>, Query(q): Query<VerdictQuery>, body: Body) -> Reply {
     let bytes = read_limited(body, tape::MAX_VERDICT_BYTES, "a tape verdict").await?;
-    let client = app.db().await?;
-    let lease = caller(&client, &headers).await?;
+    let verdict = tape::check_verdict(&bytes, &asset, &session, &q.method_version).map_err(refused)?;
+    let mut client = app.db().await?;
+    let client: &mut Client = &mut client;
+    let tx = client.transaction().await.map_err(|e| failed(e.to_string()))?;
+    let lease = work::held(&tx, bearer(&headers)?).await?;
     if lease.kind != "TAPE" || lease.next_session.as_deref() != Some(session.as_str()) {
         return Err(refused(format!("job {} is not the tape job of {session}", lease.job_id)));
     }
-    verify_stores_nothing(&client, lease.job_id).await?;
-    let verdict = tape::check_verdict(&bytes, &asset, &session, &q.method_version).map_err(refused)?;
-    let client: &Client = &client;
-    ok(json!({"new": tape::put_verdict(client, &asset, &session, &q.method_version, &verdict).await.map_err(refused)?}))
+    verify_stores_nothing(&tx, lease.job_id).await?;
+    let new = tape::put_verdict(&tx, &asset, &session, &q.method_version, &verdict).await.map_err(refused)?;
+    tx.commit().await.map_err(|e| failed(e.to_string()))?;
+    ok(json!({"new": new}))
 }
 
 /// C-059: a verify job stores no cache and no verdict of its own: what it found goes in its checks.
-async fn verify_stores_nothing(client: &Client, job: i64) -> Result<(), ApiError> {
+async fn verify_stores_nothing(client: &impl tokio_postgres::GenericClient, job: i64) -> Result<(), ApiError> {
     if tape::is_verify(client, job).await.map_err(failed)? {
         return Err(refused(format!("job {job} verifies the caches core holds (C-059): it stores none, and sends its checks")));
     }

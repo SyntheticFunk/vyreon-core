@@ -401,3 +401,30 @@ async fn a_verify_job_checks_the_stored_caches_over_http_and_stores_none() {
     assert_eq!(serde_json::from_slice::<Value>(&entries[2].1).unwrap(), json!({"AAPL": verdict}));
     s.scratch.drop().await;
 }
+
+/// Round cc, 4: a tape cache PUT checks its lease and stores the cache in one transaction, the
+/// lease locked (`work::held`): sent while the job is being cancelled, it waits for the cancel and
+/// is then refused as a lease gone, and nothing is stored (the real AAPL cache of 2025-12-10).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_cache_sent_while_its_lease_is_cancelled_is_not_stored() {
+    let s = service("api_tape_race").await;
+    let mut admin = s.scratch.client().await;
+    work::schedule(&mut admin, Kind::Tape, PROFILE, &s.base_build, "2025-12-10", "2025-12-10", 1).await.unwrap();
+    let tape: Value = s.claim("tape", &s.base_build, "tape-1").await.json().await.unwrap();
+    let token = tape["lease_token"].as_str().unwrap().to_owned();
+    let job = tape["job_id"].as_i64().unwrap();
+    // the cancel, as `work::cancel` writes it, not yet committed
+    let tx = admin.transaction().await.unwrap();
+    tx.execute("UPDATE core.job SET state = 'CANCELLED', finished_at = now() WHERE job_id = $1", &[&job]).await.unwrap();
+    tx.execute("UPDATE core.lease SET ended_at = now(), outcome = 'CANCELLED', failure = 'the job was cancelled' WHERE job_id = $1 AND ended_at IS NULL", &[&job]).await.unwrap();
+    let url = format!("{}/worker/v1/tape-caches/2025-12-10/AAPL?method_version=engine-v1", s.url);
+    let http = s.http.clone();
+    let put = tokio::spawn(async move { http.put(url).bearer_auth(token).body(TAPE_AAPL).send().await.unwrap().status() });
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(!put.is_finished(), "the PUT waits for the lease's lock");
+    tx.commit().await.unwrap();
+    assert_eq!(put.await.unwrap(), StatusCode::GONE);
+    assert_eq!(admin.query_one("SELECT count(*) FROM core.tape_cache", &[]).await.unwrap().get::<_, i64>(0), 0);
+    s.scratch.drop().await;
+}
