@@ -1158,6 +1158,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (core requeued job 1384) with `VYREON_SNAPSHOTS_IN_FLIGHT=2`, `VYREON_BULK_FILES_IN_FLIGHT=2` and a
   14 GiB container limit; memory sampled every 2 min to `checks/2026-11-20-block-1028-memory.tsv`
   to set defaults from measurement.
+  **07:10 UTC: tape sample done. All 1,276 recomputed caches equal the stored ones byte for byte (20
+  sessions, 2024-04-09..2026-11-06). Re-verified on build cdf58be2 (fixed reference): every session
+  re-checked now PASSES (2024-04-09, 06-03, 06-10, 07-15, 08-01, 12-02, 2025-06-02, 08-01, 12-01,
+  2026-02-02; 2026-04-01 pending).** The four last sessions (2026-06-01, 08-03, 10-01, 11-06) were judged by
+  the old reference (same two patterns: VWAP ties, conditional-last count) and are re-verifying
+  (jobs 1416–1419, Job `v-tape-reverify2`). The memory figure first sampled was cgroup usage
+  including ~12 GB reclaimable page cache; the sampler now records the working set (what eviction
+  uses).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
