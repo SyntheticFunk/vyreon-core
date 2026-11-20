@@ -343,3 +343,61 @@ async fn a_refused_bundle_pauses_the_queue_and_a_failing_worker_sends_its_log() 
     assert_eq!((record["attempt"].as_i64(), record["worker"].as_str(), excerpt.as_str()), (Some(1), Some("day-1"), test_support::WORKER_LOG_REFUSED_DAY));
     s.scratch.drop().await;
 }
+
+/// C-059: a verify job over HTTP. Its claim says it verifies and leaves the tape history where the
+/// tape jobs put it; it may store no cache and no verdict of its own; its check of AAPL (recomputed
+/// equal to the real cache core holds, with a PASS standing for the tape reader's on a raw tape)
+/// keeps the verdict beside the stored cache, which the day workers then read with it.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_verify_job_checks_the_stored_caches_over_http_and_stores_none() {
+    let s = service("api_verify").await;
+    let mut admin = s.scratch.client().await;
+    const S: &str = "2025-12-10";
+    assert!(core_db::tape::put(&admin, "AAPL", S, "engine-v1", &core_db::tape::Cache::Body(TAPE_AAPL.to_vec())).await.unwrap());
+    work::schedule(&mut admin, Kind::Tape, PROFILE, &s.base_build, "2025-12-11", "2025-12-11", 1).await.unwrap();
+    let verify = work::schedule_verify(&mut admin, PROFILE, &s.base_build, &[S]).await.unwrap();
+
+    let claim: Value = s.claim("tape", &s.base_build, "verify-1").await.json().await.unwrap();
+    let token = claim["lease_token"].as_str().unwrap();
+    assert_eq!((claim["job_id"].as_i64(), claim["scope"].clone()), (Some(verify[0]), json!({"verify": true})));
+    assert_eq!(claim["tape_history_from"], "2025-12-11", "a verify job does not move the tape history");
+    let caches = format!("{}/worker/v1/tape-caches/{S}", s.url);
+    let r = s.http.put(format!("{caches}/AAPL?method_version=engine-v1")).bearer_auth(token).body(TAPE_AAPL).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY, "a verify job stores no cache");
+    let whole = sha256_hex(TAPE_AAPL);
+    let verdict = json!({"schema": "VYREON-TAPE-VERDICT@1", "asset": "AAPL", "session": S, "outcome": "PASS", "why": null, "differences": [],
+                         "reader_bins_sha256": "a".repeat(64), "method_version": "engine-v1", "cache_sha256": whole, "engine_build": s.base_build, "versions": null});
+    let r = s.http.put(format!("{caches}/AAPL/verdict?method_version=engine-v1")).bearer_auth(token).json(&verdict).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY, "nor a verdict of its own");
+    let check = |asset: &str, recomputed: Option<&str>, verdict: Option<&Value>| {
+        json!({"schema": "VYREON-TAPE-CHECK@1", "asset": asset, "session": S, "method_version": "engine-v1", "engine_build": s.base_build,
+               "recomputed_sha256": recomputed, "why": recomputed.is_none().then_some("only AAPL's tape is on this machine"), "tape_bytes": 30_056_637_434_i64,
+               "stamped": [], "differences": [], "verdict": verdict})
+    };
+    let r = s.http.put(format!("{caches}/AAPL/check?method_version=engine-v1")).bearer_auth(token).json(&check("AAPL", Some(&whole), Some(&verdict))).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::OK);
+    assert_eq!(r.json::<Value>().await.unwrap(), json!({"outcome": "MATCH", "verdict_kept": true, "why": null, "new": true}));
+    let r = s.http.put(format!("{caches}/MSFT/check?method_version=engine-v1")).bearer_auth(token).json(&check("AAPL", None, None)).send().await.unwrap();
+    assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY, "a check names the asset it is sent for");
+    for member in claim["days"][0]["members"].as_array().unwrap().iter().filter(|m| m["ticker"].is_string()).map(|m| m["asset_key"].as_str().unwrap()).filter(|k| *k != "AAPL") {
+        let r = s.http.put(format!("{caches}/{member}/check?method_version=engine-v1")).bearer_auth(token).json(&check(member, None, None)).send().await.unwrap();
+        assert_eq!(r.status(), StatusCode::OK, "{member}");
+    }
+    assert_eq!(s.post(&format!("/tape-caches/{S}/done?method_version=engine-v1"), token, json!({})).await.0, StatusCode::OK);
+    assert_eq!(s.post("/lease/finish", token, json!({})).await.0, StatusCode::OK);
+    // the stored cache, and the verdict beside it, as a day worker reads them
+    let day = s.claim("tape", &s.base_build, "tape-1").await.json::<Value>().await.unwrap();
+    let tar_bytes = s.http.get(format!("{caches}?method_version=engine-v1")).bearer_auth(day["lease_token"].as_str().unwrap()).send().await.unwrap().bytes().await.unwrap();
+    let mut archive = tar::Archive::new(&tar_bytes[..]);
+    let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
+    for entry in archive.entries().unwrap() {
+        let mut entry = entry.unwrap();
+        let mut bytes = Vec::new();
+        entry.read_to_end(&mut bytes).unwrap();
+        entries.push((entry.path().unwrap().to_string_lossy().into_owned(), bytes));
+    }
+    assert_eq!((entries[0].0.as_str(), entries[0].1.as_slice()), ("AAPL", TAPE_AAPL));
+    assert_eq!(serde_json::from_slice::<Value>(&entries[2].1).unwrap(), json!({"AAPL": verdict}));
+    s.scratch.drop().await;
+}
