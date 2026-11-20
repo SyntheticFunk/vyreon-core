@@ -77,6 +77,10 @@ pub struct Checked {
     pub deadline_seconds: i32,
     pub report_trimmed: Option<String>,
     pub report_bytes: u64,
+    /// The revisions the worker checked, as its account states them (`revisions`: the base, then
+    /// the day-local revision); None where not stated (round cc, 5).
+    pub base_revision: Option<i64>,
+    pub day_local_revision: Option<i64>,
     document: Vec<u8>,
     document_sha256: String,
 }
@@ -156,6 +160,20 @@ pub fn check(document: Vec<u8>, session: &str) -> Result<Checked, String> {
         }
         serde_json::from_str::<&serde_json::value::RawValue>(report).map_err(|e| format!("the report is not JSON: {e}"))?;
     }
+    // round cc, 5: the revisions checked, base first (engine `refcheck::Checked::revisions`)
+    let (base_revision, day_local_revision) = match &a["revisions"] {
+        Value::Null => (None, None),
+        Value::Array(ids) if ids.len() <= 2 => {
+            let id = |i: usize| -> Result<Option<i64>, String> {
+                match ids.get(i) {
+                    None | Some(Value::Null) => Ok(None),
+                    Some(v) => v.as_i64().filter(|n| *n > 0).map(Some).ok_or_else(|| format!("revisions[{i}] {v} is not a revision id")),
+                }
+            };
+            (id(0)?, id(1)?)
+        }
+        v => return Err(format!("revisions {v} is not the base and day-local revision ids")),
+    };
     let positive = |k: &str| -> Result<i32, String> { a[k].as_i64().and_then(|n| i32::try_from(n).ok()).filter(|n| *n > 0).ok_or_else(|| format!("{k} {} is not a whole number from 1", a[k])) };
     Ok(Checked {
         session: session.to_owned(),
@@ -171,6 +189,8 @@ pub fn check(document: Vec<u8>, session: &str) -> Result<Checked, String> {
         deadline_seconds: positive("deadline_seconds")?,
         report_trimmed: a["report_trimmed"].as_str().map(str::to_owned),
         report_bytes: report.len() as u64,
+        base_revision,
+        day_local_revision,
         document_sha256: sha256_hex(&document),
         document,
     })
@@ -179,7 +199,11 @@ pub fn check(document: Vec<u8>, session: &str) -> Result<Checked, String> {
 /// Stores the check of `session` under the live lease the token names, once per lease and
 /// session: (true, id) when stored, (false, id of the first) when this lease already sent it.
 /// Refused unless the lease is a day block's whose job has published the session (its base, of
-/// its build): the report is bound to that base revision.
+/// its build). The report is bound to the revisions its account says it checked (round cc, 5):
+/// the base must be a base revision of this day, profile and build, the day-local one a day-local
+/// revision on that base, published or since superseded (a day published again during the check
+/// leaves the report bound to what it read, not current); refused otherwise. An account that
+/// states no base is kept bound to nothing (it judges no day).
 pub async fn put(client: &mut Client, token: &str, c: &Checked) -> Result<(bool, i64), LeaseError> {
     let failed = |e: tokio_postgres::Error| LeaseError::Failed(db(e));
     let tx = client.transaction().await.map_err(failed)?;
@@ -187,15 +211,37 @@ pub async fn put(client: &mut Client, token: &str, c: &Checked) -> Result<(bool,
     crate::archive::published_by(&tx, &lease, &c.session).await?;
     let row = tx
         .query_one(
-            "SELECT (SELECT revision_id FROM vyreon.day_revision
-                     WHERE represented_date = $2::text::date AND profile_id = $3 AND engine_build = $4 AND state = 'PUBLISHED' AND base_revision IS NULL),
-                    (SELECT count(*)::int FROM core.lease o WHERE o.job_id = l.job_id AND o.lease_id <= l.lease_id)
+            "SELECT (SELECT count(*)::int FROM core.lease o WHERE o.job_id = l.job_id AND o.lease_id <= l.lease_id),
+                    $5::bigint IS NULL OR EXISTS (SELECT FROM vyreon.day_revision d WHERE d.revision_id = $5 AND d.represented_date = $2::text::date
+                                                    AND d.profile_id = $3 AND d.engine_build = $4 AND d.base_revision IS NULL
+                                                    AND d.state IN ('PUBLISHED', 'SUPERSEDED')),
+                    $6::bigint IS NULL OR EXISTS (SELECT FROM vyreon.day_revision d WHERE d.revision_id = $6 AND d.represented_date = $2::text::date
+                                                    AND d.profile_id = $3 AND d.base_revision = $5 AND d.day_local
+                                                    AND d.state IN ('PUBLISHED', 'SUPERSEDED'))
              FROM core.lease l WHERE l.lease_id = $1",
-            &[&lease.lease_id, &c.session, &lease.profile_id, &lease.engine_build],
+            &[&lease.lease_id, &c.session, &lease.profile_id, &lease.engine_build, &c.base_revision, &c.day_local_revision],
         )
         .await
         .map_err(failed)?;
-    let (base, attempt): (Option<i64>, i32) = (row.get(0), row.get(1));
+    let (attempt, base_ok, local_ok): (i32, bool, bool) = (row.get(0), row.get(1), row.get(2));
+    // one per lease and session, whatever the next says: the first is answered before anything else
+    if let Some(first) = tx
+        .query_opt("SELECT refcheck_report_id FROM core.refcheck_report WHERE lease_id = $1 AND session = $2::text::date", &[&lease.lease_id, &c.session])
+        .await
+        .map_err(failed)?
+    {
+        tx.commit().await.map_err(failed)?;
+        return Ok((false, first.get(0)));
+    }
+    if !base_ok || !local_ok || (c.base_revision.is_none() && c.day_local_revision.is_some()) {
+        return Err(LeaseError::Refused(format!(
+            "the account's revisions {:?} are not a base revision of {} for build {} and a day-local revision on it",
+            [c.base_revision, c.day_local_revision],
+            c.session,
+            lease.engine_build
+        )));
+    }
+    let base = c.base_revision;
     let counts = c.counts;
     let get = |f: fn(&Counts) -> i32| counts.as_ref().map(f);
     let inserted = tx
@@ -203,9 +249,9 @@ pub async fn put(client: &mut Client, token: &str, c: &Checked) -> Result<(bool,
             "INSERT INTO core.refcheck_report (lease_id, job_id, attempt, worker, engine_build, session, base_revision, outcome, why,
                                                checked, passed, failed, skipped, reference_errors, failure_classes, measurements_failing, summary,
                                                wall_seconds, suite_seconds, cpu_seconds, cpu_complete, jobs, deadline_seconds, report_trimmed,
-                                               report_bytes, document_sha256, document, failed_unexplained)
+                                               report_bytes, document_sha256, document, failed_unexplained, day_local_revision)
              VALUES ($1, $2, $3, $4, $5, $6::text::date, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::text::jsonb,
-                     $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28)
+                     $18, $19, $20, $21, $22, $23, $24, $25, $26, $27, $28, $29)
              ON CONFLICT (lease_id, session) DO NOTHING RETURNING refcheck_report_id",
             &[
                 &lease.lease_id,
@@ -236,6 +282,7 @@ pub async fn put(client: &mut Client, token: &str, c: &Checked) -> Result<(bool,
                 &c.document_sha256,
                 &c.document,
                 &counts.as_ref().and_then(|k| k.failed_unexplained),
+                &c.day_local_revision,
             ],
         )
         .await
@@ -261,7 +308,8 @@ const COLUMNS: &str = "r.refcheck_report_id, r.session::text, r.outcome, r.why, 
      r.failure_classes, r.measurements_failing, r.wall_seconds, r.suite_seconds, r.cpu_seconds, r.cpu_complete, r.jobs, r.deadline_seconds,
      r.job_id, r.attempt, r.worker, r.engine_build, r.base_revision, r.report_bytes, r.report_trimmed,
      to_char(r.stored_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'),
-     EXISTS (SELECT FROM vyreon.day_revision d WHERE d.revision_id = r.base_revision AND d.state = 'PUBLISHED'),
+     EXISTS (SELECT FROM vyreon.day_revision d WHERE d.revision_id = r.base_revision AND d.state = 'PUBLISHED')
+       AND (r.day_local_revision IS NULL OR EXISTS (SELECT FROM vyreon.day_revision d WHERE d.revision_id = r.day_local_revision AND d.state = 'PUBLISHED')),
      r.failed_unexplained";
 
 fn record(r: &tokio_postgres::Row) -> Value {
@@ -373,12 +421,16 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
                  SELECT DISTINCT ON (r.session) r.* FROM core.refcheck_report r
                  JOIN vyreon.day_revision d ON d.revision_id = r.base_revision AND d.state = 'PUBLISHED' AND d.profile_id = $1
                  WHERE r.stored_at <= $3::text::timestamptz
+                   AND (r.day_local_revision IS NULL
+                        OR EXISTS (SELECT FROM vyreon.day_revision x WHERE x.revision_id = r.day_local_revision AND x.state = 'PUBLISHED'))
                  ORDER BY r.session, r.stored_at DESC, r.refcheck_report_id DESC),
              unreported AS (
                  SELECT d.represented_date AS session FROM vyreon.day_revision d
                  WHERE $2::text IS NOT NULL AND d.represented_date >= $2::text::date AND d.profile_id = $1 AND d.state = 'PUBLISHED'
                    AND d.base_revision IS NULL AND d.published_at <= $3::text::timestamptz - make_interval(secs => $4::float8 * 3600)
-                   AND NOT EXISTS (SELECT FROM core.refcheck_report r WHERE r.base_revision = d.revision_id AND r.stored_at <= $3::text::timestamptz)),
+                   AND NOT EXISTS (SELECT FROM core.refcheck_report r WHERE r.base_revision = d.revision_id AND r.stored_at <= $3::text::timestamptz
+                                     AND (r.day_local_revision IS NULL
+                                          OR EXISTS (SELECT FROM vyreon.day_revision x WHERE x.revision_id = r.day_local_revision AND x.state = 'PUBLISHED')))),
              disagree AS (SELECT * FROM latest WHERE outcome = 'COMPLETED' AND failed_unexplained > 0),
              untriaged AS (SELECT * FROM latest WHERE outcome = 'COMPLETED' AND failed_unexplained IS NULL AND failed > 0),
              referr AS (SELECT * FROM latest WHERE outcome = 'COMPLETED' AND reference_errors > 0),

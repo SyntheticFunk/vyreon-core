@@ -153,7 +153,14 @@ async fn a_published_days_check_is_kept_once_and_judged_until_the_day_is_publish
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &base_build, "2025-12-10", "2025-12-10", 30).await.unwrap();
     let block = work::claim(&mut client, Kind::DayBlock, &base_build, "w1", HOUR).await.unwrap().unwrap();
     let report = report_text();
-    let full = || refcheck::check(document(&completed("2025-12-10"), &report), "2025-12-10").unwrap();
+    // the account names the revisions it checked (round cc, 5): here the base this block publishes
+    let checked_revisions = std::cell::Cell::new(json!([1]));
+    let full = || {
+        let mut a = completed("2025-12-10");
+        a["revisions"] = checked_revisions.take();
+        checked_revisions.set(a["revisions"].clone());
+        refcheck::check(document(&a, &report), "2025-12-10").unwrap()
+    };
     let refused = |r: Result<(bool, i64), LeaseError>, says: &str| assert!(matches!(r, Err(LeaseError::Refused(ref m)) if m.contains(says)), "{r:?} should say {says}");
 
     // a day not yet published, or published and not yet done, keeps no check
@@ -164,6 +171,12 @@ async fn a_published_days_check_is_kept_once_and_judged_until_the_day_is_publish
     std::fs::remove_file(&path).unwrap();
     refused(refcheck::put(&mut client, &block.token, &full()).await, "has published");
     work::day_done(&mut client, &block.token, "2025-12-10").await.unwrap();
+    // round cc, 5: revisions that are not this day's base (and a day-local one on it) are refused
+    for bad in [json!([published.revision_id + 1]), json!([published.revision_id, published.revision_id]), json!([null, published.revision_id])] {
+        checked_revisions.set(bad);
+        refused(refcheck::put(&mut client, &block.token, &full()).await, "are not a base revision of 2025-12-10");
+    }
+    checked_revisions.set(json!([published.revision_id]));
     // moments after the base revision was published
     let mut at = std::collections::BTreeMap::new();
     for hours in [1, 5, 6, 7, 8, 30] {
@@ -231,6 +244,30 @@ async fn a_published_days_check_is_kept_once_and_judged_until_the_day_is_publish
     client.execute("UPDATE vyreon.day_revision SET state = 'SUPERSEDED' WHERE revision_id = $1", &[&published.revision_id]).await.unwrap();
     assert_eq!(refcheck::state(&client, PROFILE, None, &after(8)).await.unwrap(), refcheck::State::default());
     assert_eq!(refcheck::list(&client, None, None, 10).await.unwrap()[0]["current"], false);
+
+    // round cc, 5: the same build publishes the day again (a hand publish) while a later lease's
+    // check of the earlier revision is under way: its report, arriving after, stays bound to the
+    // revision it read, and the new one is a published day with no report
+    let republished: i64 = client
+        .query_one(
+            "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, state, published_at, listed_members)
+             SELECT represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, 'PUBLISHED', published_at + interval '7 hours', listed_members
+             FROM vyreon.day_revision WHERE revision_id = $1 RETURNING revision_id",
+            &[&published.revision_id],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    work::finish(&mut client, &block.token).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &base_build, "2025-12-10", "2025-12-10", 30).await.unwrap();
+    let second = work::claim(&mut client, Kind::DayBlock, &base_build, "w2", HOUR).await.unwrap().unwrap();
+    work::day_done(&mut client, &second.token, "2025-12-10").await.unwrap();
+    let (_, late) = refcheck::put(&mut client, &second.token, &full()).await.unwrap();
+    let listed = refcheck::list(&client, None, None, 10).await.unwrap();
+    let r = listed.iter().find(|r| r["report_id"].as_i64() == Some(late)).unwrap();
+    assert_eq!((r["base_revision"].as_i64(), r["current"].as_bool()), (Some(published.revision_id), Some(false)), "bound to what it read, not to {republished}");
+    let state = refcheck::state(&client, PROFILE, Some("2025-12-10"), &after(30)).await.unwrap();
+    assert_eq!((state.unreported, state.not_run_summary().as_deref()), (1, Some("Reference check did not run on 1 published day (1 with no report), the oldest 2025-12-10")));
     scratch.drop().await;
 }
 
