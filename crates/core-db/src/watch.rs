@@ -907,6 +907,10 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
     if let Some(line) = refcheck::tape_digest_line(c, now).await? {
         lines.push(line);
     }
+    // C-059: what the sample says of the caches stored before the verdicts
+    if let Some(line) = crate::tape::sample_line(&crate::tape::sample(c).await?) {
+        lines.push(line);
+    }
     if s.daily.is_some() {
         lines.push(daily::digest_line(c, s.daily.as_ref(), now, ZONE).await?);
     }

@@ -15,6 +15,8 @@
 //!   GET  /tape-caches/{session}?method_version=V                        -> a tar: one entry per asset, absences.json, and
 //!                                                                          verdicts.json (asset -> the tape worker's verdict, C-058)
 //!   PUT  /tape-caches/{session}/{asset}/verdict?method_version=V        body: the tape verdict (JSON) -> {new} (C-058)
+//!   PUT  /tape-caches/{session}/{asset}/check?method_version=V          body: a verify job's check (JSON) -> {outcome,
+//!                                                                          verdict_kept, why, new} (C-059)
 //!   PUT  /input-captures/{session}/{kind}/{identity}?captured_at=T      body: the capture's archive -> {new} (C-043)
 //!   POST /input-captures/{session}/{kind}/absence  {reason}             a capture the worker could not keep -> {new}
 //!   GET  /input-captures/{session}                                      -> {session, captures: [...]}: every version and absence
@@ -117,6 +119,7 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/tape-caches/{session}/done", post(tape_done))
         .route("/tape-caches/{session}/{asset}", put(tape_put))
         .route("/tape-caches/{session}/{asset}/verdict", put(tape_verdict_put))
+        .route("/tape-caches/{session}/{asset}/check", put(tape_check_put))
         .route("/input-captures/{session}", get(captures_list))
         .route("/input-captures/{session}/{kind}/absence", post(capture_absent))
         .route("/input-captures/{session}/{kind}/{identity}", put(capture_put).get(capture_get))
@@ -165,7 +168,8 @@ async fn claim(State(app): Shared, headers: HeaderMap, Json(request): Json<Claim
             "SELECT COALESCE(jsonb_agg(jsonb_build_object('session', s.session, 'members',
                         (SELECT jsonb_agg(to_jsonb(m) ORDER BY m.ordinal) FROM core.members_on($1, s.session) m)) ORDER BY s.session), '[]'::jsonb)::text,
                     (SELECT jsonb_object_agg(source, first_date)::text FROM core.source_coverage),
-                    (SELECT COALESCE(to_jsonb(min(first_session)), 'null'::jsonb)::text FROM core.job WHERE kind = 'TAPE' AND profile_id = $1 AND state <> 'CANCELLED'),
+                    (SELECT COALESCE(to_jsonb(min(first_session)), 'null'::jsonb)::text FROM core.job WHERE kind = 'TAPE' AND profile_id = $1 AND state <> 'CANCELLED'
+                     AND NOT COALESCE(scope @> '{\"verify\": true}', false)),
                     (SELECT COALESCE(jsonb_object_agg(asset_key, spans), '{}'::jsonb)::text FROM (
                          SELECT m.asset_key,
                                 jsonb_agg(jsonb_build_object('ticker', t.ticker, 'from', lower(t.during), 'to', upper(t.during) - 1) ORDER BY lower(t.during)) AS spans
@@ -294,6 +298,7 @@ async fn tape_put(State(app): Shared, headers: HeaderMap, Path((session, asset))
     if lease.kind != "TAPE" || lease.next_session.as_deref() != Some(session.as_str()) {
         return Err(refused(format!("job {} is not the tape job of {session}", lease.job_id)));
     }
+    verify_stores_nothing(&client, lease.job_id).await?;
     let cache = match q.absence {
         Some(reason) if body.is_empty() => Cache::Absent(reason),
         Some(_) => return Err(refused("an absence carries no body")),
@@ -316,8 +321,29 @@ async fn tape_verdict_put(State(app): Shared, headers: HeaderMap, Path((session,
     if lease.kind != "TAPE" || lease.next_session.as_deref() != Some(session.as_str()) {
         return Err(refused(format!("job {} is not the tape job of {session}", lease.job_id)));
     }
+    verify_stores_nothing(&client, lease.job_id).await?;
     let verdict = tape::check_verdict(&bytes, &asset, &session, &q.method_version).map_err(refused)?;
-    ok(json!({"new": tape::put_verdict(&client, &asset, &session, &q.method_version, &verdict).await.map_err(refused)?}))
+    let client: &Client = &client;
+    ok(json!({"new": tape::put_verdict(client, &asset, &session, &q.method_version, &verdict).await.map_err(refused)?}))
+}
+
+/// C-059: a verify job stores no cache and no verdict of its own: what it found goes in its checks.
+async fn verify_stores_nothing(client: &Client, job: i64) -> Result<(), ApiError> {
+    if tape::is_verify(client, job).await.map_err(failed)? {
+        return Err(refused(format!("job {job} verifies the caches core holds (C-059): it stores none, and sends its checks")));
+    }
+    Ok(())
+}
+
+/// C-059: a verify job's check of one member's cache: core compares the recomputed cache's digest
+/// with the cache it holds and keeps the verdict beside it only when they are equal
+/// (`tape::put_check`).
+async fn tape_check_put(State(app): Shared, headers: HeaderMap, Path((session, asset)): Path<(String, String)>, Query(q): Query<VerdictQuery>, body: Body) -> Reply {
+    let bytes = read_limited(body, tape::MAX_CHECK_BYTES, "a tape check").await?;
+    let check = tape::check_check(&bytes, &asset, &session, &q.method_version).map_err(refused)?;
+    let mut client = app.db().await?;
+    let c = tape::put_check(&mut client, bearer(&headers)?, &session, &asset, &q.method_version, &check).await?;
+    ok(json!({"outcome": c.outcome, "verdict_kept": c.verdict_kept, "why": c.why, "new": c.new}))
 }
 
 #[derive(Deserialize)]

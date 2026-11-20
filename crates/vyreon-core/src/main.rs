@@ -9,6 +9,12 @@
 //!   vyreon-core build withdraw <build> <reason>       stop them claiming
 //!   vyreon-core calendar load <sessions.json>         store the engine's trading sessions
 //!   vyreon-core schedule <tape|day-block|ordered-pass> <profile> <build> <first> <last> [block sessions]
+//!   vyreon-core tape verify <profile> <build> <session>...  schedule a verify job per session (C-059): a tape worker
+//!                                                     downloads the session's replay files again, recomputes each member's
+//!                                                     cache and runs the tape reader on it; core keeps the verdict beside
+//!                                                     the stored cache only when the recomputed one equals it byte for byte
+//!   vyreon-core tape checks                           the sample (C-059): one line, then each session's checks and
+//!                                                     every member not passed
 //!   vyreon-core queue [pause <reason> | resume | retry-failed | cancel <job>...]   the queue at a glance, or change it
 //!   vyreon-core months <first> <last>                 create the store's monthly partitions for a date range
 //!   vyreon-core publish [--vouch] <bundle>...         check, write, read back and publish day bundles, in order.
@@ -117,6 +123,54 @@ async fn schedule(kind: &str, profile: &str, engine_build: &str, first: &str, la
     let block: i32 = block.parse().map_err(|_| format!("block sessions: {block}"))?;
     let made = work::schedule(&mut connect().await?, work::Kind::parse(kind)?, profile, engine_build, first, last, block).await?;
     println!("{} jobs over {} sessions; {} partitions created", made.jobs, made.sessions, made.partitions);
+    Ok(())
+}
+
+/// C-059: `tape verify <profile> <build> <session>...`.
+async fn tape_verify(profile: &str, engine_build: &str, sessions: &[&str]) -> Result<(), String> {
+    let jobs = work::schedule_verify(&mut connect().await?, profile, engine_build, sessions).await?;
+    println!("{} verify jobs: {}", jobs.len(), jobs.iter().map(i64::to_string).collect::<Vec<_>>().join(" "));
+    Ok(())
+}
+
+/// C-059: a session's line in `tape checks`.
+fn sample_session_line(s: &serde_json::Value) -> String {
+    let n = |k: &str| s[k].as_i64().unwrap_or(0);
+    let gb = s["tape_bytes"].as_i64().map_or_else(|| "replay bytes not stated".to_owned(), |b| format!("{:.1} GB of replay files", b as f64 / 1e9));
+    let jobs: Vec<String> = s["jobs"].as_array().into_iter().flatten().map(|j| j.to_string()).collect();
+    format!(
+        "{} {}: {} checked, {} match ({} PASS, {} WITHHELD, {} FAIL, {} NOT_RUN, {} without a verdict), {} differ, {} not compared · {gb} · job {} · {}",
+        s["session"].as_str().unwrap_or("?"),
+        if s["passed"] == true { "passed" } else { "NOT passed" },
+        n("checked"),
+        n("MATCH"),
+        n("PASS"),
+        n("WITHHELD"),
+        n("FAIL"),
+        n("NOT_RUN"),
+        n("no_verdict"),
+        n("DIFFER"),
+        n("NOT_COMPARED"),
+        jobs.join(" "),
+        s["last_checked_at"].as_str().unwrap_or("")
+    )
+}
+
+/// C-059: `tape checks`.
+async fn tape_checks() -> Result<(), String> {
+    let sessions = core_db::tape::sample(&connect().await?).await?;
+    let Some(line) = core_db::tape::sample_line(&sessions) else {
+        println!("no tape cache has been verified by sample");
+        return Ok(());
+    };
+    println!("{line}");
+    for s in &sessions {
+        println!("{}", sample_session_line(s));
+        for m in s["not_passed"].as_array().into_iter().flatten() {
+            let why: String = m["why"].as_str().unwrap_or("").chars().take(300).collect();
+            println!("    {} {} verdict {}: {why}", m["asset"].as_str().unwrap_or("?"), m["outcome"].as_str().unwrap_or("?"), m["verdict"].as_str().unwrap_or("none"));
+        }
+    }
     Ok(())
 }
 
@@ -704,6 +758,8 @@ async fn main() -> ExitCode {
         },
         ["schedule", kind, profile, engine_build, first, last] => schedule(kind, profile, engine_build, first, last, "30").await,
         ["schedule", kind, profile, engine_build, first, last, block] => schedule(kind, profile, engine_build, first, last, block).await,
+        ["tape", "verify", profile, engine_build, ref sessions @ ..] => tape_verify(profile, engine_build, sessions).await,
+        ["tape", "checks"] => tape_checks().await,
         ["queue", ref change @ ..] => queue(change).await,
         ["api-key", "create", holder, scopes] => match connect().await {
             Ok(client) => core_db::api_key::create(&client, holder, &scopes.split(',').map(str::to_owned).collect::<Vec<_>>()).await.map(|key| println!("{key}")),
