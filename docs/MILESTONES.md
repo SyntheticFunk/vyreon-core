@@ -1082,6 +1082,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   **`worker` 3b342af7 (fx61 merged, pushed): full suite 1,482 passed, 0 failed; reference 76 passed;
   image `vyreon-worker:3b342af7` (build 3b342af7+5d6db5661e39) pushed: current candidate.** Tape
   verification track (`pass-fx62` + core `core-tape-verdict`) started.
+  **C-058 deployed (core main 996ad69, `vyreon-core:996ad69`, migration 0028; core suite 0 failed):**
+  `core.tape_verdict` beside each tape cache; the tape worker (engine `pass-fx62`, D-370 amended,
+  merging) runs the reference tape reader on the raw tape it holds (`refcheck tape-verdict`, est. ~1
+  min per session for 64 members, not measured) and sends PASS/FAIL/WITHHELD/NOT_RUN with the reader's
+  bins digest; a FAIL opens REFCHECK_DISAGREES; the day check verifies the four tape owners from cached
+  bins only under a PASS for the exact files. Unproven until the first tape job of this build runs (no
+  raw tape on the laptop). **Owner decision:** caches stored before this build (the tape history from
+  2024-04-09) never get a verdict (raw tapes gone), so EVC01's agreeing readings stay unverifiable on
+  phase-1 history unless those tapes are downloaded again.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
