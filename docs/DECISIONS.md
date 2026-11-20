@@ -1302,3 +1302,13 @@ meets the December 2025 adjustments.
   carries only its members' entries); `core-api/tests/worker_api.rs` (a day-block claim over HTTP
   carries the ledger). The engine's own parser reads the file (checked from the engine at
   `pass-s3i`, read only: `parse_ledger`, `universe::write_claim`, `Universe::load`).
+
+## C-056 A reference-check disagreement is a failure the rulings table does not explain (2026-11-20; engine D-370 amended)
+The first complete worker check (2026-11-02, build 48d87154) failed 1,982 comparisons; 1,915 of them
+match conventions the owner has ruled as the definition (the suite's rulings table names each), so
+REFCHECK_DISAGREES would stay open every day and stop meaning "go look" (notification design: one
+alert per problem). The worker's account now carries `failed_unexplained` (unruled, or ruled for an
+engine fix) beside `failed`; core stores it (migration 0026) and judges REFCHECK_DISAGREES and the
+digest's agree/disagree on `COALESCE(failed_unexplained, failed)`, so an older account still counts
+every failure. `refcheck list/show` print both. The report itself is kept whole: a ruled failure is
+still evidence, read when a ruling is revisited.
