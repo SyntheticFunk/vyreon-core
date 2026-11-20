@@ -1374,6 +1374,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   P01/PATH views over a missing bar, evc_history, a DLM-PCR-OI-over-gap test; kernel-contract JSONs
   still say MIN63 (to update: moves kernel_contract_sha256). Owner notes: PCR-means and full-day
   FIELD floors moved 80% → 75% under "every history window"; EVC01/FND01 unchanged (no fixed window).
+  **fx74 ready (round cc engine fixes, D-406; 9 of 9 fixed, suite green on the branch), merging after
+  the running test of 76d76bd9:** reason_rank (an engine fault no longer masked by an unidentified
+  carry); QQQ 2026-09-30 OI back (empty T−1 chain = "cannot tell", D-398 amended): greek exposure,
+  max pain, OI centroid, unusual contracts, M0 gamma return; PATH-L01 no longer depends on Q03;
+  PCR coverage qualifier withheld, not "NONE", over withheld counts; BETA's correlation follows
+  DEP01; EVENT-WINDOW withholds only expiry/straddle roles; a failed population or gamma-export load
+  in the local derive contained; read_dir errors are faults; sidecar ok from the binding check.
+  Ordinary days: no value changes (PATH-L01/L02 receipts' kernel contract digest changes). Left: the
+  ordered derive (derive/mod.rs) still fails the whole object on a population load failure.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
