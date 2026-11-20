@@ -1368,3 +1368,52 @@ source).
   (each row against its frozen answers and the engine's calendar; a row at or before the provider's
   start refused); `core-api/tests/worker_api.rs` (a day-block claim over HTTP carries ETHA's and
   IBIT's dates and no other member's).
+
+## C-058 Core keeps the tape worker's verdict beside each tape cache and serves it with the cache; a failed verdict is a disagreement, none is a cache not verified (owner decision, 2026-11-20; engine D-370 amended 2026-11-20)
+The owner: the tape owners (PCR-UACT-I01, PCR-UPATH-I01, PCR-UQTR-I01, DLM-VWAP, and INT-TEMP-EVC01's
+tape-dependent readings) must be verified independently. A day worker holds only the tape cache
+(the manifest and the engine's derived bins, B5) and never the raw tape (engine D-159), so its
+reference check stated them unverifiable (C-054's reports, D-370 amended 2026-11-19). The tape worker
+still holds the raw tape when it packs each cache: it runs the reference suite's own tape reader on it
+and compares the reader's bins with the cache (engine D-370 amended 2026-11-20); core keeps that
+verdict, and the day check reads the cached bins for the tape owners only under a passing one.
+Migration 0028; `crates/core-db/src/tape.rs`, `refcheck.rs`.
+- **Kept:** `core.tape_verdict`, one row per cache (session, asset key, method version; a foreign
+  key to `core.tape_cache`), `PUT /worker/v1/tape-caches/<S>/<asset>/verdict?method_version=V`
+  under the session's tape job's lease, as the cache itself. The document (`VYREON-TAPE-VERDICT@1`,
+  at most 1 MiB, JSON) is checked: the schema, the same asset, session and method version, an
+  outcome PASS | FAIL | WITHHELD | NOT_RUN, the packed cache's sha256, the reader's bins digest
+  exactly when it compared (PASS, FAIL), a reason whenever it did not pass, no differences on a
+  PASS, no unredacted credential (`evidence::unredacted`). It must judge the bytes core holds
+  (`cache_sha256` = the cache's `body_sha256`; a stated absence has nothing to judge). Written
+  once like the cache: the same document again is `new: false`, another is refused (a cache's raw
+  tape is gone once the tape job ends, so nothing could judge it again). The outcome, the number
+  of differences, the reader's digest and the reason are columns; the document is kept as sent.
+- **Served:** `GET /tape-caches/<S>` adds `verdicts.json` (asset to its verdict) beside
+  `absences.json`. An engine before D-370's amendment of 2026-11-20 never unpacks an entry that
+  is not one of its members (`verdicts.json` is not), so no deploy order is forced by the tar.
+- **Judged (C-050, C-056's logic: one alert per problem, "go look"):** a FAIL on the newest cache
+  of an asset-session (a cache redone under a newer method version, with its own verdict,
+  supersedes it) is a disagreement: REFCHECK_DISAGREES opens on it as on a day whose check
+  failed unexplained ("Reference check: the tape reader disagrees with the engine's tape cache on
+  N asset-sessions, the oldest S", appended to the days' summary when both). It resolves when the
+  cache is redone under a new method version whose verdict is not FAIL (an engine reader fix); a
+  reference reader defect behind a FAIL needs the session's tapes downloaded again: the owner's
+  call. No verdict, or NOT_RUN, is a cache **not verified**: never an alert (every cache stored
+  before the verdicts has none, and its raw tape is gone), stated in the digest ("Tape caches
+  stored in the last 24 hours: N (p verified by the tape reader, f disagree, w withheld whole, n not
+  verified)", when any cache was stored) and in `refcheck show <date>` (each outcome's count for
+  the session's newest caches, and every cache not passed with its reason; the session's verdicts
+  are shown even with no day report).
+- **Not judged here:** whether a day's tape owners were checked; the day's report says so (its
+  `unverifiable` counts and the intraday section's `tape_verdicts`), and C-054 stores it.
+- **Deploy:** migration 0028 with this core image, before an engine image that sends verdicts (an
+  older core answers the verdict's PUT 404: the engine logs it, the session is done, and the cache
+  stays not verified).
+- Tests: `core-db/tests/tape_verdict.rs` (the real AAPL cache of 2025-12-10 and the reference
+  suite's own NOT_RUN on it: every malformed verdict refused before anything is stored; no cache or a
+  stated absence refused; kept once; another document, and one of other bytes, refused; no problem
+  for a NOT_RUN; a FAIL on a cache redone under a newer method opens REFCHECK_DISAGREES once, is
+  counted in the digest and `show`, and resolves when the cache is redone again and passes);
+  `core-api/tests/worker_api.rs` (over HTTP: kept once, another asset's refused, a stranger's
+  lease refused, served in the session's tar); `refcheck::tests` (the summaries).
