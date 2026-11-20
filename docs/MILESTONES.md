@@ -1317,6 +1317,20 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   prerequisites (SPY T−5 is the stage's tail); preparation stage unprofiled (carry fits computed then
   discarded; surface units scheduled below the asset level). M0 items went to the pass-2 M0 track
   (fx71); critical-path items next track; history items after D-404.
+  **Engine triage b (science + withholding surface, `triage/b.md`): 11 real (0 wrong published
+  numbers), 2 not real, 4 by decision, 7 known (D-404).** Reference: dividend alternatives matched on
+  dates only (could hide an amount error); the represented day ignores D-399/D-359/D-254 refusals;
+  empty-chain day expectations; QuantLib cache key. Engine over-withholding: PATH-L01 depends on Q03
+  (stock gap/intraday readings withheld on a refused chain day); IVSC/V03-MATCHED/M0 changes need all
+  five predecessors but read T−5 only; coverage qualifier published "NONE" from withheld counts;
+  EVENT-WINDOW withheld whole; one archive failure faults every local record; BETA withholds its
+  correlation. reason_rank can mask ENGINE_FAULT. **Second owner item: D-192 also refuses the whole
+  day on an empty curve tenor, against the owner's D-106 2.2 ruling (a missing tenor withholds only
+  the readings that need it), never implemented.**
+  **Fix tracks running (16:55 UTC):** fx74 engine findings (a + b), fx75 reference findings, D-404
+  agent took the history-area items, core agent the core findings + digest; pass-2 tracks fx71 (M0,
+  admission, threads) and fx73 (critical path: intent A during surfaces, refcheck alongside the next
+  day, FIELD earlier, heartbeat).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
