@@ -104,3 +104,43 @@ async fn each_member_has_its_ticker_on_a_date() {
     assert_eq!(reused, [("IBIT".to_owned(), "sec_zrB4o8".to_owned()), ("META".to_owned(), "sec_ge1K5q".to_owned())]);
     scratch.drop().await;
 }
+
+/// C-057: every first option session core holds is the provider's own answer: its chain of the
+/// session before holds no contract, its chain of that session holds contracts of the asset's root
+/// dated that session, each with open interest 0 (the prior session's settled count: none on a
+/// listing session). The answers are frozen in `fixtures/intrinio-universe/option-first-chain`.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn each_first_option_session_is_the_providers_first_chain() {
+    let scratch = Scratch::new("option_listing").await;
+    let mut client = scratch.client().await;
+    migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
+    let rows: Vec<(String, String, String)> = client
+        .query("SELECT asset_key, first_session::text, evidence FROM core.option_listing ORDER BY asset_key", &[])
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| (r.get(0), r.get(1), r.get(2)))
+        .collect();
+    assert_eq!(rows.iter().map(|(k, d, _)| (k.as_str(), d.as_str())).collect::<Vec<_>>(), [("ETHA", "2025-04-11"), ("IBIT", "2024-11-19")]);
+    let calendar: serde_json::Value = serde_json::from_str(test_support::CALENDAR).unwrap();
+    let sessions: Vec<&str> = calendar["sessions"].as_array().unwrap().iter().map(|s| s.as_str().unwrap()).collect();
+    let page = |key: &str, day: &str| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(fixtures().join("intrinio-universe/option-first-chain").join(format!("{key}-{day}.json"))).unwrap()).unwrap()
+    };
+    for (key, first, evidence) in &rows {
+        let i = sessions.iter().position(|s| s == first).unwrap();
+        let before = sessions[i - 1];
+        assert!(evidence.contains(before) && evidence.contains(first.as_str()), "{key}: {evidence}");
+        assert_eq!(page(key, before)["prices"], serde_json::json!([]), "{key} {before}");
+        let prices = page(key, first)["prices"].as_array().unwrap().clone();
+        assert!(!prices.is_empty(), "{key} {first}");
+        for p in &prices {
+            assert_eq!((p["option"]["ticker"].as_str(), p["price"]["date"].as_str()), (Some(key.as_str()), Some(first.as_str())));
+            assert_eq!(p["price"]["open_interest"], 0, "{key} {first}: {}", p["option"]["code"]);
+        }
+    }
+    // after the provider's option EOD start, like every row: an earlier listing is not one core records
+    assert!(client.execute("INSERT INTO core.option_listing VALUES ('SPY', '2021-09-27', 'x', now())", &[]).await.is_err());
+    scratch.drop().await;
+}

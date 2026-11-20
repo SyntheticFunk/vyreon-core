@@ -1327,3 +1327,44 @@ engine fix) beside `failed`; core stores it (migration 0026) and judges REFCHECK
 digest's agree/disagree on `COALESCE(failed_unexplained, failed)`, so an older account still counts
 every failure. `refcheck list/show` print both. The report itself is kept whole: a ruled failure is
 still evidence, read when a ruling is revisited.
+
+## C-057 Core records each asset's first option session, with the provider's evidence, and every claim carries it (owner decision, 2026-11-20; engine D-396 amended 2026-11-20)
+The bulk A/B of 2025-04-11 sent 181 ETHA and 126 IBIT chains to the Intrinio API, one request each,
+for sessions before their options were listed: the day files hold no row of them, which D-396's
+missing-rows rule hands to the API, whose answer is the empty chain. The engine knew no per-asset
+start of option listings (D-158's is the stock's first trading session; `source_coverage` is per
+source).
+- **What:** `core.option_listing` (migration 0027): per asset key, the first session on which the
+  provider's option EOD chain holds a contract, its evidence and when it was observed. Rows only for
+  members whose options were listed after the provider's option EOD start (2021-09-27; a CHECK):
+  ETHA 2025-04-11 and IBIT 2024-11-19. The other 62 members' stocks all traded before 2021-04-15
+  (their security records), and the A/B left no other member's chain to the API for want of rows
+  (its other 35 were 2024-05-22's, a file without closing quotes); they have no row and are planned
+  as before.
+- **The evidence** is the provider's own answer, frozen like the universe's responses
+  (`crates/test-support/fixtures/intrinio-universe/option-first-chain`, README there):
+  `/options/prices/by_ticker/{root}/eod?include_related_symbols=true` on the session before (no
+  contract) and on the first session (contracts of the root, open interest 0 on every one: open
+  interest is the prior session's settled count, so a listing session has none). ETHA: the engine's
+  captures of 2025-04-10 and 04-11 (fixture `etha-first-chain`, 168 contracts), copied byte for
+  byte; IBIT: two calls of 2026-11-20 (page size 2). The A/B counts agree exactly: 181 sessions
+  2024-07-23..2025-04-10 and 126 sessions 2024-05-21..2024-11-18. Rejected: the first session a
+  published chain had rows (a newest-first build reaches it last, after the waste), Intrinio's
+  expirations list (the first expiry is not the first listing session), a date from the exchanges'
+  announcements (not the provider's data, which is what the engine reads).
+- **Why a migration's rows, like `source_coverage`:** two facts that change only when a member's
+  options list after it joins; no load step a new database could miss. A later member gets its row
+  in a new migration with its evidence beside the universe responses.
+- **The claim** carries `first_option_sessions`, `{asset key: date}` for the claim's members with a
+  row (`{}` when none). Not inside `sources`: the engine's parser refuses a `sources` value that is
+  not a date, so an older engine would refuse every claim. An engine without D-396's amendment
+  ignores the new field; a core without it sends none and the engine plans as before: no deploy
+  order is forced. Deploy core first to get the saving.
+- **What the engine does with it** (D-396 amended 2026-11-20): with `VYREON_OPTION_EOD_SOURCE=bulk`,
+  a chain before the asset's first option session whose day file holds no line of its roots is
+  captured from the file as the empty chain (no API request); readers see the empty chain they see
+  today. The API path is unchanged.
+- Tests: `core-db/tests/universe.rs` `each_first_option_session_is_the_providers_first_chain`
+  (each row against its frozen answers and the engine's calendar; a row at or before the provider's
+  start refused); `core-api/tests/worker_api.rs` (a day-block claim over HTTP carries ETHA's and
+  IBIT's dates and no other member's).
