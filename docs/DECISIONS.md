@@ -1570,6 +1570,35 @@ Migration 0028; `crates/core-db/src/tape.rs`, `refcheck.rs`.
   transaction; a cancel in progress makes the PUT wait and then answers it 410. Ordinary day: no
   change. Test: `core-api/tests/worker_api.rs::a_cache_sent_while_its_lease_is_cancelled_is_not_stored`.
 
+- **Amended 2026-11-21 (the digest after core 8a53f67): a cache is judged on its latest
+  reader's verdict.** The verdict kept beside a cache is written once (the first), so the 51 FAIL
+  verdicts of the reference reader in build 3b85b4f6 (two reference defects, a half-to-even tie
+  rounding and an in-bin conditional-last count, fixed by engine D-370 of 2026-11-20) stayed
+  "disagrees on 51 asset-sessions" after the corrected reader of cdf58be2 PASSED the same
+  recomputed bytes in the sample (C-059: MATCH, its verdict not kept). Now a cache's verdicts are
+  the kept one and every sample check's that recomputed it byte for byte; the current one is the
+  latest reader's. **The reader is the build that ran it** (the verdict's `engine_build`: the
+  reference suite ships in the worker image; the documents carry no reader version of their own,
+  and `versions` names only the libraries), ordered by the build's admission in core
+  (`core.engine_build.admitted_at`, its registration when never admitted, an unknown build
+  earliest), never by when the verdict came; for one reader, the verdict stored last.
+  REFCHECK_DISAGREES and `refcheck show <date>` read the current verdict
+  (`refcheck::CURRENT_VERDICTS`); a later reader's FAIL reopens it, an earlier reader's FAIL sent
+  late does not. The kept verdict is unchanged (evidence). **The day check reads the current
+  verdict** (owner's decision, 2026-11-21): `GET /tape-caches` serves each cache's current verdict
+  in `verdicts.json` (`tape::verdicts_of_session`, the same order), as its reader sent it, so the
+  day checks of 2025-06-02, 08-01, 12-01 and the 2026 sampled sessions (inside phase 1) read the
+  tape owners under the corrected reader's PASS instead of treating them as unverifiable under the
+  old reader's FAIL. Test: `core-api/tests/worker_api.rs::a_day_worker_is_served_the_latest_readers_verdict`
+  (real 748 then 1768: FAIL served, then PASS). This replaces C-059's round-cc 6 rule (a FAIL in a sample beside a kept
+  non-FAIL): it is the same judgement, now with the reader's order. On the cluster (read-only,
+  2026-11-21): all 1,276 judged caches have a current PASS, so the tape part of
+  REFCHECK_DISAGREES clears and the problem is restated as the day's disagreement alone ("1
+  published day: 254 comparisons failed unexplained, the oldest 2026-10-28"), no post. Ordinary
+  day: no change (one verdict per cache). Tests: `core-db/tests/tape_check.rs::
+  an_old_readers_fail_is_superseded_by_a_fixed_readers_pass_on_the_same_bytes` (the real FAIL 748
+  and PASS 1768, the two builds at their recorded admission times), and the round-cc steps of
+  `a_sample_check_keeps_the_verdict_only_beside_an_equal_cache_and_a_difference_is_a_problem`.
 ## C-059 The tape caches stored before the verdicts are verified by a sample of their sessions, downloaded again and recomputed; a verdict is kept beside a stored cache only when the recomputation equals it (owner decision, 2026-11-20; engine D-370 amended 2026-11-20)
 The caches stored before C-058 never get a verdict: their raw tapes are gone. The owner: verify a
 sample instead, about twenty sessions spread over the tape history, each downloaded again and

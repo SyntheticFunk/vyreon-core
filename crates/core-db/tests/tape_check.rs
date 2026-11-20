@@ -50,6 +50,20 @@ fn fail(cache: &str) -> Value {
     tape_verdict_bound(TAPE_CHECK_AAPL_FAIL, "AAPL", S, V1, cache)
 }
 
+/// The builds whose readers judged the frozen checks, registered and admitted at their recorded
+/// times on the cluster (`core.engine_build`, read 2026-11-21): 3b85b4f6 (the reader of the FAIL,
+/// 05:20:17.79Z) before cdf58be2 (the corrected reader of the PASS, 06:27:50.78Z). Their slot
+/// inventory is the slice's (the order is what the verdicts need).
+async fn reader_builds(client: &mut tokio_postgres::Client) {
+    for (build, at) in [("3b85b4f6+96356aa79bd5", "2026-11-20 05:20:17.790723+00"), ("cdf58be2+96356aa79bd5", "2026-11-20 06:27:50.776257+00")] {
+        let mut inventory = inventories()[0].clone();
+        inventory["engine_build"] = json!(build);
+        build::register(client, &inventory).await.unwrap();
+        build::admit(client, build, &json!({"checklist": "tape reader order test"})).await.unwrap();
+        client.execute("UPDATE core.engine_build SET registered_at = $2::text::timestamptz, admitted_at = $2::text::timestamptz WHERE engine_build = $1", &[&build, &at]).await.unwrap();
+    }
+}
+
 fn parsed(v: &Value, asset: &str) -> tape::Check {
     tape::check_check(&serde_json::to_vec(v).unwrap(), asset, S, V1).unwrap()
 }
@@ -217,33 +231,109 @@ async fn a_sample_check_keeps_the_verdict_only_beside_an_equal_cache_and_a_diffe
         work::cancel(client, &jobs).await.unwrap();
         checked
     }
-    let disagree = |s: &refcheck::State| (s.sample_differ, s.sample_reader_failed);
+    reader_builds(&mut client).await;
+    let disagree = |s: &refcheck::State| (s.sample_differ, s.tape_failed);
     // 8: a DIFFER, then a check that compared nothing (the provider refused the session): the
     // difference stands until a later comparison matches
     assert_eq!(verify_aapl(&mut client, &b, V1, check("AAPL", Some(&differ), Some(said), None)).await.outcome, "DIFFER");
     assert_eq!(disagree(&refcheck::state(&client, P, None, LATER).await.unwrap()), (1, 0));
     assert_eq!(verify_aapl(&mut client, &b, V1, check("AAPL", None, Some("its tapes were not captured: HTTP 500"), None)).await.outcome, "NOT_COMPARED");
     assert_eq!(disagree(&refcheck::state(&client, P, None, LATER).await.unwrap()), (1, 0), "a check that compared nothing resolves nothing");
-    // 6: recomputed byte for byte and the reader now FAILS, beside the PASS kept earlier: the
-    // verdict there stands, and the disagreement is raised
-    // (the real FAIL: the cluster's old reader on AAPL's 2025-12-01 cache, recomputed equal)
+    // 6 (C-058 amended 2026-11-21): recomputed byte for byte and judged FAIL beside the PASS kept
+    // earlier: the verdict there stands, and the disagreement is the latest reader's to say. The
+    // real FAIL is the earlier reader's (3b85b4f6), sent after the corrected reader's PASS: it
+    // supersedes nothing
     let c = verify_aapl(&mut client, &b, V1, check("AAPL", Some(&whole), None, Some(fail(&whole)))).await;
+    assert_eq!((c.outcome.as_str(), c.verdict_kept), ("MATCH", false));
+    assert_eq!(disagree(&refcheck::state(&client, P, None, LATER).await.unwrap()), (0, 0), "an earlier reader's FAIL, whenever it comes");
+    // a later reader FAILS the same bytes (no such verdict exists: the real FAIL with only its
+    // reader's build changed, to one admitted after cdf58be2's): raised
+    let mut later = inventories()[0].clone();
+    later["engine_build"] = json!("e9c216f7+aabffe6e62a2");
+    build::register(&mut client, &later).await.unwrap();
+    build::admit(&client, "e9c216f7+aabffe6e62a2", &json!({"checklist": "tape reader order test"})).await.unwrap();
+    let mut by_later = fail(&whole);
+    by_later["engine_build"] = json!("e9c216f7+aabffe6e62a2");
+    let c = verify_aapl(&mut client, &b, V1, check("AAPL", Some(&whole), None, Some(by_later))).await;
     assert_eq!((c.outcome.as_str(), c.verdict_kept), ("MATCH", false));
     let state = refcheck::state(&client, P, None, LATER).await.unwrap();
     assert_eq!(disagree(&state), (0, 1));
-    assert_eq!(
-        state.disagree_summary().unwrap(),
-        "Reference check: the tape reader disagrees with a cache the sample recomputed byte for byte on 1 asset-session, the oldest 2025-12-10 (vyreon-core tape checks)"
-    );
+    assert_eq!(state.disagree_summary().unwrap(), "Reference check: the tape reader disagrees with the engine's tape cache on 1 asset-session, the oldest 2025-12-10");
     // 10: the sample counts that FAIL as a MATCH the reader did not agree with, and the DIFFER's
     // verdict-less check under no verdict count
     let line = tape::sample_line(&tape::sample(&client).await.unwrap()).unwrap();
     assert!(line.ends_with("(0 of 64 asset-sessions recomputed byte for byte with the tape reader agreeing; 1 recomputed equal, the tape reader not agreeing, 63 not compared)"), "{line}");
+    assert_eq!(refcheck::tape_show(&client, S).await.unwrap()["counts"], json!({"FAIL": 1, "stated absence": 1}), "show says the current verdict");
     // 8: a newer method version's cache supersedes the one checked: neither its FAIL nor a later
     // DIFFER of the superseded cache is raised
     assert!(tape::put(&client, "AAPL", S, "engine-v2", &Cache::Body(TAPE_AAPL.to_vec())).await.unwrap());
     assert_eq!(disagree(&refcheck::state(&client, P, None, LATER).await.unwrap()), (0, 0));
     assert_eq!(verify_aapl(&mut client, &b, V1, check("AAPL", Some(&differ), Some(said), None)).await.outcome, "DIFFER");
     assert_eq!(disagree(&refcheck::state(&client, P, None, LATER).await.unwrap()), (0, 0), "a check of a superseded cache");
+    scratch.drop().await;
+}
+
+/// C-058 amended 2026-11-21, on the cluster's sequence of 2026-11-20 for AAPL's cache of
+/// 2025-12-01 (bound to this cache): the reader of 3b85b4f6 FAILED it (kept beside the cache), the
+/// corrected reader of cdf58be2 then PASSED the same recomputed bytes (not kept: the first stands).
+/// The disagreement opens on the first and resolves on the second; for one reader, the verdict
+/// stored last counts.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn an_old_readers_fail_is_superseded_by_a_fixed_readers_pass_on_the_same_bytes() {
+    let scratch = Scratch::new("tape_reader_order").await;
+    let mut client = scratch.client().await;
+    migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
+    work::load_calendar(&mut client, &serde_json::from_str(test_support::CALENDAR).unwrap()).await.unwrap();
+    let fixtures = test_support::fixtures();
+    let doc = universe::read_responses(&fixtures.join("engine-v1-PROFILE.json"), &fixtures.join("intrinio-universe")).unwrap();
+    universe::store(&mut client, &doc).await.unwrap();
+    let b = build::register(&mut client, &inventories()[0]).await.unwrap().engine_build;
+    build::admit(&client, &b, &json!({"checklist": "tape reader order test"})).await.unwrap();
+    reader_builds(&mut client).await;
+    let settings = Settings { profile: P.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None };
+    assert!(tape::put(&client, "AAPL", S, V1, &Cache::Body(TAPE_AAPL.to_vec())).await.unwrap());
+    let whole = sha256_hex(TAPE_AAPL);
+    let send = async |client: &mut tokio_postgres::Client, real: &str, change: &dyn Fn(&mut Value)| {
+        let jobs = work::schedule_verify(client, P, &b, &[S]).await.unwrap();
+        let claim = work::claim(client, Kind::Tape, &b, "verify", 3600.0).await.unwrap().unwrap();
+        let mut c = test_support::tape_check_bound(real, "AAPL", S, V1, &whole);
+        change(&mut c);
+        let checked = tape::put_check(client, &claim.token, S, "AAPL", V1, &parsed(&c, "AAPL")).await.unwrap();
+        work::cancel(client, &jobs).await.unwrap();
+        checked
+    };
+    let opened = "Reference check: the tape reader disagrees with the engine's tape cache on 1 asset-session, the oldest 2025-12-10";
+    let ours = |v: Vec<String>| v.into_iter().filter(|l| l.starts_with("Reference check")).collect::<Vec<_>>();
+    let minute = async |c: &tokio_postgres::Client| -> String { c.query_one("SELECT (now() + interval '1 minute')::text", &[]).await.unwrap().get(0) };
+
+    // the old reader's FAIL, kept beside the cache: a disagreement
+    let c = send(&mut client, TAPE_CHECK_AAPL_FAIL, &|_| ()).await;
+    assert_eq!((c.outcome.as_str(), c.verdict_kept), ("MATCH", true));
+    let now = minute(&client).await;
+    assert_eq!(ours(watch::check(&mut client, &settings, &now).await.unwrap().opened), [opened]);
+    // the corrected reader's PASS on the same bytes: the kept FAIL stands as evidence, the
+    // disagreement resolves, and `refcheck show` says PASS
+    let c = send(&mut client, TAPE_CHECK_AAPL_PASS, &|_| ()).await;
+    assert_eq!((c.outcome.as_str(), c.verdict_kept, c.why.as_deref()), ("MATCH", false, Some("a FAIL verdict already stored beside the cache stands")));
+    let state = refcheck::state(&client, P, None, LATER).await.unwrap();
+    assert_eq!((state.tape_failed, state.disagree_summary()), (0, None));
+    let now = minute(&client).await;
+    assert_eq!(ours(watch::check(&mut client, &settings, &now).await.unwrap().resolved), [opened]);
+    assert_eq!(refcheck::tape_show(&client, S).await.unwrap()["counts"], json!({"PASS": 1}));
+    let kept: String = client.query_one("SELECT outcome FROM core.tape_verdict WHERE session = $1::text::date AND asset_key = 'AAPL'", &[&S]).await.unwrap().get(0);
+    assert_eq!(kept, "FAIL", "the kept verdict is unchanged");
+    // the day workers read the current verdict: the fixed reader's PASS, as it sent it
+    let served = tape::verdicts_of_session(&client, S, V1).await.unwrap();
+    assert_eq!(served, vec![("AAPL".to_owned(), test_support::tape_verdict_bound(TAPE_CHECK_AAPL_PASS, "AAPL", S, V1, &whole))]);
+    // the same reader again, later (no such verdict exists: the real PASS with only its outcome and
+    // reason changed): the verdict stored last counts
+    let c = send(&mut client, TAPE_CHECK_AAPL_PASS, &|c| {
+        c["verdict"]["outcome"] = json!("FAIL");
+        c["verdict"]["why"] = json!("the reference reader's bins differ from the engine's cache: conditional_last_rejected reader 38, cache 39");
+    })
+    .await;
+    assert_eq!((c.outcome.as_str(), c.verdict_kept), ("MATCH", false));
+    assert_eq!(refcheck::state(&client, P, None, LATER).await.unwrap().tape_failed, 1);
     scratch.drop().await;
 }

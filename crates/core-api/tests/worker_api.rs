@@ -435,3 +435,65 @@ async fn a_cache_sent_while_its_lease_is_cancelled_is_not_stored() {
     assert_eq!(admin.query_one("SELECT count(*) FROM core.tape_cache", &[]).await.unwrap().get::<_, i64>(0), 0);
     s.scratch.drop().await;
 }
+
+/// C-058 amended 2026-11-21 (the day check reads the current verdict): the cluster's sequence for
+/// AAPL's cache of 2025-12-01, bound to this cache (the real checks 748 and 1768): the reader of
+/// 3b85b4f6 FAILS it in a sample (kept beside the cache) and a day worker is served that FAIL; the
+/// corrected reader of cdf58be2 PASSES the same bytes (not kept: the first stands), and the day
+/// worker is then served the PASS, as that reader sent it. The two builds are admitted at their
+/// recorded times.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_day_worker_is_served_the_latest_readers_verdict() {
+    let s = service("api_reader_order").await;
+    let mut admin = s.scratch.client().await;
+    const S: &str = "2025-12-10";
+    for (build, at) in [("3b85b4f6+96356aa79bd5", "2026-11-20 05:20:17.790723+00"), ("cdf58be2+96356aa79bd5", "2026-11-20 06:27:50.776257+00")] {
+        let mut inventory = inventories()[0].clone();
+        inventory["engine_build"] = json!(build);
+        core_db::build::register(&mut admin, &inventory).await.unwrap();
+        admin
+            .execute("UPDATE core.engine_build SET registered_at = $2::text::timestamptz, admitted_at = $2::text::timestamptz, admission = '{\"checklist\": \"reader order\"}' WHERE engine_build = $1", &[&build, &at])
+            .await
+            .unwrap();
+    }
+    assert!(core_db::tape::put(&admin, "AAPL", S, "engine-v1", &core_db::tape::Cache::Body(TAPE_AAPL.to_vec())).await.unwrap());
+    work::schedule(&mut admin, Kind::Tape, PROFILE, &s.base_build, "2025-12-11", "2025-12-11", 1).await.unwrap();
+    let whole = sha256_hex(TAPE_AAPL);
+    let caches = format!("{}/worker/v1/tape-caches/{S}", s.url);
+    // a sample's check of AAPL by the reader of `real`, under its own verify job, then cancelled
+    let sample = async |admin: &mut tokio_postgres::Client, real: &str| {
+        let jobs = work::schedule_verify(admin, PROFILE, &s.base_build, &[S]).await.unwrap();
+        let claim = s.claim("tape", &s.base_build, "verify-1").await.json::<Value>().await.unwrap();
+        assert_eq!(claim["job_id"].as_i64(), Some(jobs[0]));
+        let check = test_support::tape_check_bound(real, "AAPL", S, "engine-v1", &whole);
+        let r = s.http.put(format!("{caches}/AAPL/check?method_version=engine-v1")).bearer_auth(claim["lease_token"].as_str().unwrap()).json(&check).send().await.unwrap();
+        let answer = r.json::<Value>().await.unwrap();
+        work::cancel(admin, &jobs).await.unwrap();
+        answer
+    };
+    let served = async |token: &str| -> Value {
+        let tar_bytes = s.http.get(format!("{caches}?method_version=engine-v1")).bearer_auth(token).send().await.unwrap().bytes().await.unwrap();
+        let mut archive = tar::Archive::new(&tar_bytes[..]);
+        for entry in archive.entries().unwrap() {
+            let mut entry = entry.unwrap();
+            if entry.path().unwrap().to_string_lossy() == "verdicts.json" {
+                let mut bytes = Vec::new();
+                entry.read_to_end(&mut bytes).unwrap();
+                return serde_json::from_slice(&bytes).unwrap();
+            }
+        }
+        panic!("no verdicts.json")
+    };
+    let first = sample(&mut admin, test_support::TAPE_CHECK_AAPL_FAIL).await;
+    assert_eq!((first["outcome"].clone(), first["verdict_kept"].clone()), (json!("MATCH"), json!(true)));
+    let day = s.claim("tape", &s.base_build, "tape-1").await.json::<Value>().await.unwrap();
+    let token = day["lease_token"].as_str().unwrap().to_owned();
+    let fail = test_support::tape_verdict_bound(test_support::TAPE_CHECK_AAPL_FAIL, "AAPL", S, "engine-v1", &whole);
+    assert_eq!(served(&token).await, json!({"AAPL": fail}));
+    let second = sample(&mut admin, test_support::TAPE_CHECK_AAPL_PASS).await;
+    assert_eq!((second["outcome"].clone(), second["verdict_kept"].clone()), (json!("MATCH"), json!(false)));
+    let pass = test_support::tape_verdict_bound(test_support::TAPE_CHECK_AAPL_PASS, "AAPL", S, "engine-v1", &whole);
+    assert_eq!(served(&token).await, json!({"AAPL": pass}), "the fixed reader's PASS");
+    s.scratch.drop().await;
+}

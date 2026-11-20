@@ -261,16 +261,22 @@ pub async fn put_verdict(client: &impl GenericClient, asset: &str, session: &str
     }
 }
 
-/// Every asset's verdict of a session for a method version, by asset key, as sent.
+/// Every asset's current verdict of a session for a method version, by asset key, as its reader
+/// sent it: the latest reader's (C-058 amended 2026-11-21, `refcheck::CURRENT_VERDICTS`; the day
+/// check reads the current verdict), the kept one or a sample's on the same bytes.
 pub async fn verdicts_of_session(client: &Client, session: &str, method: &str) -> Result<Vec<(String, serde_json::Value)>, String> {
     if !core_contract::is_date(session) {
         return Err(format!("{session} is not a date written YYYY-MM-DD"));
     }
     let rows = client
         .query(
-            "SELECT asset_key, document::text FROM core.tape_verdict
-             WHERE session = $1::text::date AND method_version = $2 ORDER BY asset_key COLLATE \"C\"",
-            &[&session, &method],
+            &format!(
+                "WITH {}
+                 SELECT asset_key, document::text FROM current
+                 WHERE session = $2::text::date AND method_version = $3 ORDER BY asset_key COLLATE \"C\"",
+                crate::refcheck::CURRENT_VERDICTS
+            ),
+            &[&"infinity", &session, &method],
         )
         .await
         .map_err(db)?;

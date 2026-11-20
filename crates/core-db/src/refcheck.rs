@@ -370,6 +370,29 @@ pub async fn show(client: &impl GenericClient, session: &str, id: Option<i64>) -
     Ok(Some((record(&r), summary, report)))
 }
 
+/// C-058 amended 2026-11-21: every verdict a cache has, and the current one. A cache's verdicts
+/// are the one kept beside it (`core.tape_verdict`, its tape job's, or the first sample that
+/// matched it) and those of every later sample check that recomputed it byte for byte (MATCH: the
+/// reader read the same bytes). The reader is the reference suite of the build that ran it (the
+/// verdict's `engine_build`); a later reader supersedes an earlier one's verdict, ordered by the
+/// build's admission (registration when never admitted; an unknown build is the earliest), never by
+/// when the verdict came; for one reader, the verdict stored last. `$1`: the moment read (as text).
+/// Columns of `current`: session, asset_key, method_version, outcome, why, differences, document
+/// (the verdict as its reader sent it; a sample's verdict names the stored cache's bytes, MATCH).
+pub const CURRENT_VERDICTS: &str = "verdicts AS (
+         SELECT v.session, v.asset_key, v.method_version, v.outcome, v.why, v.differences,
+                v.document->>'engine_build' AS reader, v.stored_at AS at, 0 AS source, 0::bigint AS id, v.document
+         FROM core.tape_verdict v WHERE v.stored_at <= $1::text::timestamptz
+         UNION ALL
+         SELECT c.session, c.asset_key, c.method_version, c.verdict_outcome, c.document->'verdict'->>'why',
+                CASE WHEN jsonb_typeof(c.document->'verdict'->'differences') = 'array' THEN jsonb_array_length(c.document->'verdict'->'differences') ELSE 0 END,
+                c.document->'verdict'->>'engine_build', c.checked_at, 1, c.tape_check_id, c.document->'verdict'
+         FROM core.tape_check c WHERE c.outcome = 'MATCH' AND c.verdict_outcome IS NOT NULL AND c.checked_at <= $1::text::timestamptz),
+     current AS (
+         SELECT DISTINCT ON (x.session, x.asset_key, x.method_version) x.session, x.asset_key, x.method_version, x.outcome, x.why, x.differences, x.document
+         FROM verdicts x LEFT JOIN core.engine_build b ON b.engine_build = x.reader
+         ORDER BY x.session, x.asset_key, x.method_version, COALESCE(b.admitted_at, b.registered_at) DESC NULLS LAST, x.at DESC, x.source DESC, x.id DESC)";
+
 /// The state the problems are judged on: for each session whose published base revision has a
 /// report, its latest such report (a report of a revision since superseded judges nothing).
 #[derive(Debug, Default, Clone, PartialEq)]
@@ -397,19 +420,15 @@ pub struct State {
     /// no report at all.
     pub unreported: i64,
     pub not_run_oldest: Option<String>,
-    /// C-058: asset-sessions whose newest tape cache's verdict is FAIL (the reference reader's bins
-    /// differ from the engine's cache); the oldest session.
+    /// C-058: asset-sessions whose newest tape cache's current verdict (`CURRENT_VERDICTS`: the
+    /// latest reader's, kept or from a sample on the same bytes) is FAIL (the reference reader's
+    /// bins differ from the engine's cache); the oldest session.
     pub tape_failed: i64,
     pub tape_failed_oldest: Option<String>,
     /// C-059: asset-sessions whose latest sample check recomputed a cache other than the stored one
     /// (while that cache is still the asset-session's newest); the oldest session.
     pub sample_differ: i64,
     pub sample_differ_oldest: Option<String>,
-    /// C-059 amended 2026-11-20 (round cc, 6): asset-sessions whose latest sample check recomputed
-    /// the stored cache byte for byte and the tape reader FAILED it, while the verdict kept beside
-    /// that cache is not a FAIL (one already there stands); the oldest session.
-    pub sample_reader_failed: i64,
-    pub sample_reader_failed_oldest: Option<String>,
 }
 
 /// The reference checks' state at `now` (`from`: the first session every published day of which
@@ -450,24 +469,28 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
         )
         .await
         .map_err(db)?;
-    // C-058: a verdict judged the newest cache of its asset-session (a cache redone under a newer
-    // method version, with its own verdict, supersedes it)
+    // C-058: the current verdict (the latest reader's, amended 2026-11-21) of the newest cache of
+    // its asset-session (a cache redone under a newer method version supersedes it); a FAIL there,
+    // whether kept beside the cache or a sample's on the same bytes (C-059, round cc 6)
     let t = c
         .query_one(
-            "SELECT count(*), min(v.session)::text FROM core.tape_verdict v
-             JOIN core.tape_cache t USING (session, asset_key, method_version)
-             WHERE v.outcome = 'FAIL' AND v.stored_at <= $1::text::timestamptz
-               AND NOT EXISTS (SELECT FROM core.tape_cache n WHERE n.session = v.session AND n.asset_key = v.asset_key
-                               AND n.stored_at > t.stored_at AND n.stored_at <= $1::text::timestamptz)",
+            &format!(
+                "WITH {CURRENT_VERDICTS}
+                 SELECT count(*), min(v.session)::text FROM current v
+                 JOIN core.tape_cache t USING (session, asset_key, method_version)
+                 WHERE v.outcome = 'FAIL' AND t.stored_at <= $1::text::timestamptz
+                   AND NOT EXISTS (SELECT FROM core.tape_cache n WHERE n.session = v.session AND n.asset_key = v.asset_key
+                                   AND n.stored_at > t.stored_at AND n.stored_at <= $1::text::timestamptz)"
+            ),
             &[&now],
         )
         .await
         .map_err(db)?;
-    // C-059 (amended 2026-11-20, round cc 6 and 8): the latest comparison (MATCH or DIFFER; a
+    // C-059 (amended 2026-11-20, round cc 8): the latest comparison (MATCH or DIFFER; a
     // NOT_COMPARED compared nothing and resolves nothing) of each cache, while that cache is its
     // asset-session's newest (no cache stored after it: C-058's supersession, by method version,
-    // never by the check's time); a DIFFER, or a MATCH whose reader verdict is FAIL where no FAIL
-    // verdict is kept beside the cache already (counted by C-058)
+    // never by the check's time), that is a DIFFER (a MATCH's verdict is one of the cache's
+    // verdicts, judged above)
     let d = c
         .query_one(
             "WITH k AS (
@@ -478,13 +501,8 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
                  SELECT k.* FROM k JOIN core.tape_cache t USING (session, asset_key, method_version)
                  WHERE t.stored_at <= $1::text::timestamptz
                    AND NOT EXISTS (SELECT FROM core.tape_cache n WHERE n.session = k.session AND n.asset_key = k.asset_key
-                                   AND n.stored_at > t.stored_at AND n.stored_at <= $1::text::timestamptz)),
-             reader AS (
-                 SELECT * FROM newest k WHERE k.outcome = 'MATCH' AND k.verdict_outcome = 'FAIL'
-                   AND NOT EXISTS (SELECT FROM core.tape_verdict v WHERE v.session = k.session AND v.asset_key = k.asset_key
-                                   AND v.method_version = k.method_version AND v.outcome = 'FAIL' AND v.stored_at <= $1::text::timestamptz))
-             SELECT (SELECT count(*) FROM newest WHERE outcome = 'DIFFER'), (SELECT min(session)::text FROM newest WHERE outcome = 'DIFFER'),
-                    (SELECT count(*) FROM reader), (SELECT min(session)::text FROM reader)",
+                                   AND n.stored_at > t.stored_at AND n.stored_at <= $1::text::timestamptz))
+             SELECT (SELECT count(*) FROM newest WHERE outcome = 'DIFFER'), (SELECT min(session)::text FROM newest WHERE outcome = 'DIFFER')",
             &[&now],
         )
         .await
@@ -492,8 +510,6 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
     Ok(State {
         sample_differ: d.get(0),
         sample_differ_oldest: d.get(1),
-        sample_reader_failed: d.get(2),
-        sample_reader_failed_oldest: d.get(3),
         tape_failed: t.get(0),
         tape_failed_oldest: t.get(1),
         disagree: r.get(0),
@@ -536,14 +552,6 @@ impl State {
                 self.sample_differ,
                 if self.sample_differ == 1 { "" } else { "s" },
                 self.sample_differ_oldest.as_deref().unwrap_or("?")
-            ));
-        }
-        if self.sample_reader_failed > 0 {
-            tapes.push(format!(
-                "the tape reader disagrees with a cache the sample recomputed byte for byte on {} asset-session{}, the oldest {} (vyreon-core tape checks)",
-                self.sample_reader_failed,
-                if self.sample_reader_failed == 1 { "" } else { "s" },
-                self.sample_reader_failed_oldest.as_deref().unwrap_or("?")
             ));
         }
         let tape = (!tapes.is_empty()).then(|| tapes.join("; "));
@@ -648,13 +656,16 @@ pub async fn tape_digest_line(c: &impl GenericClient, now: &str) -> Result<Optio
 pub async fn tape_show(c: &impl GenericClient, session: &str) -> Result<Value, String> {
     let rows = c
         .query(
-            "WITH newest AS (
-                 SELECT DISTINCT ON (asset_key) asset_key, method_version, body_sha256 FROM core.tape_cache
-                 WHERE session = $1::text::date ORDER BY asset_key, stored_at DESC, method_version DESC)
-             SELECT n.asset_key, n.body_sha256 IS NULL, v.outcome, v.why, v.differences FROM newest n
-             LEFT JOIN core.tape_verdict v ON v.session = $1::text::date AND v.asset_key = n.asset_key AND v.method_version = n.method_version
-             ORDER BY n.asset_key COLLATE \"C\"",
-            &[&session],
+            &format!(
+                "WITH {CURRENT_VERDICTS},
+                 newest AS (
+                     SELECT DISTINCT ON (asset_key) asset_key, method_version, body_sha256 FROM core.tape_cache
+                     WHERE session = $2::text::date ORDER BY asset_key, stored_at DESC, method_version DESC)
+                 SELECT n.asset_key, n.body_sha256 IS NULL, v.outcome, v.why, v.differences FROM newest n
+                 LEFT JOIN current v ON v.session = $2::text::date AND v.asset_key = n.asset_key AND v.method_version = n.method_version
+                 ORDER BY n.asset_key COLLATE \"C\""
+            ),
+            &[&"infinity", &session],
         )
         .await
         .map_err(db)?;
