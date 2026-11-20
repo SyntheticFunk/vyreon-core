@@ -1231,6 +1231,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   share one read per (asset, date) (−~185 CPU-min on a block's first day); (2) history reuse
   across the block's days (day 2 measures it); (3) admission at full width / re-planned between
   waves; (4) M0-ANALYTICS.
+  **Day 1 reference check: 28 min (155 CPU-min); 2,228 failed, 254 unexplained.** ~240 of them are
+  QQQ: history sensors withheld over the 09-28 stated absence (reference computes over the gap) and
+  same-day DLM measurements (expected move, max pain, gamma exposure, …) withheld as
+  DEPENDENCY_WITHHELD: possible over-withholding against the scope rule. Rest: SAI-G01 strike axis on
+  ~8 names, one flip-distance class, DBA/INDA forward. Triage `pass-fx69`. Day 2 (10-29) compute
+  started 14:48 (its download 69 min).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
