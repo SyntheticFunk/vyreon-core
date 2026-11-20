@@ -1362,6 +1362,18 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   from the stricter verdict rule: the old reader's 51 FAIL verdicts (fixed reference defects) count
   as disagreements next to the fixed reader's PASSes on the same bytes; fix (a later reader's verdict
   supersedes) in progress.
+  **D-404 implemented and merged (`worker` 76d76bd9 = fx70 + fx73 + fx75; full tests running):**
+  CAP126 contexts are the 126 scheduled sessions before T (scan-back gone: VS-O02/O04/L01/OIJ01/P01/
+  P03, PATH-L01..L07, SAI-PD01, FIELD), floor `h1_numerics::completeness_floor` = ceil(0.75 n): 95 of
+  126, 189 of 252, 188 of 250, 48 of 63; a refused past session is crossed and stated
+  (PROVIDER_INPUT_MISSING), only changes needing it withhold. Labels bumped (@N-D-404, H5-FIELD@2,
+  DLM-LEVEL-HISTORY@3.0.0, …); reference decides by build. **Before/after on core's published days
+  (22,215 contexts): 2025-04-11 15 SUPPORTED → WITHHELD (EMB/FXI/IBIT at 64–91 eligible), 52 values
+  move; 2025-12-10 19 move; 2026-11-02..13 5–7 a day (QQQ); median move 0.0039, max 0.0237.**
+  SPY 10-28 with 09-28 removed: O02 0.0952 → 0.0968 (124 of 126). Remaining under D-404: daily
+  P01/PATH views over a missing bar, evc_history, a DLM-PCR-OI-over-gap test; kernel-contract JSONs
+  still say MIN63 (to update: moves kernel_contract_sha256). Owner notes: PCR-means and full-day
+  FIELD floors moved 80% → 75% under "every history window"; EVC01/FND01 unchanged (no fixed window).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
