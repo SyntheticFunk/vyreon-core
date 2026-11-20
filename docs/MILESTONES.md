@@ -1270,6 +1270,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   in ~2 weeks matches the owner's estimate.** On the switch: check entitlements and rate limit
   (access codes), update core's request budget, rotate the key in the cluster secret and api.txt
   (never printed), and rerun one real day before phase 1.
+  **Audit round cc started 16:10 UTC (Codex reset; high effort; `audits/2026-11-20-pass1-round-cc/`):**
+  inputs/orchestration and science/reference diffs 48d87154..e9c216f7, core since 96f10423, and three
+  failure-surface audits from today's real faults (process-lifetime caches, environment-sized
+  resources, over-wide withholding edges).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
