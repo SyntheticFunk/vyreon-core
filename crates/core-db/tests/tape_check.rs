@@ -3,10 +3,13 @@
 //! recomputes each member's cache and runs the tape reader on it; core compares the recomputed
 //! cache's digest with the one it holds, keeps the verdict beside the stored cache only when they
 //! are equal, and a difference is a problem to look at. The stored cache is the real one
-//! (`test_support::TAPE_AAPL`, AAPL's of 2025-12-10). The recomputed digests stand for what a verify
-//! worker sends: the real cache's own (recomputed equal) and that cache with one byte changed (a
-//! recomputation that differs); the PASS verdict stands for the tape reader's on a raw tape (none is
-//! on this machine). Run with `cargo test -- --ignored`.
+//! (`test_support::TAPE_AAPL`, AAPL's of 2025-12-10). The checks and verdicts are real (D-102): the
+//! cluster's verify-job checks of AAPL's cache of 2025-12-01 (`test_support::TAPE_CHECK_AAPL_PASS`,
+//! `_FAIL`), bound to this cache (asset, session, method version and digests changed, nothing
+//! else). Cases the cluster never met are that real check with only the field under test changed,
+//! stated where used: a recomputation that differs (no DIFFER occurred: the cache with one byte
+//! changed, and a reason), and one that compared nothing (no NOT_COMPARED occurred: no recomputed
+//! digest, and a reason). Run with `cargo test -- --ignored`.
 use core_contract::sha256_hex;
 use core_db::tape::{self, Cache};
 use core_db::watch::{self, Settings};
@@ -14,7 +17,7 @@ use core_db::work::{self, Kind, LeaseError};
 use core_db::{build, migrate, refcheck, universe};
 use serde_json::{Value, json};
 use test_support::slice::inventories;
-use test_support::{Scratch, TAPE_AAPL};
+use test_support::{Scratch, TAPE_AAPL, TAPE_CHECK_AAPL_FAIL, TAPE_CHECK_AAPL_PASS, tape_check_bound, tape_verdict_bound};
 
 const S: &str = "2025-12-10";
 const V1: &str = "engine-v1";
@@ -27,14 +30,24 @@ fn changed() -> String {
     sha256_hex(&other)
 }
 
+/// The real check bound to `asset` and this cache, with the fields under test: the recomputed
+/// digest, the reason and the verdict (a real one bound to that digest, or none).
 fn check(asset: &str, recomputed: Option<&str>, why: Option<&str>, verdict: Option<Value>) -> Value {
-    json!({"schema": tape::CHECK_SCHEMA, "asset": asset, "session": S, "method_version": V1, "engine_build": "build-x",
-           "recomputed_sha256": recomputed, "why": why, "tape_bytes": 30_056_637_434_i64, "stamped": [], "differences": [], "verdict": verdict})
+    let mut c = tape_check_bound(TAPE_CHECK_AAPL_PASS, asset, S, V1, &sha256_hex(TAPE_AAPL));
+    c["recomputed_sha256"] = json!(recomputed);
+    c["why"] = json!(why);
+    c["verdict"] = verdict.unwrap_or(Value::Null);
+    c
 }
 
+/// The real PASS verdict, bound to the cache digest `cache`.
 fn pass(cache: &str) -> Value {
-    json!({"schema": tape::VERDICT_SCHEMA, "asset": "AAPL", "session": S, "outcome": "PASS", "why": null, "differences": [],
-           "reader_bins_sha256": "a".repeat(64), "method_version": V1, "cache_sha256": cache, "engine_build": "build-x", "versions": null})
+    tape_verdict_bound(TAPE_CHECK_AAPL_PASS, "AAPL", S, V1, cache)
+}
+
+/// The real FAIL verdict (the reader of build 3b85b4f6), bound to the cache digest `cache`.
+fn fail(cache: &str) -> Value {
+    tape_verdict_bound(TAPE_CHECK_AAPL_FAIL, "AAPL", S, V1, cache)
 }
 
 fn parsed(v: &Value, asset: &str) -> tape::Check {
@@ -45,7 +58,7 @@ fn parsed(v: &Value, asset: &str) -> tape::Check {
 fn a_check_is_checked_before_anything_is_stored() {
     let whole = sha256_hex(TAPE_AAPL);
     let ok = parsed(&check("AAPL", Some(&whole), None, Some(pass(&whole))), "AAPL");
-    assert_eq!((ok.recomputed_sha256.as_deref(), ok.tape_bytes, ok.verdict.as_ref().map(|v| v.outcome.as_str())), (Some(whole.as_str()), Some(30_056_637_434), Some("PASS")));
+    assert_eq!((ok.recomputed_sha256.as_deref(), ok.tape_bytes, ok.verdict.as_ref().map(|v| v.outcome.as_str())), (Some(whole.as_str()), Some(19_150_689_784), Some("PASS")));
     assert!(parsed(&check("MSFT", None, Some("its tapes were not captured: HTTP 500"), None), "MSFT").recomputed_sha256.is_none());
     let refused = |v: Value, says: &str| {
         let e = tape::check_check(&serde_json::to_vec(&v).unwrap(), "AAPL", S, V1).unwrap_err();
@@ -114,6 +127,8 @@ async fn a_sample_check_keeps_the_verdict_only_beside_an_equal_cache_and_a_diffe
     assert_eq!((claim.job_id, claim.scope.as_deref()), (jobs[0], Some(r#"{"verify": true}"#)));
     let refused = tape::session_done(&mut client, &claim.token, S, Some(V1)).await.unwrap_err();
     assert!(matches!(&refused, LeaseError::Refused(m) if m.starts_with("64 members listed on 2025-12-10 have no check from verify job")), "{refused}");
+    // no DIFFER occurred on the cluster: the real check with the field under test changed (the
+    // recomputed digest is the cache's with one byte changed) and a reason
     let differ = changed();
     let said = "manifest.json differs: tapes[2].stream_sha256";
     let c = tape::put_check(&mut client, &claim.token, S, "AAPL", V1, &parsed(&check("AAPL", Some(&differ), Some(said), Some(pass(&differ))), "AAPL")).await.unwrap();
@@ -149,7 +164,7 @@ async fn a_sample_check_keeps_the_verdict_only_beside_an_equal_cache_and_a_diffe
     assert_eq!(tape::sample_line(&tape::sample(&client).await.unwrap()).as_deref(), Some(line));
     assert!(watch::digest(&client, &settings, &now).await.unwrap().contains(line));
     let sample = tape::sample(&client).await.unwrap();
-    assert_eq!((sample[0]["tape_bytes"].as_i64(), sample[0]["not_passed"][0]["asset"].as_str()), (Some(30_056_637_434), Some("AAPL")));
+    assert_eq!((sample[0]["tape_bytes"].as_i64(), sample[0]["not_passed"][0]["asset"].as_str()), (Some(19_150_689_784), Some("AAPL")));
 
     // the second sample recomputes AAPL byte for byte and the reader agrees: the verdict is kept
     // beside the stored cache, and the latest check no longer differs
@@ -211,11 +226,8 @@ async fn a_sample_check_keeps_the_verdict_only_beside_an_equal_cache_and_a_diffe
     assert_eq!(disagree(&refcheck::state(&client, P, None, LATER).await.unwrap()), (1, 0), "a check that compared nothing resolves nothing");
     // 6: recomputed byte for byte and the reader now FAILS, beside the PASS kept earlier: the
     // verdict there stands, and the disagreement is raised
-    let mut fail = pass(&whole);
-    fail["outcome"] = json!("FAIL");
-    fail["why"] = json!("the reader's bins differ");
-    fail["differences"] = json!([{"bin": "trades", "engine": 1, "reader": 2}]);
-    let c = verify_aapl(&mut client, &b, V1, check("AAPL", Some(&whole), None, Some(fail))).await;
+    // (the real FAIL: the cluster's old reader on AAPL's 2025-12-01 cache, recomputed equal)
+    let c = verify_aapl(&mut client, &b, V1, check("AAPL", Some(&whole), None, Some(fail(&whole)))).await;
     assert_eq!((c.outcome.as_str(), c.verdict_kept), ("MATCH", false));
     let state = refcheck::state(&client, P, None, LATER).await.unwrap();
     assert_eq!(disagree(&state), (0, 1));

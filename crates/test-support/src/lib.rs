@@ -58,6 +58,39 @@ pub const ENGINE_BUNDLE_AAPL: &[u8] = include_bytes!("../fixtures/engine-bundle-
 
 pub const TAPE_AAPL: &[u8] = include_bytes!("../fixtures/tape-cache-AAPL-2025-12-10.tar.gz");
 
+/// Two real tape checks (C-058, C-059): the verify jobs' documents for AAPL's cache of 2025-12-01
+/// as core's cluster stored them (`core.tape_check` 748 and 1768, read 2026-11-20), each with the
+/// tape reader's verdict inside: FAIL by the reader of build 3b85b4f6 ("conditional_last_rejected
+/// reader 38, cache 39"), then PASS by the corrected reader of cdf58be2 on the same recomputed
+/// bytes. Besides digests, counts and versions they carry only AAPL's day volume (46,633,227).
+pub const TAPE_CHECK_AAPL_FAIL: &str = include_str!("../fixtures/tape-check-AAPL-2025-12-01-fail.json");
+pub const TAPE_CHECK_AAPL_PASS: &str = include_str!("../fixtures/tape-check-AAPL-2025-12-01-pass.json");
+
+/// A real tape check (`TAPE_CHECK_AAPL_FAIL` or `_PASS`) bound to the cache a test holds: its
+/// asset, session, method version and digests (the recomputed cache's, and its verdict's
+/// `cache_sha256`) set to the test's; every other field as the cluster stored it. Only these
+/// fields change: a test's cache is AAPL's of 2025-12-10 (`TAPE_AAPL`), for which no real check
+/// exists.
+pub fn tape_check_bound(real: &str, asset: &str, session: &str, method: &str, cache_sha256: &str) -> serde_json::Value {
+    let mut c: serde_json::Value = serde_json::from_str(real).expect("a frozen tape check");
+    c["asset"] = asset.into();
+    c["session"] = session.into();
+    c["method_version"] = method.into();
+    c["recomputed_sha256"] = cache_sha256.into();
+    let v = &mut c["verdict"];
+    v["asset"] = asset.into();
+    v["session"] = session.into();
+    v["method_version"] = method.into();
+    v["cache_sha256"] = cache_sha256.into();
+    c
+}
+
+/// The verdict inside a real tape check bound as `tape_check_bound` binds it: what a tape worker
+/// sends beside the cache it stored (C-058's document is this object).
+pub fn tape_verdict_bound(real: &str, asset: &str, session: &str, method: &str, cache_sha256: &str) -> serde_json::Value {
+    tape_check_bound(real, asset, session, method, cache_sha256)["verdict"].take()
+}
+
 /// The real macro capture of 2025-12-03 (the engine's frozen `h3-macro/tests/fixtures/
 /// macro-2025-12-03`, fetched 2026-11-16) packed by the engine as core keeps it (`vyreon-worker
 /// pack-capture`, engine pass-fx13; the engine's test pins the same SHA-256, 96709c90…). Its

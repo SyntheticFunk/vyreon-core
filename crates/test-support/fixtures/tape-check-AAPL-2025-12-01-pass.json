@@ -1,0 +1,86 @@
+{
+    "why": null,
+    "asset": "AAPL",
+    "schema": "VYREON-TAPE-CHECK@1",
+    "session": "2025-12-01",
+    "stamped": [
+        {
+            "field": "manifest.json requested_at",
+            "stored": "2026-11-17T09:02:47.087649Z",
+            "recomputed": "2026-11-20T06:40:09.393812Z"
+        },
+        {
+            "field": "manifest.json retrieved_at",
+            "stored": "2026-11-17T09:07:09.490797Z",
+            "recomputed": "2026-11-20T06:47:35.752320Z"
+        },
+        {
+            "field": "manifest.json tapes[0].retrieved_at (cta_a_delayed)",
+            "stored": "2026-11-17T09:03:32.488337Z",
+            "recomputed": "2026-11-20T06:41:00.973793Z"
+        },
+        {
+            "field": "manifest.json tapes[1].retrieved_at (cta_b_delayed)",
+            "stored": "2026-11-17T09:05:19.871838Z",
+            "recomputed": "2026-11-20T06:44:12.513809Z"
+        },
+        {
+            "field": "manifest.json tapes[2].retrieved_at (utp_delayed)",
+            "stored": "2026-11-17T09:07:09.490797Z",
+            "recomputed": "2026-11-20T06:47:35.752320Z"
+        }
+    ],
+    "verdict": {
+        "why": null,
+        "bins": [
+            26,
+            26
+        ],
+        "kind": "UTP",
+        "asset": "AAPL",
+        "cache": {
+            "body_sha256": "d39c8be5eaa53e236742e929520247544031da55714750929e1b3a03c718ed7d",
+            "derived_sha256": "ee9c66689abe87815f05aff64e60fac79d891b928fb0eafe5d4f615e5dfbc458",
+            "manifest_sha256": "01d51560abbaa68ef4f746d7fb6a5d41044ece7c065cb01f9ceae026fd0008ae"
+        },
+        "schema": "VYREON-TAPE-VERDICT@1",
+        "outcome": "PASS",
+        "session": "2025-12-01",
+        "versions": {
+            "numpy": "2.1.2",
+            "scipy": "1.14.1",
+            "TA-Lib": "0.8.2",
+            "pandas": "2.2.3",
+            "python": "3.12.3",
+            "QuantLib": "1.43",
+            "exchange_calendars": "4.13.2"
+        },
+        "day_volume": [
+            46633227,
+            46633227
+        ],
+        "differences": [
+        ],
+        "label_facts": {
+            "form_t_in_regular_hours": 71,
+            "contingent_prints_in_bins": 342,
+            "contingent_shares_in_bins": 990560,
+            "auction_prints_after_close": 1,
+            "form_t_shares_in_regular_hours": 5033
+        },
+        "cache_sha256": "26c12a78c68933c98df2d20f54fbe6cec014dccf4e248d729fd5b68bd54e4ba1",
+        "engine_build": "cdf58be2+96356aa79bd5",
+        "method_version": "VYREON-REPLAY-CONSOLIDATED@6+h3-replay-reader/sha256:8cbc8c46593ae9eec4c693a4d4bb4a64",
+        "reader_bins_sha256": "ec0db75c237e6239e6eb45349b51a89513e910f0663243e2a4c5e5e4b9723290",
+        "conditional_last_rejected": [
+            39,
+            39
+        ]
+    },
+    "tape_bytes": 19150689784,
+    "differences": [
+    ],
+    "engine_build": "cdf58be2+96356aa79bd5",
+    "method_version": "VYREON-REPLAY-CONSOLIDATED@6+h3-replay-reader/sha256:8cbc8c46593ae9eec4c693a4d4bb4a64",
+    "recomputed_sha256": "26c12a78c68933c98df2d20f54fbe6cec014dccf4e248d729fd5b68bd54e4ba1"
+}
