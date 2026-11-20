@@ -168,8 +168,17 @@ mod tests {
         assert_eq!(special("FXI", "2023-06-08"), (Some(0.148983), Some("2023-06-07".to_owned())));
         assert_eq!(special("QQQ", "2023-12-27"), (Some(0.21584), None));
         assert_eq!(special("EMB", "2024-12-30"), (Some(0.254515), None));
+        // C-055 amended 2026-11-20 (audit round cc, 1): the specials from 2019-05-27, 1,096 days
+        // before the first session (engine D-120's dividend window): memos #46168, #46260, #46261,
+        // #48070, #49856 (ARKK's 0.7826 recurred as a projected dividend without its entry)
+        assert_eq!(special("ARKK", "2021-12-29"), (Some(0.78257), None));
+        assert_eq!(special("ARKK", "2020-12-29"), (Some(2.04431), None));
+        assert_eq!(special("EEM", "2019-12-17"), (Some(0.266326), Some("2019-12-16".to_owned())));
+        assert_eq!(special("XLE", "2019-12-30"), (Some(1.791209), None));
+        assert_eq!(special("XLV", "2019-12-30"), (Some(0.66554), None));
+        assert_eq!((entry("ARKK", "2021-12-29")["strike_offset"].as_f64(), memo(entry("ARKK", "2021-12-29")["evidence"].as_str().unwrap())), (Some(0.78), Some(49856)));
         let offsets = doc["assets"].as_object().unwrap().values().flat_map(|l| l.as_array().unwrap()).filter(|e| e.get("strike_offset").is_some()).count();
-        assert_eq!(offsets, 4);
+        assert_eq!(offsets, 9);
     }
 
     /// Each of core's rules refuses a real entry altered to break it.
