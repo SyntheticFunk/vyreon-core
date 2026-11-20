@@ -1059,6 +1059,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   labels unchanged per D-295: the method is the same, the moved input is the surface @22) and
   d0abefa1 (D-120 note); full suite with --no-fail-fast running; the build now runs only when the
   suite exits 0.
+  **Owner (02:25 UTC Nov 20): approves (1) the forward-scatter rule — the price test (half the
+  bid-ask spread) applies also where a σ half-width exists, scatter only beyond the larger; (2) core
+  records each asset's first option session and sends it with the claim (bulk plans skip earlier
+  sessions); (4) the tape owners verified independently: the tape worker runs the reference tape
+  reader while it holds the raw tape and core keeps the verdict with the cache. Phase-1 spend waits on
+  the optimization passes' measured totals.**
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
