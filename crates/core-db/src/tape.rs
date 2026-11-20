@@ -455,11 +455,29 @@ pub async fn put_check(client: &mut Client, token: &str, session: &str, asset: &
     Ok(Checked { outcome: outcome.to_owned(), verdict_kept: kept, why, new: true })
 }
 
-/// C-059: the sample, one entry per session checked, oldest first: each member's latest check
-/// counted by outcome and by its verdict, the replay bytes downloaded, and whether the session
-/// passed (every member checked recomputed byte for byte and the tape reader agreeing, or the
-/// cache withheld whole); with the latest check of every member that did not pass.
+/// C-059: the sample, one entry per session checked, oldest first: the members listed on it (the
+/// checking job's profile), each member's latest check counted by outcome, the verdicts of the
+/// MATCH checks by outcome (a verdict on a recomputed cache that differs from the stored one names
+/// other bytes: it stays in that check's row, never in these counts; round cc, 10), the replay
+/// bytes downloaded, and whether the session passed: every member listed has a latest check that
+/// is MATCH with a PASS verdict (WITHHELD for a capture withheld whole) (round cc, 7: a job that
+/// stopped after one member never passes its session); with every listed member not passed (a
+/// member without a check as NOT_CHECKED).
 pub async fn sample(c: &impl GenericClient) -> Result<Vec<serde_json::Value>, String> {
+    let listed_rows = c
+        .query(
+            "SELECT s.session::text, m.asset_key
+             FROM (SELECT DISTINCT c.session, j.profile_id FROM core.tape_check c JOIN core.job j USING (job_id)) s,
+                  core.members_on(s.profile_id, s.session) m
+             WHERE m.ticker IS NOT NULL ORDER BY 1, 2",
+            &[],
+        )
+        .await
+        .map_err(db)?;
+    let mut listed: std::collections::BTreeMap<String, std::collections::BTreeSet<String>> = std::collections::BTreeMap::new();
+    for r in &listed_rows {
+        listed.entry(r.get(0)).or_default().insert(r.get(1));
+    }
     let rows = c
         .query(
             "SELECT DISTINCT ON (session, asset_key) session::text, asset_key, outcome, verdict_outcome, why, tape_bytes, job_id,
@@ -475,15 +493,21 @@ pub async fn sample(c: &impl GenericClient) -> Result<Vec<serde_json::Value>, St
         let (verdict, why, bytes): (Option<String>, Option<String>, Option<i64>) = (r.get(3), r.get(4), r.get(5));
         let (job, at): (i64, String) = (r.get(6), r.get(7));
         if out.last().is_none_or(|s| s["session"] != session.as_str()) {
-            out.push(serde_json::json!({"session": session, "checked": 0, "MATCH": 0, "DIFFER": 0, "NOT_COMPARED": 0, "PASS": 0, "FAIL": 0, "WITHHELD": 0, "NOT_RUN": 0,
-                                        "no_verdict": 0, "passed_members": 0, "tape_bytes": null, "jobs": [], "last_checked_at": at, "not_passed": []}));
+            let n = listed.get(&session).map_or(0, |l| l.len());
+            out.push(serde_json::json!({"session": session, "listed": n, "checked": 0, "unchecked": 0, "MATCH": 0, "DIFFER": 0, "NOT_COMPARED": 0, "PASS": 0, "FAIL": 0,
+                                        "WITHHELD": 0, "NOT_RUN": 0, "no_verdict": 0, "passed_members": 0, "tape_bytes": null, "jobs": [],
+                                        "last_checked_at": at, "not_passed": [], "seen": []}));
         }
         let s = out.last_mut().expect("pushed");
         let bump = |s: &mut serde_json::Value, k: &str| s[k] = serde_json::json!(s[k].as_i64().unwrap_or(0) + 1);
         bump(s, "checked");
         bump(s, &outcome);
-        bump(s, verdict.as_deref().unwrap_or("no_verdict"));
-        let passed = outcome == "MATCH" && matches!(verdict.as_deref(), Some("PASS" | "WITHHELD"));
+        if outcome == "MATCH" {
+            bump(s, verdict.as_deref().unwrap_or("no_verdict"));
+        }
+        s["seen"].as_array_mut().expect("a list").push(serde_json::json!(asset));
+        let is_listed = listed.get(&session).is_some_and(|l| l.contains(&asset));
+        let passed = is_listed && outcome == "MATCH" && matches!(verdict.as_deref(), Some("PASS" | "WITHHELD"));
         if passed {
             bump(s, "passed_members");
         } else {
@@ -500,7 +524,14 @@ pub async fn sample(c: &impl GenericClient) -> Result<Vec<serde_json::Value>, St
         }
     }
     for s in &mut out {
-        s["passed"] = serde_json::json!(s["checked"].as_i64() > Some(0) && s["passed_members"] == s["checked"]);
+        let seen: Vec<String> = s["seen"].as_array().expect("a list").iter().filter_map(|a| a.as_str().map(str::to_owned)).collect();
+        let session = s["session"].as_str().unwrap_or_default().to_owned();
+        for asset in listed.get(&session).into_iter().flatten().filter(|a| !seen.contains(a)) {
+            s["not_passed"].as_array_mut().expect("a list").push(serde_json::json!({"asset": asset, "outcome": "NOT_CHECKED", "verdict": null, "why": "no check of this member"}));
+            s["unchecked"] = serde_json::json!(s["unchecked"].as_i64().unwrap_or(0) + 1);
+        }
+        s.as_object_mut().expect("an object").remove("seen");
+        s["passed"] = serde_json::json!(s["listed"].as_i64() > Some(0) && s["passed_members"] == s["listed"]);
     }
     Ok(out)
 }
@@ -524,12 +555,13 @@ pub fn sample_line(sessions: &[serde_json::Value]) -> Option<String> {
     }
     let sum = |k: &str| sessions.iter().map(|s| s[k].as_i64().unwrap_or(0)).sum::<i64>();
     let passed = sessions.iter().filter(|s| s["passed"] == true).count();
-    let (members, ok) = (sum("checked"), sum("passed_members"));
+    let (members, ok) = (sum("listed"), sum("passed_members"));
     let mut misses = Vec::new();
     for (n, words) in [
         (sum("DIFFER"), "differ from the stored cache"),
         (sum("MATCH") - sum("PASS") - sum("WITHHELD"), "recomputed equal, the tape reader not agreeing"),
         (sum("NOT_COMPARED"), "not compared"),
+        (sum("unchecked"), "not checked"),
     ] {
         if n > 0 {
             misses.push(format!("{} {words}", thousands(n)));
@@ -554,9 +586,9 @@ mod tests {
     fn the_sample_line_counts_never_lists() {
         assert_eq!(sample_line(&[]), None);
         let session = |checked: i64, matched: i64, pass: i64, withheld: i64, differ: i64| {
-            serde_json::json!({"checked": checked, "MATCH": matched, "PASS": pass, "WITHHELD": withheld, "DIFFER": differ,
+            serde_json::json!({"listed": 64, "checked": checked, "unchecked": 64 - checked, "MATCH": matched, "PASS": pass, "WITHHELD": withheld, "DIFFER": differ,
                                "NOT_COMPARED": checked - matched - differ, "passed_members": pass + withheld,
-                               "passed": checked > 0 && pass + withheld == checked})
+                               "passed": pass + withheld == 64})
         };
         let all: Vec<_> = (0..20).map(|i| session(64, 64, 64 - i % 2, i % 2, 0)).collect();
         assert_eq!(
@@ -568,6 +600,12 @@ mod tests {
         assert_eq!(
             sample_line(&some).unwrap(),
             "Tape cache code verified by sample (C-059): 19 of 20 sessions passed (1,277 of 1,280 asset-sessions recomputed byte for byte with the tape reader agreeing; 2 differ from the stored cache, 1 recomputed equal, the tape reader not agreeing)"
+        );
+        // round cc, 7: a job that stopped after one member (AAPL) passes no session
+        some[5] = session(1, 1, 1, 0, 0);
+        assert_eq!(
+            sample_line(&some).unwrap(),
+            "Tape cache code verified by sample (C-059): 18 of 20 sessions passed (1,214 of 1,280 asset-sessions recomputed byte for byte with the tape reader agreeing; 2 differ from the stored cache, 1 recomputed equal, the tape reader not agreeing, 63 not checked)"
         );
     }
 }

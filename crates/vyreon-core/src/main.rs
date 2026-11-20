@@ -139,10 +139,11 @@ fn sample_session_line(s: &serde_json::Value) -> String {
     let gb = s["tape_bytes"].as_i64().map_or_else(|| "replay bytes not stated".to_owned(), |b| format!("{:.1} GB of replay files", b as f64 / 1e9));
     let jobs: Vec<String> = s["jobs"].as_array().into_iter().flatten().map(|j| j.to_string()).collect();
     format!(
-        "{} {}: {} checked, {} match ({} PASS, {} WITHHELD, {} FAIL, {} NOT_RUN, {} without a verdict), {} differ, {} not compared · {gb} · job {} · {}",
+        "{} {}: {} of {} listed members checked, {} match ({} PASS, {} WITHHELD, {} FAIL, {} NOT_RUN, {} without a verdict), {} differ, {} not compared · {gb} · job {} · {}",
         s["session"].as_str().unwrap_or("?"),
         if s["passed"] == true { "passed" } else { "NOT passed" },
         n("checked"),
+        n("listed"),
         n("MATCH"),
         n("PASS"),
         n("WITHHELD"),
