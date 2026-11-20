@@ -1308,6 +1308,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   solver threads on 8 vCPU); FIELD --threads 16. To measure: worker parent memory 3.6 → 5.25 GiB over
   days 1–3 (would a 15-day block fit?); heartbeat stops before block-history delete. **For the owner
   (by decision, against priority 4): D-192 refuses the whole day when one raw page is unreadable.**
+  **Codex optimization audit (`round-cc/optimization.md`; estimates, to verify):** (1) the four history
+  endpoints share one traversal: 140–175 CPU-min on a first day, ~1 on a warm day (after D-404); (2)
+  M0 reads each parent trace once: 23–36 CPU-min/session; (3) M0 encodes each trace once: 16–33;
+  (5) Q01 repeat reads: 21–41 cold; critical path: (7) start intent A while the surfaces build (prep
+  is 64 min and A needs no surface: up to ~57 min/day off the critical path), (9) reference check
+  alongside the next day (up to 28 min), (10) FIELD panels earlier, (11) largest-first for M0
+  prerequisites (SPY T−5 is the stage's tail); preparation stage unprofiled (carry fits computed then
+  discarded; surface units scheduled below the asset level). M0 items went to the pass-2 M0 track
+  (fx71); critical-path items next track; history items after D-404.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
