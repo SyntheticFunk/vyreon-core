@@ -1210,7 +1210,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   fill), now ~4 GB. P-21 extended: the API's QQQ 2026-09-28 chain also holds 09-29 data, so the
   bulk fallback cannot recover it; QQQ's option-history-window sensors are withheld on 10-28 (stated
   absence, as designed). Pass-2 lead: intent A runs 4 persistent workers at ~78% CPU each (load 4.1
-  on 8 vCPU) once the overlapping fill ends: half the node idle.
+  on 8 vCPU) once the overlapping fill ends: half the node idle. **Cause (13:20 UTC): my 14 GiB pod limit, not the code
+  path's speed.** h4 admission reads cgroup `memory.max − memory.current`, which counts page cache:
+  with a limit, the day's written inputs fill the cgroup with cache and the plan saw 2.2 GB free →
+  4 of 8 workers (recorded `admitted_workers 4`). Day 1 intent A took 106 min (88 before), so this
+  block's intent-A timings understate pass 1. Fix in `pass-fx68` (working set = current −
+  inactive_file, as the kubelet measures). The C-001 history-off run goes on the fixed image.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
