@@ -1406,7 +1406,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   **Spend: DigitalOcean month-to-date $167.41 (2026-11-20 18:30 UTC) against the $300 ceiling.**
   Old-image block day 2 (2026-10-29) published 18:57 UTC, 248 min after its start including its
   32.6-min reference check (2,477 failed, 259 unexplained: QQQ's 09-28 gap as on 10-28, fixed on the
-  new build); day 3 (10-30) started 18:57.
+  new build); day 3 (10-30) started 18:57. Day 3 intent A 41.6 min (serial reuses again).
+  **The day-block process itself grows a day at a time: `vyreon-worker` RSS 3.6 GB (day 1) → 5.3
+  (day 2) → 6.7 (day 3).** At that rate a ~15-day phase-1 block would not fit a 16 GB node: cause and
+  fix being found (`pass-fx77`) before long blocks.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
