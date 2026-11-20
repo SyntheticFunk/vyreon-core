@@ -1279,6 +1279,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   **Owner (2026-11-20 09:10 MT, back ~21:00 MT):** if the optimization passes finish before then, run
   them again; and a Codex optimization audit regardless (scope `round-cc/scopes/optimization.md`, with
   the measured profile; runs after round cc's audits).
+  **Pass 1 result (first day of a block, AMD): start → published 532 → 400 min** (inputs 242 → 105;
+  prep 73 → 64; A 88 → 106 at half width, fixed; B 72 → 71; refcheck 31 → 28). Later days' inputs
+  were already overlapped (75 → 69). **Owner target: ~200 min start → published for a later day,
+  ~250 for a first day.** Levers: reference check off the critical path (next day's compute), M0
+  analytics (fx71 profiling), in-day preparation (unprofiled, 64–73 min), history (four reads, reuse).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
