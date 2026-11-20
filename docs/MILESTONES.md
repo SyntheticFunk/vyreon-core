@@ -1143,6 +1143,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   worst relative 5.9e-9; high-priced/active names; 15 on 2025-06-02).** Larger than summation-order
   noise should give, so the cause (price representation, included prints, accumulation) is being
   found before any tolerance changes (`pass-fx65`).
+  **Cause found (`pass-fx65` merged, `worker` cdf58be2, reference 87 passed; D-370 amended):** (1) VWAP:
+  a rounding tie rule, not noise: the reader rounded trade prices half-to-even, the engine half away
+  from zero (D-107 6, the definition); all 86 VWAP differences are whole tie shares moved one step
+  (cache always above); the reader now rounds exactly as the engine, and the VWAP tolerance is a cited
+  bound γ_2n (Higham §4.2) instead of 1e-10. (2) `conditional_last_rejected`: the engine counts the
+  whole session date's rejected conditional prints, the reader only in-bin prints (every bin equal;
+  excess 1–10 = prints outside the bins); the reader now counts at the session-date scope (no
+  published value reads this count). 42 FAIL verdicts over 16 sessions so far; re-verify 2024-04-09,
+  06-03, 06-10, 07-15, 08-01, 12-02, 2025-06-02, 08-01, 12-01, 2026-02-02, 04-01 on the new image.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
