@@ -1404,6 +1404,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   Old-image baseline, day 2 (2026-10-29, later day): prep 73, intent A 46 (61,828 reuses), B 71, tail
   ~20: published 216 min after its start, then refcheck 28.
   **Spend: DigitalOcean month-to-date $167.41 (2026-11-20 18:30 UTC) against the $300 ceiling.**
+  Old-image block day 2 (2026-10-29) published 18:57 UTC, 248 min after its start including its
+  32.6-min reference check (2,477 failed, 259 unexplained: QQQ's 09-28 gap as on 10-28, fixed on the
+  new build); day 3 (10-30) started 18:57.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
