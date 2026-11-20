@@ -1003,6 +1003,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   preparation 73 (Intel 100): **258 min of compute per day (Intel 448), with day 2's download running
   on the same node meanwhile.** Day 1 total from start: 501 min (8 h 21 m; inputs 242 + compute 258).
   Reference check started 23:55 (fixed suite).
+  **Day 2 (2026-11-03) inputs: 75 min (19:35–20:50), entirely overlapped with day 1's compute** (one
+  bulk file, one snapshot, requote of the new session, company, ACT01): a later day in a block costs
+  ~its compute (~258 min AMD) plus the reference check if it runs in sequence.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
