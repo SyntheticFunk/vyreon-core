@@ -1266,6 +1266,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   so DLM-PRICE-LEVELS' range moves to it. First a census of every 1-year/52-week window (span, close
   vs intraday basis) and one decision with before/after (D-118 changed the drawdown without one).
   Queued behind D-404.
+  **Owner (2026-11-20): buys Intrinio's Startup tier the week of 11-23 (Black Friday offer); phase 1
+  in ~2 weeks matches the owner's estimate.** On the switch: check entitlements and rate limit
+  (access codes), update core's request budget, rotate the key in the cluster secret and api.txt
+  (never printed), and rerun one real day before phase 1.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
