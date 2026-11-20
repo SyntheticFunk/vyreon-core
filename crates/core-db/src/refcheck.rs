@@ -340,6 +340,10 @@ pub struct State {
     /// differ from the engine's cache); the oldest session.
     pub tape_failed: i64,
     pub tape_failed_oldest: Option<String>,
+    /// C-059: asset-sessions whose latest sample check recomputed a cache other than the stored one
+    /// (while that cache is still the asset-session's newest); the oldest session.
+    pub sample_differ: i64,
+    pub sample_differ_oldest: Option<String>,
 }
 
 /// The reference checks' state at `now` (`from`: the first session every published day of which
@@ -384,7 +388,22 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
         )
         .await
         .map_err(db)?;
+    // C-059: the latest check of each asset-session, until a newer cache supersedes the one it found
+    let d = c
+        .query_one(
+            "SELECT count(*), min(session)::text FROM (
+                 SELECT DISTINCT ON (session, asset_key) session, asset_key, outcome, checked_at FROM core.tape_check
+                 WHERE checked_at <= $1::text::timestamptz ORDER BY session, asset_key, checked_at DESC, tape_check_id DESC) k
+             WHERE k.outcome = 'DIFFER'
+               AND NOT EXISTS (SELECT FROM core.tape_cache n WHERE n.session = k.session AND n.asset_key = k.asset_key
+                               AND n.stored_at > k.checked_at AND n.stored_at <= $1::text::timestamptz)",
+            &[&now],
+        )
+        .await
+        .map_err(db)?;
     Ok(State {
+        sample_differ: d.get(0),
+        sample_differ_oldest: d.get(1),
         tape_failed: t.get(0),
         tape_failed_oldest: t.get(1),
         disagree: r.get(0),
@@ -406,14 +425,25 @@ fn days(n: i64) -> String {
 impl State {
     /// REFCHECK_DISAGREES's summary, when any day disagrees or any tape verdict failed (C-058).
     pub fn disagree_summary(&self) -> Option<String> {
-        let tape = (self.tape_failed > 0).then(|| {
-            format!(
+        let mut tapes = Vec::new();
+        if self.tape_failed > 0 {
+            tapes.push(format!(
                 "the tape reader disagrees with the engine's tape cache on {} asset-session{}, the oldest {}",
                 self.tape_failed,
                 if self.tape_failed == 1 { "" } else { "s" },
                 self.tape_failed_oldest.as_deref().unwrap_or("?")
-            )
-        });
+            ));
+        }
+        // C-059
+        if self.sample_differ > 0 {
+            tapes.push(format!(
+                "the tape sample recomputed a cache other than the stored one on {} asset-session{}, the oldest {} (vyreon-core tape checks)",
+                self.sample_differ,
+                if self.sample_differ == 1 { "" } else { "s" },
+                self.sample_differ_oldest.as_deref().unwrap_or("?")
+            ));
+        }
+        let tape = (!tapes.is_empty()).then(|| tapes.join("; "));
         match (self.disagree > 0, tape) {
             (true, tape) => Some(format!(
                 "Reference check disagrees with {}: {} comparisons failed unexplained, the oldest {}{}",
@@ -536,5 +566,14 @@ mod tests {
         let t = State { tape_failed: 1, tape_failed_oldest: Some("2025-04-14".into()), ..State::default() };
         assert_eq!(t.disagree_summary().unwrap(), "Reference check: the tape reader disagrees with the engine's tape cache on 1 asset-session, the oldest 2025-04-14");
         assert_eq!(t.not_run_summary(), None, "a verdict is never a check not run");
+        // C-059: a sample check whose recomputed cache differs, alone and beside a failed verdict
+        let d = State { sample_differ: 2, sample_differ_oldest: Some("2024-04-09".into()), ..State::default() };
+        assert_eq!(d.disagree_summary().unwrap(), "Reference check: the tape sample recomputed a cache other than the stored one on 2 asset-sessions, the oldest 2024-04-09 (vyreon-core tape checks)");
+        let d = State { tape_failed: 1, tape_failed_oldest: Some("2025-04-14".into()), ..d };
+        assert_eq!(
+            d.disagree_summary().unwrap(),
+            "Reference check: the tape reader disagrees with the engine's tape cache on 1 asset-session, the oldest 2025-04-14; the tape sample recomputed a cache other than the stored one on 2 asset-sessions, the oldest 2024-04-09 (vyreon-core tape checks)"
+        );
+        assert_eq!(d.not_run_summary(), None);
     }
 }

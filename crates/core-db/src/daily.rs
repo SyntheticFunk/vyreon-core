@@ -119,7 +119,8 @@ pub async fn queue_due(client: &mut Client, d: &Daily, now: &str) -> Result<Vec<
             let covered = tx
                 .query_opt(
                     "SELECT job_id FROM core.job WHERE kind = $1 AND profile_id = $2 AND state <> 'CANCELLED'
-                       AND $3::text::date BETWEEN first_session AND last_session LIMIT 1",
+                       AND $3::text::date BETWEEN first_session AND last_session
+                       AND NOT COALESCE(scope @> '{\"verify\": true}', false) LIMIT 1",
                     &[&kind.name(), &d.profile, session],
                 )
                 .await

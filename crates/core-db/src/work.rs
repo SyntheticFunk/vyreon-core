@@ -140,6 +140,61 @@ pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &st
     Ok(Scheduled { jobs, sessions, partitions })
 }
 
+/// C-059: one verify job per chosen session (a TAPE job of scope `tape::VERIFY_SCOPE`): its worker
+/// downloads the session's replay files again, recomputes each member's cache with `build` and
+/// reports a check per member; nothing is stored in place of a cache. Each session must hold a
+/// stored tape cache and no unfinished tape job of the profile; all or none are scheduled. Returns
+/// the jobs, in the sessions' order.
+pub async fn schedule_verify(client: &mut Client, profile: &str, build: &str, sessions: &[&str]) -> Result<Vec<i64>, String> {
+    if sessions.is_empty() {
+        return Err("name at least one session to verify".into());
+    }
+    if let Some(bad) = sessions.iter().find(|s| !core_contract::is_date(s)) {
+        return Err(format!("{bad} is not a date written YYYY-MM-DD"));
+    }
+    if client.query_opt("SELECT FROM core.engine_build WHERE engine_build = $1", &[&build]).await.map_err(db)?.is_none() {
+        return Err(format!("engine build {build} is not registered"));
+    }
+    let mut sorted: Vec<&str> = sessions.to_vec();
+    sorted.sort_unstable();
+    sorted.dedup();
+    let tx = client.transaction().await.map_err(db)?;
+    tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.map_err(db)?;
+    let mut jobs = Vec::new();
+    for session in sorted {
+        if tx.query_opt("SELECT FROM core.session WHERE session = $1::text::date", &[&session]).await.map_err(db)?.is_none() {
+            return Err(format!("{session} is not a trading session"));
+        }
+        if tx.query_opt("SELECT FROM core.tape_cache WHERE session = $1::text::date AND body IS NOT NULL LIMIT 1", &[&session]).await.map_err(db)?.is_none() {
+            return Err(format!("core holds no tape cache of {session}: nothing to verify"));
+        }
+        let unfinished: Option<i64> = tx
+            .query_opt(
+                "SELECT job_id FROM core.job WHERE kind = 'TAPE' AND profile_id = $1 AND state IN ('QUEUED', 'LEASED', 'FAILED')
+                   AND $2::text::date BETWEEN first_session AND last_session LIMIT 1",
+                &[&profile, &session],
+            )
+            .await
+            .map_err(db)?
+            .map(|r| r.get(0));
+        if let Some(job) = unfinished {
+            return Err(format!("{session} has unfinished tape job {job}"));
+        }
+        let job: i64 = tx
+            .query_one(
+                "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope)
+                 VALUES ('TAPE', $1, $2, $3::text::date, $3::text::date, $3::text::date, $4::text::jsonb) RETURNING job_id",
+                &[&profile, &build, &session, &crate::tape::VERIFY_SCOPE],
+            )
+            .await
+            .map_err(db)?
+            .get(0);
+        jobs.push(job);
+    }
+    tx.commit().await.map_err(db)?;
+    Ok(jobs)
+}
+
 /// What a worker holds after a claim.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Claim {
@@ -241,6 +296,11 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         return Ok(true);
     }
     let kind: String = db_client.query_one("SELECT kind FROM core.job WHERE job_id = $1", &[&job]).await.map_err(db)?.get(0);
+    if kind == "TAPE" && crate::tape::is_verify(db_client, job).await? {
+        // C-059: a sample check holds nothing back (no day block waits on it, no cache is stored)
+        notice::log(db_client, &format!("Tape verify job {job} failed for the last time: {why}. Nothing waits on it.")).await?;
+        return Ok(false);
+    }
     if kind == "ORDERED_PASS" {
         // the later days' passes wait on this one by themselves (`core.claimable_job`); the day
         // blocks do not read it, and a pass is seconds to run again once its cause is fixed
