@@ -1298,6 +1298,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   request budget. **Digest false alarm (owner saw 🔴 at 10:00 MT):** a superseded crash counted as
   "did not run", stale problem texts, old-suite failures shown as unexplained, ETA wrong; fixing in
   `core-digest-fix` together with the core findings.
+  **Engine triage a (inputs + caches + resources surfaces, `triage/a.md`): 41 findings → 11 real (0
+  wrong published numbers), 18 not real, 6 by decision, 5 uncertain, 1 known (D-404).** Worst: QQQ
+  2026-09-30 OI readings withheld because `Occ::unlisted` reads 09-29's empty chain as "listed
+  nothing" (contradicts D-117/D-365; amend D-398). Others: quote-file write failure stored as
+  provider absence; a 404 capture gap mislabelled ENGINE_FAULT by a batch's 5xx; read_dir errors
+  cached as empty; reference prefetch 140 sessions (false FAILs); Pool.imap hangs to the deadline on
+  a killed child; tape verdicts all-or-nothing; persistent workers drop VYREON_M0_THREADS (up to 64
+  solver threads on 8 vCPU); FIELD --threads 16. To measure: worker parent memory 3.6 → 5.25 GiB over
+  days 1–3 (would a 15-day block fit?); heartbeat stops before block-history delete. **For the owner
+  (by decision, against priority 4): D-192 refuses the whole day when one raw page is unreadable.**
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
