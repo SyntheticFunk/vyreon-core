@@ -1396,6 +1396,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   synced in parallel, crash-safe): 7.26 → 1.40 ms per task on the laptop (cluster was ~44 ms: the
   next block's `reuse_commits` log shows the real figure). Left: encode-once (~2.5%), parent-stream
   re-reads (needs a real-day profile), anything that changes σ bits.
+  **Pass-2 image 3d043daf (build 3d043daf+08398af2061b; all tracks merged; 1,532 passed; M0-ANALYTICS
+  code digest re-pinned for D-404 + D-405, label kept) admitted; block 2026-11-05..06 started on it
+  (18:30 UTC, second day node, overlaps default, history on); memory sampled to
+  `checks/2026-11-20-block-1105-memory-3d043daf.tsv`.** Then the same block with
+  `VYREON_OVERLAP_*=off` and `VYREON_WORKER_HISTORY=off` for the byte proof (C-001 + overlaps).
+  Old-image baseline, day 2 (2026-10-29, later day): prep 73, intent A 46 (61,828 reuses), B 71, tail
+  ~20: published 216 min after its start, then refcheck 28.
+  **Spend: DigitalOcean month-to-date $167.41 (2026-11-20 18:30 UTC) against the $300 ceiling.**
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
