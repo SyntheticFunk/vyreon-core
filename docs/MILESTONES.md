@@ -1152,6 +1152,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   excess 1–10 = prints outside the bins); the reader now counts at the session-date scope (no
   published value reads this count). 42 FAIL verdicts over 16 sessions so far; re-verify 2024-04-09,
   06-03, 06-10, 07-15, 08-01, 12-02, 2025-06-02, 08-01, 12-01, 2026-02-02, 04-01 on the new image.
+  **06:17 UTC: test block on 3b85b4f6 EVICTED at 53 min (worker 13.5 GB of the node's 16 GB, during
+  the snapshot stage: optimization pass 1's 8 snapshot sessions at once, each deriving markers for
+  64 securities).** Optimization regression: in-flight defaults need memory-aware limits. Restarted
+  (core requeued job 1384) with `VYREON_SNAPSHOTS_IN_FLIGHT=2`, `VYREON_BULK_FILES_IN_FLIGHT=2` and a
+  14 GiB container limit; memory sampled every 2 min to `checks/2026-11-20-block-1028-memory.tsv`
+  to set defaults from measurement.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
