@@ -1579,6 +1579,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   close/open from the listing market's own auction prints (reader identity changes; phase 1's tape
   caches re-downloaded during the build): `pass-fx87`. Asked whether the 2 GiB per-worker
   address-space cap is necessary: proposed replacing it with a real-memory (RSS) watchdog.
+  **EVC01 floor merged (owner: binding is the natural consequence of phase 1's start; what matters
+  is full populations for the first reports).** Method @7 (D-411's @6 + the floor). For the first
+  reports (2027-01): quote-width flags available from ~2026-06; volume flags from ~2026-09 only if
+  the P-04 sessions (from 2026-11-06) are reconciled: without the trades-API switch (D-089
+  amendment) GLD's volume baseline falls below 189 by ~mid-December 2026. Extending phase 1 back does
+  not help EVC01 (the older files are thinner) unless Intrinio regenerates them (bug report #3).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
