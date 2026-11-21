@@ -1665,6 +1665,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   `task_page` by reading all of the run's ~51,500 edges per call: two indexes added (all 42
   statements' plans checked on the real index); replaying day 2's 62,849 reuses: 10.51 → 0.68 ms a
   reuse (660 s → 43 s).
+  **Day 2's reference check COMPLETED beside day 3: 97,113 checked, 2,455 failed, only 3 unexplained
+  (10-28 had 254)**: the triage fixes and D-403/D-404 show; 56.8 min wall at nice 19, 128.5 CPU-min.
+  The overlap costs nothing on the critical path: day 1's check joined with 0.0 min wait. Day 3
+  (11-09): intent A done 10:53 (warm; still the slow commit path in this image), intent B from 10:56.
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
