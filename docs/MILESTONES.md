@@ -173,6 +173,15 @@ first publication of either; ideally free and paid are ready together. Google Ad
    re-architected from today's early-access setup into the full free reports (64 per-asset pages)
    plus the paid product and its explainer page; a lot of website work. The paid pilot's issues go
    by email (beehiiv), so they depend on Reporter (by 2027-01-09), not on the web rebuild.
+   Existing web design inputs for the scoping (all pre-pivot; read as inputs, not authority):
+   `vyreon-reporter/docs/publication-design/` (FREE_REPORT_INFORMATION_ARCHITECTURE,
+   PAID_OBSERVATORY_INFORMATION_ARCHITECTURE, PAGE_WIREFRAME_SPECIFICATIONS + `wireframes/`,
+   VISUAL_DESIGN_SYSTEM, CHART_AND_TABLE_GRAMMAR, discoverability research; 2026-09-25);
+   `market-research/VYREON_PAID_CROSS_ASSET_PRODUCT_CONCEPT.md` (paid product concept, 2026-09-11);
+   `~/claude-artifacts/website-plan-2026-10-12.md` (the early-access site plan, A/B/C items);
+   `~/claude-artifacts/literature/SYNTHESIS-vyreon.md` and `SYNTHESIS-client-spec.md` (the
+   e-commerce books' Vyreon actions and client spec R-ids). The archived prototype SPY reports
+   (`vyreon-web` `/spy/`) are `noindex` and unlinked.
    **Ads after free + paid are live (owner, 2026-11-21):** every free report links to a paid-product
    explainer page, and the ad campaign advertises only that explainer (Google Ads worked for the
    prototype: 1.58M impressions, 156k clicks; the lesson was a landing page with nothing real to
