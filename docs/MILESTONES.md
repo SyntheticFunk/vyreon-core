@@ -1855,6 +1855,26 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   share-count rows 12 vs 10, its history window FY2022Q4 vs FY2023Q4 first period). Off-run
   timings: day 1 286 min from block start (on: 226), day 2 173 min (on: 134). Day 3 still running;
   the comparison script is `scratchpad/byteproof` (masking rule in this entry).
+- **Phase-1 QA plan (owner, 2026-11-21: "We do phase 1, try to break it, fix what breaks, then move
+  towards Reporter generating free+paid reports, and go live with web"; "worth proving this system as
+  much as possible").** On top of the planned per-tranche census, external checks and per-day
+  reference checks, phase 1 runs:
+  1. **History reference check as a gate on the first (newest) tranche:** `tools/reference`
+     recomputes z-scores, percentiles, one-year windows, flags, technicals and EVC baselines from the
+     built store; the rest of the build is trusted only after it passes.
+  2. **Continuity plots for the owner's eye:** every sensor × asset over the whole range (jumps the
+     market did not make, breaks at code-change dates).
+  3. **Event walk:** each real event in range checked around its date: splits and reverse splits
+     (NVDA, ETHA), WMT's listing transfer 2025-12-09, special dividends, every early close, the P-23
+     tape era boundary 2025-11-26, the bulk-file fault days (P-20, P-21).
+  4. **Determinism at scale:** a few random sessions re-run on a different node, compared byte for
+     byte (masked provenance, as the byte proof).
+  5. **Look-ahead audit over the built store:** no measurement uses anything stamped after its cutoff
+     (filings, macro releases, restated captures such as BABA's of 11-21).
+  Then try to break it, fix what breaks; then Reporter (free + paid) on the built store; then go live
+  on the web. Loose ends that follow the build: trades-API switch before daily publishing,
+  one-year-window and test censuses, a frozen raw tape slice (D-102), RSS watchdog, reader digest of
+  non-test code only, daily go-forward in production, a tested backup restore, API end-to-end.
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
