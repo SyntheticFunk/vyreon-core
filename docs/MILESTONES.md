@@ -140,8 +140,10 @@ scheduling).
   large"):** each tranche passes, before the next starts: (a) refcheck in the worker on every day;
   (b) the Cboe bands (`tools/external`); (c) EDGAR; (d) once 63 sessions of history exist, a
   flag-agreement test: when a Cboe index is in the top tenth of its last 63 sessions, our matching
-  iv30 is flagged too. **(d) must be declared and committed before phase 1 runs: it is not yet in
-  `tools/external/README.md`.** A failed check stops phase 1: diagnose, fix, recompute the affected
+  iv30 is flagged too. **(d) declared 2026-11-21 (owner-approved definition) in
+  `tools/external/README.md` "Flag agreement": the percentile half of D-070 on the 14 Cboe pairs, both
+  directions ≥ 0.80 with ≥ 10 index-extreme sessions; the check code is to be written in
+  `tools/external` before the first tranche is judged.** A failed check stops phase 1: diagnose, fix, recompute the affected
   days. Bands are not moved after the fact. VXSLV/SLV and VXFXI/FXI correlation judged on 63-session
   panels only (owner, 2026-11-19, declared in the README).
 - **QA plan (owner, 2026-11-21: "We do phase 1, try to break it, fix what breaks, then move towards
@@ -406,7 +408,7 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
 ## Not yet proven
 - 27 nodes at once (request budget, nyc1 AMD capacity, core under load; whether presigned downloads
   count against the 2,000 a minute); a 15-day block (memory on 16 GB; M0 solve-reuse hit rate).
-- The history reference check over built histories; the flag-agreement test (not yet declared);
+- The history reference check over built histories; the flag-agreement test (declared, not built);
   refcheck across ~400 sessions; the reuse-index fix's later-day time (~104 min expected).
 - Daily go-forward in production (C-051; the daily claim through HTTP, `JOB_COMPLETION_INDEX` on the
   cluster), deadline alerts, scaling the pool to 0; the trades-API path.
