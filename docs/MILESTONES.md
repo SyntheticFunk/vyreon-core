@@ -1759,6 +1759,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   PROFILE.json is in the image); Codex round 3 running with cut-line marks. **The build image is the
   round-2 image if its tape sample passes (all reference verdicts PASS) and round 3 finds nothing
   above the cut line.**
+  **Codex round 3 on d0f58e81 (`d412-round3.md`): 7 marked above the cut line, 7 below.** Above: the
+  round-2 "bar contains its close" widening can hide a missing high in gate 2 (regression); D111 reuse
+  can keep a gate-2 pass after the official bar changes; conflicting final daily rows read differently
+  by the two readers; one member's capture failure stops every upload, and an interrupted upload can
+  strand a stored member without a verdict on retry (production paths); stale Network-B MIC without a
+  `9` still falls back to the stated market; the $1,024 grid chosen from the official side. **Round-3
+  triage + fixes running (`pass-fx93`).** The d0f58e81 image still gets its tape sample for evidence.
+  Cut line for the build from here (mine): regressions and broken production paths block; rare
+  provider-artifact edges are fixed but do not hold the build.
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
