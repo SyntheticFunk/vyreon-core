@@ -1727,7 +1727,7 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   sample still runs for real evidence (e.g. whether BZX sends ARKK's `9`).
   **15:03 UTC: c70ed7a2 tape sample: 64 PASS on all four sessions (256/256); both tape nodes deleted.**
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
-  database build; the build runs on the current key (2,000 requests/min).** Phase 1 is now gated only
+  database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
   Provisional totals (current measured times; refine before the decision): 407 sessions
   (2025-04-10..2026-11-20) in ~27 blocks of 15 on 27 day nodes: ~28 node-h a block (first day 226 min +
