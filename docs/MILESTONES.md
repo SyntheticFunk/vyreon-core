@@ -1592,6 +1592,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   Curve fallback chain (owner): H.15 → Intrinio `$DGS*` → FRED (fredgraph.csv, no key); added to
   `pass-fx86`. At 02:55 UTC the Board's download site was 503 while FRED and Treasury answered. The
   Board's page states planned maintenance (owner checked): not an attack, temporary.
+  **Owner (2026-11-20): Intrinio Startup tier bought 2026-11-25 (earlier if a mobilization comes);
+  from then it is a race, as fast as correctness allows, to publishing.** Ready before 11-25: the
+  pass-3 before/after and byte proof, the final bottleneck check, the closing-print fix, the curve
+  fallback, the trades-API switch for daily runs; the key-switch checklist (entitlements and rate
+  limit, core budget, cluster secret and api.txt, one real day) on the day.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
