@@ -1629,6 +1629,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   05:27 UTC: first-day inputs done in **97 min** (old image 105, pass-2 image 124): the fill's own
   CPU 188 min (×1.9) and its children's 376 min, logged for the first time (a pass-4 lead: the fill's
   own CPU is large). Day 1 (11-05) computing.
+  **Day 1 measured so far (first day, cold history):** plan 6 min (with the trim: 4,019 → 174 MiB);
+  intent A **65 min** beside the surfaces (old 88 alone at 8 workers, pass-2 101 beside); exports
+  39 s (was ~200); surfaces done before A ended (waited 0 s). **Day start → intent B plan: 75 min**
+  (pass 2: 114; old image: ~156). Intent B started 06:42 UTC; no worker crash 21 min in.
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
