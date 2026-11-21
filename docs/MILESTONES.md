@@ -1695,6 +1695,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   + D-412 @8); full tests + the final-candidate image building.** Next: a tape re-derivation sample
   on it (the cluster confirmation list in D-412: QQQ 2026-05-06 → 695.77, AAPL 2026-11-02 → 338.32,
   close/open source counts, gate-2 failures by reason, tape verdicts PASS), beside the byte-proof run.
+  **13:10 UTC: final candidate image 97389cc0 (build 97389cc0+0bb8210aab58; 1,585 passed; reference
+  131) admitted; tape re-derivation sample started (`v-tape-d412`, 4 tape jobs on one day-std node:
+  2026-05-06, 2026-11-02, 2025-12-10, 2026-01-02) under the D-412 reader (CONSOLIDATED@7).**
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
