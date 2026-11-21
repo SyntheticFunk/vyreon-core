@@ -1440,7 +1440,7 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   `Io(…)`, not Corrupt. Ruled out: AVX2, thread env, batched admissions, D-404/D-406 directories,
   surfaces overlap. Image building; block 11-05..06 reruns on it.
   **Image f401a104 (build f401a104+b5c829b91bce; 1,536 passed) admitted; 3d043daf withdrawn; job
-  1421 cancelled; block 2026-11-05..06 rescheduled and started on a fresh node (~23:55 UTC); memory
+  1421 cancelled; block 2026-11-05..06 rescheduled and started on a fresh node (23:34 UTC); memory
   (with process VSZ) sampled to `checks/2026-11-20-block-1105-memory-f401a104.tsv`, alert on any hold
   or worker crash.**
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
