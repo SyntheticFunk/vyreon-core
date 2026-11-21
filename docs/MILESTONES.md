@@ -1456,6 +1456,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   `audits/2026-11-20-optimization-round-dd/`):** five subsystems with the measured profiles: kernels
   (M0/h1-numerics), executor and history (incl. history shared across blocks), preparation and
   orchestration (surfaces, plan, FIELD, tail), inputs and provider requests, the reference suite.
+  **EVC01 75% floor implemented (`pass-fx80`, label @6; not merged: it binds).** No 2026 day changes
+  (minimum prior counts 191–197). But it binds on older days because the tape caches themselves are
+  thin there: **no bid/ask in any cache before 2025-09-04, and counted volume 20–67% below official
+  before late Nov 2025** (SPY/GLD/DBA probes; replay files 4–6 GB a session before 2025-09 vs 18–45
+  after). So phase 1 would carry no EVC01 midpoint-width flags until ~2026-06-09 and no volume flags
+  until ~2026-09 (vs ~2025-10/12 at the 20-sample minimum); P-04 (from 2026-11-06) erodes GLD's
+  volume baseline below 189 by ~mid-Dec 2026 unless reconciled. Owner to confirm. **Research started
+  (Claude agent + Codex in parallel): what the replay files contained by era, and what each intraday
+  sensor family can compute or might get wrong in each era.**
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
