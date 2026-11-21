@@ -1805,6 +1805,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   building; then the @12 tape sample (must show: all PASS; closes 192/192, opens 191/192; prices and
   volumes as @11; quote changes only where prior-date quotes stood; per-security wanted_messages).
   **If it passes, da3dade4 is the phase-1 image; round 5 runs beside the build.**
+  **Codex round 5 on da3dade4 (`d412-round5.md`): "no confirmed wrong @12 market value on a dated
+  session".** 14 findings + 2 suspicions, mostly production paths and warm-workspace/in-place-replay
+  edges (decoder resync determinism across download chunks, a member stored with no verdict attempt,
+  a refusal stopping the verdict-only fallback, the reference comparing only quote closes, reader.rs
+  missing from the reader fingerprint, D-102 constructed quotes). Triage + fixes running beside
+  (`pass-fx95`); they reach the build's tape family by a scoped republish if any value moves.
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
