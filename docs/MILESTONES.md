@@ -1541,6 +1541,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (`VYREON_OVERLAP_CAPTURES=off`), history exporters in parallel, fill CPU/memory lines, 3 correctness
   fixes; prefetch nice switch default off (owner's call after measurement). Still running: fx82
   executor/kernels, fx83 history endpoints, fx85 tape gates.
+  **fx83 merged (`worker` 27cb4680; D-409; full suite 1,548 passed on the branch):** the four history
+  endpoints of a session run in one slot on one pinned worker, sharing one verified source read
+  (each still runs its own checks, commit, read-back and verification; siblings reuse the first
+  sibling's source verification made in the same worker process seconds earlier, keyed by binding
+  and directories, ≤60 s); profile/calendar built once per worker (E7); Q01 decodes its raw pages
+  once (E3). Laptop: per-session cost −64% on nine real chains. Estimated cold intent A: endpoints
+  247 → 70–100 CPU-min, Q01 83 → 45–60. Every task key moves once; no method identity moves.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
