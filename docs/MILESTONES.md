@@ -1509,6 +1509,18 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   pass), fx84 inputs + prep (planner balance, fill redundant passes, macro wait, parallel exporters,
   first-day captures concurrently if safe, 3 correctness risks). Owner items pending: endpoints
   trusting Q01's verification (integrity rule); drop the A/B diagnostic in the fill (inputs 7).
+  **Research (Claude agent + Codex, agreeing):** (1) **Curve tenors:** in 2022-05-27 → 2026-11-19 no
+  tenor is ever missing to the engine; the only gaps are 9 bond-market holidays (all six tenors
+  blank; 4 in phase 1), where the engine already uses the last published curve: Cboe's VIX method
+  ("CMT yields for the most recent business day"); D-192's tenor rule never fires; the 183/341 was
+  an Intrinio delivery fault in October (P-24). The H.15 date-range download returned empty at
+  01:03–01:10 UTC; recovered by 01:40 (checked); re-check before the droplet's 12:06 UTC capture.
+  (2) **Replay eras (P-23):** effectively no quotes before 2025-09-04; trades 16–66% short until
+  2025-11-26; complete 2025-11-26 → 2026-11-05; P-04 from 11-06 (trades 2–5% short, books ~2× wide).
+  **Wrong numbers published today: intraday prices/VWAP/close-vs-VWAP/path before 2025-11-26 (~159
+  phase-1 sessions; NVDA 2024-06-13 close 129.00 vs 129.61) and replay spreads from 2026-11-06.**
+  Proposed to the owner: VWAP under the volume check; tape OHLC must equal the official daily bar;
+  replay spreads withheld from 2026-11-06 until a quote-completeness check; bug report #3.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
