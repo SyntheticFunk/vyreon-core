@@ -1561,6 +1561,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   market's: withheld honestly as engine-classed for now; the fix (use the listing market's own
   closing/opening print) changes the reader identity and so every stored tape cache: owner
   decision.**
+  **fx82 ready (pass 3 executor + kernels, D-408; all crates green on the branch), merging after the
+  running full test:** M0 largest-chain prerequisites first (K9) with `ready_unix_ms` in the
+  sidecar; history rows declared 16 at a time (3.16 → 1.36 ms a task, laptop); intent B adopts
+  intent A's exact results (~575 tasks); M0 traces encoded once (ANALYTICS method_sha256 re-pinned);
+  lazy carry fits (−33% carry fits, but only ~0.7% of surface time: inversions are 95%; surface files
+  byte-identical on 37 real asset-days); durable admission and ledger writes; h5_surface per-phase
+  timing and per-day CPU log lines.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
