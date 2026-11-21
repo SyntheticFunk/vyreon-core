@@ -1875,6 +1875,22 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   on the web. Loose ends that follow the build: trades-API switch before daily publishing,
   one-year-window and test censuses, a frozen raw tape slice (D-102), RSS watchdog, reader digest of
   non-test code only, daily go-forward in production, a tested backup restore, API end-to-end.
+- **Engineering housekeeping (owner, 2026-11-21: "none of them are major, most of them are
+  housekeeping"; "its entirely possible that we did a good job as well").** Order:
+  1. **DigitalOcean billing alert at $400**: control panel only (no API); owner's action.
+  2. **Ops config in the repository: done 2026-11-21 (25f1f75, `deploy/k8s/ops/`)**: scripts and the
+     phase-1 Job templates, no secrets, paths and ids from the environment. Moving them found a
+     real defect: the templates' secret volume projected only `worker-token` and `intrinio-key`, so
+     the `fred-key` added at 19:05 UTC was never mounted; fixed and server-validated. The launch
+     uses `deploy/k8s/ops/job-*.yaml`.
+  3. **Backups as soon as the first tranche is stored** (not after its census), then one restore drill.
+  4. **Failure injection during phase 1**: kill a node mid-day, restart core during a publish.
+  5. **Test-suite audit (owner: "throw a codex audit at the tests... likely a lot of legacy tests")**:
+     Codex running (`audits/2026-11-21-test-census/`): legacy, weak, D-102, gaps, cost; then
+     mutation testing (`cargo-mutants`) on the critical crates.
+  6. After phase 1, before go-live: CI building and testing images from commits (off the laptop);
+     `cargo audit`, `pip-audit`, an image scan, and a secret scan of vyreon-core's public history.
+  Not added: dashboards, SLOs, high availability, operators (availability needs are minutes).
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
