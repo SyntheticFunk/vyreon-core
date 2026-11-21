@@ -1795,6 +1795,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   **17:44 UTC: a780c8e0 (@11) tape sample: 256/256 PASS; closes 192/192, opens 191/192; all 39
   basis-3 (stated Network-B market) sessions had that market's own `O`; every 5-minute body of all 256
   (truncated 01-02 included) byte-identical to @9's; nodes deleted.**
+  **D-412 round 4 triaged and fixed (`triage-round4.md`): 12 real, 6 blocking (3 were round-3
+  regressions): off-date quotes in the book (WMT 2025-12-09 transfer), per-security manifest counts
+  so a retry's caches are byte-stable, a failed verdict PUT fails the session, verdict-only recapture
+  failures give NOT_RUN without failing stored members, the reference's DEGENERATE case, refusal kept
+  through partial storage; plus `9`/`M` no-update codes (CTS §7.0, UTP §3.14.2), D111 key recorded
+  with the result, stale captures re-captured, ambiguous stated exchange. Merged `worker` da3dade4
+  (METHOD @12, READ@10, D111@10, UPATH@11, EVC01@13, UACT@6, UQTR@7, DLM-VWAP@3.2.6).** Image
+  building; then the @12 tape sample (must show: all PASS; closes 192/192, opens 191/192; prices and
+  volumes as @11; quote changes only where prior-date quotes stood; per-security wanted_messages).
+  **If it passes, da3dade4 is the phase-1 image; round 5 runs beside the build.**
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
