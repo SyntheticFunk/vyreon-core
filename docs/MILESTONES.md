@@ -1626,6 +1626,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   fresh day node, history on, overlaps default; memory sampled to
   `checks/2026-11-21-block-1105-ceacfbc5-memory.tsv`, alert on any hold, refusal or worker crash.
   Baselines (old image 4944a182): first day 400 min start → published, later days 248/210.
+  **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
+  §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
+  departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
+  after the close: the D-411 defect survives there); the listing market's `9` (corrected
+  consolidated close) unused; the 30-minute window has no basis; NYSE/Arca define no official open
+  and a BZX `Q` without an auction carries the prior close; Network B misses NYSE Texas and maps
+  IEX. Revising D-412 to the standards (`pass-fx87`).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
