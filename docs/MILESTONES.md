@@ -1840,6 +1840,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   after: the reader digest covers whole files, test modules included, so any reader-file edit
   invalidates every stored tape cache: **follow-up: digest only the non-test code**). Image
   building; one more @13 tape sample; **the phase-1 image becomes cc1d67cf if it passes.**
+  **20:10 UTC: cc1d67cf (@13) tape sample: 256/256 PASS (the reference now compares all six quote
+  fields); closes 192/192, opens 191/192; no session withheld (EMB, IEF, COIN under the 0.1% gate on
+  every session); every 5-minute body, close source and closing-print count identical to @12; run
+  with the phase-1 tape template (FRED key mounted); nodes deleted. **cc1d67cf
+  (`cc1d67cf+f9676b89ff09`, 1,596 passed) is the phase-1 image** (launch brief's da3dade4 replaced).
+  Cost seen: the tape verdict now takes 10–16 min a session (was ~2) for the reference quote pass:
+  ≈ +35 node-h over phase 1 (~$6), inside the projection's range.
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
