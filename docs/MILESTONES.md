@@ -1633,6 +1633,8 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   intent A **65 min** beside the surfaces (old 88 alone at 8 workers, pass-2 101 beside); exports
   39 s (was ~200); surfaces done before A ended (waited 0 s). **Day start → intent B plan: 75 min**
   (pass 2: 114; old image: ~156). Intent B started 06:42 UTC; no worker crash 21 min in.
+  **07:31 UTC: intent B completed in 49 min (old image 71; pass 2 crashed here): the crash fix (arena
+  cap) holds on a real day.** Export index 3 min; day 1 in its tail now.
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
