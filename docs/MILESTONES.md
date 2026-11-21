@@ -1465,6 +1465,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   volume baseline below 189 by ~mid-Dec 2026 unless reconciled. Owner to confirm. **Research started
   (Claude agent + Codex in parallel): what the replay files contained by era, and what each intraday
   sensor family can compute or might get wrong in each era.**
+  **Codex optimization round dd returned (5 reports, `audits/2026-11-20-optimization-round-dd/`);
+  verification running (three readers).** Headlines, unverified: the four history endpoints share
+  one reconstruction (140–214 CPU-min per cold first day); the fill spends ~44 min re-checking the
+  same quote window on a later day (12–22 wall-min per later session); M0 parent streams re-read
+  (23–36 CPU-min every session); the reference check prices two unused QuantLib values per contract
+  and could reuse its own chain summaries in a block (25–35 CPU-min); planner quote window and lazy
+  carry fits on the critical path; a history store shared across blocks assessed.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
