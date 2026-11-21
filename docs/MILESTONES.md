@@ -1672,6 +1672,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   **11:52 UTC: day 3 (2026-11-09, a later day) PUBLISHED in 120 min**; day 2's check joined with 0.0 min
   wait; day 3's check (the block's last) running at once. Intent B ran 49 / 51 / 51 min on the three
   days (old 71–72).
+  **12:15 UTC: before/after block COMPLETE (job succeeded; 3 sessions published).** Day 3's check
+  hit the same non-finite-JSON report bug as day 1 (fixed in `worker` 909d57ce, not in this image).
+  **Before/after (start → published; old image 4944a182 vs pass 3 ceacfbc5, one 8-vCPU AMD node):**
+  first day 400 → **226 min** (inputs 105 → 97; plan+prep ~64 → 7; intent A 88 → 65 beside the
+  surfaces; intent B 71 → 49; exports ~4 → 0.6); later days ~215/180 (excl. checks) → **134 / 120**
+  (intent A still ~60 min of reuse bookkeeping: fixed by the indexes, ~1 min expected next image);
+  reference checks run beside the next day, joins waited 0.0 min; day 2's check 3 unexplained of 97k.
+  Worker log saved `checks/2026-11-21-block-1105-worker-log.txt`. **Byte-proof run started on the
+  same build and node (`v-block-1105-off`: VYREON_WORKER_HISTORY=off and every overlap off, exporters
+  serial): its published bodies must equal this run's apart from provenance digests (C-001 + D-405).**
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
