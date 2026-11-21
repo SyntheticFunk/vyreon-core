@@ -1691,6 +1691,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   hold): measure its hit rate on the first production block rather than delay. Others are small
   (quote-window evidence indexed once, trace bytes passed through, surface inversion split, reference
   summaries reused, fill filter copy).
+  **D-412 (closing print) merged (`worker` 97389cc0; INT-TEMP-EVC01 method @8 = D-411 @6 + floor @7
+  + D-412 @8); full tests + the final-candidate image building.** Next: a tape re-derivation sample
+  on it (the cluster confirmation list in D-412: QQQ 2026-05-06 → 695.77, AAPL 2026-11-02 → 338.32,
+  close/open source counts, gate-2 failures by reason, tape verdicts PASS), beside the byte-proof run.
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
