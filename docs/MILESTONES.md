@@ -1533,6 +1533,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   Risk: the droplet's daily capture at 12:06 UTC. Owner decision asked: Intrinio `$DGS*` as the
   curve fallback when H.15 fails (the research found it equal to H.15 value for value on all 1,138
   dates today; P-24 was its own transient outage in October), and a 503 treated as retryable.
+  **Pass 3 merged so far (`worker` 538429b8):** fx81 reference suite (D-370; 121 passed): unused
+  QuantLib slopes skipped (FD solves −28%), dropouts once per tape, directory listings memoised,
+  largest-first pools, 4 correctness fixes, M4/M5 timing; fx84 inputs + prep (D-410; full suite
+  green on the branch): planner quote window balanced largest-first, live-only fill skips redundant
+  window passes, one macro wait, first-day carry/macro/company/ACT01 at once
+  (`VYREON_OVERLAP_CAPTURES=off`), history exporters in parallel, fill CPU/memory lines, 3 correctness
+  fixes; prefetch nice switch default off (owner's call after measurement). Still running: fx82
+  executor/kernels, fx83 history endpoints, fx85 tape gates.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
