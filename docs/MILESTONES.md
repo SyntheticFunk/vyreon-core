@@ -1597,6 +1597,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   pass-3 before/after and byte proof, the final bottleneck check, the closing-print fix, the curve
   fallback, the trades-API switch for daily runs; the key-switch checklist (entitlements and rate
   limit, core budget, cluster secret and api.txt, one real day) on the day.
+  **Curve fallback merged (`worker` ceacfbc5; D-105 amended; full tests + image building):** H.15 →
+  Intrinio `$DGS*` → FRED, each retried (5xx/timeout/empty never accepted), one source per capture,
+  manifest `curve_source` + reason. Proven for real while the Fed was down: 2025-12-10 and
+  2025-11-12 fell back to Intrinio after ~3 min and built bit-identical curves to H.15's and FRED's.
+  **FRED resets every request carrying the engine's user agent** (`Vyreon-Carry-Inputs/0.1`; curl's
+  default got 200): owner's call: a free FRED API key (proper identification), or a different
+  user agent. Until then the working chain is H.15 → Intrinio. Droplet deploy (approved): merge into
+  its branch, build, `deploy/droplet/install.sh` after checking no capture runs.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
