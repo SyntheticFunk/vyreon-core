@@ -1589,6 +1589,8 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (pass-3 image vs the old-image baselines: 10-28 first day 400 min; later days 248/210 min,
   start → published incl. check); (2) another bottleneck check once everything is in (Codex
   discovery on the final image's real profiles); (3) then build the database.
+  Curve fallback chain (owner): H.15 → Intrinio `$DGS*` → FRED (fredgraph.csv, no key); added to
+  `pass-fx86`. At 02:55 UTC the Board's download site was 503 while FRED and Treasury answered.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
