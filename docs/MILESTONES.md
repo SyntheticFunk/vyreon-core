@@ -1,9 +1,12 @@
 # Milestones
 
-The one living status document: current state and what is next. History is in git (the longer
-forms are at tags `milestones-2026-11-15` and `milestones-2026-11-16`); decisions are in
-`docs/DECISIONS.md` (core, C-numbers) and the engine's `docs/DECISIONS.md` (D-numbers); the plan
-is in `docs/ARCHITECTURE.md`.
+Current state only (pruned 2026-11-21 22:50 UTC). The full previous record, every run, finding and
+time, is tag `milestones-2026-11-21` (f0d2b98) and git history. Read top to bottom: the steps, the
+phase-1 launch brief, work that runs beside phase 1, what waits on the owner, the standing rulings,
+then reference lists. Decisions: core `docs/DECISIONS.md` (C-numbers), engine `docs/DECISIONS.md`
+(D-numbers); plan `docs/ARCHITECTURE.md`; provider faults `docs/PROVIDER_FAULTS.md` (P-numbers).
+Paths under `~/claude-artifacts/` are on the laptop (`checks/`, `audits/`, `cluster-scratch/`).
+Times are UTC unless marked MT. Write a time only after `date -u`.
 
 ## Steps to the MVP (the list shown to the owner on a status request; keep it current)
 **DATED COMMITMENT: the paid pilot (live on www.vyreonlabs.net/early-access, read 2026-11-16).**
@@ -11,2603 +14,401 @@ One customer has paid USD 10 for four weekly email issues on Sundays **2027-01-1
 01-31** (sales close 01-09; automatic full refund if issue 1 is not sent by 23:59 ET on 01-10;
 refunds on request to 02-07). Promised: all 64 securities; readings flagged when far from the
 security's typical level AND in the top or bottom tenth of its last 63 sessions (the engine's
-`unusual.rs` WINDOW = 63, robust z: matches); "what could not be measured, and why"; data
-through the latest session; no signals or forecasts. So by 2027-01-09 we need: (1) history
-back at least 63 sessions before 2027-01-08 (phase 1 covers it); (2) **daily go-forward runs**
-computing each new session from the build onward (built 2026-11-17, branch `core-daily`, C-051:
-core queues T at 07:30 New York the next day, CronJob `daily`, pool `day` to min 0; not deployed;
-runbook `deploy/k8s/README.md` "Daily runs"); (3) Reporter producing the paid issue from
-core's API, sent through beehiiv. **Owner, 2026-11-16:** the deadline will be met; target free
-reports live in **December 2026**. Intrinio's Startup tier (USD 333 a month, scaling to USD 999)
-is required for redistribution rights and covers free and paid reports, so it starts before the
-first publication of either; ideally free and paid are ready together. Google Ads all-time:
-1.58M impressions, 156k clicks (CTR 9.88%).
+`unusual.rs` WINDOW = 63, robust z: matches); "what could not be measured, and why"; data through
+the latest session; no signals or forecasts. So by 2027-01-09 we need: (1) history back at least 63
+sessions before 2027-01-08 (phase 1 covers it); (2) **daily go-forward runs** computing each new
+session from the build onward (built, C-051: core queues T at 07:30 New York the next day, CronJob
+`daily` (`deploy/k8s/40-daily.yaml`), pool `day` to min 0; not switched on; runbook
+`deploy/k8s/README.md` "Daily runs"); (3) Reporter producing the paid issue from core's API, sent
+through beehiiv. Owner, 2026-11-16: the deadline will be met; target free reports live in December
+2026. Intrinio's Startup tier (USD 333 a month, scaling to USD 999) is required for redistribution
+rights and covers free and paid reports, so it starts before the first publication of either (bought
+after the build: launch brief); ideally free and paid are ready together. Google Ads all-time
+(prototype): 1.58M impressions, 156k clicks (CTR 9.88%).
 
-1. **Two-day cluster trial.** Done 2026-11-13.
-2. **Engine ready for the build.** Closing. A Codex audit ran after each lettered item:
-   a. [done] the seven fix tracks merged (`pass-fx-all`); *audit* (round a)
-   b. [done] the follow-ups merged; *audit* (round b)
-   c. [closing] real days on the candidate: `x2` clean on `pass-fx10`; **`y2` and `x3` running on
-      the merged candidate `pass-s3i` d55f6439**. Left for a droplet with real data: re-freeze
-      the AAPL tape-cache and the `etha-first-chain` fixtures. An early date and a pre-listing
-      day need a provider key: they are step 2.5's.
-   d. [done] audit triage and fixes: batches 3 to 10, rounds c to i. Converged (owner, 2026-11-16).
-   e. [done 2026-11-16 10:00 UTC] `pass-s3i` = `pass-fx10` + D-162 by merge (done); core `pass-core-fix` merged into
-      `main` (done, pushed); *audit of the merge* (rounds j and k, fixed); images built on the
-      laptop and pushed; engine fast-forwarded to `worker` (d55f6439).
-   f. [done] housekeeping: this file pruned 2026-11-16 twice (tags above). Prune again, with a new
-      tag, when it passes about 300 lines.
-3. **(2.5) Cluster verification. IN PROGRESS since 2026-11-16 10:00 UTC (owner's pre-approval of
-   04:00 UTC).** Runbook `~/claude-artifacts/cluster-verification-runbook.md`. Order (tape history
-   only moves earlier): 2025-12-10; 2025-04-11 (ETHA's first chain); 2024-07-16 (AVGO 10-for-1,
-   ex 07-15, and before ETHA); the block 2022-06-06..06-15 (FB to META). **The newest two weeks
-   on two nodes are the build's first step** (owner, 2026-11-16), not part of 2.5.
-4. **(3) The build, phase 1 (owner, 2026-11-16).** a. the newest two weeks as a test sample, and
-   fix what they reveal; b. back to **2025-04-10** (about 401 sessions: every sensor at full
-   window on the newest week; no old-layout snapshot, no 2023 gap), and fix what comes up.
-   Before it: the unusualness flag line states its pool (done, D-258), the fix batches of the
-   failure-surface audits, **the small restatable captures (company, macro, carry: about 4 MB a
-   day gzipped) kept through core's write-once path (owner, 2026-11-16: do it before phase 1)**,
-   the database volume grown (approved), one final image from one commit, everything audited.
-   After each tranche, **a census of the built store (owner, 2026-11-16: the database must hold
-   enough data points to judge the event rules):** per event rule written before the build
-   (first chain, strike adjustment, open-interest outage, split and rename translation, receipt
-   ratio, bank not-applicable, refused snapshot rows, capture failures, the provider comparison
-   classes), how often it fired, on which assets and dates, and every withheld state by reason;
-   the rules are judged on that population, not on the one case that prompted each.
-   **Owner, 2026-11-16: expect that a rule will fail to generalise, and choose the remedy from what
-   the build shows:** if one sensor is affected, a single-sensor rebuild (the owner's planned
-   route); if many, a full rebuild of phase 1. The two-week sample is the main place to catch and
-   fix issues before committing to the full build. Not a fixed plan: decided once the evidence is
-   in. A full second pass roughly doubles phase 1's node time (past the $300 ceiling): raise it
-   then if needed.
-   Where the risk sits (owner, 2026-11-16): the base layer was checked against external references
-   in the B0/B1 censuses; the derived and history layer could not be, because it needs continuous
-   histories. So step 5 runs the independent reference checks over the BUILT histories (the
-   `tools/reference` checkers recompute z-scores, percentiles, flag lines and technicals from the
-   store). Caveat: base code changed after B1 (company valuation D-259..D-261, D-326..D-345;
-   M0-GAMMA on cleared open interest; the open-interest outage and strike-adjustment rules), so
-   those base sensors also get their reference checks on the sample.
-   **Reference checks on every computed day (owner, 2026-11-16):** run `python3 -m refcheck run`
-   (QuantLib 1.43, TA-Lib 0.8.2 on the laptop) on each verification and sample day's dump, not
-   only at step 5. Company valuation gets a genuinely external reference: SEC EDGAR's XBRL API
-   (the filers' own reported facts), pending the owner's choice of the contact SEC requires in
-   the User-Agent.
-   **Process additions (owner, 2026-11-16, all approved):** (a) the sample's pass criteria written down and
-   approved before it runs; (b) every new image re-runs one real day on the cluster and a script
-   diffs its store against the previous image's dump, each changed value tied to a decision (the
-   laptop diffs; heavy compute stays on the cluster for disk reasons); (c) a refusing worker uploads its full log and fault
-   list to core before it exits (observability; built with the image); (d) the sample's raw
-   downloads kept in Spaces for fast re-runs, deleted when phase 1 starts; (e) **planned hand-off
-   to a fresh session after the two-week sample**, before phase 1, recorded here first.
-   **Rule census in step 5 (owner, 2026-11-16):** "with agent driven development on things of this
-   scale ... we just sort of accumulate rules over time and the result can be an unfortunate agent
-   stuck in spaghetti constraints". The engine has 324 recorded decisions (12,081 lines; 257
-   commits to DECISIONS.md since 2026-11-09). On the built phase-1 database, for every rule in
-   force: how often it fired, on which assets and dates, what it changed (value or absence),
-   and what evidence it was written from. Never fired, fired only on its origin case, or
-   contradicted by the population → retire or merge; the agents' instructions are pruned the same
-   way. **No rule tracking is added (owner, 2026-11-16: "feels like complexity that will cause
-   problems ... If rules are being applied on some days but not others then we shouldnt be doing
-   it").** The census reads the outputs instead: absences by reason code, per sensor, asset and
-   date; continuity of each series. Rules required by a published standard for real events (OCC
-   adjustments, splits, filing dates) fire only on those events by nature; a science rule or
-   heuristic that changes some days and not others is a candidate for retirement.
-   **Backups (owner, 2026-11-17): "given that recomputation has a known time and money cost its
-   actually WORTH backing shit up."** CloudNativePG's scheduled backups to Spaces (base backup plus
-   write-ahead log), one tested restore. **Set up when phase 1's first tranche passes its census**
-   (owner: before that there is nothing worth keeping). **Weekly full backup** (owner: daily data,
-   daily fulls cost more for nothing) plus continuous log archiving, so any moment is still
-   restorable; about 30 days kept; a bucket and key only for backups. The droplet's capture and archive keep running meanwhile.
-   **Security before launch (owner, 2026-11-17), part of step 7:** least-privilege tokens replace the
-   full-access DigitalOcean token once the system's shape is settled (it stays for now); the
-   reader API stays inside the cluster (Reporter runs as a container beside core; its output is
-   pushed out, nothing is called in); backups to Spaces with one tested restore; a read-only
-   exposure check (public ports, token scopes, secrets in git history, dependencies) and an
-   attack-surface audit before launch. Owner's phone is the one recovery factor: offline backup
-   codes and port-out protection are the owner's to set.
-5. **(3.5) Examine the built database (owner, 2026-11-16).** Done twice: **a first pass after the
-   two-week sample** (thin: about ten sessions, so it can show a rule that misfires or never
-   fires on ordinary days, not how one generalises; anything it changes is fixed before going
-   back to 2025-04-10), and **the full pass after phase 1**, before Reporter: go through the rules and decisions against the built store and ask of each
-   whether it **generalises cleanly**: from the census (how often each rule fired, on what, and
-   what was published), which rules are doing real work, which over-fire, which never fired,
-   which rest on one case and should be retired or restated, and where a missing threshold
-   needs the population's evidence. Outcome: a short list of rule changes (each then a scoped
-   recalculation), and the rules that stand.
-6. **Verification on vyreon-web (owner, 2026-11-18: "we definitely need to expose what we are doing
-   in the marketing. Major verification and checking areas should all be highlighted on
-   vyreon-web eventually").** A methodology/verification page listing each external check (Cboe
-   volatility indices, SEC EDGAR, OCC volume, FRED, a second vendor's prices, QuantLib/TA-Lib
-   recompute, Cboe DataShop sample): what is compared, the declared band, the latest result, and
-   the failures and their fixes. Within the plain-voice rules (no "accurate", "audited",
-   "institutional-grade"): specific, dated, failures shown. Naming Cboe's indices waits on Cboe's
-   permission reply; check each provider's naming terms (Tiingo, OCC) before publishing.
-   **(4) Reporter on the phase 1 database.** First a proper paid report (none has been produced
-   **Weekly comparison idea (owner, 2026-11-17):** per sensor, plot this week against last week on
-   one chart. State readings (IV term structure, skew, open interest by strike, levels) compare the
-   week's closing reading (Friday against last Friday); flow readings (volume, activity, intraday
-   profiles) compare the week's total or daily mean. The weekly aggregates are **derived-layer
-   measurements** (owner: that is why the derived layer exists), each method stated, computed from
-   stored readings in the history pass; Reporter only draws them. **Built right after the
-   two-week sample** (owner, 2026-11-17: "its quick to do"); the sample's two full weeks are its
-   first test data.
-   One mechanism per kind of quantity (owner): state → the week's close; flow → week sum or daily
-   mean; ratio of flows → recomputed from the week's summed parts (never an average of daily
-   ratios); state curve → the week's closing curve; flow curve → summed per bucket on a common grid;
-   already relative (percentiles, z-scores, unusualness) → not aggregated, feeds the paid review. A
-   short table assigns each sensor's values to a kind. **Presentation research pass (owner, 2026-11-17), when the first real reports
-   exist:** the inventory (all prior design work is Reporter's `docs/publication-design/`, dated
-   2026-09-25, before the pivot) leaves these gaps: week-over-week overlays and flow curves (G05);
-   an open-interest heatmap by strike × expiry (C04 has only coarse 5×5 bins); the volatility surface
-   (C06 ruled out a smooth surface: revisit with real data); mapping today's sensors to chart types;
-   competitors' actual chart forms; citable sentences for answer engines; shareable chart images
-   and social cards. Owner: "This is direct reader value... this
-   is what i would want." 
-   yet: it needed the database) beside the free one (all there, a lot of numbers); then **a
-   significant body of iteration on the reports themselves** (owner, 2026-11-16) until free and
-   paid are generated with confidence.
-7. **(5) The launch decision:** pay for Intrinio's Startup tier and integrate Reporter's output
-   into the website. After it, or when wanted: the deeper history (the old snapshot layouts are
-   readable since D-251..D-254; the 2023-01-18..03-07 gap needs a ruling), the FIELD campaign.
-   **Reporter placement (owner, 2026-11-21, to scope after phase 1's problems are fixed):** Reporter
-   runs on DigitalOcean and the whole system runs itself; the laptop is out of the loop. Much of
-   Reporter's framework exists for the older system and needs porting to core's API. Placement
-   decided at scoping: the web droplet, its own droplet, or (my recommendation, fitting the 11-17
-   ruling that core's reader API stays inside the cluster and output is pushed out) a weekly
-   CronJob beside core on the always-on core node that pushes pages to the web droplet and the
-   paid issue to beehiiv. **Owner, same day: Reporter as part of core or a container on the core
-   node ("fairly sensible"); not on the web droplet, because the public web is the attack surface.**
-   **Direction (owner, 2026-11-21): Reporter becomes a job core runs; core pushes the output to the
-   web** (pages) and to beehiiv (the paid issue). Reporter reads core's API inside the cluster; the
-   web only receives and serves, holds no credential into core and never calls in (the 11-17
-   ruling kept). Left for scoping: the web's receiving end (how pushed pages land and publish; the
-   web has no such feature yet) and porting Reporter from the older system to core's API.
-   Owner: Reporter (C#) is lightweight; on core, **core calls it only when ready** (when the week's
-   sessions are published and checked), not on a blind schedule.
-   **End state (owner, 2026-11-21): two permanent machines, core (the always-on cluster node: database,
-   core service, scheduling, archive, Reporter) and web (public, serves what core pushes); workers
-   on demand.** The `vyreon-engine` droplet retires once daily go-forward runs are live on the
-   cluster, its perishable captures are archived through core, and its database is carried in.
-   **Sequence (owner, 2026-11-21): phase 1 → verify phase 1 → Reporter → web.** The web is a rebuild,
-   re-architected from today's early-access setup into the full free reports (64 per-asset pages)
-   plus the paid product and its explainer page; a lot of website work. The paid pilot's issues go
-   by email (beehiiv), so they depend on Reporter (by 2027-01-09), not on the web rebuild.
-   Existing web design inputs for the scoping (all pre-pivot; read as inputs, not authority):
-   `vyreon-reporter/docs/publication-design/` (FREE_REPORT_INFORMATION_ARCHITECTURE,
-   PAID_OBSERVATORY_INFORMATION_ARCHITECTURE, PAGE_WIREFRAME_SPECIFICATIONS + `wireframes/`,
-   VISUAL_DESIGN_SYSTEM, CHART_AND_TABLE_GRAMMAR, discoverability research; 2026-09-25);
-   `market-research/VYREON_PAID_CROSS_ASSET_PRODUCT_CONCEPT.md` (paid product concept, 2026-09-11);
-   `~/claude-artifacts/website-plan-2026-10-12.md` (the early-access site plan, A/B/C items);
-   `~/claude-artifacts/literature/SYNTHESIS-vyreon.md` and `SYNTHESIS-client-spec.md` (the
-   e-commerce books' Vyreon actions and client spec R-ids). The archived prototype SPY reports
-   (`vyreon-web` `/spy/`) are `noindex` and unlinked.
-   **Owner, 2026-11-21: implementation work (Reporter) proceeds while phase 1 builds; expected 1–2
-   weeks for Reporter + web.** First step running: a read-only Reporter-vs-core gap scan
-   (`audits/2026-11-21-reporter-gap/`) → a sized, ordered work list for the fresh session.
-   **Gap scan done (`audits/2026-11-21-reporter-gap/reporter-gap.md`): port the renderers; the new
-   design is the evidence they consume.** 14 confirmed findings in today's Reporter (wrong numbers
-   among them: revisions of one day mixed across calls; exposure OI printed as whole contracts
-   (D-390); a midrank read as a strict count; provider IV able to become the headline (D-397);
-   level windows advertised at 63/126 instead of D-404's 95/126). Work list, 12 ordered items (1–3 M,
-   4–12 L): spec/profile reconciliation; versioned ready-week input/output manifests; recorded core
-   responses as fixtures (D-102); projection outcomes that distinguish failed / unavailable / private /
-   stream-backed (engine bundle + core); pinned week serving in core + a paginated adapter; free
-   reports and FIELD panels repaired; D-070 membership, 11 rankings and peers computed in the engine
-   (not Reporter); weekly aggregates in the history pass; 64 free editions + paid email with the
-   publish-time number check; the headless job core calls; core-owned delivery (web receipt,
-   beehiiv); qualification on two real weeks then a full issue. Most can start during phase 1.
-   **Pre-launch check from it (cheap):** in today's store every delivered FIELD-SUB01, FIELD-SUP01,
-   FIELD-DIM01 and M0-FIELD-ANALYTICS slot (24 each) has null reader coordinates, like the
-   stream-backed M0 slots: confirm these are intended omissions, not a collapsed projection fault
-   (finding 10). Bodies are stored exactly, so projections can be backfilled; not a build blocker.
-   **Ads after free + paid are live (owner, 2026-11-21):** every free report links to a paid-product
-   explainer page, and the ad campaign advertises only that explainer (Google Ads worked for the
-   prototype: 1.58M impressions, 156k clicks; the lesson was a landing page with nothing real to
-   show). The explainer shows a real sample issue, price and refund terms, and the verification
-   record; judged on purchases and cost per sale in budget tranches with a stop rule fixed before
-   spending. Search to the free per-asset pages (intent queries such as IV, put/call ratio) is
-   worth revisiting once those pages answer with live numbers.
-   **After the MVP (owner, 2026-11-21):** automated social posting of highlights and unusual
-   measurements as they are detected (the same publish-time number guard and plain-voice rules as
-   the reports); CI as the home for agentic loops once there is revenue.
-**End goal (owner, 2026-11-16): the whole system lives on DigitalOcean and runs by itself:**
-capture, the day, the ordered pass, Reporter and the website, **reports published without user
-intervention**. Today Reporter runs on the laptop and feeds the website by hand. So step 5
-builds Reporter to read core's API and to run headless (a scheduled job beside core), with its
-own publish gate and a channel notice on a hold, not a person's check. **Reports publish on
-Sundays** (owner): the week's last session is Friday's, so Friday evening after the close and
-Saturday are the slack for a held day or report. Reporter is C#; it can run as a weekly job on
-the core node (no extra droplet).
-Working practice: at most three agents at once on the laptop; an audit after every landed step;
-every verified finding is fixed, only one above the cut line sends the candidate round again
-(C-041 amended). Write a time only after `date -u`.
+**Sequence (owner, 2026-11-21): phase 1 → verify phase 1 → Reporter → web; then the launch decision
+and the ads.** Reporter implementation runs while phase 1 builds (owner: 1–2 weeks expected for
+Reporter + web). The paid issues go by email, so they depend on Reporter, not on the web rebuild.
 
-## Now (16:55 UTC 2026-11-16): HAND-OFF STATE (the owner moves the session to Opus when the running agents finish)
-The longer record of 2026-11-16 is at tag `milestones-2026-11-16b` (640 lines: every run, finding
-and time). Read `tools/audit/README.md` (the audit loop, failure-surface audits) and AGENTS.md first.
+Done:
+- [done 2026-11-13] Two-day cluster trial: 2025-12-10 and 12-11 from an empty disk, 6 h 57 min cold.
+- [done 2026-11-16] Engine ready for the build: audit rounds a–k converged (owner); later rounds
+  l–z, aa–ee and the D-412 rounds fixed since. Candidate today: 1,596 tests passed.
+- [done 2026-11-17] Cluster verification: 2025-12-10 2,688/2,688 slots, 0 faults; 2025-04-11
+  2,684/2,688 (4 stated ETHA absences); June 2022 block published (FB→META contained);
+  2024-07-16's cause found (partial 2023 snapshots, D-359; outside phase 1). Tape history for phase 1
+  cached (654 sessions; since made stale by D-412, re-derived in the build).
+- [done 2026-11-18] Two-week sample 2026-11-02..13: 10/10 published, 2,688 exported and 0 failed
+  each day. Cboe PASS (5 indices, correlation 0.993–0.997); EDGAR 1,944 PASS, 26 FAIL on BABA/TSM
+  only (fixed, D-361); Tiingo PASS (165,030 FIELD and 86,656 price comparisons); FRED exact.
+  Coverage count found the replay change (P-04) and two EWJ defects (fixed, D-364/365).
+- [done 2026-11-19] Bulk option files equal the API (A/B 2026-11-03: 38,326,866 rows each, every
+  price, size, volume and OI equal); older differences are provider faults (P-20, P-21), handled
+  (D-398, D-399). Tape caches verified by sample: 1,276/1,276 asset-sessions byte for byte (C-059).
+- [done 2026-11-21] Three optimization passes (D-401/402; D-405; D-408/409/410). Before/after on
+  one AMD node (block start → published): first day 400 → **226 min**; later days ~215/180 →
+  **134/120**; intent B 71 → 49; reference checks beside the next day, 0.0 min waits.
+- [done 2026-11-21 22:24] Byte proof (C-001 + D-405): 11,870 of 11,874 published measurements equal
+  with switches on vs off; the 4 are BABA company measurements from re-fetched captures. Switches
+  save 21% of block time.
+- [done 2026-11-21] D-412 (session close from the listing market's print), five Codex rounds: tape
+  samples @9..@13 all 256/256 PASS; closes 192/192, opens 191/192 (XLK 05-06) on the three complete
+  sessions. Image **cc1d67cf** is the phase-1 image.
 
-**Where we are: step 3 (cluster verification), which turned into a second round of engine fixes.**
-Nothing wrong has been stored; every fault refused, held or was caught by a comparison.
+Next:
+1. **Phase 1, the build** (launch brief below). Newest blocks first; the newest two weeks are
+   judged while the rest run (owner's step 4a).
+2. **Verify phase 1:** the QA plan below; then the full examination of the built store (owner,
+   2026-11-16): per rule, does it generalise cleanly (fired how often, on what; over-firing; never
+   fired; resting on one case) → a short list of rule changes (each a scoped recalculation) and the
+   rules that stand. **Rule census (owner, 2026-11-16):** "with agent driven development on things of
+   this scale ... we just sort of accumulate rules over time and the result can be an unfortunate
+   agent stuck in spaghetti constraints". Never fired, fired only on its origin case, or contradicted
+   by the population → retire or merge; prune agents' instructions the same way. No rule tracking
+   is added ("feels like complexity that will cause problems ... If rules are being applied on some
+   days but not others then we shouldnt be doing it"): the census reads the outputs (absences by
+   reason, per sensor, asset, date; continuity). Rules required by a published standard fire only
+   on their events by nature.
+3. **Reporter on the phase-1 database:** the gap scan's work list (below); a proper paid report
+   beside the free one; then "a significant body of iteration on the reports themselves" until free
+   and paid are generated with confidence. Weekly comparison (owner, 2026-11-17): per sensor this
+   week vs last on one chart, from derived-layer weekly aggregates (state → the week's close; flow →
+   week sum or daily mean; ratio of flows → from summed parts; state curve → closing curve; flow
+   curve → summed per bucket; already relative → not aggregated). Presentation research pass once
+   real reports exist (gaps: week overlays, OI heatmap by strike × expiry, surface, chart types,
+   competitors' forms, citable sentences, share images).
+4. **Web rebuild:** re-architected from the early-access site into the full free reports (64
+   per-asset pages), the paid product and its explainer page. Verification page (owner, 2026-11-18):
+   each external check, its declared band, latest result, failures and fixes, in plain voice (no
+   "accurate", "audited", "institutional-grade"). Naming Cboe's indices waits on Cboe's permission
+   reply (sent 2026-11-18); check Tiingo's and OCC's naming terms first. Design inputs (pre-pivot):
+   `vyreon-reporter/docs/publication-design/`, `market-research/VYREON_PAID_CROSS_ASSET_PRODUCT_CONCEPT.md`,
+   `~/claude-artifacts/website-plan-2026-10-12.md`, `~/claude-artifacts/literature/SYNTHESIS-*.md`.
+5. **Launch decision:** Intrinio's Startup tier (display/redistribution rights; covers free and paid),
+   security before launch, Reporter's output live on the web; then the ads (owner's plan below).
+   After it, or when wanted: deeper history (old snapshot layouts readable since D-251..D-254; the
+   2023-01-18..03-07 gap needs a ruling), the FIELD campaign, social posting, CI.
 
-**Engine branches (all pushed unless said; worktrees `/home/diggz/wt/<name>`, cargo targets
-`/home/diggz/wt/target-<name>`):**
-- `pass-s3i` (worktree `s3i`): the candidate line. e05fac7f pushed = the merged candidate d55f6439
-  + D-248 (worker makes its archive directory), D-249 (no replay request before the tape start;
-  tape job lists the claim's members), D-250 to D-254 (reader for the three option-snapshot
-  layouts; refused rows withhold one security), D-255/D-256 (open-interest outage; first chain),
-  D-257 (a slot is staged once; the bundle refuses a duplicate), D-258 (the unusualness flag line
-  states its pool, DLM-UNUSUALNESS@1.7.0), D-259 to D-261 (company valuation computed in the
-  engine; enterprise value; the provider comparison emitted). **Then D-290 to D-294 (e10b6780, pushed 17:01 UTC):** real facts read from the provider: EMB's bar of
-  2024-12-30 states a dividend of 0.2545; every strike of every shared series is 0.25 lower
-  (calls 2025-01-17: 88.50..91.50 become 88.25..91.25, all open interest 0); on 12-31 the open
-  interest is back on the new strikes (869 at 90.75). D-290: a uniform strike reduction with a
-  bar dividend at least that amount is an ex-date (`ex_date=`, image `shift:d`; else
-  `ex_date_unknown=`), with the existing ex-date behaviour: that session's open interest is
-  withheld PROVIDER_OI_INCOMPLETE and histories restart there (EMB's phase 1 histories are short
-  until about 2025-10). D-291: "still listed" is the series (root, expiry, right), and the
-  prior session's quote file counts. D-292..294: the smaller findings. **Left:** round o
-  finding 5 (three lines in `h5-derived/src/lib.rs` `share`: say PROVIDER_OI_INCOMPLETE when the
-  open-interest fault is set; do it after `pass-fx11-d` merges); finding 4 fixed only for a
-  chain with no reported count (ETHA's real first chain is 160 zeros and 8 unknown and stays
-  ZERO_ELIGIBLE_OI_MASS); the ACT01 cohort is not translated across a strike reduction (a
-  stated NONE); core's ledger needs an EMB 2024-12-30 `shift 0.25` entry for sessions more than
-  21 after it; a partial outage without an adjustment still publishes (no threshold invented).
-  Not run on a real day. Phase 1 will meet the December 2025 distributions.
-- `pass-fx11-a` 72177277 (D-262..266): the fill records how it left each input; a capture that
-  failed on our side is ENGINE_FAULT, not PROVIDER_INPUT_MISSING (the one finding that blocked).
-- `pass-fx11-b` 68e18aa5 (D-268..271): tape caches valid by the official bar's content; a tape's
-  absence recorded with core; INT-TEMP-EVC01 on a fixed 252-session window (owner's ruling).
-- `pass-fx11-c` 354fc5a5 (pushed; D-280..288): provider readers: a dividend with no number, no
-  USD currency, no ex-date or (pools) no factor is the asset's stated lack; only `next_page: null`
-  ends a capture and one asset's undelivered request no longer fails the carry capture; the
-  spot bar is found by its clocks; a float or report with no readable clock is not visible
-  (UNKNOWN_CLOCK); a share row with an axis but no member is not the total; unit-less facts still
-  mark their period; prior-period reasons stated. **Left: provider-eras 10 (one macro series'
-  failure fails the macro capture): needs a "not delivered" series state across h3-macro,
-  h3-asset `macro01_production` and h3-iv-surface; do at the merge.** Also found: `plan.rs:241`
-  `empty_tenors` reads carry with the strict reader (one asset's page still refuses the day: use
-  `read_contained`); the shares endpoint would not follow a continuation; the CAPVAL reference
-  checker sums a member-less class row (now differs from D-284). Owner's call later: whether an
-  absent dividend currency on a US listing may be read as USD (if old eras omit it, every payer
-  of that era is withheld). `pass-fx11-d` (from 912b39a8; Opus agent running,
-  D-273..279): histories do not pool across method versions; one bad bar or capture costs only
-  what reads it; reasons carried.
-- **17:30 UTC: fx11-a, -b, -c merged into `pass-s3i` (1dcb939d, not pushed; one conflict in
-  `vyreon-worker.rs` run_tape, both behaviours kept); full suite running; round p with a
-  verifier.** fx11-d landed 17:29 UTC (`pass-fx11-d` 53cac957, pushed, D-273..277): **a history
-  counts an earlier session only if the measurement and every sensor it reads (the lineage)
-  carry the same science and method version on both; otherwise OTHER_METHOD_VERSION, and below
-  the minimum the reading is withheld HISTORY_OF_ANOTHER_METHOD_VERSION**; one bad bar costs only
-  the references it touches (P01/P03/W21 rank fewer than 126 and say so: owner may prefer
-  withholding; longer views listed); an unreadable earlier capture is a gap; inherited reasons
-  carried; a faulted object's records carry the error. Checked on the real dumps: no sensor
-  carries two version labels within a day (x3, y2, c-1210). **Caution: 6 of 94 sensors use a code
-  hash as `method_version` (M0-GAMMA-CHANGE's changed between pass-fx10 and the merge with no
-  value change), so a code edit in their closure restarts every history that reads them until
-  republished: phase 1 must be built from one image, and a later image bump needs a check of
-  which labels moved.** Merge fx11-d after the suite now running.
-  **Owner, 2026-11-16: give those six a hand-set method label** (M0-ANALYTICS, M0-GAMMA,
-  M0-GAMMA-CHANGE, M0-IV-CHANGE, M0-IV-PROFILE, M0-PRINT-SIZE: their `method_sha256` is a hash of
-  the method's code, set in `h4_m0_group.rs`, `h4_m0_change.rs`, `h4_m0_analytics.rs`,
-  `h4_m0_gamma_change_calculation.rs`); to do on `pass-s3i` after fx11-d merges. The version rule
-  itself is to be judged by the real build (step 5), as every rule built on sparse data is.
-- **17:34 UTC: all four fix batches merged: `pass-s3i` 7e19fe90 (fx11-a, -b, -c pushed at 1dcb939d
-  after a suite of 1,282 passed, 8 failed: only the known `option_field`; fx11-d merged clean on
-  top: suite 1,292 passed, 8 failed (only the known `option_field`); pushed 17:56 UTC).** The
-  fx11 worktrees and build directories are deleted (disk 774 GB free). **Batch 12 started in
-  `/home/diggz/wt/fx12` (`pass-fx12`, D-295..305):** the six M0 hand-set labels with a guard
-  against shipping a method change without a bump; round o finding 5; provider-eras 10 (macro
-  containment); the four small items found by the fix agents. Then: merge fx12, one Codex audit
-  of the merged whole (everything since d55f6439 is unaudited as a whole) with a verifier.
-- **18:20 UTC: batch 12 merged: `pass-s3i` a91557b8 (pushed; fast-forward), D-295 to D-305; suite 1,306
-  passed, 8 failed (only `option_field`).** The six M0 sensors carry hand-set labels
-  (`M0-ANALYTICS@1.0.0` and so on) with a test pinning their code hash; round o finding 5;
-  one macro series not delivered no longer fails the capture; carry plan, shares paging,
-  reference CAPVAL, BENCHMARK_UNAVAILABLE, undated 8-Ks; share counts visible only through the
-  reporting filing; provider update dates counted (WMT's 10-Q was updated 2026-06-18: rebuilds
-  will show non-zero counts); **CPI is CPIAUCNS** (no published month-over-month CPI change
-  existed); INDPRO and expected earnings state their basis. **Old macro captures (CPIAUCSL) are
-  refused: every day needs a fresh macro capture.** Left: the reference checker still pins
-  CPIAUCSL values and ignores the new INDPRO roles; four DLM-BETA reasons missing from
-  causes.py; the BLS no-revision citation was written from memory. fx12 worktree and build
-  directory deleted. **Round q started 18:20 UTC: three Codex audits of the merged whole since
-  d55f6439, by area (`2026-11-16-merged-round-q/`: options, company-macro,
-  pipeline-histories); Codex at 75 per cent of its week.**
-- **18:28 UTC:** 2022-06-08 published (the block's third session; 06-09 computing). Two preparation
-  items started while round q runs: **keep the small restatable captures through core** (engine
-  `/home/diggz/wt/fx13` `pass-fx13` D-306..309, core `/home/diggz/wt/core-captures` C-043..045)
-  and **the ordered-pass re-queue count and the tape-fetch depth** (engine `fx14` `pass-fx14`
-  D-310..312, core `core-requeue` C-046..048).
-- **18:46 UTC: the small captures are kept, in code (engine `pass-fx13` 25e23a8a, core `core-captures`
-  9cb8741, both pushed, not merged; D-306, C-043; migration 0016).** Stored in core's database
-  (table `core.input_capture`; no new secret or service), write-once per (session, kind, manifest
-  sha256), a different identity kept as a new version with its capture time; a day-block lease
-  can write only for days it published; capped at 64 MiB packed. The worker sends T's company,
-  macro and carry and T-5's macro and carry after the day publishes; a failure is logged and
-  recorded as an absence, never fails the day. About 4.5 MB a day. Deploying: the new core image
-  (its migration) and the new worker image. **The agent added a paragraph to PRODUCT_INTENT.md in
-  both repositories quoting the owner's ruling: the owner's document, shown to the owner.** Not
-  run with a real company or carry capture. Merge with the rest after round q.
-- **18:47 UTC: re-queue and tape depth settled (core `core-requeue` b3a6bf7 C-046; engine `pass-fx14`
-  43caaf88 D-310; both pushed, not merged).** (1) No code change: a pass re-runs only if it ran
-  before an earlier day published, and migration 0014 makes passes wait for every earlier
-  block, so **scheduling the ordered passes once for the whole range (before the first block or
-  after the last) runs each exactly once: 402 runs for phase 1; scheduling them with each
-  tranche is quadratic (2,602 with 40-session waves; 81,003 day by day).** Operating rule
-  recorded in C-046 and deploy/k8s/README.md. (2) N = 252: EVC01 reads 252 tape sessions, the
-  FIELD intraday panel 189, the rest T's own; a day now fetches 253 sessions of tape caches
-  instead of up to 873, no published value changes (EVC01's receipt digest does). **Phase 1
-  then needs tape jobs only from 2024-04-09, not 2023-05-24: about 219 fewer tape sessions.**
-- **Round q reported (18:59 UTC; `2026-11-16-merged-round-q/`): 20 claims across the merged whole,
-  several WRONG NUMBER (company: a share count revealed by an older-period amendment, an
-  incomplete class set accepted, unreadable preferred read as zero, earnings yield mixing
-  common and pre-preferred earnings, "latest filed" silently older; histories: D-273 pools
-  labels globally while ACT01/EXQ01 routes carry different labels, a failed history skipping
-  today's volume reconciliation; options: a strike reduction hidden by a new lower strike).
-  Three verifiers (one per report) are triaging; then fix batch 13.** The 2024-07-16 retry's
-  kept log shows provider HTTP 502s on four assets' old option captures (GLD 2023-12-19, PLTR
-  2023-11-22, LLY 2024-03-26, WMT 2024-02-26), classed retryable.
-- **Round q options triaged (19:06 UTC; `.../merged-round-q/triage/options.md`): 3 real, 1 by decision;
-  one BLOCKS: on an outage or ex-date day M0-GAMMA publishes base/eligible open interest and
-  positive cells as a supported 0 and the gamma exposure says ZERO_DENOMINATOR (observed: D-150
-  recorded it on EWJ 2025-12-16; every ex-date, including the 2025-12-05 splits, triggers it).**
-  Fix batch 13-O started (`/home/diggz/wt/fx13o`, `pass-fx13-options`, D-313..317): that, the
-  strike-reduction detection with extra strikes allowed (OCC Art. VI 11A), a refused snapshot
-  behind an ex-date, D-290's text.
-- **19:08 UTC: `pass-fx13` (kept captures) and `pass-fx14` (252 tape sessions) merged into `pass-s3i`
-  5b28718d (pushed; clean, compiles). Core's `core-captures` and `core-requeue` merge clean into
-  main (not yet merged). Round q pipeline triaged (`.../triage/pipeline-histories.md`): 7 real, 1
-  not real, none blocks; the important one: D-273 reads labels from SPY and AAPL only while
-  ACT01/EXQ01 publish a different label on NONE slots (observed: the five split assets on
-  2025-12-10), so a NONE route on SPY or AAPL would withhold every asset's activity histories.
-  Fix batch 13-P started (`/home/diggz/wt/fx13p`, `pass-fx13-pipeline`, D-318..325).**
-- **Round q company-macro triaged (19:08 UTC; `.../triage/company-macro.md`): 8 real, 1 by decision;
-  one BLOCKS: a rejected incomplete share-class set still becomes the reference, so a later
-  single-class date passes and one class becomes the total (META 2.206 for 2.548 billion,
-  -13 per cent; plausible: META's real class rows show an incomplete date).** The by-decision one
-  (earnings yield's fallback to net income) contradicts the published standard (FAS 128 /
-  ASC 260: income to common is net income less preferred dividends), so it is fixed too.
-  Fix batch 13-C started (`/home/diggz/wt/fx13c`, `pass-fx13-company`, D-326..335).
-- **19:38 UTC: batch 13-P landed (`pass-fx13-pipeline` 839f1d31, pushed, D-318..324).** Every
-  ACT01/EXQ01 slot, certified, NONE or faulted, carries the certified method label (the route
-  is named by the receipt and index schemas; one label per definition, as D-295 did for M0);
-  D-273's first-block query stays strict (any second label is a real one). Today's tape is
-  reconciled even when the history fails; all-unlisted tapes finish in one attempt; a refused
-  chain is not a failed unit's fault; a tape cache lacking only its bar is the provider's
-  absence; own-capture faults name themselves in beta and correlation; EVC01's identity
-  includes prior pages' official volume (EVC01 @5). Agent's suite: 1,210 passed, 8 failed
-  (`option_field`). **Check at the merge: the count is below the 1,306 of a91557b8.**
-- **19:41 UTC: batch 13-O landed (`pass-fx13-options` 61b31725, pushed, D-313..316; suite 1,308 passed,
-  8 failed).** On an ex-date or outage day M0-GAMMA withholds every figure PROVIDER_OI_INCOMPLETE
-  (was a supported 0) and DLM-GAMMA-EXPOSURE carries that cause (`M0-GAMMA@1.1.0`); a strike
-  reduction with an extra lower strike is detected; a refused snapshot behind an ex-date withholds
-  only its asset; D-290's text corrected. Open rule (mine to decide by the standard, at the
-  merge): an old strike relisted on the adjustment day itself, unquoted with no open interest, is
-  a new standard series and does not count against "replaced" (OCC adjusts the old series;
-  exchanges list new standard strikes alongside).
-- **19:42 UTC: batch 13-C landed (`pass-fx13-company` e61d22df, pushed, D-326..335; agent's suite 1,319
-  passed, 8 failed) and all three batch-13 branches are merged into `pass-s3i` 9f9cfea0 (no
-  conflicts; not pushed until the full suite passes; suite running, log `/home/diggz/wt/s3i-suite5.log`).**
-  Company: a rejected class set never becomes the reference (the blocker); income to common is
-  net income less preferred dividends (FAS 128 / ASC 260), net income only where no preferred
-  was outstanding; an unreadable preferred line is never zero; the valuation never reads an older
-  statement as the latest; an older-period amendment cannot reveal a later count; a date-only
-  fundamental clock is visible from the next session; macro and carry captures refuse at capture
-  what the readback requires; reference checkers aligned (CPIAUCNS, INDPRO roles, four reasons).
-  On 2025-12-10 no published value changes for the 17 (from the dumps). Not run on values: the
-  preferred-dividend subtraction (no real case in the fixtures). **Next: the relisted-strike
-  rule (mine, by OCC), round r (audit of batch 13), core merges, one image, the verification
-  re-runs.**
-- **19:51 UTC: candidate `pass-s3i` 9f9cfea0 pushed after a full suite of 1,327 passed, 8 failed
-  (only `option_field`). Core main ad9f512 holds `core-captures` (C-043, migration 0016) and
-  `core-requeue` (C-046): 53 unit and database tests pass. Round r started: two Codex audits of
-  batch 13 (`2026-11-16-batch13-round-r/`: company, pipeline-options). The relisted-strike rule
-  (D-336) merged (`pass-s3i` a2908ede, pushed): an old strike listed on the adjustment day with no
-  open interest and no two-sided quote is a new series under OCC Art. VI 11A and does not block
-  the detection; open interest or a two-sided quote still does.**
-- **20:03 UTC: the database volume grown from 60 to 120 GB** (owner-approved; CloudNativePG resized it
-  online, no restart; 111 GB free; `deploy/k8s/10-postgres.yaml` now says 120Gi). A dump taken
-  first: `~/claude-artifacts/db-backups/vyreon-20261116T*.dump` (761 MB, 33 tables; on the laptop
-  as a safety copy only: delete once the build's first tranche is stored).
-- **Round r reported (20:34 UTC; `2026-11-16-batch13-round-r/`): 12 claims on batch 13.** Company: four
-  possible wrong numbers in the new preferred-stock and latest-statement logic (an unrecognised
-  preferred obligation, an older fact bypassing the invalid-preferred guard, same-period
-  amendments, preferred dividends from a different period end), one reason lost, four reference
-  checker defects. Pipeline: a failed reconciliation leaving today's stale cache usable, one
-  refusal attributed as an engine fault, capture-upload outcomes lost when `day_done` fails; and
-  serial capture uploads that could add about 131 minutes to a day at worst. Confirmed: NONE
-  bodies compute nothing (the shared label hides no method), and 2025-04-10 has exactly 252 prior
-  tape sessions from 2024-04-09. A verifier is triaging both reports.
-- **17:44 UTC: 2025-04-11 PUBLISHED on 1a532d8b (refused three times on older builds): 2,684 of 2,688
-  measure slots and 512 of 512 day-layer slots complete, 0 engine faults;** 4 ETHA readings withheld
-  as EMPTY_DELIVERED_POPULATION (its prior week had no options yet). 2025-12-10 still computing.
-  **My error: `delete-idle.sh` matched pods by name (v-day/v-tape/v-pass), missed `v-sample`, and
-  deleted the sample's two nodes 4 hours into its downloads.** Fixed: it now selects pods by the
-  label `app=vyreon-worker`. Pool back to 3; the sample's jobs (1380, 1381) re-claim as attempt 2
-  when their leases lapse, starting their downloads again (about $1.3 and 4 hours lost).
-- **19:10 UTC Nov 18: gap found, owner decision: the reference check runs on the worker, before the
-  raws are deleted.** `refcheck run` recomputes from each day's raw inputs, and workers delete them
-  once the day publishes, so none of the sample's published days can be checked (criterion 4).
-  Owner: raws cannot be stored for all of phase 1, so the worker runs refcheck between publishing
-  and pruning, and the report goes to core. To build before phase 1: refcheck in the worker image
-  (QuantLib 1.43, TA-Lib 0.8.2), its report recorded per session in core, a disagreement as one
-  notice; its time per day measured (it adds node-hours). The sample's criterion 4 (and 7, the
-  image diff) then from one sample day re-run on the new image. The owner's key file
-  `spaces-only-key.txt` is gitignored (the repo is public). Owner: the cost is worth it; and
-  "we have done the ten day spot check without actually checking any of it against external
-  references": so far the sample shows the system runs (10 days, 0 failures), not that its
-  numbers are right. **19:13 UTC: the bucket-limited Spaces key works** (`spaces-storage-access-key.txt`,
-  gitignored: lists `vyreon-data`, refused the account's bucket list); cluster Secret
-  `vyreon-core-spaces` created from it (key-id, secret; not printed).
-  **Owner (19:20 UTC): the sample is salvaged by two external checks, EDGAR (company figures
-  against the filers' XBRL facts, data.sec.gov companyfacts) and Cboe's volatility indices (VIX/SPY
-  existing in `refcheck.outside`; add VXN/QQQ, RVX/IWM, GVZ/GLD, OVX/USO, bands committed before
-  comparing): "If those pass within tolerances then the system has passed what I would consider a
-  major verification."** Both read the sample from core (not day dumps). The step-5 count of
-  published and withheld slots is the "coverage count" (not the B0/B1 census, which included
-  the reference checks). Then phase 1's first tranche runs with refcheck in the worker, gated.
-  **19:23 UTC: Cboe check PASSES on the 8 published days** (bands committed first, 4cabd03,
-  `tools/external/`; report `~/claude-artifacts/checks/2026-11-18-cboe-sample-8days.json`).
-  Index minus our VS-IVS01 iv30, points (band -1..8), and correlation over the 8 days: VIX/SPY
-  3.3..7.6, 0.998; VXN/QQQ 2.9..6.1, 0.997; RVX/IWM 2.3..4.8, 0.996; OVX/USO 3.8..5.3, 0.997;
-  GVZ/GLD 1.9..3.3 (GVZ moved only 1.8 points, so its correlation, 0.69, is reported, not
-  judged). Widest gap 11-05 (VIX 28.2): the skew premium widens with the level, as expected,
-  but sits near the band's top.
-  **19:42 UTC: EDGAR check (declared f56347d before comparing, tolerance 1e-9; tool eb3b17d;
-  report `~/claude-artifacts/checks/2026-11-18-edgar-sample.json`, 9 dates) FAILS under its rules,
-  only on the two 20-F filers.** 15 domestic filers: every comparable figure passes, 1,925 of
-  1,926 PASS bitwise equal to the as-first-filed SEC facts; filing clock 153 of 153; no
-  restatement or look-ahead. BABA and TSM (26 FAIL): the provider's "as reported" USD is its own
-  conversion (local fact / the filer's convenience rate, unrounded), labelled USD; level
-  differences ~1e-7 relative; single-period ratios equal the local-currency ratios. **Real defect:
-  ROA averages two years' assets converted at two different convenience rates** (vs the
-  local-currency ROA: BABA FY2023-26 -3.9%, -2.5%, -0.25%, +2.5%; TSM 2022-24 -4.4%, +0.2%,
-  -3.1%). To fix in the engine before phase 1: cross-period company ratios in the filer's
-  reporting currency, and a converted amount stated as converted. Not comparable (137): TSM's
-  FY2025 20-F not yet in companyfacts; BABA's capex element; per-class-only share counts (COIN,
-  META, MSTR, PLTR, GOOGL). To investigate: GOOGL's `reported_shares_outstanding` is dated
-  2016-02-01 on every date (stale?). 11-13 added when it publishes.
-  **19:46 UTC: external-reference research done** (`~/claude-artifacts/research/2026-11-18-external-references.md`;
-  94 sensors: A same quantity 16, B band 7, C independent recompute 39, D internal only 15,
-  E nothing 17). Four pilots ran on stored days (those days are no longer blind for them).
-  **Lead to investigate before phase 1: our option volume omits adjusted roots** (EWZ 2026-11-12:
-  `2EWZ` 61,400 contracts, 38% of the day; OCC put share 0.606 vs ours 0.672; standard roots
-  0.1-1.1% below OCC, put share within 0.003): engine rule or Intrinio delivery, unknown.
-  Shortlist: OCC Volume Query (free, history) vs VS-O06, DLM-PCR-VOLUME, DLM-OPTIONS-VOLUME;
-  Cboe iv30 bands to 14 assets (VXAPL VXAZN VXGOG VXEEM VXEWZ VXTLT VXD VXSLV VXFXI; pilot saw
-  AAPL 2025-04-11 gap 8.2 and an EEM expected-move -1.3); FRED, EDGAR 8-K times, CIK (FRED pilot
-  exact); Tiingo Commercial $50/mo (prices, technicals, FIELD recompute); OCC per-series open
-  interest captured daily from now (current-day only). Massive out (business $1,999/mo options;
-  personal plans barred). DataShop (owner's quote: $300 SPY 13 months; all symbols $2,520): one
-  month, April 2025, SPY + TSLA + a thin chain, about $70. Terms to confirm: Cboe (index data
-  beyond personal use: permissions@cboe.com), OCC (terms page blocks automated reads).
-  **DataShop purchase list (given to the owner 19:50 UTC):** Option EOD Summary with calcs, whole
-  calendar months: SPY, TSLA, UUP April 2025 (stress; UUP the thinnest chain, 30 point quotes on
-  2025-04-11 vs EMB 82); XLK December 2025 (2-for-1 split ex 2025-12-05, per Intrinio; XLB XLE XLU
-  XLY split the same day); ETHA October 2026 (1-for-3 reverse split 2026-10-06: adjusted
-  contracts, the EWZ question). Our closing quotes are Intrinio's whole-market snapshot at 15:55
-  ET (D-071, D-072); for the comparison Intrinio's 15:45 snapshot is fetched to match Cboe's 15:45
-  fields exactly; volume and open interest compared exactly, IV as a declared band.
-  **Phase-1 tranche gate (agreed with the owner, 19:31 UTC; "the consequences of a wrong number
-  are unfortunately quite large"):** each tranche passes, before the next starts, (a) refcheck in
-  the worker on every day, (b) the Cboe bands, (c) EDGAR; and, once 63 sessions of history exist,
-  (d) a flag-agreement test, declared and committed before phase 1 runs: when a Cboe index is in
-  the top tenth of its own last 63 sessions, our matching iv30 is flagged too. A failed check
-  stops phase 1: diagnose, fix, recompute the affected days. Bands are not moved after the fact.
-  Phase 1 opens two days after VIX's 2025-04-08 peak (~52): the SPY band's top (8) meets real
-  stress in its first tranche.
-- **03:40 UTC: round x's other twelve fixed and merged; no audit (owner).** Core main 58cf628 (#1 the
-  archive outcome checks its place; #2 cancelling a repair opens NOT_DERIVED; #7 digest tally in one
-  statement; #8 a "not packed" beside KEPT is not listed; #9 a block archives only days it marked
-  done; #12 a 5xx from Discord is an unknown outcome; #17 migration 0024, one record per report;
-  #19 one `wait=true`; 24 unit + 74 DB tests). Engine `pass-s3i`/`worker` 9bc02f2d (#3 finish.log
-  after the deadline loop; #10 packing diagnostics redacted; #14 leftovers removed; #15 a failed
-  child's group killed; #16 D-360's bound is 15 min 45 s; 1,388 passed, 0 failed). Stated limits:
-  a day republished by hand after its block marked it done is still credited to that block; history
-  problems round v resolved falsely stay closed (none known); a stalled worker disk after the
-  deadline can still block cleanup. Images pushed (03:05 UTC): `vyreon-worker:9bc02f2d` (build
-  `9bc02f2d+90a50956a51d`, inventory `cluster-scratch/inventory-9bc02f2d.json`; register and admit
-  at phase 1's start) and `vyreon-core:01ca9d7` (deploy after the sample).
-- **Sample: 2026-11-02 and 2026-11-09 published (02:20, 02:38 UTC; 237 and 258 min with the
-  window download); 2026-11-03 published 06:08 UTC in 226 min (2,688 exported, 0 failed).** Later
-  days are not much faster than the first. 11:27 UTC: 6 of 10 published (11-10 252 min, 11-04 282,
-  11-11 272). Block 2's stages per day (11-02 / 03 / 04, min): input preparation 65 / 61 / 75,
-  intent A 78 / 77 / 85, intent B 68 / 64 / 89, export index 3 / 3 / 10, FIELD 13 / 13 / 14, the
-  rest about 5. The next day's download (47–52 min) overlaps compute, so compute is the bound.
-  11-04's longer intent B is the main difference (hypothesis: the session after the 11-03
-  midterm election, a busier tape; not checked). 15:14 UTC: 11-05 published in 262 min; 15:34
-  UTC: 11-12 in 250 min; 19:34 UTC: 11-06 in 259 min; **19:58 UTC: 11-13 in 263 min: SAMPLE
-  COMPLETE, 10 of 10 published, every day 2,688 exported and 0 failed; both nodes deleted (19:36,
-  19:58).** External checks over all ten days (20:05 UTC): Cboe PASS (gaps unchanged, level
-  correlations 0.993-0.997; `checks/2026-11-18-cboe-sample-10days.json`); EDGAR the same 26 FAIL,
-  BABA and TSM only, 1,944 PASS (`checks/2026-11-18-edgar-sample-10days.json`). Pass criteria:
-  (1) yes; (2) yes; (3) coverage count not yet run; (4) refcheck impossible on the sample (raws
-  deleted): moves to the first tranche's gate; (5) domestic filers exact, 20-F ROA defect to fix;
-  (6) plots not yet made; (7) image diff with the next image.
-  **Coverage count (20:05 UTC; `checks/2026-11-18-coverage-sample.txt`, every state-bearing element):**
-  below 80%: PCR-UACT-I01 0.43, D111-TEMP01 0.71 and a DLM-VWAP role (381 of 640 asset-days)
-  all SOURCE_VOLUME_RECONCILIATION_FAILED; SAI-EXQ01 0.35, M0-PRINT-SIZE 0.20, SAI-EXQ01-TEMPORAL
-  0.64 all EVENT_SOURCE_NOT_RETAINED (512 of 640 asset-days; the archive is off?); INT-ACT-TV15
-  0.64 INSUFFICIENT_ELIGIBLE; CDD-FND01 0.785 and SAI-G01 mostly structural NOT_APPLICABLE. Being
-  diagnosed. **Started 20:00 UTC (owner: "start working on those fixes"):** engine `pass-fx40`
-  (20-F ROA currency D-361.., adjusted-root volume, GOOGL shares); refcheck in the worker
-  (engine `pass-fx41` D-370, core `core-refcheck` C-054); free gate checks (Cboe 14 pairs, OCC
-  volume, FRED) in `tools/external`. Owner bought DataShop ($300: SPY TSLA UUP Apr 2025, XLK Dec
-  2025, ETHA Oct 2026; per-day files; SFTP login verified, host key pinned in ~/.ssh/known_hosts
-  (RSA SHA256:4yK/0LgwT2ERct0jZXdP6590zT9Qdhv78xfjWdv91lQ); files not yet written, polled every
-  10 min; 30-day retention). **20:16 UTC: core `01ca9d7` deployed (owner: "youre good to
-  deploy what u need")**: migrations to 0024 by the init container; first without the webhook,
-  1 unsent post marked sent, then with it: notices live, 0 posted at switch-on, no open problem;
-  digest 🟡 (1 provider gap 11-13). Perishable archive still off (switched on with the first
-  real-day run). Owner setting up Tiingo.
-  **Tiingo Commercial key works** (`tiingo.txt`, gitignored, mode 600; SPY 2025-04-08..10 read).
-  **Coverage misses diagnosed (20:15 UTC; scripts `scratchpad/vol/`):** (1) SOURCE_VOLUME_RECONCILIATION_FAILED
-  is a PROVIDER CHANGE: from 2026-11-06 Intrinio's replay files grew ~2.4x (CTA B 28.8 -> 76 GB)
-  and carry 1-10% fewer trades in every 15-minute bin (TIP 11-12: 9,294 prints vs the trades
-  API's 9,742, which matches official volume to 0.01%); 11-02..05 fail 3-9 of 64, 11-06..13 56-63
-  of 64. The D-089 2% gate is right. Fix (owner's call, series basis): days within the trades
-  API's 7-day reach take their trade stream from the API, the replay stays the quote source; raise
-  the 11-06 change with Intrinio. Phase-1 dates before 11-06 unaffected. (2)
-  EVENT_SOURCE_NOT_RETAINED is the 5-session retention window (`fill::prints_retained`,
-  D-103/D-263): the sample ran 11-18, so only 11-12/13 qualified; the archive is upload-only and
-  not the cause. The droplet holds the cohort prints from 2026-10-23: a read path (D-263, C-052)
-  recovers those days; phase 1 before 10-23 stays withheld for SAI-EXQ01, M0-PRINT-SIZE.
-  **Correction: criterion (2) is NOT clean:** EWJ VS-O02 (open interest) ENGINE_FAULT on 11-02 and
-  11-03, with PARENT_ENGINE_FAULT in VS-O03, O04, OIJ01, SAI-G01 and FIELD-OPTBR01/SUP01 (one
-  object each). **Diagnosed:** two code defects. (A) `h3-o02 history.rs`
-  `select_minimal_source_for_asset` never treats a full 200-session window as exhausted, so EWJ
-  (open interest withheld PROVIDER_OI_INCOMPLETE ~99 sessions Jan-Jun 2026; 95 eligible changes of
-  126) faults instead of publishing; (B) `acq.rs` `before_first_chain` is vacuously true at the
-  window's oldest session, so from 11-04 EWJ got a false CAPTURED_HISTORY_START terminal (O04,
-  OIJ01 state a false history start). Fixing in engine `pass-fx42` (D-364..), surface check of
-  O04, OIJ01, L01. INT-ACT-TV15: structural (a bin pair with zero cohort trades on thin names;
-  common support complete); a clearer reason code would help.
-  **Owner (20:40 UTC): daily runs take trades from the trades API, quotes from the replay**
-  ("especially after launch of the core... some more volatile component is fine"; the API's
-  7-day prints kept like the other perishables). Engine D-089 amendment queued after `pass-fx40`;
-  request cost measured on 2026-11-17 (pages of 10,000, sequential within a security): NVDA
-  4,970,460 trades, 498 requests, 1.04 GB JSON, 25 min; SPY 954,761, 96, 196 MB, 6 min; TIP 13,026,
-  2, 2 MB, 3 s. All 64: likely a few thousand requests a day (vs ~39k per day now), several GB of
-  JSON, NVDA the long pole unless split by time window.
-  **Engine `pass-fx40` done (pushed, not merged; based on 9bc02f2d):** D-361: BABA and TSM send no
-  local-currency facts (each amount is Intrinio's USD translation at that period's rate), so every
-  quantity combining periods (ROA, yoy differences and their percentiles, derived quarters,
-  trailing sums) is withheld REPRESENTATION_INCOMPATIBLE / CURRENCY_TRANSLATED_AT_DIFFERENT_PERIOD_RATES
-  and translated amounts are labelled; D-362: true adjusted roots are counted (BABA2), FLEX never
-  reaches the engine (Intrinio lists no FLEX tickers), ETHA's fractional volume is D-079's
-  standard-equivalent count (owner's call: whole contracts recommended); D-363: GOOGL's share
-  count (a zero-share class on the 2016 cover became required) now 12,294,000,000 (2026-10-21); an
-  older cover never stands in. Suite 1,390 passed (shared-target interference: one crate re-run
-  alone). `pass-fx43` started (D-380..: CPI/INDPRO release table, FEDFUNDS clock, earnings
-  evidence, date-only midnight stamps).
-  **Tiingo checks PASS (rules 0663e30 first; tool f96d2ad; reports `checks/2026-11-18-tiingo-{field,prices}-sample.json`):**
-  FIELD recompute from a second vendor's closes, 165,030 comparisons over 88 quantities, all inside
-  (SYNC01 W21/W63 mean correlation within 4e-7; RMT01 leading eigenvalue within 3e-5 relative;
-  DEP01 20,160 pairs within 8.5e-4); prices 86,656 comparisons over 108 quantities, all inside;
-  Intrinio's raw closes equal Tiingo's on all 4,608 security-sessions. Skipped: random-number
-  quantities (RMT01 nulls, GRP01 permutations, SUB01 bootstrap), intraday and option FIELD
-  sensors, PATH-L03-L07, VS-P07, CANDLESTICK, VWAP.
-  **Owner decision (ETHA / adjusted contracts):** volume, put/call and per-contract volume against
-  open interest count WHOLE contracts (as OCC and brokers); exposure-type and OI-weighted
-  quantities stay share-equivalent (D-079); "be explicit with where each is used": each role
-  states its unit, each row its deliverable factor, and engine D-390 tables every sensor and role.
-  Being implemented on `pass-fx40`. FLEX: Intrinio delivers none, so volume is listed standard and
-  adjusted contracts, FLEX excluded, stated in the method.
-  **Core `core-refcheck` merged (C-054, migration 0025: `core.refcheck_report`, `PUT
-  /worker/v1/refcheck/{session}`, `vyreon-core refcheck list|show`, REFCHECK_DISAGREES /
-  REFCHECK_NOT_RUN notices); core suite 102 passed incl. database tests.** Engine side `pass-fx41`
-  (D-370: worker runs refcheck after archive, before prune; 120-min bound; venv QuantLib 1.43,
-  TA-Lib 0.8.2 pinned, build fails on mismatch) merges with the other engine branches. Set
-  `VYREON_CORE_REFCHECK_FROM` to phase 1's first session. Never yet run on a real day.
-  Owner on its cost: if the real day shows it is large, the fallback is the full check daily on
-  the most volatile families and the whole suite weekly ("quite practical"); scaling out with more
-  nodes is also acceptable.
-  **Owner (21:45 UTC): no time cap on the first real day's reference check, so it is measured**
-  ("we capped a time and just kept running into repeated time caps"; expects it under the engine's
-  own compute time): the real day runs with `VYREON_REFCHECK_MINUTES=600`; the production bound is
-  then set from the measurement.
-  **Engine `pass-fx43` done (tip 58f39421, pushed; suite 1,396 passed):** D-380 CPI/INDPRO release
-  table from April 2022 (82 dates from BLS and the Fed's G.17; all 107 checked against ALFRED);
-  D-381 FEDFUNDS readable the session after the Fed's first business day (54 of 54 months
-  confirmed; no phase-1 session was read early; the old lag would have on 2027-01-04); D-382
-  `earnings_disclosed_at` is release evidence (recovers NVDA 2025-02-26, AVGO 2025-03-06; AMD, NVDA,
-  PLTR's missing 8-Ks: latest withheld, history POSSIBLY_INCOMPLETE); D-383 date-only acceptance
-  (`sec_filing.accepted_utc_date`). Phase-1 changes: CPI 23 sessions, INDPRO 14, FEDFUNDS 19 (and
-  DBA, UUP surfaces on those dates), EVENTS01 NVDA, AVGO, AMD, PLTR. **Dated reminder: the release
-  table ends at November 2027 data; extend it before then.** Core follow-up: EDGAR checker compares
-  `accepted_utc_date`.
-  **Optimization pass before phase 1 (owner, 21:50 UTC): timeboxed, from the real day's profile;
-  byte-identity retired** ("Byte identical is based on the assumption that the current system is
-  perfect. We are repeatedly proving it is not"). Image-diff rule for any change: floating-point
-  noise (relative ~1e-12) allowed and reported; anything larger ties to a decision; states never
-  change silently; any unusual flag that changes is explained; the external checks are the second
-  net. Optimizations and value fixes land as separate commits so each changed value is
-  attributable.
-  **Engine `pass-fx42` done (49d28013, e918525c, 89e45be1; suite 1,390 passed):** D-364 a history
-  holding the whole 200-session window counts as exhausted (VS-O02, O04, L01, OIJ01; the
-  percentile ranks the eligible changes it holds, from 63); D-365 a history start needs a published
-  empty chain before it (also `occ::first_option_session_after`). EWJ 11-02/03 publish; 11-04..13
-  lose the false terminal. **EWJ's withheld open interest explained:** OCC cut every EWJ strike by
-  $0.16 on 2025-12-16; the provider dates it only for 21 sessions, then its stale pre-adjustment
-  listings trip the 1% gate; fixed by a core ledger entry. **Core never built the adjustment
-  ledger the engine reads** (`h5-universe/adjustments.json`, VYREON-ADJUSTMENTS@1): `core-ledger`
-  started (C-055; entries backed by OCC Information Memos for all 64 since 2022-05-27).
-  **Engine `pass-fx40` D-390 done (f781f10b, 47e50889, 8a1f895a):** ETHA 11-12 34,199 contracts, put
-  share 0.513; rows carry `deliverable_factor` and `open_interest_contracts`; schema
-  CI-OPTION-EOD-ARROW@3 (every option source requoted); VS-O06 volume `contracts_traded`; DLM-
-  OPTIONS-VOLUME 1.4.0, DLM-UNUSUAL-CONTRACTS 2.1.0; the unit table in D-390. Before merge: requote
-  the shared `workspace/fixtures/etha-first-chain`. Shared-target interference made every
-  agent's full suite unclean: the merged tip gets one clean full run.
-  **Engine `pass-fx44` done (55d354aa, 3e1bd89e, c634170e):** D-391 quotes must respect
-  no-arbitrage bounds at their own stated strike (Hull ch. 11, Merton 1973), S anywhere in the
-  session's [low, high] (`underlying_range=`), tolerance 1% of the high; above 5% of a session's
-  quotes outside, a strike-label fault (`PROVIDER_STRIKE_LABELS`) clears the session's quotes, OI,
-  volume. Verified on DataShop: XLK 2025-12-05 all 2,200 quoted rows mislabelled (2,196 equal Cboe
-  at 2x strike), caught; 0 false positives on 424,814 quotes over 106 other security-days. D-392:
-  a relisted code's positive first-session OI is unknown (all 120 ETHA 10-07/08 caught; Cboe shows
-  0 OI on all 15,798 first-session listings). P-13: no leftover keeps OI or volume after the
-  overlay; every published OI equals Cboe's on 414,902 contract-days. P-15: no staleness rule
-  (610 of 670 old quotes equal Cboe). Follow-up: ACT01 picks its cohort by raw strike, guarded only
-  by `ex_date=`. **All five engine branches done; merging into `pass-fx45` (one clean suite).**
-  **Core `core-ledger` merged (C-055; suite 105 passed incl. database):** the OCC adjustment ledger
-  (`crates/core-api/data/occ-adjustments.json`, compiled into core, narrowed to each claim's
-  members) with 21 entries, every one citing its OCC Information Memo: 13 forward splits (AMZN,
-  GOOGL, TSLA, SMH, WMT, NVDA, AVGO, MSTR; XLB XLE XLK XLU XLY 2025-12-05), 4 strike offsets (FXI
-  0.15 2023-06-08 #52545, QQQ 0.22 2023-12-27 #53847, EMB 0.25 2024-12-30 #55816, EWJ 0.16 2025-12-16
-  #57919), 4 adjusted roots (UNG1, BABA1, BABA2, ETHA1 #59890). A new entry needs a new core image.
-  Follow-ups: the engine's QQQ 174.78 `residue_strikes` example is OCC #53847; FXI's date (cash
-  06-07, strikes 06-08) for the engine to confirm; record the ledger's hash with each published
-  day (provenance). Pre-2022-05-27 adjustments are outside phase 1's 39-month relevance.
-  **Engine merged: `pass-s3i` and `worker` fast-forwarded to e329b3c8** (`pass-fx45`: fx42, fx43,
-  fx41, fx40, fx44; overlay rules now D-394, so every option source is requoted; refcheck's
-  worker-mode decision list gained D-382/383; the ETHA fixture requoted, original kept as
-  `etha-first-chain.pre-d390`). Clean full suite with no other build running: 1,413 passed, 0
-  failed; reference pytest 34 passed. **Images pushed:** `vyreon-worker:e329b3c8` (build
-  `e329b3c8+0368a1d7da4c`, venv QuantLib 1.43 / TA-Lib 0.8.2 verified in `versions.json`; inventory
-  `cluster-scratch/inventory-e329b3c8.json`, 4,679 slots) and `vyreon-core:613b336` (ledger C-055,
-  refcheck reports C-054). Core 613b336 deployed with the **perishable archive to Spaces ON**; build
-  registered and admitted (`evidence-e329b3c8.json`). Kubeconfig had expired: refreshed (7 days).
-  **23:07 UTC: real day 2026-11-03 started** (job 1382, Job `v-real-1103`,
-  `VYREON_REFCHECK_MINUTES=600`). **nyc1 has no capacity for s-8vcpu-16gb-amd** (pool resize
-  refused twice): a temporary pool `day-std` (s-8vcpu-16gb, Intel, same label and taint) runs it,
-  so its timings are on a different CPU. `delete-idle.sh` now covers every `day*` pool. **Phase-1
-  sizing must account for capacity** (8 nodes of one size may not be available in nyc1).
-  **DataShop check (rules 39208e3 first; tool f6fd4da; reports `checks/2026-11-18-datashop-*.json`)
-  FAILS on quotes, volume and open interest; faults cluster on corporate actions:** open interest
-  100% on SPY/TSLA/UUP (338,784 contracts), same-day dating confirmed; quotes at 15:45 equal on
-  quiet contracts except ~0.3% stale far-OTM; volume 96.8-99.4% of traded contracts (Intrinio drops
-  prints; daily totals 0.1-1% low, worst -3.4%). **XLK split day 2025-12-05: the snapshot labels new
-  contracts at half their strike (0 of 196 agree)**; leftover pre-split contracts inflate EOD volume
-  14.8%; ETHA's new contracts carry copied open interest after the reverse split. Registered as
-  P-11..P-15 in `docs/PROVIDER_FAULTS.md`. Engine fix needed before phase 1 reaches 2025-12-05:
-  quotes that violate no-arbitrage bounds for their stated strike are rejected (a general rule,
-  not a date rule), plus the post-split OI and leftover-contract handling. Not tested: busy
-  contracts' quotes (they moved after 15:45).
-  **DataShop order backed up to Spaces (owner):** `vyreon-data/reference/cboe-datashop/order_000107661/`,
-  66 objects (65 zips + SHA256SUMS, each with x-amz-meta-sha256), private (anonymous read 403),
-  read-back identical. Laptop copy kept. Owner: a field job may deploy 2026-11-21 (tentative).
-  **Owner (21:10 UTC): after the new image's real day and BEFORE phase 1: hand off to a fresh
-  session (this one is 3 days old), with all documentation updated, and remind the owner to fill
-  in the time sheet and engineering log.** Reporter is its own side quest, started during phase 1's
-  compute.
-  **DataShop delivered and downloaded (21:15 UTC):** order_000107661, 65 day files (SPY TSLA UUP
-  2025-04, 21; XLK 2025-12, 22; ETHA 2026-10, 22), 20 MB, every zip valid, sha256 in
-  `~/claude-artifacts/datashop/order_000107661/SHA256SUMS`. Fields per contract: bid/ask and sizes
-  at 15:45 and EOD, underlying at both, Cboe IV and Greeks at 15:45, volume, VWAP, open interest,
-  `delivery_code` (adjusted contracts). SFTP copy removed by Cboe after 30 days.
-  **Free gate checks run (f392ff9; bands 480066e, 7fff827; reports `checks/2026-11-18-{cboe14,occ,fred,edgar-events}-sample.json`):**
-  Cboe 14 pairs: all 140 sessions inside band 1; correlation FAILS VXSLV/SLV 0.887, VXFXI/FXI 0.824
-  (single-day divergences, cause open). OCC standard roots: 522 of 576 inside, 54 fail (TLT 11-11
-  -34%, put share +0.17; XLE 11-03 -11%; NVDA 11-05 -9.5%; BABA 11-12 +16%); ETHA volumes
-  fractional. **`2EWZ`/`4SPY` are FLEX, not adjusted roots** (8.27M contracts; true adjusted roots
-  0.09M): whether volume includes FLEX is the owner's definition; `pass-fx40` redirected. FRED:
-  exact; 2025-04-11 shows February CPI though March was out 04-10 (check). EDGAR 8-K: 765 times
-  exact; earnings 8-Ks missing (AMD 2026-11-03, NVDA 2026-08-26, PLTR 2026-08-03); periodic
-  `accepted_at` at midnight UTC for 12 of 17 companies, possible one-session look-ahead for filings
-  after 17:30 New York (AMD AMZN AVGO PLTR). All under diagnosis. OCC terms: owner reads in a browser.
-  20:45 UTC: Cboe permission email SENT by the owner (internal validation use of the 14 indices;
-  whether the methodology page may name them). Owner reading OCC's terms. DataShop order still
-  being prepared by Cboe; OCC's terms read by the owner: fine for our use. Tiingo checks started (FIELD correlation recompute, prices; tolerances
-  committed first).
-  **20:50 UTC: gate-check failures diagnosed. NO look-ahead in periodic filings** (31 cases: the
-  provider's midnight stamp is the UTC acceptance date; `known_by_close` D-077 and
-  `filed_after_close` D-331 admit it only when its date is before T; FND clock 170/170). Engine
-  fixes queued (`pass-fx43`, D-380..): (a) CPI and INDPRO release table (`h3-macro`
-  `observed_release`) starts at September 2025: earlier months fall back to the 16-day lag, so
-  phase 1's CPI is up to 5 sessions stale; extend to 2022-05-27 (D-034(4), D-081). (b) FEDFUNDS +3
-  lag admits a value released after the close when the month's first business day is the 4th
-  (e.g. 2027-01-04, inside the paid pilot): readable from the session after the first Fed
-  business day. (c) Earnings releases: Intrinio omits some 8-Ks (AMD 11-03, NVDA 08-26, PLTR
-  08-03); the periodic rows' `earnings_disclosed_at` (exact to EDGAR) is never read: use it as
-  evidence; else state the history possibly incomplete (D-073, D-126, D-288). (d) Publish a
-  midnight `accepted_at` as a date, not an instant. Provider/reference side: OCC mismatches are
-  Intrinio's EOD volume missing large prints (our volume equals Intrinio's exactly; TLT 11-11
-  calls 166,717 short, with OCC open interest falling 104k in two series that show ~1k volume;
-  NVDA 11-05 puts 495,279 short) or over (BABA deep-ITM single prints); ETHA's fractional volume
-  explains 9 of its 10 fails. SLV/FXI correlation: the thin indices' intraday range (2.4-2.9 pts)
-  exceeds their day-to-day moves; our surfaces are dense; no engine fix. Sample ends near 20:00–21:00 UTC.
-  **Owner (02:45 UTC Nov 19): in phase 1, SLV/FXI correlation is judged on 63-session panels only**
-  (declared before phase-1 data, tools/external README a38f03f; threshold 0.9 and band 1 per
-  tranche unchanged; the sample's failures stay failures). **Engine D-396 built (pass-fx47, not
-  merged: 11fd1a60 code, 1a92b508 tests, a842e5f0 docs; 1,426 tests pass):** option EOD from the
-  bulk day files behind `VYREON_OPTION_EOD_SOURCE=api|bulk` (default api until the A/B), new
-  source id `intrinio_bulk_options_prices_eod`, page identity binds the file's sha256 and the
-  chain's rows, API fallback per asset and date; 64 chains of a day captured in 6.5 s on the
-  laptop. **Finding: older dates' provider IV/Greeks differ between file and API** (P-16; prices
-  and contracts equal); they feed V02, G01 and M0 native profiles. Daily bars from bulk not built
-  (plan in D-396). Snapshot/requote stage of the real day runs one session at a time (~32 s each,
-  ~25% of one CPU): an optimization-pass target. Phase-1 spend: owner will approve,
-  wants the totals first. Startup with BLACKFRIDAY: owner starts it before Nov 27 (code's end
-  date unstated).
-  **Owner (05:50 UTC Nov 19): history takes the provider analytics from the bulk files (first
-  computation), not the API's recomputation, even where a recomputation looks closer to a
-  reference: guards against silent bias.** Re-issued files (stamped well after T) are later
-  computations too: their stamps are recorded and counted. **Owner: engine-computed per-contract
-  IV/Greeks is needed before phase 1** (those values go into the phase-1 database); scoping running
-  (consumers of provider analytics; what the engine already computes). Measuring file vs API
-  against Cboe DataShop's 15:45 IV/Greeks (2025-04 SPY/TSLA/UUP, 2025-12 XLK) as a quality check.
-  **File stamps (S3 Last-Modified of all 1,448 day files, `~/claude-artifacts/checks/2026-11-19-
-  bulk-eod-stamps.json`):** 2021–2023 all rewritten later (bulk rewrites 2024-03-03..09,
-  2025-11-21, 2026-08-17). Phase-1 range (2025-04-10 on): 373 of 427 files stamped 1–3 days after
-  T; 54 later: 2025-11-01..26 (rewritten 2026-01-05..07), 2025-11-28..12-30 (2026-08-17),
-  2026-04-17 (2026-04-23), 2026-08-20..09-28 (5 files, 2026-10-21). A stamp shows the last write,
-  not whether the analytics changed. 2025-08-01's file is stamped 08-04 yet differs from the API:
-  the API side recomputed. **Against Cboe's 15:45 IV the API's recomputation is closer** where the
-  two differ (P-16; a different underlying level in the first computation; both far worse than
-  Cboe on call–put agreement). New faults P-17 (2025-12-31 file without closing quotes) and P-18
-  (files carry the previous session's expired contracts): pass-fx47 handles neither yet.
-  **Engine inventory:** the engine already computes per-contract American IV/Greeks from the 15:55
-  snapshot (h3-iv-surface); provider analytics remain only in Q01/Q05 (delivery support), V02 and
-  SAI-G01 (internal), M0 IV profile/change native channel and FIELD-OPTBR01's 2 IV mappings
-  (served), FIELD-SUP01 (support). **Owner (~05:55 UTC Nov 19): readers get only the engine's own
-  IV/Greeks** — the native channel leaves the served set (kept stored as a provider check;
-  revises D-101's dual representation), FIELD-OPTBR01's two IV mappings move to the own IV; the
-  provider checks stay internal, fed from the files. Before phase 1.
-  **In flight at 06:30 UTC Nov 19:**
-  real day 2026-11-03 (Job `v-real-1103`, core job 1382, node day-std-3a0sym, image e329b3c8)
-  in compute since 06:01 UTC; inputs took 6 h 51 m (API history 3 h 05 m at 4 in flight, snapshots
-  ~2 h 15 m sequential, requote 50 m, ACT01 24 m, rest 10 m); then the reference check, then
-  publish. When it ends: `cluster-scratch/delete-idle.sh`, then refcheck/problems/diff/profile.
-  Engine agent working: PART A on pass-fx47 (P-17 empty-field and missing-row API fallback, P-18
-  expired rows dropped, D-396 amendment), PART B on new pass-fx48 off fx47 (readers on own
-  IV/Greeks, stale descriptions, new decision). Next: review, merge to `worker`, Codex audit, one
-  image (D-395 + D-396 + fx48), A/B 2026-11-03 and 2025-04-11 api vs bulk without publishing over
-  core's day, optimization pass, phase-1 totals, hand-off.
-  **07:20 UTC: engine merged, `worker` e738b4a5** (fx47: D-396 + amendment, 1,430 passed; fx48:
-  D-397, 1,432 passed, reference pytest 34): bulk expired rows dropped (P-18), a chain with a read
-  field empty on every row or no listed row goes to the API (DEGENERATE, P-17; also 218 delisted
-  quoteless chains such as PWSC, one request each), `bulk-fallback.json` recorded; contracts the
-  snapshot shows active that a bulk chain lacks are only measured (`bulk_snapshot_absent` at the
-  requote: acting needs a re-capture design). D-397: M0 INTRINIO_NATIVE groups private, FIELD-OPTBR01
-  on own IV, rule 18. Open from the agent: overlay 12's spec table (byte-locked) not edited, D-397
-  holds the text; native groups still in the raw stream routes (`/stream/events`, as SAI-G01).
-  Codex audits started (`audits/2026-11-19-bulk-round-y/`: bulk, ownanalytics) on e738b4a5.
-  Image `vyreon-worker:e738b4a5` built and pushed (QuantLib 1.43, TA-Lib 0.8.2). **A/B plan: fills
-  only, in a pod `ab-bulk` (label app=vyreon-worker so delete-idle spares its node) on a second
-  day-std node (AMD refused again: no capacity); scripts `cluster-scratch/ab/`; nothing goes to
-  core.** First bulk fill found a defect: every other day file failed "error sending request"
-  (the file client reused a connection the host closes after ~20 s idle; a capture takes ~25 s),
-  so that day's 64 chains went to the API. Fixed: `worker` 8de870cf (no idle connection for files,
-  resend up to 3 tries; D-396 amended); image `8de870cf` built and pushed; A/B restarted on it (07:30 UTC).
-  **Codex audits back (07:40 UTC; reports `audits/2026-11-19-bulk-round-y/`): D-395 is broken at its
-  default.** The transport refuses more than 16 connections (`with_connection_limit`: 17..128 →
-  InvalidCredential) and every grant reserves MAX_PAGE_BYTES × worker_count against the batch's
-  byte budget (1 GiB daily and recapture batches: at 64 every later grant is denied), so at 64 in
-  flight daily bars and every API fallback fail (operator confirmed both by reading). The real day
-  (image e329b3c8) predates D-395. A/B continues at 16 in flight until fixed. Other bulk findings:
-  STRIKE in thousandths on the 2025-12-31 file unchecked against the OSI code, quoted fields,
-  duplicate headers, undo errors, D-264 filter skipped, signed URL as Referer on a redirect, and
-  more; own-analytics findings: Q01/Q05 provider-analytic counts still exported as support, core
-  `read` routes serve full bodies, V03 own-IV change still carries a provider-method
-  qualification, FIELD-OPTBR01 method identity unchanged, Reporter copy.
-  **Triage (`.../triage/`): bulk 14 real (3 wrong-number, latent), 2 not real, 1 by decision, 1
-  uncertain; own analytics 9 real (0 wrong-number; 3 stored labels: V03 own-IV change carries a
-  false METHOD_CONTINUITY_UNKNOWN, VS-Q05 provider counts exported to readers, FIELD-OPTBR01 keeps
-  its old method label), 1 not real, 2 by decision.** Blocking phase 1: D-395 (transport cap 16,
-  byte reservation × worker_count), STRIKE unchecked against the OSI code (P-19: the 2025-12-31
-  file states strikes in thousandths), the three stored labels. Fix tracks started 08:00 UTC:
-  A `pass-fx50` (bulk + D-395, D-398/399), B `pass-fx51` (own analytics, D-400/401). Open, not
-  engine: Reporter's FIELD panel still selects `provider_iv_median.*` and M0 copy says provider
-  figures (before issue 1, 2027-01-10); core `read` routes serve full bodies (by decision while
-  only Reporter and the owner hold keys).
-  **08:30 UTC: fixes merged, `worker` f634f7c7 (pushed); full suite 1,442 passed, 0 failed.** Track A
-  (pass-fx50; D-395/D-396 amended): idle pool ≤16 separate from concurrency (1..=128), byte
-  reservation per request in flight (+ wait, not deny), OSI disagreement → degenerate chain (P-19),
-  quoted/duplicate-header files refused, Last-Modified/ETag recorded, every whole-file failure
-  recorded per chain, interrupted bulk attempts undone and re-planned, 403 relists once, per-date
-  errors kept to their date, no Referer/redirect on the bulk client, D-264 filter before bulk, O01
-  checks the binding's operation. Track B (pass-fx51; D-400, D-397/D-196 amended): V03-MATCHED's
-  own-IV change carries no METHOD_CONTINUITY_UNKNOWN (method `…TWO-ENDPOINT@3-D-400`), V03-CURRENT
-  no longer reads Q05 (one task fewer per asset), VS-Q05 internal, FIELD-OPTBR01 relabelled
-  (`…overlay-12/D-397`, `H5-FIELD-OPTIONS@2`), old provider roles private on reprojection, M0
-  serves only `VYR_*` representations, `try_exists` for FIELD members, independent own-IV
-  reference. Open: refreeze the retained-* V03 fixtures and re-pin `golden_day.DUMP` from a run of
-  this build (two h3-asset tests ignored meanwhile); INT-IVSC01's internal
-  `comparison_qualification` still says METHOD_CONTINUITY_UNKNOWN; Reporter's VS-Q05 entry needs
-  the internal stub. Repeat audit (round z) started; image rebuilding. Laptop: merged worktrees
-  fx46..fx49, fx51 removed, target-s3i (156 GB) and target-fx51 deleted (target-fx50 kept for round z).
-  **Round z (repeat audit of f634f7c7; triage `audits/2026-11-19-bulk-round-z/triage/`):** main round-y
-  fixes confirmed (64 in flight, P-19 strikes). Bulk 10 real (1 wrong-number, latent: a row with an
-  empty or wrong SYMBOL drops out unseen), ownanalytics 8 real. Blocking: bulk 1; bulk 4 (a provider
-  404 is classed retryable → ENGINE_FAULT on every API path: the policy matches "HTTP 404", the
-  ledger writes "HttpStatus(404)"; pre-existing); ownanalytics 1 (VS-Q01's exported counts are
-  post-overlay analytic coverage, not delivery: D-118 item 4; they move with Intrinio's IV) and 3
-  (V03 kernel contract still lists VS-Q05). Fix track `pass-fx52` started 09:20 UTC (D-398/399/401).
-  Reporter list (before issue 1): FIELD panel `provider_iv_median.*` → `iv_median.*`, M0 copy,
-  VS-Q05 entry → internal stub, Q01 analytic rows and "delivered" sentence, decode V03-MATCHED's
-  `support_qualification`. Before phase 1: check core holds no PUBLISHED day_revision from a
-  pre-D-397 build that phase 1 will not supersede.
-  **A/B (fixed image f634f7c7, pod ab-bulk3):** 2026-11-03 options from the API at 64 in flight
-  started 08:35 UTC (SPY ~4 min vs 12 at 4 in flight; whole fill ~1 h vs 3 h 05 m); the earlier
-  bulk run on 8de870cf processed ~22 s per day file (171 of ~225 days in 64 min; 2025-12-31's 64
-  chains correctly DEGENERATE → API).
-  **10:00 UTC: round-z fixes merged, `worker` 3b76925f (pushed); full suite 1,449 passed, 0 failed;
-  reference 42 passed.** Q01's reader view drops the five analytic rows and two masks (retitled
-  "Option-population support on the closing-snapshot basis"); V03 kernel contract parents P01,
-  Q01–Q04; bulk rows kept by SYMBOL or code root, mismatch → degenerate; 404/401/403 classified from
-  one formatter (D-262 amended); FIELD carrier must match the M0 index digest; bulk undo order,
-  attempt lock, synced bodies, SHA-mismatch record, relist on 400, per-date listing failure, prune,
-  exact-decimal strike compare; requote diagnostic reads through the index; M0 projection also checks
-  derivation class and unit; reference robustness. Open: P01's kernel contract still names VS-Q03
-  (same class as V03's; changes P01 pins, fix with the retained-fixture refreeze before phase 1);
-  bulk 6 (gate deadline) by decision. **A/B API fill done: 72 min at 64 in flight, 19,890 requests
-  (~276/min: not rate-bound; per-asset batches serialise), nothing missing.** Round-aa audit started;
-  image `3b76925f` built and pushed.
-  **Round aa (third pass on 3b76925f; triage `audits/2026-11-19-bulk-round-aa/triage/`): findings now
-  mostly need a local filesystem failure, a parent-only kill or a revoked key.** One blocks phase 1:
-  a withheld VS-Q01 has no reader view (projection requires the count matrix; pre-existing; every
-  contained asset-day and EMPTY_DELIVERED_POPULATION, e.g. QQQ 2026-09-29), and its headline scalars
-  vanish. Conditional: one 404 in an asset batch masks another date's failure (blocking if batch 404s
-  appear in ledgers). Fix track `pass-fx53` started 11:00 UTC for every real one, plus the V03 and P01
-  kernel contracts. **Codex allowance 96% of the week used (resets 2026-11-20 14:51 UTC): the fourth
-  pass waits for it.**
-  **11:25 UTC: round-aa fixes merged, `worker` 8e0d831c (pushed); full suite 1,456 passed, 0 failed;
-  reference 44 passed.** A withheld VS-Q01 has a reader view (each role WITHHELD with the body's
-  reason); each failed capture in a batch classified on its own; space-padded codes; a stuck bulk
-  chain is that asset's ENGINE_FAULT (not the whole day Stale) and the fill exits 1; a refused key
-  stops the fill; V03 and P01 kernel contracts describe the code (digests V03 14604cef…, P01
-  97eb2b5f…); FIELD M0 members need an own derivation class and a 64-hex index digest; golden guard
-  by build ancestry; small bulk provenance fixes. **Retained fixtures need a real run of this build
-  (`tools/golden/fixture.py`): every P01 and V03 receipt and task key in `retained-2025-12-10`,
-  `retained-2026-09-18` and `final-results/h4-m0-measurement-dev1/{spy,qqq}-inline-vs-p01`; their
-  tests stay ignored until then.** Image building.
-  **A/B 2026-11-03 on f634f7c7 (pod ab-bulk3):** API fill 4,332 s (72 min), 19,890 requests, nothing
-  missing; bulk fill 6,253 s (104 min, ~28 s per day file, sequential), 5,255 requests (daily bars +
-  66 chains to the API: 64 on 2025-12-31 P-17, QQQ 2026-09-29 no rows, SPY 2026-09-28 sizes/times
-  empty), 14,270 chains from 224 files, 1,192 expired rows dropped, nothing missing. **The
-  contract-by-contract comparison was lost: my comparer loaded both homes into memory, the node
-  ran out and the pod was evicted with its emptyDir (11:33 UTC).** Rerun on the next image with a
-  streaming comparer and a memory limit. So far: bulk saves ~14,600 option requests per day but is
-  slower in wall time until the per-file capture is parallelised (optimization pass).
-  **13:29 UTC: real day 2026-11-03 PUBLISHED (core revisions 51 and 52: 2,853 slots, 7,763 reader
-  scalars; derived 1,105 slots).** Image e329b3c8 on the regular Intel node (day-std, s-8vcpu-16gb).
-  Profile: inputs 410 min (above); in-day input preparation 100 min (06:01–07:41); intent A history
-  nodes 163 min; exports 13 min; intent B (T) 122 min; export index 7 min; FIELD 35 min; derived
-  3 min: **compute 7 h 28 m** (the 110–160 min of 2026-11-09 was the AMD node and an older build:
-  phase-1 sizing must use measured compute on the node size we can get). Reference check started
-  13:30 (deadline 600 min). A/B rerun on 8e0d831c: API fill 4,788 s (in parallel with bulk).
-  **14:32 UTC: job ended, node day-std-3a0sym deleted.** Day published in 509 min of worker time
-  (inputs 410 + compute ~450 on the same clock: the download log counts from 23:10). Intrinio
-  requests by category: captures 25,011, company 2,747, api_json 288, carry 256, macro 86.
-  **Reference check CRASHED after 59.5 min (318 CPU min, 8 jobs), report 1 in core:** the intraday
-  reference reads `consolidated/<T>/capture/trades.raw`, which a worker never has (tape caches come
-  from core; the raw tape is retired under D-159), and one symbol's FileNotFoundError aborted the
-  whole suite. Fix track `pass-fx54` started (state unverifiable per symbol, contain per-symbol
-  crashes, cost analysis). Problem open in core: "Reference check did not run on 1 published day".
-  **Diff against the stored 11-03 (revision 35, build 05837898):** 0 slot-state changes; 2,210 of
-  2,853 bodies changed (provenance and labels), VS-O06 method @2→@3 (D-382/383, all 64); reader
-  scalars 7,691 of 7,744 identical, 8 withheld (CDD-FND01 BABA and TSM: D-361 foreign-filer
-  cross-period withholding, P-07), 26 float-noise (≤1e-14), 19 changed: FIELD-OPTBR01 15 (one more
-  member's OI call share supported, support 0.984→1, cross-section stats move ≤4%), VS-IVS01 DBA
-  skew30 −0.02288→−0.02388 and UUP +0.2%, VS-V03-CURRENT UUP put IV −0.2%: thin chains requoted under
-  D-391/D-394. All tied to merged decisions.
-  **A/B 2026-11-03 result (image 8e0d831c, streaming comparer): the bulk files deliver the same
-  option history as the API.** 14,336 chains each, 38,326,866 rows each, the same contracts in every
-  chain; every price, size, volume and open-interest field equal. Differences: (1) quote and trade
-  times are whole seconds in the file (`21:00:02Z`) where the API has milliseconds
-  (`21:00:02.396Z`), on ~37.6 M rows: no engine rule compares those times below a second (EOD quotes
-  are replaced by the 15:55 snapshot, D-071; occ.rs takes the max per contract); (2) provider IV and
-  Greeks differ on 6.5–9.1 M rows, mostly the dates whose files were rewritten (P-16; internal only
-  under D-397); (3) exercise style null in the API but `A` in the file on 498,208 rows (all 64 are
-  American: same value under D-199). Requests: API 19,890, bulk 5,255 (daily bars + 66 degenerate
-  chains). Time: API 72 min alone / 80 min shared; bulk 104 min alone / 148 min shared (per-file
-  capture is sequential: optimization target). 2025-04-11 A/B started 14:58 UTC (same pod).
-  **Merging `pass-fx54` (reference check: raw tape absent → unverifiable per role, per-symbol and
-  per-family crashes contained, `incomplete` and `timings` in the report; D-370 amended).** Owner
-  decision needed: verify the tape owners independently by running the reference tape reader on the
-  tape worker (which still has the raw tape) and keeping its verdict with the cache, or accept them
-  as unverifiable on worker days.
-  **15:05 UTC: `worker` 48d87154 (fx54 merged, pushed); full suite 1,457 passed, 0 failed; image
-  `vyreon-worker:48d87154` (build 48d87154+fe2ce9137923) pushed: the candidate for the next real day
-  and the optimization pass.**
-  **Owner (15:15 UTC): go ahead with the Reporter changes; continue with steps 3 and 4, then 5–7.**
-  Reporter branch `d397-own-analytics` (worktree outside the checkout) in progress. **15:30 UTC: build
-  48d87154+fe2ce9137923 registered and admitted (`cluster-scratch/evidence-48d87154.json`); day-block
-  job 1383 scheduled for 2026-11-02..04 as one 3-session block; Job `v-block-1102`
-  (`VYREON_OPTION_EOD_SOURCE=bulk`, 64 in flight) on an AMD node (pool `day` resized to 1: nyc1 had
-  capacity this time; node day-3az1af).** Purpose: the compute profile of the current build for the
-  optimization pass, the cost of the 2nd and 3rd day of a block, AMD vs Intel, and the real-day check
-  of the merged batches. Fourth audit pass (round bb, combined, medium reasoning to fit the remaining
-  Codex allowance; owner's suggestion) started. A/B 2025-04-11 running on day-std-3a1hrq.
-  **Owner (15:40 UTC): the optimization pass runs twice** ("agents never get everything done in one;
-  the audits demonstrate this"): pass 1 from the block run's profile, each change its own commit,
-  measured on a real day; pass 2 on what pass 1's measurement shows is left. Node choice by a
-  controlled benchmark (same image, same day files, same command, AMD and Intel at once, alone;
-  then parse-only vs write to separate CPU from disk), not by the first AMD reading (~20 s per
-  bulk file vs ~28 s on Intel, confounded by disk, build, dates and neighbours).
-  **Reporter D-397/D-400 changes done** (branch `d397-own-analytics` from `engine-v1-remediation`
-  326cb88, worktree `/home/diggz/wt/reporter-d397`, not pushed; f926b8a FIELD-OPTBR01 own IV, 3587ab1 M0
-  copy and dead INTRINIO_NATIVE code, c7d6d64 VS-Q01 title/labels from the view's axes and withheld
-  wording, b26f422 VS-Q05 internal stub, f9e6d7f V03-MATCHED `support_qualification`; tests: unit 194,
-  contract 22, rendering 12). Reporter now refuses (fails the asset build) any coordinate in a
-  provider-IV unit or a non-`VYR_*` M0 group: fail-closed; before Reporter reads core, no pre-D-397
-  revision may stay PUBLISHED in a report's window (core still holds 2022-06, 2025-04-11, 2025-12-10/11
-  and the 2026-11 sample from older builds; phase 1 supersedes all but 2022-06). To verify against a
-  real 48d87154 revision (the block run) before merging.
-  **Round bb (fourth pass, medium reasoning, on 48d87154; `audits/2026-11-19-bulk-round-bb/`): every
-  round-aa engine finding FIXED or FIXED WITH A NEW DEFECT; no wrong sensor number, no
-  nondeterminism. 6 findings:** two stored-label edge cases (a T 404 relabelled ENGINE_FAULT by
-  another chain's retryable failure in the same batch; a whole-fill key stop overwriting recorded
-  causes), a presigned-file 403 misread as a refused key (stops later categories), request cost
-  after a refused key, and two reference-suite containment/labelling gaps. Fix track `pass-fx55`
-  (verifies each first; no separate triage this pass). **Timings so far:** A/B 2025-04-11 API fill
-  3,989 s in parallel with bulk; block run (AMD, alone) captured 123 bulk day files in 31 min (~15 s
-  per file vs ~28 s on Intel alone: still to be benchmarked under control).
-  **17:00 UTC: round-bb fixes merged, `worker` 04e2ed1b (pushed); full suite 1,462 passed, 0 failed;
-  reference 53 passed; image `vyreon-worker:04e2ed1b` built.** Left by choice: a refused bulk
-  listing falls back to the API (a 403 there may be a missing bulk entitlement; the API's first batch
-  stops the fill on a bad key). **A/B 2025-04-11 fills:** API 3,989 s, 18,437 requests; bulk 6,815 s
-  (shared node), 4,313 requests; both nothing missing; bulk 13,952 chains from 224 files, 165,909
-  expired rows dropped, 342 chains to the API: 181 ETHA and 126 IBIT sessions before their options
-  listed (no row: one wasted request each; skip by the listing start), 35 chains on 2024-05-22, a
-  second bulk file without closing quotes (P-17 extended). Comparison running.
-  **Owner (17:10 UTC): a test census belongs in step 4.** List every ignored or skipped test with its
-  reason (105 reference tests skip for the absent golden dump; 33 engine tests ignored, many awaiting
-  the retained-fixture refreeze) and every test guarding a retired decision (provider-IV reader
-  shapes, old role names, the pre-bulk option path); then refreeze, run where the data is (the
-  cluster), or retire each with the reason recorded. Keep the API-path tests (fallback), Reporter's
-  provider-value refusal, and the internal provider-check tests.
-  **A/B 2025-04-11 comparison (window back to 2024-05-21): NOT equal on older dates.** 14,294 chains
-  each; 31,459,100 API rows vs 31,458,604 bulk. Besides second-precision times and analytics (as on
-  11-03), real differences: (1) AMD, EMB, META 2024-07-02: the API has 62/50/112 more contracts and
-  different prices, volume and OI on the same contracts (AMD 250117C155: close 28.53 vs 28.50, open
-  28.45 vs 25.10, volume 6 vs 170, OI 2,941 vs 3,005): one source holds another session's data;
-  (2) NVDA 2024-05-21..: two contracts per day coded $100 in the API and $10 in the file (around the
-  2024-06-10 10:1 split); (3) "no bid" as null in the API and 0.00 with size 0 in the file on ~460 k
-  rows (2024-06/07); (4) value differences on open interest (32,445 rows), volume, close/open/high/low
-  (~8 k rows). Per-date breakdown running; which source is right is to be settled against OCC/Cboe
-  before bulk is used for those dates.
-  **Per-date breakdown (`tasks/…/bl9bz0u2g.output`): 80 dates differ on values.** (a) 2024-06-10 (NVDA
-  split ex-date) and 2024-07-02: whole-chain differences in close/open/high/low/volume/OI/quotes, and
-  on 07-02 six chains list different contracts; (b) 2024-11-04..2025-03-04: open interest differs on
-  22–716 rows every session, never after 03-04; (c) 2024-05-21..06-10: one NVDA chain a day codes two
-  contracts at $100 (API) vs $10 (file); (d) 22 dates from 2024-06-21: no-bid null vs 0.00 size 0.
-  From 2025-03-05 to 2025-04-11 the two sources agree on every value. Investigation running (which
-  source is right, by OI continuity, OCC/Cboe and the split memo; and the engine rule).
-  **Investigation done (`checks/2026-11-19-bulk-vs-api-2024.json`): all 240 bulk files in the window
-  are original next-morning releases; three patterns are provider faults.** 2024-07-02: the API mixes
-  in 07-03 data on seven chains (P-21), the file is right. OI 18724 is a placeholder (P-20): on 23,862
-  new listings in the files (API 0, right) and on 978 existing contracts in both sources, including
-  AMZN 2025-04-10 (phase 1). NVDA 2024-06-10 split ex-date: both sources mis-scale strikes (P-11
-  extended to EOD); before it the file's coding is right. No-bid null vs 0.00/size 0: same meaning.
-  External: OCC's volume query refuses dates older than two years; no DataShop overlap. Engine track
-  fx56 started (first-session OI > 0 unknown, 18724 a stated absence, post-close stamps fail a chain,
-  0/size-0 is no quote, D-391 on NVDA 2024-06-10 EOD); a scan of all phase-1 files for P-19/P-20/P-21
-  patterns started on the A/B node.
-  **Engine track fx56 merged into `worker` c2a627ac (suite and image in progress):** D-398 (a
-  contract's first-session positive OI is unknown unless the snapshot says 0; an EOD 18724 the
-  snapshot does not repeat is set aside: a named value, no general rule avoided discarding good rows;
-  the local real 18724 SPY260116C00700000 2025-04-08 is a true count repeated by the snapshot and
-  Cboe); D-399 (a trade/bid/ask stamped on a later New York day fails the chain: bulk → API, API →
-  stated absence; P-01 same-day stubs untouched); D-072 amended (EOD 0.00 with size 0 is no quote:
-  19,501 rows on the reachable real data, staleness flips on 51); NVDA 2024-06-10: D-391 checks the
-  snapshot's quotes at each EOD row's stated strike, so the chain is withheld either way (bulk file:
-  42.6–46.6% of quotes outside bounds). Overlay rules now D-398: every option source requoted; shared
-  fixture `workspace/fixtures/etha-first-chain` requoted in place (original kept as
-  `etha-first-chain.pre-d398`). **Owner decision: pre-listing sessions in bulk plans** (181 ETHA +
-  126 IBIT wasted requests per window): (1) core records each asset's first option session and sends
-  it with the claim (recommended), (2) treat a root with no rows as the empty chain, (3) pay the
-  requests. **Block run (AMD):** requote 31 min (Intel 50).
-  **`worker` c2a627ac pushed; full suite 1,470 passed, 0 failed; image `vyreon-worker:c2a627ac`
-  (build c2a627ac+4c19b3d5e622) pushed.** The block run continues on 48d87154 (its profile is still
-  valid: D-398/399 change no ordinary-day value).
-  **Phase-1 file scan done (all 427 bulk day files 2025-04-10..2026-11-17, 795.9 M rows, 0 errors;
-  `/work/scan-phase1.json` on the A/B pod, summary in the task output):** strike ≠ OSI code only on
-  2025-11-27, 2025-12-25, 2026-01-01 (market holidays: files exist but no session reads them) and
-  2025-12-31 (P-19, already handled); 18724 on 129 rows over 110 days, a few on universe roots
-  (D-398's snapshot rule handles them); rows stamped after their day only in the 2026-09-28 file
-  (55,171 rows, rewritten 2026-10-21: D-399 sends those chains to the API); rows with no closing
-  quotes ~30–38 k a day across the market, a stable set per root (NVDA 2,125, AVGO 988, QQQ ~700,
-  MSTR 618: contracts without quotes, not whole chains; the overlay takes the snapshot);
-  4.83 M expired rows (dropped, P-18). SYMBOL ≠ code root: none.
-  **Step 3 (A/B) done; A/B node day-std-3a1hrq deleted (21:12 UTC).** Results saved:
-  `checks/2026-11-19-ab-20250411-{compare,bydate}.json`, `checks/2026-11-19-bulk-phase1-scan.json`,
-  `checks/2026-11-19-bulk-vs-api-2024.json`. Verdict: bulk equals the API on contracts and prices
-  for 2025-03-05 onward; earlier dates differ where the provider is wrong (P-20, P-21, P-11 EOD),
-  the file being right in two of three; the engine now handles all of them (D-398, D-399).
-  **Step 4, optimization pass 1 (input stages), `pass-fx57` (D-401; D-395/D-396 amended): merged into
-  `worker`, suite and image in progress.** Byte-identical outputs, proven on real frozen data per
-  change: bulk day files 3 at a time (`VYREON_BULK_FILES_IN_FLIGHT`, est. 25–50 min saved per window
-  on AMD); closing snapshots 8 sessions at a time, written in session order, markers derived in
-  parallel (`VYREON_SNAPSHOTS_IN_FLIGHT`; est. 110–135 → 10–20 min if the file host limits per
-  connection); marker rewrite in parallel; `h5_surface` longest chains first and T/T−5 surfaces at
-  once (est. 10–35 min of the 73–100 min in-day preparation, which is T's input plan plus the two
-  surfaces); ACT01 cohorts 8 assets at once (it never used the batch setting: est. 24 → 3–4 min).
-  None measured yet (no full-size files on the laptop): the next real day on the cluster measures
-  them. Not changed: several assets' API batches at once (one account writer lock per batch process;
-  needs a merged multi-asset batch or a multi-writer ledger, not speed-only; matters only for API-
-  source days), requote (already 8 sources at once; pass-2 candidates: the double prepare at first
-  admission and requote, dropping the A/B-only `bulk_snapshot_absent` re-read, 16 workers).
-  **Owner (22:45 UTC): compute should be where the cost is; optimization passes are granular and repeat
-  until the expected gain no longer justifies a pass** (the bottleneck will move several times).
-  Working stop rule: continue while a pass's measured saving clearly exceeds ~a day of work plus
-  verification (phase 1: each 10% of compute ≈ 200 node-hours ≈ 1 day on 8 nodes; daily runs: every
-  hour saved publishes every day an hour earlier). Compute passes start from a per-task profile of
-  intent A/B (sensor family × asset), not stage totals. **Rough phase-1 totals given to the owner
-  (estimates, to be replaced by the block run's measurements):** ~405 sessions; first day of a block
-  ~6.2 h on AMD after pass 1, later days ~4.5 h, reference check ~0.7 h; ~5.3 node-h per day,
-  ~2,100 node-h (1,700–2,500); 8 nodes ~11 days, 16 ~5.5, 24 ~3.7; ~$290–420 of AMD worker time
-  (above the $300 cluster ceiling: owner's approval on final totals). Limits now: AMD capacity in
-  nyc1 and the 30-droplet account limit, not Intrinio requests.
-  **`worker` 97d0e7d8 (pass 1 merged, pushed); full suite 1,477 passed, 0 failed; image
-  `vyreon-worker:97d0e7d8` (build 97d0e7d8+b50e1b7a3e6a) pushed: the candidate for the next real day
-  (measures pass 1). Droplets: 4 of 30 (Telemetry-Backend web, vyreon-engine-shared-8vcpu-amd, core,
-  one worker): up to 27 workers; retiring the old engine droplet after daily runs move frees a 28th.**
-  **Block run day 1 (2026-11-02, AMD, image 48d87154, bulk), measured so far:** inputs 242 min (bulk
-  option history ~60, snapshots ~110, requote 31, macro/company/ACT01 ~41; Intel 11-03: 410), in-day
-  preparation 73 min (Intel 100), intent A 88 min (Intel 163) while day 2's download ran alongside,
-  exports 4 min (Intel 13). AMD runs these stages at 0.54–0.73 of the Intel time.
-  **23:54 UTC: block day 1 2026-11-02 PUBLISHED (revisions 53/54; 2,853 slots, 7,818 reader scalars;
-  derived 1,105).** AMD compute after "inputs ready": intent A 88 min, exports 4, intent B (T) 72 (Intel
-  122), export index 3, FIELD 13 (Intel 35), bundle + derived 3: **185 min** (Intel 348), plus in-day
-  preparation 73 (Intel 100): **258 min of compute per day (Intel 448), with day 2's download running
-  on the same node meanwhile.** Day 1 total from start: 501 min (8 h 21 m; inputs 242 + compute 258).
-  Reference check started 23:55 (fixed suite).
-  **Day 2 (2026-11-03) inputs: 75 min (19:35–20:50), entirely overlapped with day 1's compute** (one
-  bulk file, one snapshot, requote of the new session, company, ACT01): a later day in a block costs
-  ~its compute (~258 min AMD) plus the reference check if it runs in sequence.
-  **00:26 UTC Nov 20: day 1's reference check COMPLETED (fixed suite) in 30.8 min wall, 167 CPU min
-  (AMD; the crashed Intel run took 59.5 / 318): 92,767 checked, 90,785 passed, 1,982 failed (167
-  classes, 26 measurements), 7,155 skipped, 9 reference errors (INT-TEMP-EVC01), 4,288 unverifiable
-  (tape owners), incomplete: intraday.** Largest: VS-V02 960, SAI-ACT01-INTRADAY 256 (an ARRAY_REF
-  coordinate's support counts: alternative reading), SAI-G01 142 (D-083 B band edges / overlay-
-  cleared rows: alternative reading), VS-Q05 82, DLM-* ~260, CDD-MACRO01 64, SURFACE-FORWARD 59, VS-Q01
-  44. Many carry the reference's own "alternative reading" annotation. Report saved
-  (`checks/2026-11-20-refcheck-2026-11-02-{report.json,show.txt}`); triage agent running (engine
-  defect / reference defect / alternative reading / tolerance). Day 1 total: published in 291 min
-  of the worker's day clock after its download; reference check runs in sequence before day 2's
-  compute.
-  **Reference check triage (`checks/2026-11-20-refcheck-2026-11-02-triage.md`): 0 engine defects.**
-  1,915 of 1,982 failures match conventions the owner already ruled as the definition (rulings table:
-  D-083 B band edges/forward and overlay-cleared rows = MISSING for V02/Q05/Q01/G01; D-110 12 array
-  support for ACT01-INTRADAY; D-106/107/110/118 for DLM-*); 53 + 9 reference errors are reference
-  defects (R1 frozen post-adjustment listings for the Dec-2025 OCC-adjusted six; R2 EVC priors not on
-  today's share basis across splits; R3 EVC crash on a manifest without body; R4 QuantLib LR tree +inf
-  at σ floor; R5 TSM parent-equity order; R6 INDPRO base label: the engine's 2017 is right, D-110 2's
-  text is wrong); 5 one-ulp OI-sum tolerance (ETHA since D-390); 9 SURFACE-FORWARD uncertain (6 short-
-  dated pair scatter; EWJ 2026-12-18 forward 91.15 vs ~92.3 neighbours: possible projected-dividend
-  defect, to settle before the build reaches Dec-2025 dates; UUP thin chain, D-095). Fix track
-  `pass-fx58` started (R1–R6, tolerance, D-110 2 text, per-class rulings outcome and a
-  `failed_unexplained` count in the worker's report, EWJ investigation). Core change to follow:
-  REFCHECK_DISAGREES and the digest count only unexplained failures (otherwise the alarm stays open
-  every day on ruled conventions). **Owner decision:** extend the 2026-11-04 forward-scatter ruling
-  so the price test also applies where a σ half-width exists (scatter only beyond the larger).
-  **01:45 UTC Nov 20: reference fixes merged, `worker` ff210b97 (R1–R6, OI-sum tolerance, D-110 2 text,
-  per-class rulings outcome, `failed_unexplained` in the account; replay of the 11-02 report: 1,982
-  failed, 67 unexplained, 9 after every fix) — full suite 1,478 passed; image `vyreon-worker:ff210b97`
-  (build ff210b97+aee419a45e7e) pushed. Core C-056 (migration 0026: REFCHECK_DISAGREES and the
-  digest count `COALESCE(failed_unexplained, failed)`; core suite 105 passed incl. database) merged
-  (main 9fd433d) and deployed (`vyreon-core:9fd433d`, set image on core and migrate; rolled out).**
-  The open REFCHECK_DISAGREES for 11-02 stays until a day is checked by a worker that sends the field
-  (the block run is on 48d87154). EWJ 2026-12-18: the engine projects last December's whole 3.0614
-  payment, including the 0.157024 OCC classed as special (memo #57919, strikes cut 0.16): D-120's
-  open case; explains ~17 bp of the ~131 bp gap (the rest is weak 12-18 quotes). Same gap: FXI
-  2023-06-08, QQQ 2023-12-27, EMB 2024-12-30, EWJ 2025-12-16 (only EWJ's is inside phase 1).
-  **D-120 amended (engine `pass-fx59` merging; core C-055 amended, main a9acc36, deployed
-  `vyreon-core:a9acc36` first as required):** the ledger states OCC's special behind each strike offset
-  (EWJ 0.157024 #57919, FXI 0.148983 #52545 ex 2023-06-07, QQQ 0.21584 #53847, EMB 0.254515 #55816);
-  the surface projects the ordinary part only (EWJ's December recurrence 3.0614 → 2.904376 on 11-02's
-  real records; a paid row equal to the special is the whole special); `H5-SURFACE@22`. Changes on an
-  ordinary day: EWJ from 2025-12-16 (forward/carry for expiries after the projected December, ~+17 bp
-  on 12-18), EMB to ~2026-01-13, QQQ to 2025-12-19 only if D-149's test flips; other 60 assets bit-
-  identical. Days built at @21 (the block run, 48d87154) and @22 are different method versions in
-  derived histories: phase 1 starts on one image anyway.
-  **Correction (02:15 UTC):** the merged fx59 tip 76169889 failed one test (h3-asset
-  `each_m0_label_pins_its_method_code`: M0-ANALYTICS, M0-GAMMA, M0-GAMMA-CHANGE hash the surface
-  stage's code), and my build chain pushed `worker` and image `vyreon-worker:76169889` anyway (it ran
-  the push after a failed suite): **do not use image 76169889.** Fixed in e1461087 (pins updated,
-  labels unchanged per D-295: the method is the same, the moved input is the surface @22) and
-  d0abefa1 (D-120 note); full suite with --no-fail-fast running; the build now runs only when the
-  suite exits 0.
-  **Owner (02:25 UTC Nov 20): approves (1) the forward-scatter rule — the price test (half the
-  bid-ask spread) applies also where a σ half-width exists, scatter only beyond the larger; (2) core
-  records each asset's first option session and sends it with the claim (bulk plans skip earlier
-  sessions); (4) the tape owners verified independently: the tape worker runs the reference tape
-  reader while it holds the raw tape and core keeps the verdict with the cache. Phase-1 spend waits on
-  the optimization passes' measured totals.**
-  **03:00 UTC: `worker` d0abefa1 full suite 1,480 passed, 0 failed; image `vyreon-worker:d0abefa1`
-  (build d0abefa1+473867ee3d30) pushed (D-120 specials; needs core ≥ a9acc36, deployed). Forward-
-  scatter rule merged (`worker` aed8b73d, reference only, D-370 amended; the 10-30/10-31/11-04 forward
-  rulings now recorded in DECISIONS; replay: SURFACE-FORWARD unexplained 9 → 7). First-option-session
-  track (`pass-fx61` + core `core-first-option`) in progress.
-  **C-057 merged and deployed (core main 69006a5, `vyreon-core:69006a5`; core suite 0 failed incl.
-  database):** `core.option_listing` holds each asset's first option session with the provider's
-  evidence (ETHA 2025-04-11, IBIT 2024-11-19; frozen answers under test-support), sent in every claim
-  as `first_option_sessions`. Engine `pass-fx61` (D-396 amended) merging: a bulk chain before its
-  asset's first option session whose file has no rows is the file's empty chain (no API request); not
-  dropped from the plan, because history start (C-034, D-365), OCC detection and T−5 read that empty
-  chain (dropping it would change ETHA/IBIT values on their first sessions). After the date, a chain
-  with no rows is still degenerate and goes to the API. Saves ~307 requests per affected window; no
-  published value changes.
-  **`worker` 3b342af7 (fx61 merged, pushed): full suite 1,482 passed, 0 failed; reference 76 passed;
-  image `vyreon-worker:3b342af7` (build 3b342af7+5d6db5661e39) pushed: current candidate.** Tape
-  verification track (`pass-fx62` + core `core-tape-verdict`) started.
-  **C-058 deployed (core main 996ad69, `vyreon-core:996ad69`, migration 0028; core suite 0 failed):**
-  `core.tape_verdict` beside each tape cache; the tape worker (engine `pass-fx62`, D-370 amended,
-  merging) runs the reference tape reader on the raw tape it holds (`refcheck tape-verdict`, est. ~1
-  min per session for 64 members, not measured) and sends PASS/FAIL/WITHHELD/NOT_RUN with the reader's
-  bins digest; a FAIL opens REFCHECK_DISAGREES; the day check verifies the four tape owners from cached
-  bins only under a PASS for the exact files. Unproven until the first tape job of this build runs (no
-  raw tape on the laptop). **Owner decision:** caches stored before this build (the tape history from
-  2024-04-09) never get a verdict (raw tapes gone), so EVC01's agreeing readings stay unverifiable on
-  phase-1 history unless those tapes are downloaded again.
-  **`worker` e31ece49 (fx62 merged, pushed): full suite 1,485 passed, 0 failed; reference 83 passed;
-  image `vyreon-worker:e31ece49` (build e31ece49+28ab1516eee1) pushed: current candidate (needs core
-  ≥ 996ad69, deployed).** Recommended to the owner for historical tapes: verify a sample (~20 sessions,
-  about one a month, re-downloaded; a forced-recapture option for chosen sessions).
-  **Owner (04:12 UTC Nov 20): spot-check approved** — ~20 historical sessions (about one a month
-  across the tape history) re-downloaded and verified; the rest stated "not verified by its own
-  verdict, cache code verified by sample".
-  **Compute profile (day 2, from result-file times, lower bounds; `checks/2026-11-20-compute-profile-
-  day2-mtime.txt`):** intent A is the O02/O04/OIJ01/L01 history endpoints (4 × 12,619 tasks, ~200 past
-  sessions × 64 assets recomputed daily; ~82 min) — the block worker never passes D-038's shared
-  endpoint-history run; intent B is mostly M0 (M0-ANALYTICS 128 tasks for T and T−5, ~205 task-min,
-  SPY 16.6 min per task; IV-CHANGE 46, GAMMA 31, GAMMA-CHANGE 30, IV-PROFILE 15). **Compute pass 1
-  (`pass-fx64`, D-402) started:** per-task timing in the index (exact profiles), history endpoints kept
-  across a block, M0 T−5 reuse and longest-first scheduling; byte-identical outputs. Spot-check
-  mechanism (`pass-fx63` + core `core-tape-sample`) in progress.
-  **C-059 deployed (core main e9da254, `vyreon-core:e9da254`, migration 0029; core suite 112 passed
-  incl. database):** `vyreon-core tape verify <profile> <build> <session>…` schedules TAPE jobs with
-  scope verify: the worker re-captures the session's tapes, recomputes each member's cache, takes
-  only the fetch-time fields from the stored cache (listed in the check), compares every other byte,
-  runs the reference tape reader; MATCH keeps the verdict beside the stored cache, DIFFER opens
-  REFCHECK_DISAGREES (never replaces a cache), NOT_COMPARED says why; `vyreon-core tape checks` and the
-  digest line report it. Stored caches: 41,784 at the current method version (`…8cbc8c46…`), 128 at an
-  older one. Engine `pass-fx63` merging. Sample (20 sessions: tape history start, first session of
-  every second month, NVDA 2024-06-10 and AVGO 2024-07-15 splits, 2025-12-05 ETF splits, 2026-11-06
-  replay change) ~0.7–0.8 TB download, ~4,000 requests, ~6–9 min per session on a tape pod: run after
-  the engine image is built. A DIFFER's resolution is the owner's call (recheck vs replace).
-  **05:00 UTC: `worker` 4276d889 (fx63 merged; 1,489 passed; image `vyreon-worker:4276d889`). Compute
-  pass 1 (`pass-fx64`, D-402; D-038, D-007 amended) merged into `worker` 3b85b4f6, suite and image in
-  progress:** per-task start/finish/CPU times in a sidecar (`task-times/<intent>.jsonl`) and a
-  per-measurement summary in acceptance.log (no published byte); one endpoint-history run per block
-  (`<home>/block-history`; `VYREON_WORKER_HISTORY=off` restores per-day) — est. intent A on later
-  days 83 → 25–45 min; reused endpoints keep their earlier cutoff so only provenance digests differ;
-  M0 kernels start largest chain first. Not done (reasons in D-402): T−5 M0 reuse (needs ≥6-session
-  blocks; newest-first build; a rule change), internal M0 parallelism (edits every M0
-  method_sha256). Next lever found: history reuse costs ~22 ms per reused task, serial. **Block run:
-  day 2 (11-03) published (revisions 55/56; worker day 265 min after inputs); its reference check
-  completed (93,087 checked, 2,489 failed in 160 classes on the old suite; replaces the crashed 11-03
-  check). Day 3 computing.**
-  **05:25 UTC: `worker` 3b85b4f6 suite 1,494 passed; image `vyreon-worker:3b85b4f6` (build
-  3b85b4f6+96356aa79bd5) registered and admitted (`cluster-scratch/evidence-3b85b4f6.json`).
-  Scheduled: day-block job 1384 for 2026-10-28..30 (3 sessions, block history on: measures input pass
-  1 + compute pass 1 with exact task times; Job `v-block-1028` on a 2nd AMD node of pool `day`); the
-  repeat of the same block with `VYREON_WORKER_HISTORY=off` (C-001 block-start test) follows when it
-  finishes (core refuses an overlapping unfinished block); tape sample verify jobs 1385–1404 (20
-  sessions; Job `v-tape-sample`, 3 pods in parallel on a day-std Intel node).**
-  **Tape sample, first 14 sessions (06:00 UTC): every recomputed cache equals the stored one byte for
-  byte (892 of 892 asset-sessions, 0 differ: the cache code reproduces and Intrinio's old replay files
-  are unchanged); ~3–5 min per session (4–45 GB of replay each). The reference reader's verdict
-  FAILs on 36 asset-sessions, all on VWAP fields only (63 bin differences, 49 vwap_all + 14 vwap_ps,
-  worst relative 5.9e-9; high-priced/active names; 15 on 2025-06-02).** Larger than summation-order
-  noise should give, so the cause (price representation, included prints, accumulation) is being
-  found before any tolerance changes (`pass-fx65`).
-  **Cause found (`pass-fx65` merged, `worker` cdf58be2, reference 87 passed; D-370 amended):** (1) VWAP:
-  a rounding tie rule, not noise: the reader rounded trade prices half-to-even, the engine half away
-  from zero (D-107 6, the definition); all 86 VWAP differences are whole tie shares moved one step
-  (cache always above); the reader now rounds exactly as the engine, and the VWAP tolerance is a cited
-  bound γ_2n (Higham §4.2) instead of 1e-10. (2) `conditional_last_rejected`: the engine counts the
-  whole session date's rejected conditional prints, the reader only in-bin prints (every bin equal;
-  excess 1–10 = prints outside the bins); the reader now counts at the session-date scope (no
-  published value reads this count). 42 FAIL verdicts over 16 sessions so far; re-verify 2024-04-09,
-  06-03, 06-10, 07-15, 08-01, 12-02, 2025-06-02, 08-01, 12-01, 2026-02-02, 04-01 on the new image.
-  **06:17 UTC: test block on 3b85b4f6 EVICTED at 53 min (worker 13.5 GB of the node's 16 GB, during
-  the snapshot stage: optimization pass 1's 8 snapshot sessions at once, each deriving markers for
-  64 securities).** Optimization regression: in-flight defaults need memory-aware limits. Restarted
-  (core requeued job 1384) with `VYREON_SNAPSHOTS_IN_FLIGHT=2`, `VYREON_BULK_FILES_IN_FLIGHT=2` and a
-  14 GiB container limit; memory sampled every 2 min to `checks/2026-11-20-block-1028-memory.tsv`
-  to set defaults from measurement.
-  **07:10 UTC: tape sample done. All 1,276 recomputed caches equal the stored ones byte for byte (20
-  sessions, 2024-04-09..2026-11-06). Re-verified on build cdf58be2 (fixed reference): every session
-  re-checked now PASSES (2024-04-09, 06-03, 06-10, 07-15, 08-01, 12-02, 2025-06-02, 08-01, 12-01,
-  2026-02-02; 2026-04-01 pending).** The four last sessions (2026-06-01, 08-03, 10-01, 11-06) were judged by
-  the old reference (same two patterns: VWAP ties, conditional-last count) and are re-verifying
-  (jobs 1416–1419, Job `v-tape-reverify2`). The memory figure first sampled was cgroup usage
-  including ~12 GB reclaimable page cache; the sampler now records the working set (what eviction
-  uses).
-  **07:22 UTC: test block evicted again, this time with 2 bulk files and 2 snapshot sessions in flight.
-  Not page cache, a leak:** working set flat ~1.5 GB through the bulk files; then one
-  `h2-engine live-capture-batch` (started 07:07) grew anonymous memory linearly 0.1 → 12.4 GB in 15 min
-  until eviction (`checks/2026-11-20-block-1028-memory.tsv`). The old image (48d87154) never did this,
-  so the suspect is audit round y's per-request byte reservation (`live_batch.rs` `byte_grant`, 64
-  slots re-asking every 50 ms). Job stopped (core requeues 1384), node day-36n2pj deleted; cause and
-  fix in `pass-fx66` with a local real-batch reproduction. Test block re-runs on the fixed image.
-  **Cause found (`worker` 4944a182, D-401 amended): not the batch and not snapshot parallelism (the
-  first eviction's attribution above was wrong).** OCC detection's per-process chain cache
-  (`occ.rs` `eod_chain`) never let go; D-398's `unlisted` (between 48d87154 and 3b85b4f6, verified
-  by ancestry) made it read every session's own and previous chain for all 64 securities, so the
-  quotes stage kept the whole window: ~83 MB a session × ~150 sessions ≈ 12.5 GB (evicted at 12.4).
-  Bounded to 128 chains (least recently read let go); outputs unchanged; real-data test fails without
-  the bound. Batches measured flat at 16/64 in flight (byte-reservation path cleared). Defaults 3 bulk
-  files / 8 snapshot sessions kept; the Job's 2/2 override is dropped on the fixed image.
-  **Image 4944a182 (build 4944a182+56c30ad6ed6d, 1,495 passed) admitted; job 1384 (pinned to
-  3b85b4f6) cancelled; test block 2026-10-28..30 rescheduled on it at default in-flight, 14 GiB
-  limit, history on; working set and top processes sampled every 2 min from the start
-  (`checks/2026-11-20-block-1028-memory-4944a182.tsv`).**
-  **08:17 UTC: tape sample COMPLETE: 20 of 20 sessions passed (1,276 of 1,276 asset-sessions
-  recomputed byte for byte with the reference tape reader agreeing).** The historical tape caches
-  carry "cache code verified by sample" (C-059). Node day-std-36n2pr deleted.
-  **09:50 UTC: block 2026-11-02..04 COMPLETE (image 48d87154, job 1383, 1 attempt): published in 291,
-  265 and 294 min; reference checks 31–32 min each (166–169 CPU-min); 11-03 2,489 and 11-04 2,146
-  failed of ~93k checked.** Node day-3az1af deleted. Test block on 4944a182 past the old leak point:
-  fill peak 6.7 GB anonymous (requote stage), then falling: memory fix holds. 11-03/11-04 failure
-  classes not seen on 11-02 (24 and 35, 58 and 71 failures; mostly per-expiry forward keys of the
-  ruled families; new: DLM-DRAWDOWN on COIN/ETHA/IBIT/MSTR, one ETHA max-pain 1.5e-11, two sigma
-  states, one UUP vega) being triaged under the current suite (`pass-fx67`).
-  **Triage done (`worker` 5da7a4ac, reference 94 passed, D-370 amended;
-  `checks/2026-11-20-refcheck-1103-1104-triage.md`): 0 engine defects.** Drawdown: already ruled
-  (D-118 1, 253-close window; the reference's 252 picks the next close); one reference defect fixed
-  (AAPL σ on a crossed quote: the reference now requires ask ≥ bid, as the engine and Cboe's VIX
-  rule); UUP vega is D-119's ±0.01 reading (named alternative); DBA's long-dated deep-ITM put σ state
-  unprovable (surface file deleted), so a failed state now carries quote, inputs and QuantLib prices.
-  Expected unexplained under the current suite: 4 (11-03) and 9 (11-04), forward-quality signals and
-  one σ state; to confirm on the next real checks. Owner-visible note: DLM-PRICE-LEVELS' 52-week
-  range uses 252 bars while drawdown's 1-year high uses 253 closes (no wrong number; consistency
-  question).
-  **Test block 4944a182, 12:45 UTC:** day 2's inputs ready in 64 min (09:54 → 10:58, overlapped);
-  day 1 prep 64 min (73 before), intent A running ~100 min. Memory peak 9.2 GB (day 1 compute + day 2
-  fill), now ~4 GB. P-21 extended: the API's QQQ 2026-09-28 chain also holds 09-29 data, so the
-  bulk fallback cannot recover it; QQQ's option-history-window sensors are withheld on 10-28 (stated
-  absence, as designed). Pass-2 lead: intent A runs 4 persistent workers at ~78% CPU each (load 4.1
-  on 8 vCPU) once the overlapping fill ends: half the node idle. **Cause (13:20 UTC): my 14 GiB pod limit, not the code
-  path's speed.** h4 admission reads cgroup `memory.max − memory.current`, which counts page cache:
-  with a limit, the day's written inputs fill the cgroup with cache and the plan saw 2.2 GB free →
-  4 of 8 workers (recorded `admitted_workers 4`). Day 1 intent A took 106 min (88 before), so this
-  block's intent-A timings understate pass 1. Fix in `pass-fx68` (working set = current −
-  inactive_file, as the kubelet measures). The C-001 history-off run goes on the fixed image.
-  **Fix merged (`worker` b4966fc1, D-007 amended, D-401 note; full tests + image building).**
-  Correction: the plan was made while day 2's fill still overlapped (anonymous ~9 GB, not ~4 GB;
-  cache only 1–2.4 GB), so the fixed measure admits 7–8 there, not a clean 8. Pass-2 lever: admission
-  is decided once per intent, so an intent started under the next day's fill stays narrow after the
-  fill exits (~11:03); re-plan admission between waves.
-  **Test block day 1 (2026-10-28) published 14:19 UTC: compute 265 min (prep 64, intent A 106 at 4
-  workers, B 71, tail ~24); 258 before, so pass 1's prep saving (−9) was eaten by the throttled A.**
-  Exact profile (task-times sidecars, `checks/2026-11-20-task-times-1028/`): intent A = 62,587 tasks,
-  332 CPU-min, all history: VS-Q01 83 CPU-min plus four HISTORY-ENDPOINT measurements (O02, O04,
-  OIJ01, L01) at ~62 CPU-min each with identical per-task profiles (12,415 tasks each, 200 dates ×
-  62 assets, ~300 ms a task, SPY heaviest): the same per-session read done four times. Intent B =
-  3,329 tasks, 449 CPU-min, M0-ANALYTICS 328 of it. Pass-2 levers ranked: (1) the four endpoints
-  share one read per (asset, date) (−~185 CPU-min on a block's first day); (2) history reuse
-  across the block's days (day 2 measures it); (3) admission at full width / re-planned between
-  waves; (4) M0-ANALYTICS.
-  **Day 1 reference check: 28 min (155 CPU-min); 2,228 failed, 254 unexplained.** ~240 of them are
-  QQQ: history sensors withheld over the 09-28 stated absence (reference computes over the gap) and
-  same-day DLM measurements (expected move, max pain, gamma exposure, …) withheld as
-  DEPENDENCY_WITHHELD: possible over-withholding against the scope rule. Rest: SAI-G01 strike axis on
-  ~8 names, one flip-distance class, DBA/INDA forward. Triage `pass-fx69`. Day 2 (10-29) compute
-  started 14:48 (its download 69 min).
-  **Owner ruling (2026-11-20), history windows over missing sessions:** compute over the sessions
-  present, never interpolate, state each missing session with its reason, withhold only comparisons
-  that need a missing endpoint; completeness floor 75% of the window's expected observations (CAP126:
-  95, was MIN63) for every history window, cited to 40 CFR Part 50 App. K §2.3 and App. T §3.1
-  (verified; WMO-No. 1203 §4.4 agrees in principle, secondary sources). Replaces the day-level plan
-  withholding that blanked QQQ's window sensors after one refused session. Engine + reference in
-  `pass-fx69`, with before/after coverage counts. Open: a consecutive-gap limit (WMO uses 5 days),
-  not ruled. Scope (owner): the rule covers history-window sensors only; the 2026-11-13
-  withhold-on-missing-input rule stays for sensors without a history window (it was made for them).
-  **10-28 triage done (`checks/2026-11-20-refcheck-2026-10-28-triage.md`; merged, tests + image
-  building):** 252 of 254 unexplained were QQQ. Engine defect fixed (D-403): the derived layer took
-  T's chain only from VS-O02's population root, so a withheld VS-O02 withheld nine same-day
-  measurements (expected move, max pain, gamma exposure, …); they now fall back to VS-O06's root (same
-  source of T, no history); ordinary days byte-identical; QQQ 10-28 rerun withholds 0 roles, 122 of
-  124 comparisons equal the reference. Reference defect fixed: it read the refused 09-28 chain (09-29
-  data) as an endpoint; it now skips it. SAI-G01 strike axis: engine right (D-107 13). Unexplained
-  after deploy ~130 (QQQ history sensors until D-404 lands), then 2 (DBA/UNG forwards, uncertain).
-  **D-404 (the 75% ruling) recorded, NOT YET IMPLEMENTED:** large (history rows must carry absent
-  sessions, five sensor crates' endpoint-reason lists, MIN63 written at ~40 sites). Open for the
-  owner: "expected observations" = a fixed span of scheduled sessions (40 CFR's reading; recommended)
-  or §5.13's scan back until 126 eligible (floor almost never bites).
-  **Owner (2026-11-20): fixed span** ("scan back is going to produce weird behavior"). D-404
-  implementation started (`pass-fx70`): engine + reference, one shared floor, before/after numbers.
-  **One-year window (owner, 2026-11-20):** no exchange/regulator definition of the 52-week high
-  exists (vendors differ: calendar vs 252 sessions, close vs intraday); adopt one definition of "a
-  year" for every measurement, anchored on `return_1y` (the close 252 sessions back, 253 closes),
-  so DLM-PRICE-LEVELS' range moves to it. First a census of every 1-year/52-week window (span, close
-  vs intraday basis) and one decision with before/after (D-118 changed the drawdown without one).
-  Queued behind D-404.
-  **Owner (2026-11-20): buys Intrinio's Startup tier the week of 11-23 (Black Friday offer); phase 1
-  in ~2 weeks matches the owner's estimate.** On the switch: check entitlements and rate limit
-  (access codes), update core's request budget, rotate the key in the cluster secret and api.txt
-  (never printed), and rerun one real day before phase 1.
-  **Audit round cc started 16:10 UTC (Codex reset; high effort; `audits/2026-11-20-pass1-round-cc/`):**
-  inputs/orchestration and science/reference diffs 48d87154..e9c216f7, core since 96f10423, and three
-  failure-surface audits from today's real faults (process-lifetime caches, environment-sized
-  resources, over-wide withholding edges).
-  **Image e9c216f7 (build e9c216f7+aabffe6e62a2, 1,497 passed) admitted: D-403 + reference fixes.**
-  Next cluster run (the C-001 history-off block) goes on it, or on D-404's image if that lands first.
-  **Owner (2026-11-20 09:10 MT, back ~21:00 MT):** if the optimization passes finish before then, run
-  them again; and a Codex optimization audit regardless (scope `round-cc/scopes/optimization.md`, with
-  the measured profile; runs after round cc's audits).
-  **Pass 1 result (first day of a block, AMD): start → published 532 → 400 min** (inputs 242 → 105;
-  prep 73 → 64; A 88 → 106 at half width, fixed; B 72 → 71; refcheck 31 → 28). Later days' inputs
-  were already overlapped (75 → 69). **Owner target: ~200 min start → published for a later day,
-  ~250 for a first day.** Levers: reference check off the critical path (next day's compute), M0
-  analytics (fx71 profiling), in-day preparation (unprofiled, 64–73 min), history (four reads, reuse).
-  Stopping rule (owner): reality judges; 200/250 are napkin numbers. Rank each next optimization by
-  measured gain against the effort to get it (5% is still meaningful at this scale); stop when the
-  best remaining one no longer pays for its effort.
-  **Round cc audits done (16:25 UTC, ~15 min); triage running. Core (`triage/c.md`): 8 real (1
-  wrong number), 2 not real, 1 by decision, 1 uncertain.** Wrong number: ARKK's 2021-12-29 $0.78
-  special is missing from the OCC ledger, so since D-120's amendment it is projected as a recurring
-  dividend (~2% of spot in ARKK's forward, 2022–2023 sessions; outside phase 1's range: the 1,096-day
-  window from 2025-04-10 starts 2022-04-09); the ledger's coverage must reach back to 2019-05-27 for
-  every asset. Others: refcheck report bound to the revision current at arrival; DIFFER alert
-  resolved by NOT_COMPARED; tape sample counts; digest MATCH arithmetic; lease check outside the
-  insert's transaction; worker failure messages not scrubbed by core; datashop fetch outside the
-  request budget. **Digest false alarm (owner saw 🔴 at 10:00 MT):** a superseded crash counted as
-  "did not run", stale problem texts, old-suite failures shown as unexplained, ETA wrong; fixing in
-  `core-digest-fix` together with the core findings.
-  **Engine triage a (inputs + caches + resources surfaces, `triage/a.md`): 41 findings → 11 real (0
-  wrong published numbers), 18 not real, 6 by decision, 5 uncertain, 1 known (D-404).** Worst: QQQ
-  2026-09-30 OI readings withheld because `Occ::unlisted` reads 09-29's empty chain as "listed
-  nothing" (contradicts D-117/D-365; amend D-398). Others: quote-file write failure stored as
-  provider absence; a 404 capture gap mislabelled ENGINE_FAULT by a batch's 5xx; read_dir errors
-  cached as empty; reference prefetch 140 sessions (false FAILs); Pool.imap hangs to the deadline on
-  a killed child; tape verdicts all-or-nothing; persistent workers drop VYREON_M0_THREADS (up to 64
-  solver threads on 8 vCPU); FIELD --threads 16. To measure: worker parent memory 3.6 → 5.25 GiB over
-  days 1–3 (would a 15-day block fit?); heartbeat stops before block-history delete. **For the owner
-  (by decision, against priority 4): D-192 refuses the whole day when one raw page is unreadable.**
-  **Codex optimization audit (`round-cc/optimization.md`; estimates, to verify):** (1) the four history
-  endpoints share one traversal: 140–175 CPU-min on a first day, ~1 on a warm day (after D-404); (2)
-  M0 reads each parent trace once: 23–36 CPU-min/session; (3) M0 encodes each trace once: 16–33;
-  (5) Q01 repeat reads: 21–41 cold; critical path: (7) start intent A while the surfaces build (prep
-  is 64 min and A needs no surface: up to ~57 min/day off the critical path), (9) reference check
-  alongside the next day (up to 28 min), (10) FIELD panels earlier, (11) largest-first for M0
-  prerequisites (SPY T−5 is the stage's tail); preparation stage unprofiled (carry fits computed then
-  discarded; surface units scheduled below the asset level). M0 items went to the pass-2 M0 track
-  (fx71); critical-path items next track; history items after D-404.
-  **Engine triage b (science + withholding surface, `triage/b.md`): 11 real (0 wrong published
-  numbers), 2 not real, 4 by decision, 7 known (D-404).** Reference: dividend alternatives matched on
-  dates only (could hide an amount error); the represented day ignores D-399/D-359/D-254 refusals;
-  empty-chain day expectations; QuantLib cache key. Engine over-withholding: PATH-L01 depends on Q03
-  (stock gap/intraday readings withheld on a refused chain day); IVSC/V03-MATCHED/M0 changes need all
-  five predecessors but read T−5 only; coverage qualifier published "NONE" from withheld counts;
-  EVENT-WINDOW withheld whole; one archive failure faults every local record; BETA withholds its
-  correlation. reason_rank can mask ENGINE_FAULT. **Second owner item: D-192 also refuses the whole
-  day on an empty curve tenor, against the owner's D-106 2.2 ruling (a missing tenor withholds only
-  the readings that need it), never implemented.**
-  **Fix tracks running (16:55 UTC):** fx74 engine findings (a + b), fx75 reference findings, D-404
-  agent took the history-area items, core agent the core findings + digest; pass-2 tracks fx71 (M0,
-  admission, threads) and fx73 (critical path: intent A during surfaces, refcheck alongside the next
-  day, FIELD earlier, heartbeat).
-  **fx75 merged (`worker` 9363a9e1; reference 109 passed): six reference fixes** (dividend alternatives
-  need agreeing amounts; refused or empty T expected as the engine withholds; QuantLib cache key;
-  ProcessPoolExecutor so a killed child fails at once as CRASHED; tape verdicts written as judged).
-  Not yet run on a real refused/empty day (no raw inputs on the laptop).
-  **Day 2 (2026-10-29) of the test block: prep 73 min; intent A 46 min = 62,592 tasks, 61,828 reused,
-  764 executed, 4.5 CPU-min.** History reuse removes the history compute (332 → 4.5 CPU-min), but
-  the stage is ~44 ms of serialized controller work per reused task (admission file + fsync + one
-  SQLite transaction each; Codex item 8): ~45 min of a later day spent on bookkeeping. Batching the
-  warm admission is now the top later-day lever (sent to the M0/admission track, fx71).
-  **Core fixes ready (`core-digest-fix`, 13 commits, core tests green; migration 0030):** digest
-  false alarm (a completed check with old-suite reference errors counted as "did not run"; problems
-  restated each check; old-suite failures shown as "not yet triaged", yellow; ETA from the block's own
-  day times) and all 8 round-cc core findings. OCC ledger now from 2019-05-27 with ARKK 2020-12-29
-  $2.04431, ARKK 2021-12-29 $0.78257, EEM $0.266326, XLE $1.791209, XLV $0.66554 (memos read from
-  MIAX); specials with no memo found are listed in C-055, not entered; P-22 added. Their surfaces
-  change (scoped republish of affected published days: only the 2022-06 sample days, superseded
-  anyway). Before merge: the tests' hand-written tape verdict documents are being replaced by real
-  ones from core.tape_check (D-102).
-  **Pass 2 critical-path track merged (`worker` 5eed4a2e; fx73 suite 1,504 passed; D-405):** intent A
-  runs beside the two surfaces (waited for just before intent B); FIELD's panels beside intent B; a
-  day's reference check beside the next day (nice 19, starts after the next download with ≥7 GiB
-  free, killed and rerun if memory falls below 2 GiB, never two at once; the last day checks at
-  once); heartbeat held until core has the outcome. Switches `VYREON_OVERLAP_SURFACES|FIELD|REFCHECK
-  =off`. Estimated: −30–45 min of a later day's start→published plus −28 min between days (to be
-  measured). Byte proof on the cluster: one block twice, switches off vs default. Noted: the
-  `vyreon-worker run` process holds 3.6 GB after the plan and 5.3 GB on day 2 (grows per day).
-  **Core 8a53f67 deployed (~17:10 UTC; migration 0030):** digest fixes and the 8 round-cc core
-  findings live; the stale "did not run" is gone and the ETA now reads Fri 19:41 MT. New false alarm
-  from the stricter verdict rule: the old reader's 51 FAIL verdicts (fixed reference defects) count
-  as disagreements next to the fixed reader's PASSes on the same bytes; fix (a later reader's verdict
-  supersedes) in progress.
-  **D-404 implemented and merged (`worker` 76d76bd9 = fx70 + fx73 + fx75; full tests running):**
-  CAP126 contexts are the 126 scheduled sessions before T (scan-back gone: VS-O02/O04/L01/OIJ01/P01/
-  P03, PATH-L01..L07, SAI-PD01, FIELD), floor `h1_numerics::completeness_floor` = ceil(0.75 n): 95 of
-  126, 189 of 252, 188 of 250, 48 of 63; a refused past session is crossed and stated
-  (PROVIDER_INPUT_MISSING), only changes needing it withhold. Labels bumped (@N-D-404, H5-FIELD@2,
-  DLM-LEVEL-HISTORY@3.0.0, …); reference decides by build. **Before/after on core's published days
-  (22,215 contexts): 2025-04-11 15 SUPPORTED → WITHHELD (EMB/FXI/IBIT at 64–91 eligible), 52 values
-  move; 2025-12-10 19 move; 2026-11-02..13 5–7 a day (QQQ); median move 0.0039, max 0.0237.**
-  SPY 10-28 with 09-28 removed: O02 0.0952 → 0.0968 (124 of 126). Remaining under D-404: daily
-  P01/PATH views over a missing bar, evc_history, a DLM-PCR-OI-over-gap test; kernel-contract JSONs
-  still say MIN63 (to update: moves kernel_contract_sha256). Owner notes: PCR-means and full-day
-  FIELD floors moved 80% → 75% under "every history window"; EVC01/FND01 unchanged (no fixed window).
-  **fx74 ready (round cc engine fixes, D-406; 9 of 9 fixed, suite green on the branch), merging after
-  the running test of 76d76bd9:** reason_rank (an engine fault no longer masked by an unidentified
-  carry); QQQ 2026-09-30 OI back (empty T−1 chain = "cannot tell", D-398 amended): greek exposure,
-  max pain, OI centroid, unusual contracts, M0 gamma return; PATH-L01 no longer depends on Q03;
-  PCR coverage qualifier withheld, not "NONE", over withheld counts; BETA's correlation follows
-  DEP01; EVENT-WINDOW withholds only expiry/straddle roles; a failed population or gamma-export load
-  in the local derive contained; read_dir errors are faults; sidecar ok from the binding check.
-  Ordinary days: no value changes (PATH-L01/L02 receipts' kernel contract digest changes). Left: the
-  ordered derive (derive/mod.rs) still fails the whole object on a population load failure.
-  **Core 139a21b deployed (17:40 UTC; C-058 amended): a cache's current verdict is its latest
-  reader's (builds ordered by admission), for the alarm and for `GET /tape-caches`.** The 51 old-reader
-  FAILs no longer alarm, and day workers read the fixed reader's PASS. Digest now: one 🔴, 10-28's 254
-  unexplained (triaged: QQQ, fixed by D-403/D-404; clears when 10-28 is republished on the new build).
-  **Pass 2 M0/admission track ready (`pass-fx71`, D-405; speed only, value bytes identical, merging
-  after the running test):** M0 solves SPY 2.1×, DIA 1.43×, HYG 1.40× faster (FD backup one
-  elimination per step size with lockstep scenario searches ~3×; lattice layers on AVX2, no FMA,
-  lane-wise IEEE: 13–15%; solve digests identical on 9 real surface files); admission re-plans every
-  15 s and grows to the CPU slots as memory frees (replayed 4 → 7 → 8); VYREON_M0_THREADS passed to
-  workers; FIELD threads = CPU slots; warm history reuses committed in batches (one transaction, files
-  synced in parallel, crash-safe): 7.26 → 1.40 ms per task on the laptop (cluster was ~44 ms: the
-  next block's `reuse_commits` log shows the real figure). Left: encode-once (~2.5%), parent-stream
-  re-reads (needs a real-day profile), anything that changes σ bits.
-  **Pass-2 image 3d043daf (build 3d043daf+08398af2061b; all tracks merged; 1,532 passed; M0-ANALYTICS
-  code digest re-pinned for D-404 + D-405, label kept) admitted; block 2026-11-05..06 started on it
-  (18:30 UTC, second day node, overlaps default, history on); memory sampled to
-  `checks/2026-11-20-block-1105-memory-3d043daf.tsv`.** Then the same block with
-  `VYREON_OVERLAP_*=off` and `VYREON_WORKER_HISTORY=off` for the byte proof (C-001 + overlaps).
-  Old-image baseline, day 2 (2026-10-29, later day): prep 73, intent A 46 (61,828 reuses), B 71, tail
-  ~20: published 216 min after its start, then refcheck 28.
-  **Spend: DigitalOcean month-to-date $167.41 (2026-11-20 18:30 UTC) against the $300 ceiling.**
-  Old-image block day 2 (2026-10-29) published 18:57 UTC, 248 min after its start including its
-  32.6-min reference check (2,477 failed, 259 unexplained: QQQ's 09-28 gap as on 10-28, fixed on the
-  new build); day 3 (10-30) started 18:57. Day 3 intent A 41.6 min (serial reuses again).
-  **The day-block process itself grows a day at a time: `vyreon-worker` RSS 3.6 GB (day 1) → 5.3
-  (day 2) → 6.7 (day 3).** At that rate a ~15-day phase-1 block would not fit a 16 GB node: cause and
-  fix being found (`pass-fx77`) before long blocks.
-  **Cause: glibc arena high-water, not retained data (D-407, merged `worker` f7ca1ecc).** Of 6.73 GB
-  resident on the live pod, 6.2 GB sat in ~95 thread arenas left by each day's in-process plan (8
-  threads parsing the quote-file window). Fix: drop the OCC chain cache after the plan and
-  `malloc_trim(0)` after each plan and each day (logged as `memory after <T>`). Laptop, real 8-symbol
-  slice, 8 days: resident after each plan 748 → 1,516 MiB before; 32–66 MiB after the trim. The
-  plan's own transient peak (~3.6 GB at 64 symbols) remains, beside the next day's fill (5–6 GB).
-  Goes into the image after the byte-proof pair (which stays on 3d043daf). Pass-2 block day 1 (11-05):
-  inputs 124 min; intent A started at 20:39 beside the surfaces (overlap working).
-  **22:29 UTC: old-image test block 2026-10-28..30 COMPLETE (4944a182, history on).** Day 3 (10-30)
-  published 210 min after its start including a 30.2-min reference check (2,554 failed, 252
-  unexplained: QQQ's gap, fixed on the new build). Block history 563,952 files / 1.84 GB, removed.
-  Node day-36nz9i deleted. Old-image later-day baseline: 248 (day 2) and 210 (day 3) min, start →
-  published incl. the check.
-  **22:39 UTC: pass-2 block (3d043daf) day 1 (2026-11-05) HELD in intent B ("too many faulted
-  slots"): persistent workers died ("H3 IPC stream closed before a frame") on M0-ANALYTICS, then
-  hundreds of "… directory: Corrupt" faults (population 188, option 139, Q05 118, O06/V03/L01
-  admitted dirs).** Job stopped (core requeued 1421; the requeued pod killed), node deleted. Before
-  that, the overlap worked: day start → intent B plan 114 min (old first day: prep 64 + A 88 + exports
-  ≈ 156); intent A 101 min at 8 workers beside the surfaces. Evidence saved
-  (`checks/2026-11-20-job1421-evidence.txt`); cause being found (`pass-fx78`) before any rerun.
-  **Cause found and reproduced (D-405 amended, `pass-fx78` merged):** pass 2's FD-backup lockstep
-  runs each contract's eight scenario searches on threads inside each of M0's eight threads: ~72
-  allocating threads per persistent worker, each getting a glibc arena reserving 64 MiB of address
-  space, so workers hit their 2 GiB RLIMIT_AS (D-007) at ~31 arenas; a failed allocation aborts the
-  worker ("IPC stream closed"), and survivors failed to mmap option shards (ENOMEM), which the reader
-  reported as "Corrupt". Fix: each persistent worker caps arenas at M0 threads + 1 (M_ARENA_MAX)
-  before any thread starts (measured 7–8 arenas, 565 MiB, same speed); a shard I/O error now reads
-  `Io(…)`, not Corrupt. Ruled out: AVX2, thread env, batched admissions, D-404/D-406 directories,
-  surfaces overlap. Image building; block 11-05..06 reruns on it.
-  **Image f401a104 (build f401a104+b5c829b91bce; 1,536 passed) admitted; 3d043daf withdrawn; job
-  1421 cancelled; block 2026-11-05..06 rescheduled and started on a fresh node (23:34 UTC); memory
-  (with process VSZ) sampled to `checks/2026-11-20-block-1105-memory-f401a104.tsv`, alert on any hold
-  or worker crash.**
-  **Owner (2026-11-20 ~17:15 MT):** cancel the long read-only query (pid 208996, 7 h 52 min, ~1 of
-  core's 4 CPUs, holding back vacuum): cancelled. D-192: contain both cases (unreadable raw page →
-  that asset's readings ENGINE_FAULT; empty curve tenor → only readings needing it, D-106 2.2):
-  implementing in `pass-fx79`. D-404's 80% → 75% moves accepted ("5% is meh"); EVC01 explained to
-  the owner. **Decided (owner): EVC01 too: 189 of its 252 prior sessions per slot (75%), plus its
-  20-sample minimum ("requiring 75% coverage for the history required to compute a sensor requiring
-  history is sensible"); the 80% coverage target stays a goal, not a rule.** `pass-fx80` checks
-  first whether 189 binds on the recorded days (missing tapes, thin names' quiet slots), then
-  implements.
-  **Codex optimization discovery round dd started (owner, ~17:40 MT; candidate f401a104, high effort,
-  `audits/2026-11-20-optimization-round-dd/`):** five subsystems with the measured profiles: kernels
-  (M0/h1-numerics), executor and history (incl. history shared across blocks), preparation and
-  orchestration (surfaces, plan, FIELD, tail), inputs and provider requests, the reference suite.
-  **EVC01 75% floor implemented (`pass-fx80`, label @6; not merged: it binds).** No 2026 day changes
-  (minimum prior counts 191–197). But it binds on older days because the tape caches themselves are
-  thin there: **no bid/ask in any cache before 2025-09-04, and counted volume 20–67% below official
-  before late Nov 2025** (SPY/GLD/DBA probes; replay files 4–6 GB a session before 2025-09 vs 18–45
-  after). So phase 1 would carry no EVC01 midpoint-width flags until ~2026-06-09 and no volume flags
-  until ~2026-09 (vs ~2025-10/12 at the 20-sample minimum); P-04 (from 2026-11-06) erodes GLD's
-  volume baseline below 189 by ~mid-Dec 2026 unless reconciled. Owner to confirm. **Research started
-  (Claude agent + Codex in parallel): what the replay files contained by era, and what each intraday
-  sensor family can compute or might get wrong in each era.**
-  **Codex optimization round dd returned (5 reports, `audits/2026-11-20-optimization-round-dd/`);
-  verification running (three readers).** Headlines, unverified: the four history endpoints share
-  one reconstruction (140–214 CPU-min per cold first day); the fill spends ~44 min re-checking the
-  same quote window on a later day (12–22 wall-min per later session); M0 parent streams re-read
-  (23–36 CPU-min every session); the reference check prices two unused QuantLib values per contract
-  and could reuse its own chain summaries in a block (25–35 CPU-min); planner quote window and lazy
-  carry fits on the critical path; a history store shared across blocks assessed.
-  **D-192 containment merged (`worker` 9e4382a2; full suite green on the branch).** (1) An option page
-  that can't be read: that asset-session's option source is withheld ENGINE_FAULT and only its readers
-  (T/T−5 option readers and surface, or the windows holding it) withhold; the day publishes. (2) An
-  empty curve tenor (D-106 2.2): a maturity reads the zero nodes bracketing it, so a tenor withholds
-  the maturities that read it; containment is per surface (each asset's surface is one fit, and the
-  financing spread pools one-year expiries): a missing short tenor (≤1Y) withholds every surface, a
-  missing DGS2/DGS3 only assets with expiries that far (UUP 2025-12-10: its 401- and 772-day
-  expiries); readings that use no surface publish. Finer containment (keep an asset's one-year surface
-  without its long expiries) would change the remaining values: an owner option, not done. Noted:
-  `Occ::quote_file` returns None silently on an unreadable quote file (to fix).
-  **Optimization triage a (executor + kernels, `round-dd/triage/a.md`): 15 opportunities, none not
-  real.** Confirmed/partly, counted: 76–135 CPU-min and 7–26 wall-min per session on 3-day blocks;
-  31–60 CPU-min and 4–14 wall-min on 15-day blocks; 70–135 h of effort. Key point: phase 1 at ~400
-  sessions on 24–27 nodes is ~15-day blocks all starting together, so first-day-only savings shrink
-  ~5× and cross-block history reuse goes to ~0; every-day items dominate. Shortlist: M0 largest-chain
-  prerequisites first (4–8 h, 2–6 wall-min every day); four endpoints share one source admission
-  (21–39 h; 11–16 CPU-min/session on 15-day blocks, 10–30 wall-min on a first day); encode M0 traces
-  once; declare history rows 16 at a time; intent B adopts intent A's exact results; one raw pass in
-  Q01. Measure first: h5_surface phase profile (on the critical path every day, never profiled),
-  post-pass-2 intent B. Within 15-day blocks: reuse day T−5's own T surface as day T's T−5 surface
-  (could halve surface work on 10 of 15 days; needs a byte check). Owner item: endpoints could trust
-  Q01's verified source identity (~137 cold CPU-min) but that changes an integrity rule. Two small
-  correctness risks to fix: history ledger renamed without a parent-dir sync; a single admission file
-  written to its final name (a crash mid-write fails the retry).
-  **Optimization triage b (prep + inputs) and c (reference check) done; all items real or partly.**
-  b: shortlist ~6–19 wall-min/session (planner threads largest-first, redundant quote-window passes
-  in the fill, one macro cutoff wait, history exporters in parallel, lazy carry fits); first day
-  measured at ~315 min to publish on the pass-2 image (fill 124 min) against 250: long blocks are the
-  lever; later days estimated ~145 min (unmeasured). c: ~40–50 CPU-min/session in the reference
-  check (≈20–30% of it), none on start → published. **Pass 3 started (21:30 MT), four tracks:**
-  fx81 reference suite (items 1–7 + 4 correctness risks + overlap/surface-stage measurements), fx82
-  executor + kernels (M0 largest-chain prerequisites first, history rows 16 at a time, intent B adopts
-  intent A's results, encode traces once, lazy carry fits, two crash-safety fixes, surface per-phase
-  timing), fx83 the four history endpoints share one verified source per asset-session (+ Q01 one
-  pass), fx84 inputs + prep (planner balance, fill redundant passes, macro wait, parallel exporters,
-  first-day captures concurrently if safe, 3 correctness risks). Owner items pending: endpoints
-  trusting Q01's verification (integrity rule); drop the A/B diagnostic in the fill (inputs 7).
-  **Research (Claude agent + Codex, agreeing):** (1) **Curve tenors:** in 2022-05-27 → 2026-11-19 no
-  tenor is ever missing to the engine; the only gaps are 9 bond-market holidays (all six tenors
-  blank; 4 in phase 1), where the engine already uses the last published curve: Cboe's VIX method
-  ("CMT yields for the most recent business day"); D-192's tenor rule never fires; the 183/341 was
-  an Intrinio delivery fault in October (P-24). The H.15 date-range download returned empty at
-  01:03–01:10 UTC; recovered by 01:40 (checked); re-check before the droplet's 12:06 UTC capture.
-  (2) **Replay eras (P-23):** effectively no quotes before 2025-09-04; trades 16–66% short until
-  2025-11-26; complete 2025-11-26 → 2026-11-05; P-04 from 11-06 (trades 2–5% short, books ~2× wide).
-  **Wrong numbers published today: intraday prices/VWAP/close-vs-VWAP/path before 2025-11-26 (~159
-  phase-1 sessions; NVDA 2024-06-13 close 129.00 vs 129.61) and replay spreads from 2026-11-06.**
-  Proposed to the owner: VWAP under the volume check; tape OHLC must equal the official daily bar;
-  replay spreads withheld from 2026-11-06 until a quote-completeness check; bug report #3.
-  **Owner (21:55 MT): the three gates approved; implementing (`pass-fx85`, D-411).** Bug report #3
-  drafted (`provider-reports/2026-11-20-intrinio-bug-report-3.md`), held until the register is
-  re-verified. **Owner asked whether our provider faults are right (the tenor fault was real but
-  transient, fixed since): every entry P-01..P-24 is being re-checked against today's data (Claude
-  agent) and its reasoning reviewed independently (Codex): still present / fixed since / never real,
-  and whether reports 1–2 need corrections.**
-  **01:40 UTC: rerun (f401a104) refused day 1 at the plan: the Fed's H.15 download returned HTTP 503
-  (carry_inputs Fatal: curve-h15 503), so no curve; not an engine regression. H.15 still 503 at
-  01:50 (it served empty bodies at 01:03–01:10). Job stopped (core requeued 1422), node deleted.**
-  Risk: the droplet's daily capture at 12:06 UTC. Owner decision asked: Intrinio `$DGS*` as the
-  curve fallback when H.15 fails (the research found it equal to H.15 value for value on all 1,138
-  dates today; P-24 was its own transient outage in October), and a 503 treated as retryable.
-  **Pass 3 merged so far (`worker` 538429b8):** fx81 reference suite (D-370; 121 passed): unused
-  QuantLib slopes skipped (FD solves −28%), dropouts once per tape, directory listings memoised,
-  largest-first pools, 4 correctness fixes, M4/M5 timing; fx84 inputs + prep (D-410; full suite
-  green on the branch): planner quote window balanced largest-first, live-only fill skips redundant
-  window passes, one macro wait, first-day carry/macro/company/ACT01 at once
-  (`VYREON_OVERLAP_CAPTURES=off`), history exporters in parallel, fill CPU/memory lines, 3 correctness
-  fixes; prefetch nice switch default off (owner's call after measurement). Still running: fx82
-  executor/kernels, fx83 history endpoints, fx85 tape gates.
-  **fx83 merged (`worker` 27cb4680; D-409; full suite 1,548 passed on the branch):** the four history
-  endpoints of a session run in one slot on one pinned worker, sharing one verified source read
-  (each still runs its own checks, commit, read-back and verification; siblings reuse the first
-  sibling's source verification made in the same worker process seconds earlier, keyed by binding
-  and directories, ≤60 s); profile/calendar built once per worker (E7); Q01 decodes its raw pages
-  once (E3). Laptop: per-session cost −64% on nine real chains. Estimated cold intent A: endpoints
-  247 → 70–100 CPU-min, Q01 83 → 45–60. Every task key moves once; no method identity moves.
-  **D-411 tape gates merged (`worker` merge of pass-fx85; full tests running; tape-cache identity
-  unchanged, gates in `h3-replay/src/official.rs`, read rule @4):** gate 1 VWAPs withheld with the
-  volume gate; gate 2 tape open/high/low/close must equal the official traded bar within half the
-  tape's price step, else the price family is withheld (TAPE_INCOMPLETE_AGAINST_OFFICIAL_BAR when
-  the tape is thin, TAPE_DIFFERS_FROM_OFFICIAL_BAR otherwise); gate 3 replay quote widths withheld
-  from 2026-11-06 (date rule: no data-based detector works; midpoints kept, unbiased). Recorded
-  days: 2025-04-11 gate 2 fires on 38 of 64; era 3 0–5 a day; P-04 days gate 1 on 56–63. **Engine
-  defect found: on complete era-3 tapes 119 of 2,133 sessions (9 assets) fail gate 2 because the
-  engine's close takes the later-stamped of two closing-auction prints (QQQ 2026-05-06 695.60 vs
-  official 695.77; AAPL 2026-11-02 339.31 vs 338.32), and some opens differ from the listing
-  market's: withheld honestly as engine-classed for now; the fix (use the listing market's own
-  closing/opening print) changes the reader identity and so every stored tape cache: owner
-  decision.**
-  **fx82 ready (pass 3 executor + kernels, D-408; all crates green on the branch), merging after the
-  running full test:** M0 largest-chain prerequisites first (K9) with `ready_unix_ms` in the
-  sidecar; history rows declared 16 at a time (3.16 → 1.36 ms a task, laptop); intent B adopts
-  intent A's exact results (~575 tasks); M0 traces encoded once (ANALYTICS method_sha256 re-pinned);
-  lazy carry fits (−33% carry fits, but only ~0.7% of surface time: inversions are 95%; surface files
-  byte-identical on 37 real asset-days); durable admission and ledger writes; h5_surface per-phase
-  timing and per-day CPU log lines.
-  **Pass 3 complete and merged: image 4c6119bb (build 4c6119bb+b25d2deb87bd; 1,570 passed; reference
-  126) = pass 2 fixes + D-407 + D-192 containment + D-408/409/410 + reference pass 3 + D-411 gates.**
-  Not run on the cluster yet: the Fed's H.15 still answers 503 (02:40 UTC), so a block would refuse
-  at the curve. Building the curve fallback now (`pass-fx86`: 5xx/empty retryable, then Intrinio's
-  `$DGS*` series, source recorded in the manifest); deploying it to the droplet's daily capture
-  needs the owner's word.
-  **Owner (2026-11-20 ~20:00 MT):** (1) curve fallback approved for the droplet (the Fed outage is
-  likely temporary); deploy after it is built and tested. (2) Closing-print fix approved: the session
-  close/open from the listing market's own auction prints (reader identity changes; phase 1's tape
-  caches re-downloaded during the build): `pass-fx87`. Asked whether the 2 GiB per-worker
-  address-space cap is necessary: proposed replacing it with a real-memory (RSS) watchdog.
-  **EVC01 floor merged (owner: binding is the natural consequence of phase 1's start; what matters
-  is full populations for the first reports).** Method @7 (D-411's @6 + the floor). For the first
-  reports (2027-01): quote-width flags available from ~2026-06; volume flags from ~2026-09 only if
-  the P-04 sessions (from 2026-11-06) are reconciled: without the trades-API switch (D-089
-  amendment) GLD's volume baseline falls below 189 by ~mid-December 2026. Extending phase 1 back does
-  not help EVC01 (the older files are thinner) unless Intrinio regenerates them (bug report #3).
-  **Owner plan (2026-11-20 ~20:20 MT):** (1) the before/after of the optimizations on the cluster
-  (pass-3 image vs the old-image baselines: 10-28 first day 400 min; later days 248/210 min,
-  start → published incl. check); (2) another bottleneck check once everything is in (Codex
-  discovery on the final image's real profiles); (3) then build the database.
-  Curve fallback chain (owner): H.15 → Intrinio `$DGS*` → FRED (fredgraph.csv, no key); added to
-  `pass-fx86`. At 02:55 UTC the Board's download site was 503 while FRED and Treasury answered. The
-  Board's page states planned maintenance (owner checked): not an attack, temporary.
-  **Owner (2026-11-20): Intrinio Startup tier bought 2026-11-25 (earlier if a mobilization comes);
-  from then it is a race, as fast as correctness allows, to publishing.** Ready before 11-25: the
-  pass-3 before/after and byte proof, the final bottleneck check, the closing-print fix, the curve
-  fallback, the trades-API switch for daily runs; the key-switch checklist (entitlements and rate
-  limit, core budget, cluster secret and api.txt, one real day) on the day.
-  **Curve fallback merged (`worker` ceacfbc5; D-105 amended; full tests + image building):** H.15 →
-  Intrinio `$DGS*` → FRED, each retried (5xx/timeout/empty never accepted), one source per capture,
-  manifest `curve_source` + reason. Proven for real while the Fed was down: 2025-12-10 and
-  2025-11-12 fell back to Intrinio after ~3 min and built bit-identical curves to H.15's and FRED's.
-  **FRED resets every request carrying the engine's user agent** (`Vyreon-Carry-Inputs/0.1`; curl's
-  default got 200): owner's call: a free FRED API key (proper identification), or a different
-  user agent. **Owner: use the FRED API key (in ~/FREDdash.ipynb); extracted without printing to
-  ~/fred-api.txt (600), verified; FRED API path being added (`pass-fx88`, VYREON_FRED_KEY_FILE,
-  key redacted from every stored request).** Until then the working chain is H.15 → Intrinio. Droplet deploy (approved): merge into
-  its branch, build, `deploy/droplet/install.sh` after checking no capture runs.
-  **Closing-print fix ready (`pass-fx87`, D-412; all tests green on the branch), NOT merged yet:**
-  session close from the listing market's official-close report (`M`), else its closing-auction
-  print (`6`), else the consolidated last print; open from its official-open report (`Q`) or
-  opening-auction print (`O`); listing market by tape (A → NYSE, C/UTP → Nasdaq) and on tape B by the
-  daily page's MIC; bins otherwise unchanged; reader label CONSOLIDATED@7, gate 2 READ@5. Held back
-  from the before/after image on purpose: it makes all 41,784 tape caches stale, so a block on it
-  first needs its tapes re-derived, which would confound the measurement. Merge after the
-  before/after, then a tape re-derivation sample (QQQ 2026-05-06 → 695.77, AAPL 2026-11-02 →
-  338.32, era-3 gate-2 counts by reason). To fix before merge: the rule citations are from memory
-  (verify against the CTS/UTP specs and exchange rulebooks), and the mechanism test uses QQQ's real
-  prices with constructed timestamps/venues (D-102: replace with real raw prints, e.g. a raw capture
-  on the droplet if one survives).
-  **03:50 UTC 2026-11-21: before/after block started.** Image ceacfbc5 (build ceacfbc5+544a50a5d895;
-  1,579 passed) = pass 2 fixes + D-407 + D-192 + pass 3 (D-408/409/410, reference) + D-411 gates +
-  EVC01 floor + the curve fallback (H.15 → Intrinio; H.15 was still empty/503). f401a104 withdrawn,
-  job 1422 cancelled. Block 2026-11-05..11-09 (3 sessions: a first day and two later days) on one
-  fresh day node, history on, overlaps default; memory sampled to
-  `checks/2026-11-21-block-1105-ceacfbc5-memory.tsv`, alert on any hold, refusal or worker crash.
-  Baselines (old image 4944a182): first day 400 min start → published, later days 248/210.
-  05:27 UTC: first-day inputs done in **97 min** (old image 105, pass-2 image 124): the fill's own
-  CPU 188 min (×1.9) and its children's 376 min, logged for the first time (a pass-4 lead: the fill's
-  own CPU is large). Day 1 (11-05) computing.
-  **Day 1 measured so far (first day, cold history):** plan 6 min (with the trim: 4,019 → 174 MiB);
-  intent A **65 min** beside the surfaces (old 88 alone at 8 workers, pass-2 101 beside); exports
-  39 s (was ~200); surfaces done before A ended (waited 0 s). **Day start → intent B plan: 75 min**
-  (pass 2: 114; old image: ~156). Intent B started 06:42 UTC; no worker crash 21 min in.
-  **07:31 UTC: intent B completed in 49 min (old image 71; pass 2 crashed here): the crash fix (arena
-  cap) holds on a real day.** Export index 3 min; day 1 in its tail now.
-  **07:36 UTC: day 1 (2026-11-05, a block's FIRST day) PUBLISHED: 226 min from the block's start
-  (inputs 97 + day 129), against 400 on the old image (which ran its 28-min reference check before
-  publishing) and the owner's 250-min first-day target.** Its reference check now runs beside day 2
-  (deferred, D-405). Day 2 (11-06) started 07:36: quote window 341 s on 8 threads (largest-first,
-  longest QQQ 168 s), plan + trim 4,147 → 232 MiB, intent A beside the surfaces at 07:48.
-  **08:38 UTC, day 2 intent A: 47,098 reuses + 704 executes in 50 min (~60 ms a reuse, no better than
-  the old 44 ms)** while the two surfaces (~200% CPU each) and day 1's deferred reference check
-  (8 python jobs at nice 19, ~84% each; load 9.5 on 8 vCPU) run beside it. Either the batched
-  commits don't cut the per-reuse cost on the cluster (laptop: 7.26 → 1.40 ms) or the coordinator is
-  CPU-starved by the overlap; the run's `reuse_commits` line and the task times will tell. Leading
-  pass-4 lever if it holds.
-  **08:49–08:52 UTC: day 2 intent A done in ~61 min; `reuse_commits` = 1,978 batches, 62,849
-  reuses, 1,771 s: 28 ms a reuse inside the commit on the cluster (laptop 1.4): batching did not help
-  there, and batches average 32, not 128.** Day 1's deferred reference check **CRASHED** after 25.2
-  min ("ended without a readable report": report.json truncated at line 645,531; its refcheck
-  directory is now gone): an overlap defect (D-405 lever 2). Both being diagnosed (`pass-fx89`).
-  Day 2 intent B started 08:51.
-  **09:51 UTC: day 2 (2026-11-06, a LATER day) PUBLISHED: 134 min from its start** (old image's
-  later days: 248 and 210 incl. their ~30-min check, so ~215/180 without; owner's later-day target
-  200). Its reference check runs beside day 3 (started at nice 19, 11.7 GiB free); day 3 (11-09)
-  started 09:51 after a 48-min download beside day 2.
-  **Both day-2 findings diagnosed and fixed (`pass-fx89`, D-405/D-408 amended 2026-11-21; held for
-  the next image):** (A) the "crash" was not the overlap: Python's json writes a non-finite float
-  as bare `Infinity`/`NaN` (invalid JSON, RFC 8259 §6), here DLM-EXPECTED-MOVE's half-spread band
-  whose upper end is `inf`; the report is now strict JSON (non-finite as strings, counted), written
-  atomically, and a check that crashes beside the next day reruns once at normal priority; (B) the
-  28 ms a reuse was a query-plan scan, not the disk: SQLite answered `parents_complete` and
-  `task_page` by reading all of the run's ~51,500 edges per call: two indexes added (all 42
-  statements' plans checked on the real index); replaying day 2's 62,849 reuses: 10.51 → 0.68 ms a
-  reuse (660 s → 43 s).
-  **Day 2's reference check COMPLETED beside day 3: 97,113 checked, 2,455 failed, only 3 unexplained
-  (10-28 had 254)**: the triage fixes and D-403/D-404 show; 56.8 min wall at nice 19, 128.5 CPU-min.
-  The overlap costs nothing on the critical path: day 1's check joined with 0.0 min wait. Day 3
-  (11-09): intent A done 10:53 (warm; still the slow commit path in this image), intent B from 10:56.
-  **11:52 UTC: day 3 (2026-11-09, a later day) PUBLISHED in 120 min**; day 2's check joined with 0.0 min
-  wait; day 3's check (the block's last) running at once. Intent B ran 49 / 51 / 51 min on the three
-  days (old 71–72).
-  **12:15 UTC: before/after block COMPLETE (job succeeded; 3 sessions published).** Day 3's check
-  hit the same non-finite-JSON report bug as day 1 (fixed in `worker` 909d57ce, not in this image).
-  **Before/after (start → published; old image 4944a182 vs pass 3 ceacfbc5, one 8-vCPU AMD node):**
-  first day 400 → **226 min** (inputs 105 → 97; plan+prep ~64 → 7; intent A 88 → 65 beside the
-  surfaces; intent B 71 → 49; exports ~4 → 0.6); later days ~215/180 (excl. checks) → **134 / 120**
-  (intent A still ~60 min of reuse bookkeeping: fixed by the indexes, ~1 min expected next image);
-  reference checks run beside the next day, joins waited 0.0 min; day 2's check 3 unexplained of 97k.
-  Worker log saved `checks/2026-11-21-block-1105-worker-log.txt`. **Byte-proof run started on the
-  same build and node (`v-block-1105-off`: VYREON_WORKER_HISTORY=off and every overlap off, exporters
-  serial): its published bodies must equal this run's apart from provenance digests (C-001 + D-405).**
-  **Codex final bottleneck check (`audits/2026-11-21-optimization-round-ee/final.md`): "Start the
-  build on 909d57ce": the curve has flattened.** Intent B (51–54 min; M0-ANALYTICS 174 of ~300
-  task CPU-min) and the surfaces (~57 min beside intent A) dominate; the 75–80-min later-day forecast
-  is too optimistic: with the surfaces' observed ~57 min, a later day lands at **≥ ~104 min** after the
-  index fix. One candidate might clear 5%: reusing exact M0 solves within a block (prior-day
-  endpoints recur: ceiling ~58 CPU-min/session, estimated 23–42 CPU-min and 3–6 wall-min if hit rates
-  hold): measure its hit rate on the first production block rather than delay. Others are small
-  (quote-window evidence indexed once, trace bytes passed through, surface inversion split, reference
-  summaries reused, fill filter copy).
-  **D-412 (closing print) merged (`worker` 97389cc0; INT-TEMP-EVC01 method @8 = D-411 @6 + floor @7
-  + D-412 @8); full tests + the final-candidate image building.** Next: a tape re-derivation sample
-  on it (the cluster confirmation list in D-412: QQQ 2026-05-06 → 695.77, AAPL 2026-11-02 → 338.32,
-  close/open source counts, gate-2 failures by reason, tape verdicts PASS), beside the byte-proof run.
-  **13:10 UTC: final candidate image 97389cc0 (build 97389cc0+0bb8210aab58; 1,585 passed; reference
-  131) admitted; tape re-derivation sample started (`v-tape-d412`, 4 tape jobs on one day-std node:
-  2026-05-06, 2026-11-02, 2025-12-10, 2026-01-02) under the D-412 reader (CONSOLIDATED@7).**
-  **13:44 UTC: tape sample done: 64 PASS on each of the four sessions (256 of 256: the independent
-  reference reader agrees with D-412), ~2 min a session for verdicts; tape node deleted.** Closes vs
-  the official bars and the source counts being checked from the new caches.
-  **Check of the new caches (`checks/2026-11-21-d412-tape-sample.md`): the CLOSE fix works, the OPEN
-  half is wrong.** Closes: QQQ 05-06 = 695.77 and AAPL 11-02 = 338.32 (both from Nasdaq's `9`); 63/64
-  official closes matched on each complete session; five @6 errors now right. Opens: Intrinio's
-  official open is the consolidated first print (equal to @6's open on 254/256; 31 official opens off
-  the cent grid, so not auction prices), and the listing market's `O` differs on 131/256: gate 2 would
-  fail 98 of 192 instead of 6. ARKK's three wrong closes come from a stale exchange_mic (P-25: ARCX,
-  but on Cboe BZX since 2025-03-31). **D-412 is being revised (branch `pass-fx90`): open = the
-  consolidated first print (SIP convention, as @6); close keeps D-412's order with the listing market
-  taken from the tape (the `9`'s sender), the MIC only as fallback.** 97389cc0 is not the build image;
-  the next tape sample must show opens 254/256 and closes ≥ 63/64 a session, ARKK from BZX's `9`.
-  **D-412 revised and merged (`worker` c70ed7a2; METHOD CONSOLIDATED@8 + READ@6; EVC01 @9): open =
-  the consolidated first print (CTS §7.0); close's listing market = the `9`'s single sender, then
-  NYSE (tape A) / Nasdaq (UTP) / the stated MIC on tape B only if it sent its own `M` or `O`, else
-  consolidated fallback; gate 2 drops READ@5's open clause.** 1,586 tests passed on the branch.
-  Full tests + image building on the merge; Codex audit of D-412 started
-  (`audits/2026-11-21-d412-tape/`). Then a tape sample on the same four sessions; expected: opens
-  254/256, gate 2 fails 1 of 192 (XLK 05-06 open), ARKK's close from BZX's `9` where sent.
-  **Codex D-412 audit (`audits/2026-11-21-d412-tape/d412.md`): hold c70ed7a2 for the build: 16
-  findings + 3 suspicions** (top: a no-close session can pass gate 2 on a 15:49 close; a cache can
-  survive a listing-market change; CTS note-3 `L` judged against the stated market; out-of-buffer
-  trades rewind the last participant; malformed `9` not rejected (UTP note 8); a `9` excluded from
-  the range; Python misses 2023–24 early closes; the reference does not check the close source;
-  constructed prints in tests). **Triage + fixes running (branch `pass-fx91`).** The c70ed7a2 tape
-  sample still runs for real evidence (e.g. whether BZX sends ARKK's `9`).
-  **15:03 UTC: c70ed7a2 tape sample: 64 PASS on all four sessions (256/256); both tape nodes deleted.**
-  **D-412 audit triaged and fixed (`audits/2026-11-21-d412-tape/triage.md`): 16 of 16 real (2 in part),
-  3 suspicions unverifiable from the laptop; fixed in both readers independently (13 commits, merged
-  `worker` 67dc64a3; METHOD @9, READ@7, D111@7, UPATH@8, EVC01@10, DLM-VWAP@3.2.3; 1,587 passed on the
-  branch).** Left by reason: halted-ETP close (7b: the tapes carry no halt messages), zero-volume `9`
-  (Intrinio's `9`s carry sizes), S1–S3 (need cluster data). D-102 gap: no frozen raw tape slice exists
-  for the close-selection tests: take one from the next tape sample. Full tests + image building;
-  Codex round 2 running. Next tape sample's checklist: verdicts PASS with the close-source comparison
-  empty, basis 1–2 on tape A/UTP, no no-close session, ARKK = BZX where BZX sent a `9`.
-  **Codex round 2 on 67dc64a3 (`audits/2026-11-21-d412-tape/d412-round2.md`): hold; 14 findings + 2
-  unverified.** Top: UTP `L` eligibility by execution stamp, not SIP receipt; round-1 fix 8 also let a
-  late `6` in (regression); a zero-size `6` counts as a trade; an impossible Network-B `9` sender (FINRA
-  `D`) becomes the listing market; the reader digest omits PROFILE.json's classification; **the worker
-  image omits PROFILE.json, so every reference tape verdict would be NOT_RUN**; one bad member stops
-  later uploads; retention can delete raw files restate needs; an exact half-step rejected (f32);
-  Python reference decoding gaps; constructed prints still in tests. **Round-2 triage + fixes running
-  (branch `pass-fx92`).** The 67dc64a3 image (building) gets a tape sample for engine-side evidence
-  only (ARKK's `9` sender, listing-market basis counts); its reference verdicts are expected NOT_RUN.
-  **15:58 UTC: 67dc64a3 (@9) evidence sample done; nodes deleted. Closes 192/192 and opens 191/192
-  (XLK 05-06 only) equal the official bar on the three complete sessions; ARKK's listing market is BZX
-  from BZX's own `9` on all three (so P-25 no longer moves its close); close source `9` 164, `M` 28,
-  fallback 64 (all the truncated 01-02); one `9` sender at most everywhere. Reference verdicts NOT_RUN
-  on all 256 (PROFILE.json missing from the image: round-2 finding 6 confirmed).** Evidence passed to
-  the round-2 fix agent.
-  **D-412 round 2 triaged and fixed (`triage-round2.md`): 14 real, 2 unverifiable (ARKK's settled by the
-  @9 sample); only finding 6 (image omits PROFILE.json) above the cut line. 18 commits merged, `worker`
-  d0f58e81 (METHOD @10, READ@8, D111@8, UPATH@9, EVC01@11, UACT@4, DLM-VWAP@3.2.4); 1,588 passed on the
-  branch.** Rules chosen: a UTP `L` sets the consolidated last only if stamped and received by Intrinio
-  before 16:00:10 (the file has no SIP receipt time; cost 0 on the @9 sample); no UTP print at or
-  after 16:00:10 is price-setting (UTP §2.5.2.2); zero-share executions excluded; a bar contains its
-  close (no published standard; stated in D-412). Full tests + image building (the build now checks
-  PROFILE.json is in the image); Codex round 3 running with cut-line marks. **The build image is the
-  round-2 image if its tape sample passes (all reference verdicts PASS) and round 3 finds nothing
-  above the cut line.**
-  **Codex round 3 on d0f58e81 (`d412-round3.md`): 7 marked above the cut line, 7 below.** Above: the
-  round-2 "bar contains its close" widening can hide a missing high in gate 2 (regression); D111 reuse
-  can keep a gate-2 pass after the official bar changes; conflicting final daily rows read differently
-  by the two readers; one member's capture failure stops every upload, and an interrupted upload can
-  strand a stored member without a verdict on retry (production paths); stale Network-B MIC without a
-  `9` still falls back to the stated market; the $1,024 grid chosen from the official side. **Round-3
-  triage + fixes running (`pass-fx93`).** The d0f58e81 image still gets its tape sample for evidence.
-  Cut line for the build from here (mine): regressions and broken production paths block; rare
-  provider-artifact edges are fixed but do not hold the build.
-  **16:53 UTC: d0f58e81 (@10) tape sample: 256/256 reference verdicts PASS (none NOT_RUN); nodes
-  deleted.** Against the official bar on the three complete sessions: closes 192/192, opens 191/192
-  (XLK 05-06); ARKK basis 1 / BZX on all three; zero-size executions 0 everywhere; conditional-last
-  counts unchanged from @9; the 5-minute bodies of the 192 complete-session caches identical to @9's
-  (corrected after Codex round 4: the 64 truncated 2026-01-02 bodies differ, because round 2's close
-  widening filled the last bin's high/low, e.g. AAPL null → 270.76 with no trade; round 3 removed it).
-  **D-412 round 3 triaged and fixed (`triage-round3.md`): 15 real; 4 above the cut (the round-2 close
-  widening = regression, dropped; Network-B stated market now needs its own `O`; one member's capture
-  failure no longer stops the session's uploads (exit 4, others stored and judged); a retry re-judges
-  stored caches that lack a verdict). 14 commits merged, `worker` a780c8e0 (METHOD @11, READ@9, D111@9,
-  UPATH@10, EVC01@12, UACT@5, UQTR@6, DLM-VWAP@3.2.5); 1,589 passed on the branch.** Image building;
-  Codex round 4 running against the build-blocking bar (regression, broken production path, plausible
-  wrong number). **If the @11 tape sample matches @10 (all PASS, closes 192/192) and round 4 finds
-  nothing blocking, a780c8e0 is the phase-1 build image.**
-  **Codex round 4 on a780c8e0 (`d412-round4.md`): 9 marked blocking, 3 not.** Numbers: a prior-date
-  quote on a listing-transfer day (WMT 2025-12-09) enters the session's book; a `9` carrying a
-  no-update modifier (`C`) is still used. Production paths: a retry's manifests count a different
-  member set, so every retried cache's bytes change; detached H4 readback rebuilds D111's key from the
-  live daily archive; a failed last verdict PUT lets the session complete; a recapture for a verdict
-  can fail a stored session; an old MULTI_TAPE decision survives in-place replay; partial storage can
-  lose TAPE_PROVIDER_REFUSED. Reference: disagrees on the restored DEGENERATE case. **Round-4 fixes
-  next. Cut for the build (mine): after round 4's fixes pass the tape sample, phase 1 starts; round 5
-  runs beside the build, and any later finding on the tape family is repaired by a scoped republish
-  (D-099) rather than by holding the whole build.**
-  **17:44 UTC: a780c8e0 (@11) tape sample: 256/256 PASS; closes 192/192, opens 191/192; all 39
-  basis-3 (stated Network-B market) sessions had that market's own `O`; every 5-minute body of all 256
-  (truncated 01-02 included) byte-identical to @9's; nodes deleted.**
-  **D-412 round 4 triaged and fixed (`triage-round4.md`): 12 real, 6 blocking (3 were round-3
-  regressions): off-date quotes in the book (WMT 2025-12-09 transfer), per-security manifest counts
-  so a retry's caches are byte-stable, a failed verdict PUT fails the session, verdict-only recapture
-  failures give NOT_RUN without failing stored members, the reference's DEGENERATE case, refusal kept
-  through partial storage; plus `9`/`M` no-update codes (CTS §7.0, UTP §3.14.2), D111 key recorded
-  with the result, stale captures re-captured, ambiguous stated exchange. Merged `worker` da3dade4
-  (METHOD @12, READ@10, D111@10, UPATH@11, EVC01@13, UACT@6, UQTR@7, DLM-VWAP@3.2.6).** Image
-  building; then the @12 tape sample (must show: all PASS; closes 192/192, opens 191/192; prices and
-  volumes as @11; quote changes only where prior-date quotes stood; per-security wanted_messages).
-  **If it passes, da3dade4 is the phase-1 image; round 5 runs beside the build.**
-  **Codex round 5 on da3dade4 (`d412-round5.md`): "no confirmed wrong @12 market value on a dated
-  session".** 14 findings + 2 suspicions, mostly production paths and warm-workspace/in-place-replay
-  edges (decoder resync determinism across download chunks, a member stored with no verdict attempt,
-  a refusal stopping the verdict-only fallback, the reference comparing only quote closes, reader.rs
-  missing from the reader fingerprint, D-102 constructed quotes). Triage + fixes running beside
-  (`pass-fx95`); they reach the build's tape family by a scoped republish if any value moves.
-  **18:39 UTC: da3dade4 (@12) tape sample: 256/256 PASS; closes 192/192, opens 191/192; no off-date
-  quotes in any of the four sessions' files (`quotes_off_session_date` 0 everywhere), and every
-  5-minute body, close source and listing basis identical to @11; nodes deleted. da3dade4 is the
-  phase-1 image.** Byte-proof run on ceacfbc5: day 1 published (177 min, switches off; its inline
-  reference check hit the old non-finite-JSON crash fixed since 909d57ce), day 2 running.
-- **Phase-1 launch brief (for the session that launches it; written 2026-11-21 19:10 UTC).**
-  Image **da3dade4** (build `da3dade4+f5512600ac51`, admitted; 1,594 passed; @12 tape sample
-  256/256 PASS). Range 2025-04-10..2026-11-20 (407 sessions), blocks of 15 on ~27 `s-8vcpu-16gb-amd`
-  day nodes (droplet limit 30: core node + production droplet + 27), newest blocks first so the
-  newest two weeks can be judged while the rest run (owner's step 4a). Tapes re-derived for every
-  session under @12 (D-412). Job templates on da3dade4 with the FRED key mounted:
-  `cluster-scratch/job-phase1-{day,tape}-TEMPLATE.yaml`; FRED key added to secret `vyreon-worker`
-  (`fred-key`, `VYREON_FRED_KEY_FILE`), done 19:05 UTC. Spend: ceiling $400 (owner, 2026-11-21);
-  ~$180 used before the build; projection ~$145. Gates still open before launch: the byte proof
-  (ceacfbc5, switches off, ends ~22:30 UTC) and the round-5 triage's answer to "does any @12 value
-  move" (fixes reach the tape family by scoped republish). Watch: core's request budget (2,000/min;
-  27 nodes start their first days together), tape-job ordering (an older date's tape job only after
-  later days have claimed), the per-tranche census, Discord digest. The Startup tier is bought on
-  11-25 if phase 1 is done, else after (owner). Hand-off to a fresh session before the launch is the
-  standing plan (process addition e); the owner's time-sheet reminder goes with it.
-  **Superseded 19:50 UTC: round 5 merged before launch (`worker` cc1d67cf; METHOD @13, READ@10,
-  D111@11, UPATH@12, EVC01@14, UACT@7, UQTR@8, DLM-VWAP@3.2.7).** Its triage (`triage-round5.md`): 14
-  real + 2 suspicions; 9 can occur in the build as run (decoder resync determinism, which can flip
-  EMB/IEF/COIN's 0.1% corruption gate; daily-volume reconciliation in D111's reopen; a stored member
-  with no verdict attempt; refusal during verdict-only fallback; reference compares all six quote
-  fields). Since phase 1 had not started, adopting it now costs no tape re-download (it would have
-  after: the reader digest covers whole files, test modules included, so any reader-file edit
-  invalidates every stored tape cache: **follow-up: digest only the non-test code**). Image
-  building; one more @13 tape sample; **the phase-1 image becomes cc1d67cf if it passes.**
-  **20:10 UTC: cc1d67cf (@13) tape sample: 256/256 PASS (the reference now compares all six quote
-  fields); closes 192/192, opens 191/192; no session withheld (EMB, IEF, COIN under the 0.1% gate on
-  every session); every 5-minute body, close source and closing-print count identical to @12; run
-  with the phase-1 tape template (FRED key mounted); nodes deleted. **cc1d67cf
-  (`cc1d67cf+f9676b89ff09`, 1,596 passed) is the phase-1 image** (launch brief's da3dade4 replaced).
-  Cost seen: the tape verdict now takes 10–16 min a session (was ~2) for the reference quote pass:
-  ≈ +35 node-h over phase 1 (~$6), inside the projection's range.
-- **Byte proof, days 1–2 (2026-11-05, 11-06; revisions 65–68 on vs 71–74 off, same build ceacfbc5):
-  7,912 of 7,916 published measurements equal after masking provenance (digests, result ids,
-  retrieval times, cutoffs).** The 4 that differ are BABA's CDD-CAPVAL01 and CDD-FND01 on both days,
-  and they come from inputs, not the switches: the company capture was re-fetched and differs (core
-  keeps both: identities 25f03361… vs 7d26deca… for 11-05, 0810d526… vs 6e0f5c5f… for 11-06; BABA's
-  share-count rows 12 vs 10, its history window FY2022Q4 vs FY2023Q4 first period). Off-run
-  timings: day 1 286 min from block start (on: 226), day 2 173 min (on: 134). Day 3 still running;
-  the comparison script is `scratchpad/byteproof` (masking rule in this entry).
-  **22:24 UTC: byte proof COMPLETE: 11,870 of 11,874 published measurements over the three days
-  equal after masking provenance; the 4 that differ are BABA's two company measurements on 11-05 and
-  11-06, from re-fetched company captures (day 3: 3,958 of 3,958 equal, BABA included).** The
-  switches (history reuse, surfaces/FIELD/refcheck/captures overlaps, parallel exporters) change
-  timing only (C-001 + D-405 hold). Times, block start → published: on (pass-3 image) 226 / 134 / 120
-  min, 480 for the block; off 286 / 173 / 146, 606 for the block: the switches save 126 min (21%)
-  over three days, ~60 min on a first day and ~26–39 on a later one, before the reuse-index fix
-  (in the phase-1 image) that removes most of the on-run's remaining later-day bookkeeping. For a
-  15-day block that is ~8–9 node-hours saved of ~28 (already inside the ~$145 projection, which
-  used the "on" times). Node deleted when its inline check ends.
-- **Phase-1 QA plan (owner, 2026-11-21: "We do phase 1, try to break it, fix what breaks, then move
-  towards Reporter generating free+paid reports, and go live with web"; "worth proving this system as
-  much as possible").** On top of the planned per-tranche census, external checks and per-day
-  reference checks, phase 1 runs:
-  1. **History reference check as a gate on the first (newest) tranche:** `tools/reference`
-     recomputes z-scores, percentiles, one-year windows, flags, technicals and EVC baselines from the
-     built store; the rest of the build is trusted only after it passes.
-  2. **Continuity plots for the owner's eye:** every sensor × asset over the whole range (jumps the
-     market did not make, breaks at code-change dates).
-  3. **Event walk:** each real event in range checked around its date: splits and reverse splits
-     (NVDA, ETHA), WMT's listing transfer 2025-12-09, special dividends, every early close, the P-23
-     tape era boundary 2025-11-26, the bulk-file fault days (P-20, P-21).
-  4. **Determinism at scale:** a few random sessions re-run on a different node, compared byte for
-     byte (masked provenance, as the byte proof).
-  5. **Look-ahead audit over the built store:** no measurement uses anything stamped after its cutoff
-     (filings, macro releases, restated captures such as BABA's of 11-21).
-  Then try to break it, fix what breaks; then Reporter (free + paid) on the built store; then go live
-  on the web. Loose ends that follow the build: trades-API switch before daily publishing,
-  one-year-window and test censuses, a frozen raw tape slice (D-102), RSS watchdog, reader digest of
-  non-test code only, daily go-forward in production, a tested backup restore, API end-to-end.
-- **Engineering housekeeping (owner, 2026-11-21: "none of them are major, most of them are
-  housekeeping"; "its entirely possible that we did a good job as well").** Order:
-  1. ~~DigitalOcean billing alert~~: declined by the owner (2026-11-21: "we will be watching");
-     I keep the running total against the $400 ceiling and report it.
-  2. **Ops config in the repository: done 2026-11-21 (25f1f75, `deploy/k8s/ops/`)**: scripts and the
-     phase-1 Job templates, no secrets, paths and ids from the environment. Moving them found a
-     real defect: the templates' secret volume projected only `worker-token` and `intrinio-key`, so
-     the `fred-key` added at 19:05 UTC was never mounted; fixed and server-validated. The launch
-     uses `deploy/k8s/ops/job-*.yaml`.
-  3. **Backups as soon as the first tranche is stored** (not after its census), then one restore drill.
-  4. **Failure injection during phase 1**: kill a node mid-day, restart core during a publish.
-  5. **Test-suite audit (owner: "throw a codex audit at the tests... likely a lot of legacy tests")**:
-     **Codex done (`audits/2026-11-21-test-census/tests.md`): no production wrong number found; 38
-     Rust ignores → 12 leave correctness testing, 26 worth keeping/rewriting; 105 Python skips (41%
-     of reference cases) are lost independent verification; 20 ranked actions (7 gaps, 6 weak, 3
-     legacy, 3 D-102, 1 cost).** Order: **first the reference-side items phase 1's QA gates rely on**
-     (history reference calendar from scheduled XNYS sessions, not the union of capture directories
-     (#5); FIXED_SPAN global leaking between tests (#10); intraday bin count checked before `zip`
-     (#11); FIELD/M0 verifiers that always SKIP (#16)): `tools/reference` runs from the laptop
-     against the store, so fixing it does not touch the build image. Then the gaps (#1 real raw
-     tape session through gate 2 once a frozen slice exists; #2 reader scalars; #3 put/bid/ask IV;
-     #4 surface quote-level fit; #7–9 receipt and publish sequence), the D-102 rewrites (#14, #15,
-     #19), legacy and cost. **h3-replay test edits wait until its reader digest covers non-test code
-     only** (else every stored tape cache is invalidated). Then mutation testing on the critical
-     crates.
-     **Reference-side items done 2026-11-21 (`worker` 24713351, Python only, image unchanged):** #5
-     XNYS calendar, #10 D-404 rule scoped per check, #11 bins aligned before comparing, #16
-     M0-FIELD-ANALYTICS compared (19 roles bit-equal on real 2025-12-10) and unverifiable owners
-     reported as `not_verified`, never passed; reference pytest 158 passed / 107 skipped (was
-     149/105). Found: `company_inputs.EARLY_CLOSES` lacks 2022-11-25, 2023-07-03, 2023-11-24 and
-     2027-11-26 (outside phase 1's range; fix before deeper history).
-  6. After phase 1: `cargo audit`, `pip-audit`, an image scan, and a secret scan of vyreon-core's
-     public history (before go-live). CI later (owner, 2026-11-21: "eventually", a place for agentic
-     loops once there is real revenue; agent loops cost API billing, which needs revenue). First goal:
-     the system producing money, which needs reliable operation and trustworthy measurements.
-  Not added: dashboards, SLOs, high availability, operators (availability needs are minutes).
-- **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
-  database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
-  on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
-  Provisional totals (current measured times; refine before the decision): 407 sessions
-  (2025-04-10..2026-11-20) in ~27 blocks of 15 on 27 day nodes: ~28 node-h a block (first day 226 min +
-  14 × ~104) ≈ 760 node-h, plus tape re-downloads ~100 node-h ≈ 860 node-h × $0.167 ≈ **$145**
-  (range $130–170 with reruns). Spend so far $180.41 month-to-date (DO, 2026-11-21 06:09 UTC), so the
-  build takes the total to ~$325. **Owner, 2026-11-21: ceiling raised to $400 total** (phase 1 was
-  estimated at $300+ on its own before the optimization passes). Wall time: the
-  request budget (~3.3M requests at ≤1,600/min ≈ 34 h of requests) and ~28 h of compute a block
-  overlap: ~2–3 days.
-  **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
-  §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
-  departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
-  after the close: the D-411 defect survives there); the listing market's `9` (corrected
-  consolidated close) unused; the 30-minute window has no basis; NYSE/Arca define no official open
-  and a BZX `Q` without an auction carries the prior close; Network B misses NYSE Texas and maps
-  IEX. Revising D-412 to the standards (`pass-fx87`).
-  **FRED API path merged (`worker` 90f7413f, D-105 amended; full suite 1,580 passed on the branch):**
-  `VYREON_FRED_KEY_FILE` names the key file (no default path); every stored request holds
-  `api_key=REDACTED`, only the transport inserts the key; the API accepted the engine's transport on
-  12 of 12 requests and builds curves bit-identical to H.15's; leak check clean (diff, commits,
-  fixtures, logs). Deploy: a Kubernetes secret mounted read-only for workers; a root 600 file on the
-  droplet named in /etc/vyreon.env. A configured but unreadable key file stops the run (fail-fast).
-  **D-412 revised to the standards (`pass-fx87`, all crates and reference green; held until after
-  the before/after):** close = the listing market's `9`, else its `M` (latest of repeats), else its
-  round-lot single-price `6`, else the plan's fallback (CTA: most recent consolidated
-  last-sale-eligible trade in core hours; UTP: the listing market's final eligible trade to
-  16:00:10), else none (withheld); never another market's after-close print; no 30-minute window;
-  open = the listing market's earliest `O`, else the first eligible print (`Q` only counted); NYSE
-  Texas added, IEX kept (CTS lists IEX listings); CTS's listing-market `L` clause applied. The
-  constructed-print tests were removed (no raw replay slice exists anywhere): proof rests on the
-  cluster re-derivation list in D-412. Still departs: ETP TWAP/T-WAM fallback tiers not computed
-  (they reach the tape only via `M`/`9`); Network-B listing from the provider's current record.
-- **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
-  real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
-  in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
-  16 → 517, 64 → 1,372, median 1.8/1.7/2.0 s, 0 refusals. **Engine D-395 (`worker` 69f987e9,
-  pushed): `VYREON_CAPTURE_IN_FLIGHT`, default 64, max 128; speed only** (322 tests pass with
-  `VYREON_FIXTURES` set). In the next worker image; the running day stays on e329b3c8.
-  **Cluster budget:** core's leases (C-025) already share 1,800/min across workers; one node at 64
-  can take most of it. **Owner rule for phase 1: start another node only when the download budget
-  has headroom** (core's lease use below 1,800 minus one node's steady draw; measure the steady
-  draw on the first block). Real day's ledger at 01:50 UTC: 17,746 requests, option EOD history
-  13,125 (23.7 GB), daily bars 4,621.
-  **Bulk option EOD files found (`bulk` access code on our account):** one whole-market CSV per
-  day, 2021-09-27..2026-11-17 (1,448 files, ~130 MB zipped, 516 MB / 2.08M contracts for
-  2026-11-03, released ~07:10 UTC the next day), 115 GB in all; plus US stock prices (5 y, 0.6 GB)
-  and fundamentals. **Parity on 2026-11-03 vs the API rows the worker captured:** AAPL 3,376,
-  ETHA 2,728 (ETHA + ETHA1), SPY 10,000 (page 1): every contract present; close, bid, ask,
-  volume, open interest, high, low, open and mark identical; counts also equal for NVDA, EWJ,
-  UNG, SPY (12,800). One request a day replaces 64, and the whole phase-1 window could be fetched
-  once (~10 h at the 1/min bulk limit) into Spaces so runs and rebuilds use no option-EOD budget.
-  Before adopting: wider parity (a split day, ETHA's reverse split, a null-volume day, the 3am
-  release vs later corrections) and an engine source path from the CSV. **Startup checkout
-  (owner):** "Individual and Startup include the same APIs, endpoints, and datasets"; 2K calls/min,
-  1 RPM bulk/paging; $999/qtr ×2, $1,998 ×2, $2,997 after. WebSocket: our options stream is
-  `opra_derived_realtime` (Intrinio's synthetic price), so no use as an input; dropped.
-- **02:05 UTC Nov 19: owner direction: use the bulk files wherever they exist and match the API,
-  transient per day like the other inputs (no Spaces copy needed), tested on a cluster node before
-  swapping everything.** Network from the core node: 1.1–1.75 Gbps to public test files, Intrinio's
-  S3 1.56 Gbps with 6 files at once (the 21 Mbps seen was request handling, not the link).
-  **Parity (`checks/2026-11-19-bulk-parity.json`): bulk equals the API in every case**: option EOD
-  SPY 2026-11-03 both pages (12,800), ETHA 10-07/10-08 reverse split with ETHA1, XLK 2025-12-05
-  split, EWJ 2026-08-26 null volumes, SPY/AAPL/ETHA 2026-06-15 (no later corrections); every
-  contract present, no extras, 0 mismatches within 1e-4 on 14 fields; the only difference is the
-  API's float32 values (45.04999923706055) vs the file's decimals (45.05), max relative 5.7e-8,
-  floating-point noise to report on the first switched day. EWJ 08-26: 793 API rows with null
-  `exercise_style` where bulk says "A" (engine default American: confirm). Daily bars: the 5-year
-  stock-price bulk equals the API on 35 days across SPY, NVDA, ETHA and XLK splits (key rows by
-  security id: IBIT's ticker was a Defiance ETF in 2022–23). **Replaceable: option EOD and daily
-  bars** (with snapshots and replay already files). Not replaceable: act01 intervals and exq01
-  trades (per contract), company (bulk fundamentals are standardized only, no acceptance times),
-  macro. Files arrive T+1 ~07:10 UTC (options), ~04:30 UTC (bars). **Engine work next:** a bulk
-  source whose identity is the file's hash plus the extracted rows; the operation id is pinned in
-  receipts (h2-engine request.rs; h3-asset node.rs, q01_execution.rs, h4_quality.rs, h4_g01.rs;
-  h3-q04; h3-m0-contract), so a new source id or an accepted alias. Then an A/B: 2026-11-03 on
-  the bulk source vs tonight's API-sourced result.
-- **02:40 UTC: owner decision: fix round x's other twelve in their simplest form (core #1 2 7 8 9 12
-  17 19 in `/home/diggz/wt/core-fix-y`; engine #3 10 14 15 16 in `/home/diggz/wt/fx30`), then NO
-  further audit of the operations features.** Reason: three rounds (v, w, x) keep finding the same
-  class of rare-failure chain, much of it in the previous round's fixes; the owner reads that as a
-  sign the features are ready. Ops audits resume only when real operation shows a new failure;
-  engine and science audits continue as before.
-- **01:12 UTC: round x's six fixes merged (core main 7b27153, image pushed; engine `pass-s3i` e48641a5,
-  1,377 passed, 8 known).** Daily claims are daily-only (`daily: true`); the first daily tape
-  container waits up to 30 minutes for late scheduling (a no-work morning now holds a node about 30
-  minutes, about $0.25); `/live` plus a liveness probe restarts a frozen core, and the lock's session
-  uses TCP keepalives (freed in about a minute behind a partition); unreadable archive entries are
-  skipped and named; a due-but-unqueued session is a DAILY_STOPPED problem; the flaky test counts
-  only its own processes (40 parallel runs passed). Unverified until deployed: the daily claim
-  through HTTP, `JOB_COMPLETION_INDEX` on the cluster.
-- **00:48 UTC: round x (gpt-6.2-astra; Codex 90% → 91%): 18 findings + 1 suspicion on the simplified
-  operations features; no defect in any published value.** Count not converging, meaningfulness is:
-  most need a chain of unusual failures (a lost Postgres disconnect notice during an archive
-  retry; a gateway 504 after Discord saved a post; one stalled filesystem write). Fixing the six
-  that matter, simply (`/home/diggz/wt/core-fix-x`, `/home/diggz/wt/fx29`): 13 daily workers claim
-  only daily work (phase 1 relevant); 6 a daily worker waits for late scheduling; 5 a liveness probe
-  restarts a frozen core; 4 one bad file no longer drops an archive category; 11 no green digest
-  after a failed scheduling step; 18 the flaky test counted every process on the host. **Proposed
-  to the owner: record the other twelve as stated limits in the decisions (no new machinery) and
-  stop auditing the operations features until real operation shows something new.**
-- **00:17 UTC: round w answered by simplification and merged (core main 96f1042, C-053, migration 0023;
-  engine `pass-s3i` 8e67c4ec; core 23 unit + 57 DB tests, engine 1,375 passed, 8 known).** Owner
-  approved retiring the gate. One core at a time enforced by an advisory lock; the gate, its RBAC
-  and template and the notice claim lease removed; the CronJob starts the worker directly (Forbid
-  overlaps); digest outside locks; Discord `wait=true`; the archive phase in a child process under
-  one deadline; packing failures counted; NOT_DERIVED resolves only on publication. A new engine
-  archive test failed once in a parallel run and passed on reruns: to be found. Core image
-  `vyreon-core:96f1042` pushed (deploy after the sample). **Round x started** (gpt-6.2-astra): the
-  simplification, and the flaky test.
-- **23:42 UTC: round w (first audit on gpt-6.2-astra, about 2% of Codex's week: 88% → 90%): 20 findings
-  on round v's fixes.** Most sit in machinery the fixes added: notice locks and leases (one real
-  stall: the digest holds a lock that blocks publishing, phase 1 included), the daily gate (Job-
-  creation RBAC is namespace-wide in effect, no image pull secret, can skip a day or start two
-  workers), and races needing two core instances, which never run. Response: simplify. One core
-  at a time, enforced by an advisory lock at startup; machinery that only survived two instances
-  removed; the rest fixed plainly (`/home/diggz/wt/core-fix-w`, `/home/diggz/wt/fx28`). **Waiting
-  on the owner: retire the gate** (the CronJob starts the worker directly; on an exchange holiday a
-  node starts and finds nothing, at most about $0.17, about 9 days a year).
-- **20:07 UTC: round v's 9 findings all real and fixed; merged (core main, migrations 0021, 0022; engine
-  `pass-s3i` 41ca88cb, D-360 amended; core 25 unit + 62 DB tests, engine 1,371 passed, 8 known).**
-  Scheduler and Discord sender are separate tasks; each post is claimed under a lock (one residual
-  duplicate if core stops between Discord accepting and core recording; Discord webhooks take no
-  idempotency key); digests and problem openings share a lock; the weekly check is red while any
-  problem is open; archive rows record their endpoint and bucket; packing runs under the archive's
-  15-minute deadline; the 07:45 CronJob runs a gate on the core node (`vyreon-core daily
-  start-worker`, minimal RBAC) that starts a worker Job only when daily work is waiting. Core image
-  rebuilt and pushed; deploy after the sample (delete the old `daily` CronJob first, per the README).
-  Untested on the real cluster: the gate's RBAC and Spaces.
-- **19:33 UTC: round v returned: 9 findings, no credential leak.** For phase 1: the worker's archive
-  packing has no deadline (a stalled compressor could hold a node and its block). Daily operation:
-  Discord sending can delay scheduling; empty schedules still start a node; a weekly verdict can be
-  green with a failed history pass; a green digest can follow an open alert; delivery is not
-  deduplicated; a missing-archive alert can be postponed by retries; a cancelled repair job resolves a
-  problem; a bucket change mixes rows. Verify-and-fix running across core (`/home/diggz/wt/core-fix-v`)
-  and the engine (`/home/diggz/wt/fx27`); nothing applied until it lands.
-- **19:14 UTC: perishable archive merged: core main 8928dab (C-052, migration 0020) and engine `pass-s3i`
-  5e40b9dd (D-360; suite 1,370 passed, 8 known failures).** Core signs pre-signed PUT and HEAD URLs
-  with rusty-s3 0.11.0 (the hand-written signer replaced: proven library first); the worker packs
-  and uploads the cohort prints and ACT01 pulls after a day publishes; core verifies and records;
-  a missing archive shows in the digest. Company captures stay in core's database (C-043). To apply
-  after the sample: the owner creates a Spaces key limited to bucket `vyreon-data` (narrowest write);
-  runbook order in deploy/k8s/README.md "Perishable archive"; the droplet keeps archiving until the
-  cluster's archive is seen working. Real Spaces untested (Content-MD5 and ETag behaviour to confirm
-  on the first day). **Round v started: one narrow Codex audit of C-050, C-051, C-052 and D-360**
-  (credentials, wrong states, stopped work, cost). Codex at 88% of its week (resets 2026-11-20).
-- **18:34 UTC: daily runs built and merged (core main 0bd9cd7, C-051, migration 0019; 18 unit + 53 DB
-  tests; image `vyreon-core:0bd9cd7` pushed, includes the notices).** A session's inputs are ready by
-  07:30 New York on T+1 (evidence: the droplet's captures, Intrinio's FAQ on open interest from
-  04:00 ET, the engine's settled-bar rule; summer unchecked). Core queues each session's tape job,
-  day block and history pass from `VYREON_CORE_DAILY_FROM` for `VYREON_CORE_DAILY_BUILD`, ahead of
-  backfill work; a CronJob (`40-daily.yaml`) starts workers at 07:45 New York, Tuesday to Saturday;
-  deadline 20:00 MT on T+1; `DAILY_STOPPED` raised if the build is not admitted. About $1.10 a
-  session. Autoscaling the pool to 0: DigitalOcean's pages disagree; the API decides when applied
-  (min 1 would cost about $120 a month: owner's call then). **Applied after the sample, in the
-  runbook's order (deploy/k8s/README.md).** Open before the droplet retires: the cluster does not
-  yet archive the perishable option prints to Spaces (C-004); the droplet still does. **Built
-  2026-11-17 (C-052, engine D-360; branches `core-archive` and engine `pass-fx26`, not merged, not
-  deployed): migration 0020, upload URLs signed by core, read back before kept; `vyreon-core archive
-  list`; runbook `deploy/k8s/README.md` "Perishable archive". Owner: a Spaces key limited to
-  `vyreon-data`, Secret `vyreon-core-spaces`, then the images and the settings.** **Design
-  (owner, 2026-11-17): workers stay stateless and credential-free; core alone holds the Spaces key
-  and hands a worker a pre-signed upload URL for one named object, valid for minutes (the standard
-  S3 pattern); the worker uploads directly to Spaces and reports it; core records what was kept per
-  session.** Data never passes through core, so the same mechanism serves the sample's raw
-  downloads (about 45 GB a day) if they are kept.
-- **18:19 UTC: STEP 3 (CLUSTER VERIFICATION) COMPLETE.** 2025-12-10 PUBLISHED on 1a532d8b: 2,688 of 2,688
-  measure slots and 512 of 512 day-layer slots, zero faults of any kind. With 2025-04-11 (2,684 of
-  2,688, 4 stated ETHA absences), the June 2022 block (META contained) and 2024-07-16's cause found
-  and contained (outside phase 1's range), every verification day is answered. **Image diff (process
-  addition b), 2025-12-10, build d55f6439 (2026-11-16) against 1a532d8b, value by value:** of 3,958
-  readings, no state changed and the values of all but 12 families are identical. Each change ties
-  to a decision: CDD-MACRO01 (64) CPI is now the unrevised CPIAUCNS (D-305: e.g. 324.245 → 324.8);
-  INT-TEMP-EVC01 (64) now SUPPORTED from the full 252-session tape history (D-310 with the
-  completed cache); FIELD synchronization readings follow from those inputs; company families
-  (17 each) gained the provider-comparison and vintage coordinates (D-259..D-261, D-337..D-356);
-  DLM-EVENT-WINDOW states its forecast basis (D-305). One unexplained: DLM-OI-CENTROID for BABA
-  differs at the 16th significant digit (summation order), probably from BABA1's adjusted root now
-  resolving; to confirm. Idle node deleted; only the sample is running.
-- **18:10 UTC: notices redesign merged (core main b04f882, C-050, migration 0018; 18 unit + 48 DB tests;
-  image `vyreon-core:b04f882` pushed). Deploys when the sample finishes** (a core restart mid-run
-  risks the workers' leases). Problems are derived from the database every minute: one alert
-  when one opens, one "Resolved" when it clears; old chatty notices are log only (`vyreon-core
-  log`); `problems`, `digest [weekly]`, `notices mark-sent`. Deadline checks start when
-  `VYREON_CORE_DEADLINES_FROM` is set: at the first daily run, not for the backfill.
-- **Owner, 2026-11-17, the sequence:** when the two-week sample completes safely and without
-  error, the system is called **ready** ("from this day forward it can reliably build data"); then
-  phase 1's backfill starts and, in parallel, **daily runs capture each new trading session**
-  (deadline alerts switched on from that day). When phase 1 completes, the current dataset with
-  enough history is what the reports are built on.
-- **Owner, 2026-11-17: phase 1 is the priority** ("The database build is 10-ish days alone for
-  phase 1. Then we can sprint towards live launch readiness."); no launch target set.
-- **17:54 UTC: the droplet's old Discord alerts retired (owner's word):** `vyreon-health.timer` and
-  `vyreon-heartbeat.timer` stopped and disabled; `vyreon-capture` and `vyreon-archive` keep running
-  (they save the option-trade cohort prints the provider will not serve again, to the volume and
-  Spaces, until the cluster runs daily) with their notices muted to
-  `/var/log/vyreon-notices-muted.log` (systemd drop-ins `mute-notices.conf`). The droplet itself
-  (`vyreon-engine-shared-8vcpu-amd`) retires once the cluster's daily runs keep those prints:
-  owner's call then.
-- **17:48 UTC: notices design APPROVED; webhook stored as cluster Secret `vyreon-core-webhook`** (new
-  channel; file gitignored, mode 600, never printed). Owner: "I want to open it and immediately
-  know if i gotta go look at it or its running ok." Building in core (`/home/diggz/wt/core-notices`):
-  problems table (one alert per problem, one "resolved"), deadline alerts, paused queue, last-time
-  failures, provider auth/error bursts, DB size; 09:00 MT digest with a verdict first line (🟢 / 🟡 /
-  🔴 Needs you), Saturday readiness check; spend and idle-node checks are v2. Switched on with the
-  backlog marked sent.
-- **Discord notices (owner, 2026-11-17, pasted ten days of the droplet's alerts): noise.** A normal
-  "provider has not published yet" raised as 🔴 every evening; 64 tickers listed two or three times
-  per alert; a stopped run re-alerted every 12 h for 3.5 days; "all well" while nothing had
-  published for a week. Planned in core: alerts only for what needs the owner (refused day, paused
-  queue, a session not published by its deadline, spend, core disk), one 09:00 MT digest, counts not
-  ticker lists, one alert per problem then the digest then one "resolved". Waiting on the owner: the
-  webhook as a cluster secret; leave to stop the droplet's alert timer (its capture timer checked
-  separately for perishables first).
-- **13:42 UTC: STEP 4a STARTED: the two-week sample, 2026-11-02..2026-11-13 (10 sessions) as two blocks
-  of 5 on build 05837898+3d485555ec3d** (image pushed, registered 4,679 slots, admitted), Job
-  `v-sample`, 2 pods; pool `day` at 4 nodes (2 more for 2025-04-11, computing, and 2025-12-10,
-  downloading, on 1a532d8b). Judged against the approved pass criteria when done; history passes
-  then scheduled once for the range (C-046). **Not yet built: process addition (d), keeping the
-  sample's raw downloads in Spaces** (needs a worker upload step and a Spaces credential in the
-  cluster); without it a sample re-run downloads again (about 3.5 hours). Built only if the sample
-  needs re-runs.
-- **13:27 UTC: D-359 merged (`pass-s3i` 05837898; suite 1,362 passed, 8 known failures).** A source the
-  provider's partial closing snapshot fails (under half its chain, counts now stated) is a stated
-  absence: that session's option readings and every option-history reading reaching it are
-  withheld PROVIDER_INPUT_MISSING; the day proceeds. Open for the deeper-history phase, not
-  phase 1 (its windows start after mid-2024): a partial session withholds those assets'
-  option-history readings for the ~200 sessions after it (to about August 2024), and the 10%
-  missing-input hold will probably hold such days. Choice deferred to build evidence, per the
-  owner's rule that computing over gaps waits for the build: change the hold, or end the history
-  at the partial session.
-- **13:03 UTC: 2024-07-16's cause found (D-357's evidence worked): `requote` rejects 111 sources with
-  `close quotes cover under half of the population`: 41 on 2023-10-30, 59 on 2023-11-17, and
-  1-4 on seven other dates up to 2024-06-10 (61 assets).** The provider's closing snapshot was
-  partial on those dates; the gate is right, but one rejected source refuses the whole day.
-  2025-04-11 and 2025-12-10 (windows back to mid-2024) hit none, so phase 1 looks clear; the
-  containment is fixed anyway (`/home/diggz/wt/fx25`, D-359: such a source is a stated provider
-  absence for that asset and session, the day proceeds). Job 1377 cancelled; its node deleted.
-  Evidence: `~/claude-artifacts/provider-evidence/requote-partial-snapshots-2023.txt`.
-- **11:29 UTC: TAPE HISTORY COMPLETE for phase 1: 654 of 654 sessions (2024-04-09..2026-11-13) in core's
-  tape cache, 128 entries stated absences (2025-01-10 and 01-13, provider-refused).** About 5.5
-  hours from first start, most of it on 6-18 pods; idle nodes deleted (pool down to the 3 day
-  re-runs). This is phase 1's whole tape need: no day job will download tape history again.
-- **10:09 UTC: June 2022 block DONE on 2967d2cb: 2022-06-13, 06-14 and 06-15 all PUBLISHED from an
-  empty disk.** Each day: 2,604 measure slots, 2,218 complete, 1 engine fault (META VS-P01, the
-  rename-era price history; contained) and its 13 dependants, no failed measure; the field/day
-  layer 496 of 496. The rest are stated absences (pre-tape era sources). Its node deleted.
-- **09:56 UTC: day re-runs started on 1a532d8b** (jobs 1377 2024-07-16, 1378 2025-04-11, 1379
-  2025-12-10; all claimable, their tape history cached), Job `v-day-1a53`, 3 pods; pool `day` at 10
-  nodes (about $1.67/h) while tapes finish (519 of 654; the rest are after 2025-12-10). 2022-06-15
-  still computing (job 68).
-- **08:54 UTC: 2022-06-14 PUBLISHED on 2967d2cb** (the day the old build lost to META's history is
-  now published, META contained); 06-15 computing. D-358 worked on real data: 2025-01-10 and
-  01-13 recorded as 128 stated tape absences after their retries. Tape history 385 of 654; late-2025
-  sessions take 6-9 min each (bigger replay files, download-bound per node), so the pool went to 7
-  nodes and the tape Job to 18 pods (same node-hours, about 1.5 h instead of 3-4).
-- **07:31 UTC: the queue had paused itself** when old tape job 259 failed for the last time
-  (core's safety stop: `queue_control` paused with that reason), so the first 654 tape pods found
-  nothing to claim and exited. Resumed (`vyreon-core queue resume`) now that D-358 handles the
-  cause; Job `v-tape-1a53b` restarted, cached sessions skipping in seconds (47 done in 90 s).
-  **Practice for the build: after any job fails for the last time, read the evidence, fix or
-  accept the cause, then resume; check `core.queue_control` whenever pods find nothing to claim.**
-- **07:21 UTC: build 1a532d8b+c17a5feae181 registered and admitted (image pushed): D-357 (a failing
-  child's error lines lead its message; evidence reads every run log) and D-358 (a replay
-  session the provider refuses on a job's last attempt is a stated TAPE_PROVIDER_REFUSED absence
-  in core's tape cache; later sessions proceed).** 440 old tape jobs cancelled; 654 re-queued on
-  1a532d8b (cached sessions are skipped by `tape_held`); pool `day` at 3 nodes; Job `v-tape-1a53`,
-  6 pods. Open, from D-358: core's claim does not send `max_attempts` (the worker assumes 3);
-  superseding a refused session later means deleting its rows (preview first) and re-running.
-- **06:55 UTC: 2022-06-13 PUBLISHED on 2967d2cb** (company fix confirmed on a real day; META
-  contained); job 68 on 06-14. **Tape history stalled at 214 of 654:** Intrinio answers HTTP 500
-  for the replay files of 2025-01-10 and 2025-01-13 (three attempts each; Intrinio's own MCP fails
-  the same way for cta_a and utp on both dates; 2025-01-08 is served, 1.6 GB). The failed jobs
-  (259, 260) block every later tape claim, so pods found nothing and the Job ran out. Evidence:
-  `~/claude-artifacts/provider-evidence/tape-500-2025-01-10.txt`. Fix running (`/home/diggz/wt/fx24`,
-  D-358): a session the provider refuses on a job's last attempt becomes a stated provider-
-  unavailable absence in core's tape cache, so later sessions proceed. Tape Job deleted, its 3
-  nodes deleted; resumes on the next build.
-- **06:46 UTC: 2024-07-16 refused a third time on the old build (job 65, now cancelled); the cause
-  is still unseen:** `requote` prints its per-source FAILED lines to a log the evidence does not
-  read, and the worker's error message keeps only the first 500 characters of the child's
-  output (successful sources). My catcher script also failed (it used `bc`, absent from the
-  image; fixed). Engine fix running (`/home/diggz/wt/fx23`, D-357): a failing child's error lines
-  lead its message; the evidence reads every log in the run's logs directory. 2024-07-16 re-runs
-  on the next build after the tape history. Tape jobs: about 230 of 654 done, 6 pods.
-- **05:51 UTC: tape history first, as D-310 planned.** A day job without core's tape caches
-  captures its 252 prior tape sessions inline, about a minute each, and does NOT upload them
-  (core held 319 entries over 4 sessions; unchanged after 5.5 hours of inline captures). So
-  2025-04-11 and 2025-12-10 (old build, their company data doomed anyway) were stopped (jobs 66,
-  67 cancelled) and **654 tape jobs queued for 2024-04-09..2026-11-13 on 2967d2cb** (phase 1's whole
-  tape range, the sample's included), Job `v-tape-2967`, 4 pods (2 CPU each) on the 2 freed nodes,
-  about 4 hours. Then the day re-runs and the sample read core's caches. Still running: job 68
-  (2022-06-13..15 on 2967d2cb), job 65 (2024-07-16, old build, for the requote catcher).
-  **Lesson for the plan: a day job must never be started before its tape history is cached.**
-- **04:40 UTC: D-356 merged; build 2967d2cb+32d87d91c30e registered, admitted, image pushed.**
-  The real capture showed the defect was wider than an empty page: every fundamentals listing
-  page with fewer rows than its page size carries no `next_page` key, so since D-281 EVERY
-  day's company capture failed. Now: a short page without the key ends its request (a full one
-  still fails), and a schema terminal withholds the reading (MISSING_REQUIRED_INPUT, the
-  terminal stated) instead of FAILED, so it never stops a day. A test bound to the date
-  2026-11-17 fixed. 2022-06-13..15 re-queued on 2967d2cb (Job `v-day-2967`, the freed node).
-  2025-04-11 and 2025-12-10 (b727fc6b) keep running for their other evidence; their company
-  readings will fail staging, so both re-run on 2967d2cb afterwards.
-- **04:11 UTC: re-runs on b727fc6b, first results (failure evidence in core worked on first use).**
-  (1) **2022-06-13: every company's CDD-FND01/02 FAILED (`SCHEMA:next_page_absent`), so the day
-  refused to stage.** Intrinio's `/companies/{id}/fundamentals` returns an EMPTY list with no
-  `next_page` key; D-281 (round n, 2026-11-16) made that an incomplete capture. Real response
-  kept in `~/claude-artifacts/provider-evidence/2026-11-17-empty-fundamentals/`. Fix running
-  (`/home/diggz/wt/fx22`, D-356: an empty page without `next_page` ends the request; a capture's
-  schema terminal is a provider absence, never a stopped day). Job 64 cancelled until then.
-  (2) META's VS-P01 on 2022-06-13 is now contained (ENGINE_FAULT for META and its dependants,
-  the day not stopped): cold start after the FB→META rename, likely a price history split across
-  Intrinio's two security records; outside phase 1's range (no rename among the 64 since); fix
-  before any deeper history. (3) **2024-07-16 refused again at the requote of middle-layout
-  sources (2023-09-27 and similar)**: the requote binary's per-source FAILED lines are not in the
-  log the evidence reads; a catcher reads them from the live retry pod
-  (`cluster-scratch/catch-requote.sh`). Also seen: HTTP 429 from Intrinio with four nodes
-  running (retryable). 2025-04-11 and 2025-12-10 still computing.
-- **00:14 UTC: sample criteria APPROVED by the owner; spend is evaluated after the sample, before
-  phase 1.** June 2022 block (old build 518faf7e) ended: 06-06..06-13 published; **2022-06-14
-  failed twice at intent B: `META:2022-06-14 VS-P01 fault: daily_history: H3 asset failed: P01
-  retained history does not close eligible CAP126; older input required`** (META renamed from
-  FB on 06-09), and that one asset stopped the whole day (a containment gap). Evidence kept in
-  `cluster-scratch/summaries-2206e/`. Old jobs 55-63 and 25 cancelled; node deleted. **New core
-  deployed (3e7b13e; migrations 0016, 0017 applied); build b727fc6b+9b96b570b46b registered (4,679
-  slots) and admitted.** Re-runs queued as jobs 64-67: 2022-06-13..06-15 (the META case),
-  2024-07-16, 2025-04-11, 2025-12-10 (image diff against `testbed-dumps/c-1210`); pool `day` at 4
-  nodes ($0.67/h), Job `v-day-b727`, watcher `cluster-scratch/watch-job.sh`. Tape history is
-  sparse (319 cached entries), so tape-history readers may be withheld on these days.
-- **23:39 UTC: round u (last narrow check before the build image): no findings** (no wrong
-  number, stopped day or credential path; D-354's ordinary-day frequency not establishable
-  without the sample). Converged; the image stands.
-- **Two-week sample: draft pass criteria and sizing, for the owner's approval** (process
-  addition a). Sessions 2026-11-02 to 2026-11-13 (10), two blocks of 5 on 2 nodes, with their
-  tape jobs and one history pass for the range. Pass = all of: (1) every session publishes, or a
-  refusal has its evidence in core and a cause; (2) no unexplained ENGINE_FAULT; (3) each sensor
-  on at least 80% of asset-days, or every miss diagnosed (engine → rework, provider → stated
-  absence, structural → not applicable), D-354's withheld open interest counted; (4) `refcheck`
-  (QuantLib, TA-Lib) agrees within its tolerances on every day; (5) EDGAR agrees for every
-  company's latest-quarter figures; (6) no day-over-day jump the market did not make (plots for
-  the owner's eye); (7) the image diff: one day re-run on the new image against its earlier
-  dump, every changed value tied to a decision. A failure is fixed and its days re-run.
-  Sizing: about 12 node-hours per block (first day ~5.5 h, later days ~1.6 h, measured on the
-  June block), about 25 node-hours, about $4-5; raws kept in Spaces about 450 GB, about $9 a
-  month until phase 1 starts. Spend: DigitalOcean month to date $102.53 (all of November, standing
-  infrastructure included). **Phase 1 (about 1,100 node-hours planned, about $185) would take the
-  total past $300: the owner decides at the sample's end.**
-- **23:21 UTC: images built and pushed:** `vyreon-worker:b727fc6b` (build b727fc6b+9b96b570b46b,
-  inventory `cluster-scratch/inventory-b727fc6b.json`) and `vyreon-core:3e7b13e` (8 minutes on
-  the laptop with the build cache). Registry login refreshed (30 days, from the DO API, never
-  printed). **Core deploys when the June 2022 block ends** (job 55, on 06-14, 06-15 downloading,
-  about 2 hours): it uses core and must not lose it mid-day. Then register the build, re-run
-  2025-04-11 and 2024-07-16, diff against the earlier dumps, history passes.
-- **23:11 UTC: candidate final: `pass-s3i` b727fc6b (D-355: one selection rule for every FND01
-  cell; a newer unreadable statement withholds, no older figure stands in); suite 1,347 passed,
-  8 failed (`option_field`). `worker` fast-forwarded to it (pushed). Images building on the
-  laptop (`cluster-scratch/build-images.sh`, log `build-b727fc6b.log`): worker from `worker`,
-  core from main (migrations 0016, 0017). Round u started in parallel: narrow Codex check of
-  batches 17-18 and D-351, only phase-1 wrong numbers, stopped days or credential leaks.**
-- **22:56 UTC: batch 17 merged (`pass-s3i` 2bf314fd, pushed; D-352..354); suite 1,346 passed, 8
-  failed (`option_field`).** All six round-t findings real and fixed. D-343 retired (declared
-  dividends never deducted; no to-common or EPS line → withheld). Q4's operands all get D-346's
-  check. The tape cache validates itself on every read (no side markers). Intrinio's dividend
-  records cannot tell special from ordinary, so a one-step ladder reduction reads as unknown and
-  **that session's open interest is withheld (PROVIDER_OI_INCOMPLETE)**: watch its frequency in
-  the sample (coverage floor). Last small fix (D-355: a newer unreadable net-income or to-common
-  figure withholds, one shared helper) running in `/home/diggz/wt/fx21`; then the image.
-- **Reporter gap found (survey 2026-11-16):** Reporter reads only the engine's own API
-  (VYREON-ENGINE-API@1: `/v1/review`, `/v1/rankings`, `/peers`, windows); core serves only
-  `/v1/assets/{symbol}/history` and `/v1/sessions/{date}`. The paid issue's review and
-  rankings need serving from core, without science in Reporter. No email/beehiiv output yet.
-  **Owner, 2026-11-16:** Reporter was not built for the distributed system; the bulk of step 6 is
-  adapting it to what the database became. vyreon-web is wired to Reporter only once Reporter
-  reports reliably.
-- **22:32 UTC: failure evidence merged** (engine D-351 into `pass-s3i` 347455f2; core C-049,
-  migration 0017 `core.job_evidence`, main 0e27c5e; agent's totals: engine 1,341 passed, 8 failed;
-  core 56 passed). A failing, refused or lease-lost worker puts job, stage, stop message, the
-  plan's refusals and a redacted log excerpt (whole error lines; fill log last 4 MiB) to core
-  within 60 s; core refuses any upload where a credential pattern survives. `vyreon-core evidence
-  list|show`. **Round t (narrow) returned: 5 confirmed, 1 suspicion, all conditional or
-  rederivation-only; nothing on the normal phase-1 path proven.** My D-343 was wrong by FAS 128
-  (declared ≠ accumulated on cumulative preferred): being retired. Fix batch 17 started
-  (`/home/diggz/wt/fx20`, D-352..358): retire D-343, guard Q4's operands, a self-validating tape
-  cache instead of side markers, D-290 to require the provider's evidence of a special
-  distribution (OCC §11A). Codex at 85% of its week (resets 2026-11-20).
-- **22:19 UTC: batch 16 merged: `pass-s3i` 67599773 (pushed), D-346..349; suite 1,339 passed, 8
-  failed (`option_field`).** Round s: 4 real and fixed, 1 already fixed by D-345 (verdicts in
-  `.../batch14-round-s/triage/verdicts.md`). A newer null dividend line now withholds; the tape
-  fault record now lives beside T's capture, so every derive path (including `vyreon-days
-  daily/rebuild`'s deferred `derive_all`, a gap bigger than the audit said) sees it; a failed tape
-  capture stays ENGINE_FAULT; D-336 needs every image of a series to be a new strike (OCC §11A).
-  Residual named by D-349: D-290 can read an ordinary dividend day as an ex-date when the top old
-  strike is delisted. **Round t started: narrow Codex check of batches 15 and 16 plus that
-  residual.**
-- **22:07 UTC: worker failure evidence (process addition c) started** in parallel: engine
-  `/home/diggz/wt/fx19` (pass-fx19) and core `/home/diggz/wt/core-evidence`: a failing or refused
-  worker puts its stop message, refusal list and a redacted log excerpt to a new core table
-  before exiting; `vyreon-core evidence list|show`. Goes into the same image.
-- **21:54 UTC: round s returned (Codex, batch 14): 4 confirmed, 1 suspicion; nothing blocks; no
-  day-stopping or nondeterminism.** A stale preferred-dividend fact surviving a newer unreadable
-  one (wrong number, pattern unseen); own-store and `derive-local` reading an unreconciled tape
-  (partly closed by D-344); a failed tape capture relabelled as missing (mislabel); the reference
-  treating an unreadable dividend as zero; suspicion: D-336 reading an ordinary ladder expansion
-  as an adjustment. MSTR's figures and the upload deadline checked clean. Batch 15 merged
-  (`pass-s3i` 17a70729, pushed). One agent verifies each finding (finding 5 on real chains) and
-  fixes the real ones (`/home/diggz/wt/fx18`, D-346..350).
-- **Batch 15 done: `pass-fx17` 17a70729 (pushed; D-343..345), held unmerged while round s reads
-  the `pass-s3i` worktree.** Declared preferred dividends are the deduction where no to-common
-  or EPS-adjustment line exists (MSTR, real figures: matches its own to-common lines); a fourth
-  quarter mixing the declared and EPS elements is withheld. Own-store DLM-VWAP follows D-340
-  (`derive_all`/`derive-local` still don't read tape faults: small, open). Reference has
-  D-327/D-337/D-343. Suite 1,336 passed, 8 failed (`option_field`). Ordinary day: no change.
-  Merge after round s, then a narrow check of it with round s's fixes.
-- **Round r triaged (20:43 UTC; `.../batch13-round-r/triage/`): nothing blocks.** Company: 3 real (an
-  older preferred fact bypassing the guard, preferred dividends from another period, a lost
-  reason), 1 by decision with an edge against FAS 128 (fixed by the standard), 1 not real (Part
-  III amendments carry no statements), 4 reference-checker defects. Pipeline: 3 real (a failed
-  restate leaving today's stale cache readable, a refusal in T-5..T-1 misattributed, upload
-  outcomes lost). Upload worst case verified at about 131 minutes (core accepting but never
-  answering): to be bounded. Checked through the MCP: MSTR's perpetual preferred sits in
-  temporary equity (5.79 billion), its income statement carries preferred dividends and a
-  to-common line, and a later restated version (filed 2026-11-02) is excluded by the existing
-  as-of guard (seen in the real dump). Fix batch 14 started (`/home/diggz/wt/fx16`, D-337..346).
-- **20:43 UTC: 2024-07-16 refused again under build 518faf7e** (second attempt, 3 h 53 min): the
-  quote step's requote exited 1 (Fatal) after reading the middle-layout snapshots, leaving 111
-  sources unrequoted and 58 assets' option histories unreadable; four provider HTTP 502s on old
-  captures were retryable and separate. **The exact requote error was lost: my watcher cut each
-  log line at 500 characters** (now 6,000 for the next run). Likely cause, not proven: the
-  reader of 518faf7e passes timestamps the overlay then rejects, which D-293 (now on the
-  candidate) fixes, with D-254's per-security containment. Jobs 53 and 54 cancelled; the idle
-  node deleted (pool `day`: 1 node, the June 2022 block). Re-run on the final image.
-- **21:13 UTC: batch 14 merged: `pass-s3i` 1c31e750 (pushed; fast-forward), D-337 to D-342; agent's full
-  suite 1,335 passed, 8 failed (`option_field`).** All 12 round-r findings fixed. Preferred
-  dividends are deducted for the period per FAS 128 whatever the balance sheet shows (a real MSTR
-  case: its preferred is temporary equity and `PreferredStockValue` is 0). MSTR on 2025-12-10:
-  earnings yield 0.1454669 (provider 0.145467), price to book 1.013879, enterprise value
-  66,962,941,630 (provider 66,961,026,630; it also subtracts 1.9 million of restricted cash). A
-  tape of T that failed to reconcile makes its readers' fault; uploads stop at a 10-minute total
-  deadline. **Rule I will set (standard: FAS 128 paragraph 9 deducts dividends DECLARED for the
-  period on non-cumulative preferred): MSTR's `DividendsPreferredStock` (declared) is accepted as
-  the deduction where no EPS-adjustment or to-common line exists; the agent withheld there.**
-  Open, small: the own-store `derive_one` path still computes DLM-VWAP from an unreconciled
-  tape; the reference lacks D-327. The agent read Intrinio (9 read-only calls) though its brief
-  said no network. **Round s started: one Codex audit of batch 14.**
-- **Round p triaged (17:35 UTC; `.../surface-round-p/triage/provider-derived.md`): nothing blocks.**
-  2 real (share counts visible through any later filing, finding 7; fundamentals' `updated_date`
-  not bounded, finding 4): sent to batch 12. 2 not real (one fixed by D-283). 6 by decision, two
-  of them against priority 1 and so the owner's: **macro history is the provider's current
-  revised vintage (D-107(17)): Intrinio serves no first prints, so old sessions publish revised
-  CPI and industrial production** (checked: `$CPIAUCNS`, the not-seasonally-adjusted CPI that BLS
-  does not revise, is on Intrinio); **expected earnings are the provider's current forecast
-  (D-083, D-191).** Dump diff of 2025-12-10 from two captures: only CAPVAL's provider row, a
-  1.4e-15 float, and two provider edits that move bytes but no published value (WMT's
-  `primary_listing` flag, WMT's dividend row hash).
-  **Owner, 2026-11-16: go with the recommendations:** CPI switches to the unrevised `$CPIAUCNS`;
-  industrial production and expected earnings stay, each body stating its basis (the provider's
-  current revised vintage / forecast as captured). Sent to batch 12.
-- **Next for the engine:** merge fx11-a, -b, -c, -d into `pass-s3i` (merge, not rebase; expect
-  only docs/DECISIONS.md and small `views.rs`/`vyreon-worker.rs` overlaps); full suite (known
-  failures: eight h5-field `option_field` only); ONE Codex audit of the merged result with a
-  separate verifier (not yet audited: D-258, D-259..261, the four batches, D-290..); fix what is
-  real; fast-forward `worker` (now d55f6439) to the result; build one image.
+## Phase-1 launch brief (for the session that launches it)
+**Image cc1d67cf** (build `cc1d67cf+f9676b89ff09`, 1,596 passed; @13 tape sample 256/256 PASS, all
+six quote fields compared, bodies identical to @12, run with the phase-1 tape template; replaces
+da3dade4). Core runs `vyreon-core:139a21b` (the image needs ≥ 996ad69). Confirm the build is
+registered and admitted (`vyreon-core build register|admit`) before scheduling.
+- **Range:** 2025-04-10..2026-11-20, 407 sessions (every sensor at full window on the newest week;
+  no old-layout snapshot; no 2023 gap). Phase 1 opens two days after VIX's 2025-04-08 peak (~52).
+- **Layout:** blocks of 15 on ~27 `s-8vcpu-16gb-amd` day nodes (droplet limit 30: web, the engine
+  droplet, the core node, 27 workers), newest blocks first. nyc1 has refused AMD capacity before;
+  the fallback pool `day-std` (s-8vcpu-16gb Intel) is slower (AMD runs stages at 0.54–0.73 of
+  Intel's time).
+- **Tapes:** every tape cache is re-derived under @13 (D-412 changed the reader identity, so all
+  stored caches are stale). Tape jobs from 2024-04-09 (2025-04-10 reads 252 prior tape sessions,
+  D-310). The tape verdict now takes 10–16 min a session (≈ +35 node-h). A day job must never start
+  before its tape history is cached; schedule an older date's tape job only after later days have
+  claimed (tape history starts at the earliest uncancelled TAPE job).
+- **Templates and scripts (`deploy/k8s/ops/`, README there):** `job-day-block.yaml`, `job-tape.yaml`
+  (image cc1d67cf, `fred-key` now mounted: 25f1f75 fixed the projection that missed it); set
+  `metadata.name`, `completions`, `parallelism`, the pool. `delete-idle.sh` after every run ends
+  (selects by label `app=vyreon-worker`, every `day*` pool); `scale-pool.sh`, `do.sh`. Secret
+  `vyreon-worker` keys: `worker-token`, `intrinio-key`, `fred-key`, `ordered-pass-pg`. Kubeconfig
+  `~/claude-artifacts/cluster-scratch/kubeconfig` (expires after 7 days; refresh from DO).
+- **Scheduling (C-046):** schedule the ordered passes ONCE for the whole range (before the first
+  block or after the last): 402 runs. With each tranche it is quadratic (2,602 runs; 81,003 day by
+  day). After any job fails for the last time: read its evidence (`vyreon-core evidence list|show`),
+  fix or accept the cause, then `vyreon-core queue resume`; check `core.queue_control` whenever pods
+  find nothing to claim.
+- **Settings to check:** `VYREON_CORE_REFCHECK_FROM` = 2025-04-10 (C-054); `VYREON_CORE_DAILY_FROM`
+  and `VYREON_CORE_DEADLINES_FROM` stay unset until daily runs start.
+- **Spend:** DigitalOcean $180.41 month-to-date at 2026-11-21 06:09 UTC, before the build. Projection
+  ~$145 (range $130–170 with reruns): ~28 node-h a 15-day block (first day 226 min + 14 × ~104) ≈
+  760 node-h + tape re-downloads ~100 node-h, × $0.167. Ceiling **$400** total (owner, 2026-11-21).
+  Wall time ~2–3 days (≈3.3M requests at ≤1,600/min ≈ 34 h, overlapping ~28 h of compute a block).
+  Keep the running total here; warn before passing the ceiling.
+- **Watch:** core's request budget (Intrinio 2,000/min, shared through core's leases, C-025; 27
+  nodes start their first days together). Owner rule (2026-11-19): start another node only when the
+  download budget has headroom (measure one node's steady draw on the first block). Worker memory
+  over a 15-day block on 16 GB (D-407 trims after each plan and day; logged `memory after <T>`); any
+  hold, refusal or worker crash; refcheck unexplained counts; the Discord digest; the M0 solve-reuse
+  hit rate within a block (Codex round ee's one >5% lead: measure, don't build first).
+- **Expected absences in range (not faults):** P-23 tape eras (before 2025-11-26 thin trades, before
+  2025-09-04 no quotes: D-411 gate 2 fired on 38 of 64 on 2025-04-11); replay quote widths withheld
+  from 2026-11-06 (P-04, D-411 gate 3); EVC01 quote-width flags from ~2026-06, volume flags from
+  ~2026-09 only if P-04 is reconciled; QQQ 2026-09-28 a stated absence (P-21); EMB histories short
+  to ~2025-10 (D-290); SAI-EXQ01 and M0-PRINT-SIZE withheld EVENT_SOURCE_NOT_RETAINED before
+  2026-10-23 (the droplet holds the cohort prints from 10-23: check they are read, D-263/C-052).
+- **Tranche gate (owner, 2026-11-18: "the consequences of a wrong number are unfortunately quite
+  large"):** each tranche passes, before the next starts: (a) refcheck in the worker on every day;
+  (b) the Cboe bands (`tools/external`); (c) EDGAR; (d) once 63 sessions of history exist, a
+  flag-agreement test: when a Cboe index is in the top tenth of its last 63 sessions, our matching
+  iv30 is flagged too. **(d) must be declared and committed before phase 1 runs: it is not yet in
+  `tools/external/README.md`.** A failed check stops phase 1: diagnose, fix, recompute the affected
+  days. Bands are not moved after the fact. VXSLV/SLV and VXFXI/FXI correlation judged on 63-session
+  panels only (owner, 2026-11-19, declared in the README).
+- **QA plan (owner, 2026-11-21: "We do phase 1, try to break it, fix what breaks, then move towards
+  Reporter generating free+paid reports, and go live with web"; "worth proving this system as much
+  as possible"):**
+  1. History reference check as a gate on the first (newest) tranche: `tools/reference` recomputes
+     z-scores, percentiles, one-year windows, flags, technicals and EVC baselines from the built
+     store; the rest of the build is trusted only after it passes.
+  2. Continuity plots for the owner's eye: every sensor × asset over the range (jumps the market did
+     not make, breaks at code-change dates).
+  3. Event walk around each real event: splits and reverse splits (NVDA, ETHA), WMT's listing
+     transfer 2025-12-09, special dividends (EWJ 2025-12-16), every early close, the P-23 era
+     boundary 2025-11-26, the bulk-file fault days (P-20, P-21), the 2025-12-05 ETF splits.
+  4. Determinism at scale: a few random sessions re-run on a different node, byte for byte with
+     provenance masked (as the byte proof; script `scratchpad/byteproof`).
+  5. Look-ahead audit over the built store: nothing uses data stamped after its cutoff (filings,
+     macro releases, restated captures such as BABA's of 11-21).
+  Then try to break it and fix what breaks.
+- **Per-tranche census (owner, 2026-11-16: "the database must hold enough data points to judge the
+  event rules"):** per event rule (first chain, strike adjustment, OI outage, split and rename
+  translation, receipt ratio, bank not-applicable, refused snapshot rows, capture failures, provider
+  comparison classes): how often it fired, on which assets and dates, and every withheld state by
+  reason. Owner: expect a rule to fail to generalise; one sensor affected → single-sensor rebuild;
+  many → full rebuild of phase 1; decided from the evidence.
+- **Backups as soon as the first tranche is stored** (owner, 2026-11-21; not after its census):
+  CloudNativePG scheduled backups to Spaces, weekly full plus continuous WAL archiving, ~30 days, a
+  bucket and key only for backups; then one restore drill. Owner, 2026-11-17: "given that
+  recomputation has a known time and money cost its actually WORTH backing shit up." Then delete the
+  laptop safety dump `~/claude-artifacts/db-backups/vyreon-20261116T*.dump`.
+- **Failure injection during phase 1:** kill a node mid-day; restart core during a publish.
+- **FIELD null-coordinates check (before launch, cheap):** every delivered FIELD-SUB01, FIELD-SUP01,
+  FIELD-DIM01 and M0-FIELD-ANALYTICS slot (24 each) has null reader coordinates, like the
+  stream-backed M0 slots: confirm intended omissions, not a collapsed projection (gap-scan finding
+  10). Bodies are stored exactly, so projections can be backfilled; not a build blocker.
+- **Startup tier (owner, 2026-11-21):** bought AFTER the build (display rights only); the build runs
+  on the current key; on 11-25 if phase 1 is done by then. On the switch: entitlements and rate limit
+  (access codes), core's request budget, the key in the cluster secret and `api.txt` (never
+  printed), one real day rerun. At hand-offs, remind the owner of the time sheet and engineering log.
 
-**Cluster (`KUBECONFIG=~/claude-artifacts/cluster-scratch/kubeconfig`; helpers there: `do.sh`
-(DigitalOcean API), `mkjob.py` with `WORKER_TAG`, `run-day2.sh TAG [tape] [manifest]`; runbook
-`~/claude-artifacts/cluster-verification-runbook.md`):**
-- Core runs `vyreon-core:f491ea9` (main with C-036..C-042, migrations to 0015), budget 1,500 a
-  minute. Admitted builds: `d55f6439+62fb506e43f3`, `5f5f90b9+252c04820c46`,
-  `518faf7e+56852725ab12`. Image `ed66a433` is pushed and MUST NOT be used.
-- **Pool `day`: 2 nodes ($0.334 an hour; id `5b683697-6614-4a62-9fb9-315a10a840a3`, cluster
-  `5f56e6e0-1c74-4dc9-bfdb-962ee55ebff3`). Delete the pool when the two runs below end.**
-- Published under new code: **2022-06-06** (518faf7e: 62 members, no engine fault, ACT01 family
-  PROVIDER_COVERAGE_START, tape readers TAPE_UNAVAILABLE) and **2025-12-10** (d55f6439: 2,853 +
-  1,105 slots, clean, 5 h 50 min from an empty disk; dump `testbed-dumps/c-1210`, equal to the
-  test droplet's `x3` except the provider-restated valuation row).
-- **Running (16:57 UTC):** `v-day-2206e` (job 55, build 518faf7e, the block 2022-06-06..06-15:
-  **06-06 and 06-07 published**, 06-08 computing). **`v-day-0716c` (job 53, 2024-07-16) was refused
-  16:48 UTC after 211 minutes of download:** the quote files are no longer missing (the reader
-  works on the single-file 20-column layout) but `option_identity` Stale: 111 option sources to
-  requote, and `option_history` Stale for 58 assets: the requote failed for some sessions of the
-  middle layout, cause unknown (the log died with the pod). Its second attempt (pod `x47gp`) is
-  downloading again; a watcher copies an excerpt of its fill log every two minutes to
-  `cluster-scratch/summaries-0716c/fill-log-excerpt.txt`: **diagnose from that file**; round p's
-  report has arrived (`.../surface-round-p/provider-derived.md`, not triaged). Judge each day ONLY by
-  `h4-day-summary-*.json` (`faulted_engine` 0), saved to `cluster-scratch/summaries-<tag>/`.
-- 2025-04-11 failed on d55f6439 (three defects, fixed by D-255..257): run it again on the final
-  image. Ordered passes are queued for the published days and have not run (the flag line's new
-  store query has never run against PostgreSQL). Cancelled: all jobs of the old 2022 attempts,
-  the stale 12-11 pass.
-- Scheduling rule learnt: tape history starts at the earliest TAPE job not cancelled and a DONE
-  one cannot be cancelled: schedule an older date's tape job only after later days have claimed.
+## Work during phase 1
+**Reporter gap scan** (`~/claude-artifacts/audits/2026-11-21-reporter-gap/reporter-gap.md`): port
+the renderers; the new design is the evidence they consume. 14 confirmed findings in today's Reporter
+(wrong numbers among them: one day's revisions mixed across calls; exposure OI printed as whole
+contracts (D-390); a midrank read as a strict count; provider IV able to become the headline (D-397);
+level windows at 63/126 instead of D-404's 95/126). Work list, 12 ordered items (1–3 M, 4–12 L):
+1. spec/profile reconciliation; 2. versioned ready-week input/output manifests; 3. recorded core
+responses as fixtures (D-102); 4. projection outcomes that distinguish failed / unavailable / private
+/ stream-backed (engine bundle + core); 5. pinned week serving in core + a paginated adapter; 6. free
+reports and FIELD panels repaired; 7. D-070 membership, 11 rankings and peers computed in the engine,
+not Reporter; 8. weekly aggregates in the history pass; 9. 64 free editions + the paid email with the
+publish-time number check; 10. the headless job core calls; 11. core-owned delivery (web receipt,
+beehiiv); 12. qualification on two real weeks, then a full issue. Most can start during phase 1.
+Also: Reporter branch `d397-own-analytics` (worktree `/home/diggz/wt/reporter-d397`, not pushed;
+own IV/Greeks, M0 copy, VS-Q01/Q05, V03-MATCHED) is verified against a real cc1d67cf revision before
+merging; it refuses provider-IV units and non-`VYR_*` M0 groups. The 2022-06 days in core are
+pre-D-397 PUBLISHED revisions phase 1 does not supersede (see owner decisions).
 
-**Before the two-week sample (step 4a), in order:** (1) finish and judge the two running cluster
-runs; delete the pool. (2) the engine merge, audit and one image, above. (3) re-run 2025-04-11
-and run the ordered passes on that image (a few node-hours: inside the 2.5 approval). (4) keep
-the small restatable captures (company, macro, carry: about 4.3 MB a day gzipped) through core's
-write-once path (owner: before phase 1; not started; core and engine change, then an audit).
-(5) verify the ordered-pass re-queue: each earlier day's publication re-queues every later
-session's pass; newest first over 401 sessions that could be about 80,000 runs unless migration
-0014's wait holds them (not verified). (6) check that a day can fetch only 252 prior tape
-sessions (EVC needs no more; the intraday panel's window to check). (7) grow the database
-volume (60 GB now; a day is about 150 MB on disk, phase 1 about 60 GB; owner approved; dump
-first). (8) round p (`2026-11-16-surface-round-p`, provider-derived values; Codex report
-pending): triage with a verifier, fix what is real. (9) bring the owner the sizing of the
-two-week sample and the spend against the $200 ceiling (ARCHITECTURE.md put the first build at
-about $190 of node time).
+**Test-suite audit** (`~/claude-artifacts/audits/2026-11-21-test-census/tests.md`; no production wrong
+number; 38 Rust ignores → 12 leave correctness testing, 26 keep/rewrite; Python skips are lost
+independent verification; 20 ranked actions). Reference-side items DONE 2026-11-21 (`worker`
+24713351, Python only, image unchanged: #5 XNYS calendar, #10, #11, #16; reference pytest 158 passed
+/ 107 skipped). Left, in order: the gaps (#1 a real raw tape session through gate 2 once a frozen
+slice exists; #2 reader scalars; #3 put/bid/ask IV; #4 surface quote-level fit; #7–9 receipt and
+publish sequence); the D-102 rewrites (#14, #15, #19); legacy and cost; then mutation testing on the
+critical crates. **h3-replay test edits wait until its reader digest covers non-test code only.**
+Retained fixtures need a real run of the build (`tools/golden/fixture.py`: P01/V03 receipts and task
+keys in `retained-2025-12-10`, `retained-2026-09-18`,
+`final-results/h4-m0-measurement-dev1/{spy,qqq}-inline-vs-p01`; re-pin `golden_day.DUMP`); their
+tests stay ignored until then.
 
-**Audits:** rounds a to k before the cluster; l (early-date fixes), m (snapshot reader), n (three
-failure-surface audits: 30 real, triage in `.../surface-round-n/triage/SUMMARY.md`), o (seven
-commits: 7 real, `.../cluster-round-o/triage/`), p running. Codex: about 73 per cent of its
-weekly allowance used, resets 2026-11-20 14:51 UTC (`tools/audit/run` prints it). Audits run
-after every landed step, converged or not; a separate verifier triages; every real finding is
-fixed; only one above the cut line gates (C-041).
+**Engineering housekeeping (owner, 2026-11-21: "none of them are major, most of them are
+housekeeping"; "its entirely possible that we did a good job as well"):** billing alert declined;
+ops config in the repository (done, 25f1f75); backups and failure injection (launch brief); the
+test-suite audit (above); after phase 1 `cargo audit`, `pip-audit`, an image scan and a secret scan
+of vyreon-core's public history (before go-live). Not added: dashboards, SLOs, HA, operators.
+**Security before launch (owner, 2026-11-17):** least-privilege tokens replace the full-access DO
+token once the shape settles; the reader API stays inside the cluster; backups with a tested
+restore; a read-only exposure check and an attack-surface audit. Phone recovery is the owner's.
+
+**Loose ends (each before the step it names):**
+- **Trades-API switch before daily publishing** (owner, 2026-11-18: daily runs take trades from the
+  trades API, quotes from the replay; engine D-089 amendment not built). Measured 2026-11-17: NVDA
+  4,970,460 trades, 498 requests, 25 min; SPY 96 requests; all 64 likely a few thousand requests a
+  day. Without it GLD's EVC01 volume baseline falls below 189 by ~mid-December 2026 (P-04).
+- Daily go-forward in production (C-051; runbook order in `deploy/k8s/README.md`), deadline alerts
+  on from that day; then the engine droplet retires (end state).
+- Frozen raw tape slice (D-102): take one from a phase-1 tape run; the close-selection tests need it.
+- Reader digest of non-test code only (h3-replay): today any reader-file edit, tests included,
+  invalidates every stored tape cache.
+- `company_inputs.EARLY_CLOSES` lacks 2022-11-25, 2023-07-03, 2023-11-24, 2027-11-26 (outside phase 1;
+  fix before deeper history and before 2027-11).
+- One-year-window census (owner, 2026-11-20): one definition of "a year" anchored on `return_1y` (the
+  close 252 sessions back, 253 closes); census every 1-year/52-week window (span, close vs intraday),
+  then one decision with before/after (DLM-PRICE-LEVELS' range uses 252 bars today).
+- D-404 remainder: daily P01/PATH views over a missing bar, `evc_history`, a DLM-PCR-OI-over-gap test;
+  kernel-contract JSONs still say MIN63 (moves `kernel_contract_sha256`).
+- Engine small: `Occ::quote_file` returns None silently on an unreadable file; the ordered derive
+  (`derive/mod.rs`) fails the whole object on a population load failure; INT-IVSC01's internal
+  `comparison_qualification` still says METHOD_CONTINUITY_UNKNOWN.
+- Dated reminder: the CPI/INDPRO release table (D-380) ends at November 2027 data; extend before then.
+- OCC ledger (C-055): a new entry needs a new core image; specials with no memo are listed in C-055,
+  not entered; record the ledger's hash with each published day (provenance); FXI's date (cash
+  06-07, strikes 06-08) for the engine to confirm.
+- Core `read` routes serve full bodies (by decision while only Reporter and the owner hold keys).
+- API end-to-end (Reporter's reads through core) before launch.
+- Provider: bug report #3 sent 2026-11-21 (`docs/PROVIDER_FAULTS.md`; asks whether pre-2025-11-26
+  replay files can be regenerated from the SIP archive); Cboe permission reply pending.
 
 ## Decisions waiting on the owner
-- Resolved 2026-11-16: AAPL and LLY share basis: the filing cover count for all 17 (owner
-  agreed), the provider's differing figure published as a stated comparison (D-261). Claude's
-  follow-up only: confirm the cause on the first real day.
-- Resolved 2026-11-16: **the spend ceiling is $300 in total** (owner, raised from $200), "willing
-  to expand as necessary": not "no ceiling". Practice: a running total kept here; the owner is
-  told before a step would pass the ceiling, and at the two-week sample's sizing.
-- Standing rule (owner, 2026-11-16): standing infrastructure (core node, volume, registry,
-  Spaces, the production droplet) is just "on". **Worker nodes and test droplets: use as many in
-  parallel as testing needs, without asking; delete each as soon as it idles; keep it tidy.**
-- The production store's 2025-12-10 (177 withheld activity slots): untouched until the merged
-  engine is deployed there; then a rebind and republish, on the owner's word.
-- **Rulings of 2026-11-16 (all recorded above or in the step list):** converged on audits, fix
-  everything, gate only above the line; phase 1 = newest two weeks then back to 2025-04-10; the
-  rules examined after the sample and after phase 1; Reporter headless on core, reports on
-  Sundays; EVC01 on 252 sessions; a reworked sensor is recalculated (a single-sensor route to
-  evaluate when needed); the provider is the reference among point-in-time-valid choices, and
-  its inconsistency is published as a stated comparison; enterprise value before phase 1; keep
-  the small restatable captures, not the bulk raws; grow the database volume; test droplets
-  deleted; failure-surface audits; no AI in the production path (agents only write code);
-  move to Opus when the running agents finish.
-
-## Listed, not fixed
-- From rounds i to k: a faulted reading with no value in its 63-session window is not stated in
-  unusualness; FND02's standardized roles equal FND01's on 72 of 81 pairs and both score; a
-  translation refusal publishes NO_GOVERNED_COHORT_CERTIFICATE, not its cause (a new published
-  reason: five owners and a cause class); a retained view's collision reads ENGINE_FAULT until
-  `--rebind`; a resumed worker's stale view is not reselected; the collision guard sees only
-  T-5's delivered chain. The guard's refusal has run on no real chain (none collides).
-- INDPRO's macro capture states WITHHELD_WRONG_UNIT on the 2025-12-03 capture (seen 2026-11-16;
-  not looked into: whether T's does too and what reads it).
-- Style items 3 to 7 (round a triage directory). Findings for after the build (round e summary).
-- Overlay 3, 5, 6, 7; a corrected official daily volume between two workers' tape captures; a
-  missing macro capture's containment (design choices; round d triage).
-- An `unknown` ledger entry (D-176's 2020-01-02) may make dead listings' open interest unknown on
-  2022-05..2023-04; core has no `source_coverage` rows for `option_intervals` and
-  `option_interval_trade_counts`, the engine's compiled dates apply (tag: batch 5, fix 7 entries).
-- `r2` against `p1`: 11 items to check; M0 values were not compared (`day-r2-vs-p1.md`).
-- First cluster days: the zero curve on a 2022-2024 date (`python -m refcheck.options.zero_curve
-  <H.15 csv>`); the hold for a tenth of slots lacking a provider input (owner 2026-11-13).
-- From the build: a tolerance for the Greek exposure's unsolved share (owner 2026-11-15); the
-  unusualness line and `unusual_score`, which have never run on real rows.
+- RSS watchdog in place of the 2 GiB per-worker address-space cap (D-007; asked 2026-11-20).
+- D-404's consecutive-gap limit (WMO uses 5 days): not ruled.
+- Optimization items that change an integrity rule or a diagnostic: history endpoints trusting
+  Q01's verified source identity (~137 cold CPU-min); dropping the A/B diagnostic in the fill
+  (inputs 7); the prefetch nice switch (default off, owner's call after measurement). Low priority:
+  Codex round ee says the curve has flattened.
+- Finer D-192 tenor containment (keep an asset's one-year surface without its long expiries; changes
+  remaining values): an option, not done. (No tenor is ever missing in 2022-05-27..2026-11-19.)
+- Whether an absent dividend currency on a US listing may be read as USD (2026-11-16; today the
+  asset's stated lack; if old eras omit it, every payer of that era is withheld).
+- The 2022-06 sample days still PUBLISHED from pre-D-397 builds (phase 1 does not supersede them;
+  Reporter refuses them): republish or withdraw before Reporter reads core (preview and ask).
+- At daily-runs deploy: pool `day` scaling to 0 (DO's pages disagree) or min 1 (~$120 a month).
+- The production droplet's 2025-12-10 store (177 withheld activity slots): rebind and republish on
+  the owner's word; the droplet's retirement once the cluster's daily runs keep the perishable
+  prints and its database is carried in.
+- Deeper history, not phase 1: the 2023-01-18..03-07 snapshot gap; D-359 partial-snapshot sessions
+  (change the hold, or end the history at the partial session), decided on build evidence.
+- A tape-verify DIFFER (C-059), if one appears: recheck vs replace.
 
 ## Standing owner rulings that still govern the work
-- Spend ceiling: $200 in total over about a month (owner, 2026-11-14, from the session's notes;
-  the old file's newest figure was $100 of 2026-11-13; droplet limit 30).
-- Spend rules (2026-11-12): the worker pool is deleted after every run; the cluster and registry
-  only on the owner's word; ask before exceeding the ceiling; new spend for 2.5 and the build goes
-  to the owner first. Test machines are deleted when the step's tests are done (2026-11-13).
-- Order: the database before general rules, no rule tuned on the golden dates (2026-11-11);
-  sensor-level withholding and a changing universe before the build (2026-11-12).
-- Build: newest first (2026-11-12), back to 2022-05-27 (step list), sized and approved by the
-  owner. Kept over "back to 2021-09-27" (2026-11-14) and "pause at lookback depth" (2026-11-12).
-- Universe (2026-11-14): the 64 stay for a long time (64 slots, the date's members from the
-  claim), robust to what can happen to them: a ticker change above all, a delisting by design.
-  Scale and a general FIELD are deferred. Kept over "N assets in full" (2026-11-12).
-- After the build: the FIELD campaign, only structural changes before it (2026-11-14); Reporter
-  and web, then judging the reports (2026-11-14); single-sensor compute when a real snag needs it
-  and the full range for analysis after revenue (2026-11-12). After step 2 (2026-11-12): the daily
-  capture moves to a small droplet or the cluster's core node; the 8 vCPU droplet is deleted.
-- Cut line, C-041 (2026-11-15): the audit loop exits on no verified finding above the cut line (a
-  wrong number in the database, or only a full rebuild corrects it); a real day after each merged
-  batch. Kept over "two consecutive clean audits" (06:30 UTC the same day).
-- Audits (2026-11-15): one after each of 2a to 2e and one on the merged whole. At most three
-  agents at once on the laptop. `pass-s3i` by merge, not rebase (kept over the 08:45 UTC note).
-- Standards (2026-11-14): the published standard first; an owner decision is the last resort.
-  Go-live (2026-11-14): Intrinio's Startup tier; free and paid together, free first if need be.
+- **Spend:** ceiling **$400 in total** (2026-11-21; was $300, "willing to expand as necessary");
+  running total kept here, owner warned before a step passes it; billing alert declined
+  (2026-11-21: "we will be watching"). Standing infrastructure is just "on"; worker nodes and test
+  droplets as many in parallel as testing needs, without asking, each deleted when idle (2026-11-16).
+- **Sequence (2026-11-21):** phase 1 → verify phase 1 → Reporter → web, Reporter work beside phase 1;
+  phase 1 the priority (2026-11-17: "The database build is 10-ish days alone for phase 1. Then we can
+  sprint towards live launch readiness."). Phase 1 = newest two weeks, then back to 2025-04-10;
+  deeper history after launch (2026-11-16). Universe: the 64 for a long time, robust to renames and
+  delistings (2026-11-14). FIELD campaign after the build; only structural changes before it.
+- **Phase-1 QA (2026-11-21):** the plan, tranche gate (2026-11-18) and censuses in the launch brief;
+  no rule tracking added (2026-11-16).
+- **Startup tier (2026-11-21):** after the build (display rights only); on 11-25 if phase 1 is done;
+  the build never waits for it. Free and paid together ideally, free first if need be (2026-11-14).
+- **Reporter (2026-11-21):** a job core runs on the core node, called only when the week is
+  published and checked; reads core's API inside the cluster; core pushes pages to the web and the
+  paid issue to beehiiv; the web only receives and serves, holds no credential into core, never
+  calls in (2026-11-17); not on the web droplet ("the public web is the attack surface"). Reports
+  publish on Sundays without user intervention (2026-11-16).
+- **End state (2026-11-21):** two permanent machines, core (always-on node: database, core service,
+  scheduling, archive, Reporter) and web (serves what core pushes); workers on demand. The
+  `vyreon-engine` droplet retires once daily runs are live on the cluster, its perishable captures
+  archived through core and its database carried in.
+- **Readable, checked reports:** verification in the marketing (2026-11-18: "we definitely need to
+  expose what we are doing in the marketing. Major verification and checking areas should all be
+  highlighted on vyreon-web eventually"); the explainer shows a real sample issue, price, refund
+  terms and the verification record (2026-11-21); plain voice; a publish-time number check.
+- **Ads (2026-11-21), after free + paid are live:** free reports link to a paid-product explainer;
+  ads advertise only the explainer (the prototype's lesson: a landing page with nothing real to
+  show); judged on purchases and cost per sale in budget tranches, stop rule fixed before spending.
+- **After the MVP (2026-11-21):** automated social posting of highlights and unusual measurements
+  (same number guard and voice); CI as the home for agentic loops once there is revenue. First goal:
+  the system producing money.
+- **Change control:** byte identity retired (2026-11-18: "Byte identical is based on the assumption
+  that the current system is perfect. We are repeatedly proving it is not"); image diff: float noise
+  (~1e-12) reported, anything larger tied to a decision, no silent state change, changed flags
+  explained; optimizations and value fixes in separate commits; phase 1 from one image.
+  Optimization passes repeat while the measured gain pays for the effort ("reality judges").
+- **Audits:** C-041: every verified finding fixed; only one above the cut line (a wrong number in the
+  database, or only a full rebuild corrects it) holds the step; failure-surface audits after a real
+  fault. Operations-feature audits stopped (2026-11-19) until operation shows a new failure. D-412's
+  build cut: regressions and broken production paths block; later tape-family findings reach the
+  store by scoped republish (D-099). At most three agents at once on the laptop.
+- **Data sources:** bulk option files where they exist and match the API (2026-11-19); provider
+  analytics from the bulk files' first computation; readers get only the engine's own IV/Greeks
+  (D-397); volume in whole contracts, exposure share-equivalent, each role stating its unit (D-390);
+  CPI the unrevised `$CPIAUCNS`, INDPRO and expected earnings state their basis (2026-11-16); curve
+  H.15 → Intrinio `$DGS*` → FRED API (D-105); close from the listing market's print (D-412).
+- **History windows (2026-11-20, D-404):** compute over the sessions present, never interpolate,
+  state each missing session, withhold only comparisons needing a missing endpoint; floor 75% of a
+  fixed span (40 CFR Part 50 App. K §2.3, App. T §3.1; "scan back is going to produce weird
+  behavior"); history-window sensors only. EVC01 189 of 252 plus its 20-sample minimum ("requiring
+  75% coverage for the history required to compute a sensor requiring history is sensible"). The
+  80% coverage target is a goal, not a rule.
+- **Reference checks:** on every computed day in the worker before raws are deleted (2026-11-18);
+  tape owners by the tape worker's verdict; pre-verdict caches "cache code verified by sample".
+- **Operations:** workers stateless and credential-free, core signs one-object upload URLs
+  (2026-11-17); restatable captures kept write-once in core (C-043); Discord one alert per problem
+  and a 09:00 MT verdict digest ("I want to open it and immediately know if i gotta go look at it or
+  its running ok"), channel only; availability needs are minutes; no AI in the production path.
+- **Standards (2026-11-14):** the published standard first, cited; an owner decision is the last
+  resort; a rule built on sparse data is judged by the built population.
+
+## Listed, not fixed
+- D-412 left by reason: halted-ETP close (the tapes carry no halt messages), zero-volume `9`, S1–S3
+  (need cluster data); ETP TWAP/T-WAM fallback tiers not computed (reach the tape only via `M`/`9`);
+  Network-B listing taken from the provider's current record.
+- Options: ACT01 picks its cohort by raw strike, guarded only by `ex_date=`, and is not translated
+  across a strike reduction (a stated NONE); a partial OI outage without an adjustment still
+  publishes (no threshold invented); D-349's residual (an ordinary dividend day read as an ex-date
+  when the top old strike is delisted); contracts the snapshot shows active that a bulk chain lacks
+  are only measured (`bulk_snapshot_absent`); a refused bulk listing falls back to the API.
+- From rounds i to k: a faulted reading with no value in its 63-session window is not stated in
+  unusualness; FND02's standardized roles equal FND01's on 72 of 81 pairs and both score; a
+  translation refusal publishes NO_GOVERNED_COHORT_CERTIFICATE, not its cause; a retained view's
+  collision reads ENGINE_FAULT until `--rebind`; a resumed worker's stale view is not reselected; the
+  collision guard sees only T-5's delivered chain (never run on a real collision).
+- INDPRO's 2025-12-03 macro capture stated WITHHELD_WRONG_UNIT (seen 2026-11-16; not looked into).
+- Style items 3–7 (round a); findings for after the build (round e); overlay 3, 5, 6, 7; a corrected
+  official daily volume between two workers' tape captures; a missing macro capture's containment.
+- An `unknown` ledger entry (D-176's 2020-01-02) may make dead listings' OI unknown on
+  2022-05..2023-04; core has no `source_coverage` rows for `option_intervals` and
+  `option_interval_trade_counts` (batch 5, fix 7 entries). Deeper history only.
+- META's VS-P01 cold start after the FB→META rename (2022-06): contained; fix before deeper history.
+- Core: the claim does not send `max_attempts` (the worker assumes 3); superseding a refused tape
+  session means deleting its rows (preview first). Round x's twelve operations limits are recorded as
+  stated limits in the decisions.
+- `r2` against `p1`: 11 items to check; M0 values were not compared (`day-r2-vs-p1.md`).
+- The zero curve on a 2022–2024 date (`python -m refcheck.options.zero_curve <H.15 csv>`); the hold for
+  a tenth of slots lacking a provider input (owner 2026-11-13); a tolerance for the Greek exposure's
+  unsolved share (owner 2026-11-15).
 
 ## Machines and money
-- **Droplet `ssh vyreon-engine`** (authoritative, 8 vCPU): Postgres, the daily capture, health
-  checks; nightly archive to its 250 GB volume `vyreon-engine-v1` and the Spaces bucket
-  `vyreon-data` (C-004). $112 a month. Not looked at on 2026-11-15: whether
-  `/root/vyreon-engine-worker` and `/root/worker-proof` (57 GB) are still on it.
-- **Test droplets:** both deleted 2026-11-16 15:34 UTC on the owner's word (dumps of their days in
-  `~/claude-artifacts/testbed-dumps/`). A new one needs the 2025-12-10 archive downloaded again.
-- **Kubernetes cluster `vyreon`** (nyc1, created 2026-11-11): pool `core`, 1 x `s-4vcpu-8gb-amd`
-  ($0.083/h), with CloudNativePG, a 60 GB database volume and core. Pool `day` was deleted
-  2026-11-13 00:35 UTC; "the core node stays". Registry `vyreon` (Basic, nyc3, $5 a month) holds
-  worker images up to `0ca127ea`, older than the pass. About $67 a month while they stay.
-  All four exist (checked through the DigitalOcean API 2026-11-16 00:00 UTC; registry 0.97 GB).
-- **A real day on a test droplet:** `tools/testbed/tb` (needs `TB_KEY`, `TB_ENGINE`, `TB_OUT`):
-  `tb deploy IP` (the clean tree's release build; refuses while a day runs), `tb run IP DATE NAME`,
-  `tb wait IP NAME`, `tb status IP NAME`, `tb dump IP DATE BUILD NAME`, `tb compare BASE NAME
-  [SYM,..]`, `tb hide IP PATH`, `tb restore IP`. After a deploy that changes quote-file terms the
-  day is refused until `terms-rebind-day.sh DATE NAME` runs on the droplet: `vyreon-inputs terms`
-  (no provider call), `act01_auto_source --rebind`, then `run-day.sh`. The disk guard wants 60 GB.
-  The script is `tools/testbed/terms-rebind-day.sh` (copy it to `/opt/vyreon-test`).
+- **Spend:** DigitalOcean $180.41 month-to-date (2026-11-21 06:09 UTC), before phase 1; ceiling $400.
+- **Droplets (4 of 30 before the build):** web (`Telemetry-Backend`), `vyreon-engine-shared-8vcpu-amd`,
+  the cluster's core node, workers as running. Limit 30 (up to 27 workers).
+- **Droplet `ssh vyreon-engine`** (8 vCPU, $112 a month): Postgres, the daily capture and archive
+  (`vyreon-capture`, `vyreon-archive`: the option-trade cohort prints the provider will not serve
+  again, to its 250 GB volume and Spaces `vyreon-data`); notices muted to
+  `/var/log/vyreon-notices-muted.log`; health and heartbeat timers stopped (2026-11-17). Retires per
+  the end state. Not checked since 2026-11-15: whether `/root/vyreon-engine-worker` and
+  `/root/worker-proof` (57 GB) are still on it.
+- **Kubernetes cluster `vyreon`** (nyc1, id `5f56e6e0-1c74-4dc9-bfdb-962ee55ebff3`): pool `core`
+  1 × `s-4vcpu-8gb-amd` with CloudNativePG (database volume 120 GB, grown 2026-11-16) and core
+  `vyreon-core:139a21b` (migrations to 0030; perishable archive to Spaces ON; notices live); day
+  pools `day` (AMD) and `day-std` (Intel), nodes deleted after every run. Secrets:
+  `vyreon-worker`, `vyreon-core-webhook`, `vyreon-core-spaces` (bucket-limited key). Registry
+  `vyreon` (nyc3, $5 a month). Images with known defects must not be used: `ed66a433`, `76169889`.
+- **Spaces `vyreon-data`:** perishable archive; DataShop order `reference/cboe-datashop/order_000107661/`
+  (laptop copy `~/claude-artifacts/datashop/`). Keys (gitignored, 600, never printed): `api.txt`,
+  `spaces-storage-access-key.txt`, `tiingo.txt`, `~/fred-api.txt`, `do-full-token.txt`.
+- **Laptop:** worktrees `/home/diggz/wt/<name>`, cargo targets `/home/diggz/wt/target-<name>`
+  (delete at merge; `du -sh /home/diggz/wt/target-*`). Test droplets deleted 2026-11-16; tooling
+  `tools/testbed/tb` if one is needed again.
 
 ## Proven so far (on real data)
-- 2026-11-09: a fresh 2025-12-10 agrees laptop against droplet to within 1e-11 (`engine-v1`).
-- 2026-11-10: the droplet's published day goes through core and reads back identical; a wrong
-  bundle is refused; the reader API returns every session, published or explicitly not.
-- 2026-11-11: ranged daily bars equal the single-day bars; a day through the worker path equals
-  the droplet's (2,853 slots, no numeric difference), and with the day-local bundle and the
-  ordered pass all 1,826 derived slots too.
-- 2026-11-13: the two-day cluster trial: 2025-12-10 and 2025-12-11 each from an empty disk, tape
-  jobs before, the ordered pass after; 6 h 57 min cold, 1.24 GB peak memory, 26,795 requests.
-- 2026-11-13/14: a failed history export or surface, or a missing options capture, tape or daily
-  bar, withholds only its readers and dependants; the other assets are identical.
-- 2026-11-14/15: slots by date membership (D-164); split stages 1 and 2 (D-161, D-163, recomputed
-  independently); a member unlisted; the gap-only day `g3`; the ACT01 rebind (59 cohorts).
-- 2026-11-15: `r2` and `m4` above; the zero curve equals QuantLib to 2e-13 on four 2026-11 curves;
-  the q = 0 default measured (35 of 23,104 asset-sessions).
+- 2026-11-09..15: laptop vs droplet within 1e-11; a day through core reads back identical; the
+  worker path equals the droplet's; two-day cluster trial; containment of failed inputs; slots by
+  date membership (D-164); split stages; the zero curve equals QuantLib to 2e-13.
+- 2026-11-17..18: cluster verification days; refused provider sessions as stated absences (D-358);
+  two-week sample 10/10; Cboe (14 pairs, all 140 sessions in band 1), EDGAR domestic filers bitwise,
+  8-K times 765 exact, Tiingo, FRED; D-391 caught XLK 2025-12-05 with 0 false positives in 424,814.
+- 2026-11-19..20: bulk files equal the API; historical tape caches 1,276/1,276 byte for byte; 0
+  engine defects in the refcheck triage of real days; multi-day blocks with history reuse; the curve
+  fallback bit-identical while H.15 was down.
+- 2026-11-21: before/after (226 / 134 / 120 min); D-405 arena cap and D-407 trim on real days;
+  refcheck beside the next day (0.0 min waits; 3 unexplained of 97,113); byte proof 11,870/11,874;
+  D-412 tape samples @9..@13 256/256 PASS.
 
 ## Not yet proven
-- The merged candidate on a finished day (`y2`, `x3` running); the split cohort's readings.
-- An early date: before the tapes (2023-05-24), option intervals (2022-12-08) or trade counts
-  (2024-11-26); a real pre-listing day (the fill skipping an unlisted asset).
-- D-165 and D-167 on a rename date; D-162; D-166 on a post-listing date; a day after a 10-for-1
-  split; the split-basis scores (need a built history).
-- History in the ordered pass over several days; the cross-day supersede rule; a block of more than
-  one day; the same day equal first in a block and mid-block; rebuilds and recomputes for real.
-- The rebuilt images; KEDA and scaling to zero; more than two nodes; the node type by cost per
-  published day; backups (C-013); whether presigned downloads count against the 2,000 a minute.
+- 27 nodes at once (request budget, nyc1 AMD capacity, core under load; whether presigned downloads
+  count against the 2,000 a minute); a 15-day block (memory on 16 GB; M0 solve-reuse hit rate).
+- The history reference check over built histories; the flag-agreement test (not yet declared);
+  refcheck across ~400 sessions; the reuse-index fix's later-day time (~104 min expected).
+- Daily go-forward in production (C-051; the daily claim through HTTP, `JOB_COMPLETION_INDEX` on the
+  cluster), deadline alerts, scaling the pool to 0; the trades-API path.
+- A backup and a tested restore (C-013).
+- Reporter on core's API; the web's receiving end; the API end-to-end; the Startup-tier key switch.
+- Rebuilds and scoped recomputes for real; the cross-day supersede rule.
+- Not run on values: the preferred-dividend subtraction (no real case); D-165/D-167 on a rename
+  date; D-166 on a post-listing date; an early date before the tapes (2023-05-24), option intervals
+  (2022-12-08) or trade counts (2024-11-26); the split-basis scores (need a built history).
