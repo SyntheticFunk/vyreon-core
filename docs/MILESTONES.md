@@ -1831,6 +1831,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   later days have claimed), the per-tranche census, Discord digest. The Startup tier is bought on
   11-25 if phase 1 is done, else after (owner). Hand-off to a fresh session before the launch is the
   standing plan (process addition e); the owner's time-sheet reminder goes with it.
+  **Superseded 19:50 UTC: round 5 merged before launch (`worker` cc1d67cf; METHOD @13, READ@10,
+  D111@11, UPATH@12, EVC01@14, UACT@7, UQTR@8, DLM-VWAP@3.2.7).** Its triage (`triage-round5.md`): 14
+  real + 2 suspicions; 9 can occur in the build as run (decoder resync determinism, which can flip
+  EMB/IEF/COIN's 0.1% corruption gate; daily-volume reconciliation in D111's reopen; a stored member
+  with no verdict attempt; refusal during verdict-only fallback; reference compares all six quote
+  fields). Since phase 1 had not started, adopting it now costs no tape re-download (it would have
+  after: the reader digest covers whole files, test modules included, so any reader-file edit
+  invalidates every stored tape cache: **follow-up: digest only the non-test code**). Image
+  building; one more @13 tape sample; **the phase-1 image becomes cc1d67cf if it passes.**
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
