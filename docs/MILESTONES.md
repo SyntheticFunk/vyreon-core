@@ -165,6 +165,10 @@ first publication of either; ideally free and paid are ready together. Google Ad
    web has no such feature yet) and porting Reporter from the older system to core's API.
    Owner: Reporter (C#) is lightweight; on core, **core calls it only when ready** (when the week's
    sessions are published and checked), not on a blind schedule.
+   **End state (owner, 2026-11-21): two permanent machines, core (the always-on cluster node: database,
+   core service, scheduling, archive, Reporter) and web (public, serves what core pushes); workers
+   on demand.** The `vyreon-engine` droplet retires once daily go-forward runs are live on the
+   cluster, its perishable captures are archived through core, and its database is carried in.
    **After the MVP (owner, 2026-11-21):** automated social posting of highlights and unusual
    measurements as they are detected (the same publish-time number guard and plain-voice rules as
    the reports); CI as the home for agentic loops once there is revenue.
