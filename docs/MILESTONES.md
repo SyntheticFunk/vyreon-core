@@ -1646,6 +1646,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   commits don't cut the per-reuse cost on the cluster (laptop: 7.26 → 1.40 ms) or the coordinator is
   CPU-starved by the overlap; the run's `reuse_commits` line and the task times will tell. Leading
   pass-4 lever if it holds.
+  **08:49–08:52 UTC: day 2 intent A done in ~61 min; `reuse_commits` = 1,978 batches, 62,849
+  reuses, 1,771 s: 28 ms a reuse inside the commit on the cluster (laptop 1.4): batching did not help
+  there, and batches average 32, not 128.** Day 1's deferred reference check **CRASHED** after 25.2
+  min ("ended without a readable report": report.json truncated at line 645,531; its refcheck
+  directory is now gone): an overlap defect (D-405 lever 2). Both being diagnosed (`pass-fx89`).
+  Day 2 intent B started 08:51.
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
