@@ -1768,6 +1768,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   triage + fixes running (`pass-fx93`).** The d0f58e81 image still gets its tape sample for evidence.
   Cut line for the build from here (mine): regressions and broken production paths block; rare
   provider-artifact edges are fixed but do not hold the build.
+  **16:53 UTC: d0f58e81 (@10) tape sample: 256/256 reference verdicts PASS (none NOT_RUN); nodes
+  deleted.** Against the official bar on the three complete sessions: closes 192/192, opens 191/192
+  (XLK 05-06); ARKK basis 1 / BZX on all three; zero-size executions 0 everywhere; conditional-last
+  counts unchanged from @9; every 5-minute body identical to @9's (the round-2 rules move nothing on
+  these sessions).
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
