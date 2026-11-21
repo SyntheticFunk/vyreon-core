@@ -1880,7 +1880,8 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   non-test code only, daily go-forward in production, a tested backup restore, API end-to-end.
 - **Engineering housekeeping (owner, 2026-11-21: "none of them are major, most of them are
   housekeeping"; "its entirely possible that we did a good job as well").** Order:
-  1. **DigitalOcean billing alert at $400**: control panel only (no API); owner's action.
+  1. ~~DigitalOcean billing alert~~: declined by the owner (2026-11-21: "we will be watching");
+     I keep the running total against the $400 ceiling and report it.
   2. **Ops config in the repository: done 2026-11-21 (25f1f75, `deploy/k8s/ops/`)**: scripts and the
      phase-1 Job templates, no secrets, paths and ids from the environment. Moving them found a
      real defect: the templates' secret volume projected only `worker-token` and `intrinio-key`, so
