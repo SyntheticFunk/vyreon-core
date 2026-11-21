@@ -150,6 +150,9 @@ first publication of either; ideally free and paid are ready together. Google Ad
 7. **(5) The launch decision:** pay for Intrinio's Startup tier and integrate Reporter's output
    into the website. After it, or when wanted: the deeper history (the old snapshot layouts are
    readable since D-251..D-254; the 2023-01-18..03-07 gap needs a ruling), the FIELD campaign.
+   **After the MVP (owner, 2026-11-21):** automated social posting of highlights and unusual
+   measurements as they are detected (the same publish-time number guard and plain-voice rules as
+   the reports); CI as the home for agentic loops once there is revenue.
 **End goal (owner, 2026-11-16): the whole system lives on DigitalOcean and runs by itself:**
 capture, the day, the ordered pass, Reporter and the website, **reports published without user
 intervention**. Today Reporter runs on the laptop and feeds the website by hand. So step 5
