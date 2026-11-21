@@ -1619,6 +1619,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (verify against the CTS/UTP specs and exchange rulebooks), and the mechanism test uses QQQ's real
   prices with constructed timestamps/venues (D-102: replace with real raw prints, e.g. a raw capture
   on the droplet if one survives).
+  **03:50 UTC 2026-11-21: before/after block started.** Image ceacfbc5 (build ceacfbc5+544a50a5d895;
+  1,579 passed) = pass 2 fixes + D-407 + D-192 + pass 3 (D-408/409/410, reference) + D-411 gates +
+  EVC01 floor + the curve fallback (H.15 → Intrinio; H.15 was still empty/503). f401a104 withdrawn,
+  job 1422 cancelled. Block 2026-11-05..11-09 (3 sessions: a first day and two later days) on one
+  fresh day node, history on, overlaps default; memory sampled to
+  `checks/2026-11-21-block-1105-ceacfbc5-memory.tsv`, alert on any hold, refusal or worker crash.
+  Baselines (old image 4944a182): first day 400 min start → published, later days 248/210.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
