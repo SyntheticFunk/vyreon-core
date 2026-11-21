@@ -1603,7 +1603,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   2025-11-12 fell back to Intrinio after ~3 min and built bit-identical curves to H.15's and FRED's.
   **FRED resets every request carrying the engine's user agent** (`Vyreon-Carry-Inputs/0.1`; curl's
   default got 200): owner's call: a free FRED API key (proper identification), or a different
-  user agent. Until then the working chain is H.15 → Intrinio. Droplet deploy (approved): merge into
+  user agent. **Owner: use the FRED API key (in ~/FREDdash.ipynb); extracted without printing to
+  ~/fred-api.txt (600), verified; FRED API path being added (`pass-fx88`, VYREON_FRED_KEY_FILE,
+  key redacted from every stored request).** Until then the working chain is H.15 → Intrinio. Droplet deploy (approved): merge into
   its branch, build, `deploy/droplet/install.sh` after checking no capture runs.
   **Closing-print fix ready (`pass-fx87`, D-412; all tests green on the branch), NOT merged yet:**
   session close from the listing market's official-close report (`M`), else its closing-auction
