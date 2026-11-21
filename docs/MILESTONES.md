@@ -1443,6 +1443,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   1421 cancelled; block 2026-11-05..06 rescheduled and started on a fresh node (23:34 UTC); memory
   (with process VSZ) sampled to `checks/2026-11-20-block-1105-memory-f401a104.tsv`, alert on any hold
   or worker crash.**
+  **Owner (2026-11-20 ~17:15 MT):** cancel the long read-only query (pid 208996, 7 h 52 min, ~1 of
+  core's 4 CPUs, holding back vacuum): cancelled. D-192: contain both cases (unreadable raw page →
+  that asset's readings ENGINE_FAULT; empty curve tenor → only readings needing it, D-106 2.2):
+  implementing in `pass-fx79`. D-404's 80% → 75% moves accepted ("5% is meh"); EVC01 explained to
+  the owner, decision pending (a per-slot sample minimum, not a window share).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
