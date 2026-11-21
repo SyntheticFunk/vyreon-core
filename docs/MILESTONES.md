@@ -1816,6 +1816,21 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   5-minute body, close source and listing basis identical to @11; nodes deleted. da3dade4 is the
   phase-1 image.** Byte-proof run on ceacfbc5: day 1 published (177 min, switches off; its inline
   reference check hit the old non-finite-JSON crash fixed since 909d57ce), day 2 running.
+- **Phase-1 launch brief (for the session that launches it; written 2026-11-21 19:10 UTC).**
+  Image **da3dade4** (build `da3dade4+f5512600ac51`, admitted; 1,594 passed; @12 tape sample
+  256/256 PASS). Range 2025-04-10..2026-11-20 (407 sessions), blocks of 15 on ~27 `s-8vcpu-16gb-amd`
+  day nodes (droplet limit 30: core node + production droplet + 27), newest blocks first so the
+  newest two weeks can be judged while the rest run (owner's step 4a). Tapes re-derived for every
+  session under @12 (D-412). Job templates on da3dade4 with the FRED key mounted:
+  `cluster-scratch/job-phase1-{day,tape}-TEMPLATE.yaml`; FRED key added to secret `vyreon-worker`
+  (`fred-key`, `VYREON_FRED_KEY_FILE`), done 19:05 UTC. Spend: ceiling $400 (owner, 2026-11-21);
+  ~$180 used before the build; projection ~$145. Gates still open before launch: the byte proof
+  (ceacfbc5, switches off, ends ~22:30 UTC) and the round-5 triage's answer to "does any @12 value
+  move" (fixes reach the tape family by scoped republish). Watch: core's request budget (2,000/min;
+  27 nodes start their first days together), tape-job ordering (an older date's tape job only after
+  later days have claimed), the per-tranche census, Discord digest. The Startup tier is bought on
+  11-25 if phase 1 is done, else after (owner). Hand-off to a fresh session before the launch is the
+  standing plan (process addition e); the owner's time-sheet reminder goes with it.
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
