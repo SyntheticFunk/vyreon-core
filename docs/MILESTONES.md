@@ -169,6 +169,10 @@ first publication of either; ideally free and paid are ready together. Google Ad
    core service, scheduling, archive, Reporter) and web (public, serves what core pushes); workers
    on demand.** The `vyreon-engine` droplet retires once daily go-forward runs are live on the
    cluster, its perishable captures are archived through core, and its database is carried in.
+   **Sequence (owner, 2026-11-21): phase 1 → verify phase 1 → Reporter → web.** The web is a rebuild,
+   re-architected from today's early-access setup into the full free reports (64 per-asset pages)
+   plus the paid product and its explainer page; a lot of website work. The paid pilot's issues go
+   by email (beehiiv), so they depend on Reporter (by 2027-01-09), not on the web rebuild.
    **Ads after free + paid are live (owner, 2026-11-21):** every free report links to a paid-product
    explainer page, and the ad campaign advertises only that explainer (Google Ads worked for the
    prototype: 1.58M impressions, 156k clicks; the lesson was a landing page with nothing real to
