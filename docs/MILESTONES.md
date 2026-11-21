@@ -1639,6 +1639,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   12 of 12 requests and builds curves bit-identical to H.15's; leak check clean (diff, commits,
   fixtures, logs). Deploy: a Kubernetes secret mounted read-only for workers; a root 600 file on the
   droplet named in /etc/vyreon.env. A configured but unreadable key file stops the run (fail-fast).
+  **D-412 revised to the standards (`pass-fx87`, all crates and reference green; held until after
+  the before/after):** close = the listing market's `9`, else its `M` (latest of repeats), else its
+  round-lot single-price `6`, else the plan's fallback (CTA: most recent consolidated
+  last-sale-eligible trade in core hours; UTP: the listing market's final eligible trade to
+  16:00:10), else none (withheld); never another market's after-close print; no 30-minute window;
+  open = the listing market's earliest `O`, else the first eligible print (`Q` only counted); NYSE
+  Texas added, IEX kept (CTS lists IEX listings); CTS's listing-market `L` clause applied. The
+  constructed-print tests were removed (no raw replay slice exists anywhere): proof rests on the
+  cluster re-derivation list in D-412. Still departs: ETP TWAP/T-WAM fallback tiers not computed
+  (they reach the tape only via `M`/`9`); Network-B listing from the provider's current record.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
