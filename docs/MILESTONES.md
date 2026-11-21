@@ -1718,6 +1718,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   Full tests + image building on the merge; Codex audit of D-412 started
   (`audits/2026-11-21-d412-tape/`). Then a tape sample on the same four sessions; expected: opens
   254/256, gate 2 fails 1 of 192 (XLK 05-06 open), ARKK's close from BZX's `9` where sent.
+  **Codex D-412 audit (`audits/2026-11-21-d412-tape/d412.md`): hold c70ed7a2 for the build: 16
+  findings + 3 suspicions** (top: a no-close session can pass gate 2 on a 15:49 close; a cache can
+  survive a listing-market change; CTS note-3 `L` judged against the stated market; out-of-buffer
+  trades rewind the last participant; malformed `9` not rejected (UTP note 8); a `9` excluded from
+  the range; Python misses 2023–24 early closes; the reference does not check the close source;
+  constructed prints in tests). **Triage + fixes running (branch `pass-fx91`).** The c70ed7a2 tape
+  sample still runs for real evidence (e.g. whether BZX sends ARKK's `9`).
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
