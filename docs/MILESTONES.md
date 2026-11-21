@@ -1521,6 +1521,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   phase-1 sessions; NVDA 2024-06-13 close 129.00 vs 129.61) and replay spreads from 2026-11-06.**
   Proposed to the owner: VWAP under the volume check; tape OHLC must equal the official daily bar;
   replay spreads withheld from 2026-11-06 until a quote-completeness check; bug report #3.
+  **Owner (21:55 MT): the three gates approved; implementing (`pass-fx85`, D-411).** Bug report #3
+  drafted (`provider-reports/2026-11-20-intrinio-bug-report-3.md`), held until the register is
+  re-verified. **Owner asked whether our provider faults are right (the tenor fault was real but
+  transient, fixed since): every entry P-01..P-24 is being re-checked against today's data (Claude
+  agent) and its reasoning reviewed independently (Codex): still present / fixed since / never real,
+  and whether reports 1–2 need corrections.**
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
