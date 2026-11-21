@@ -1743,6 +1743,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   Python reference decoding gaps; constructed prints still in tests. **Round-2 triage + fixes running
   (branch `pass-fx92`).** The 67dc64a3 image (building) gets a tape sample for engine-side evidence
   only (ARKK's `9` sender, listing-market basis counts); its reference verdicts are expected NOT_RUN.
+  **15:58 UTC: 67dc64a3 (@9) evidence sample done; nodes deleted. Closes 192/192 and opens 191/192
+  (XLK 05-06 only) equal the official bar on the three complete sessions; ARKK's listing market is BZX
+  from BZX's own `9` on all three (so P-25 no longer moves its close); close source `9` 164, `M` 28,
+  fallback 64 (all the truncated 01-02); one `9` sender at most everywhere. Reference verdicts NOT_RUN
+  on all 256 (PROFILE.json missing from the image: round-2 finding 6 confirmed).** Evidence passed to
+  the round-2 fix agent.
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
