@@ -1734,6 +1734,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   for the close-selection tests: take one from the next tape sample. Full tests + image building;
   Codex round 2 running. Next tape sample's checklist: verdicts PASS with the close-source comparison
   empty, basis 1–2 on tape A/UTP, no no-close session, ARKK = BZX where BZX sent a `9`.
+  **Codex round 2 on 67dc64a3 (`audits/2026-11-21-d412-tape/d412-round2.md`): hold; 14 findings + 2
+  unverified.** Top: UTP `L` eligibility by execution stamp, not SIP receipt; round-1 fix 8 also let a
+  late `6` in (regression); a zero-size `6` counts as a trade; an impossible Network-B `9` sender (FINRA
+  `D`) becomes the listing market; the reader digest omits PROFILE.json's classification; **the worker
+  image omits PROFILE.json, so every reference tape verdict would be NOT_RUN**; one bad member stops
+  later uploads; retention can delete raw files restate needs; an exact half-step rejected (f32);
+  Python reference decoding gaps; constructed prints still in tests. **Round-2 triage + fixes running
+  (branch `pass-fx92`).** The 67dc64a3 image (building) gets a tape sample for engine-side evidence
+  only (ARKK's `9` sender, listing-market basis counts); its reference verdicts are expected NOT_RUN.
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
