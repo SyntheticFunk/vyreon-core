@@ -1698,6 +1698,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   **13:10 UTC: final candidate image 97389cc0 (build 97389cc0+0bb8210aab58; 1,585 passed; reference
   131) admitted; tape re-derivation sample started (`v-tape-d412`, 4 tape jobs on one day-std node:
   2026-05-06, 2026-11-02, 2025-12-10, 2026-01-02) under the D-412 reader (CONSOLIDATED@7).**
+  **13:44 UTC: tape sample done: 64 PASS on each of the four sessions (256 of 256: the independent
+  reference reader agrees with D-412), ~2 min a session for verdicts; tape node deleted.** Closes vs
+  the official bars and the source counts being checked from the new caches.
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
