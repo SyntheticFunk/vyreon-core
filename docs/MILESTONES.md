@@ -1669,6 +1669,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (10-28 had 254)**: the triage fixes and D-403/D-404 show; 56.8 min wall at nice 19, 128.5 CPU-min.
   The overlap costs nothing on the critical path: day 1's check joined with 0.0 min wait. Day 3
   (11-09): intent A done 10:53 (warm; still the slow commit path in this image), intent B from 10:56.
+  **11:52 UTC: day 3 (2026-11-09, a later day) PUBLISHED in 120 min**; day 2's check joined with 0.0 min
+  wait; day 3's check (the block's last) running at once. Intent B ran 49 / 51 / 51 min on the three
+  days (old 71–72).
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
