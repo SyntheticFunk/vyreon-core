@@ -1585,6 +1585,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   the P-04 sessions (from 2026-11-06) are reconciled: without the trades-API switch (D-089
   amendment) GLD's volume baseline falls below 189 by ~mid-December 2026. Extending phase 1 back does
   not help EVC01 (the older files are thinner) unless Intrinio regenerates them (bug report #3).
+  **Owner plan (2026-11-20 ~20:20 MT):** (1) the before/after of the optimizations on the cluster
+  (pass-3 image vs the old-image baselines: 10-28 first day 400 min; later days 248/210 min,
+  start → published incl. check); (2) another bottleneck check once everything is in (Codex
+  discovery on the final image's real profiles); (3) then build the database.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
