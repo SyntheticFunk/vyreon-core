@@ -1773,6 +1773,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (XLK 05-06); ARKK basis 1 / BZX on all three; zero-size executions 0 everywhere; conditional-last
   counts unchanged from @9; every 5-minute body identical to @9's (the round-2 rules move nothing on
   these sessions).
+  **D-412 round 3 triaged and fixed (`triage-round3.md`): 15 real; 4 above the cut (the round-2 close
+  widening = regression, dropped; Network-B stated market now needs its own `O`; one member's capture
+  failure no longer stops the session's uploads (exit 4, others stored and judged); a retry re-judges
+  stored caches that lack a verdict). 14 commits merged, `worker` a780c8e0 (METHOD @11, READ@9, D111@9,
+  UPATH@10, EVC01@12, UACT@5, UQTR@6, DLM-VWAP@3.2.5); 1,589 passed on the branch.** Image building;
+  Codex round 4 running against the build-blocking bar (regression, broken production path, plausible
+  wrong number). **If the @11 tape sample matches @10 (all PASS, closes 192/192) and round 4 finds
+  nothing blocking, a780c8e0 is the phase-1 build image.**
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
