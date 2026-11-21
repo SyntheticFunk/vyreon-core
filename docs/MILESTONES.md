@@ -1890,8 +1890,19 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   3. **Backups as soon as the first tranche is stored** (not after its census), then one restore drill.
   4. **Failure injection during phase 1**: kill a node mid-day, restart core during a publish.
   5. **Test-suite audit (owner: "throw a codex audit at the tests... likely a lot of legacy tests")**:
-     Codex running (`audits/2026-11-21-test-census/`): legacy, weak, D-102, gaps, cost; then
-     mutation testing (`cargo-mutants`) on the critical crates.
+     **Codex done (`audits/2026-11-21-test-census/tests.md`): no production wrong number found; 38
+     Rust ignores → 12 leave correctness testing, 26 worth keeping/rewriting; 105 Python skips (41%
+     of reference cases) are lost independent verification; 20 ranked actions (7 gaps, 6 weak, 3
+     legacy, 3 D-102, 1 cost).** Order: **first the reference-side items phase 1's QA gates rely on**
+     (history reference calendar from scheduled XNYS sessions, not the union of capture directories
+     (#5); FIXED_SPAN global leaking between tests (#10); intraday bin count checked before `zip`
+     (#11); FIELD/M0 verifiers that always SKIP (#16)): `tools/reference` runs from the laptop
+     against the store, so fixing it does not touch the build image. Then the gaps (#1 real raw
+     tape session through gate 2 once a frozen slice exists; #2 reader scalars; #3 put/bid/ask IV;
+     #4 surface quote-level fit; #7–9 receipt and publish sequence), the D-102 rewrites (#14, #15,
+     #19), legacy and cost. **h3-replay test edits wait until its reader digest covers non-test code
+     only** (else every stored tape cache is invalidated). Then mutation testing on the critical
+     crates.
   6. After phase 1: `cargo audit`, `pip-audit`, an image scan, and a secret scan of vyreon-core's
      public history (before go-live). CI later (owner, 2026-11-21: "eventually", a place for agentic
      loops once there is real revenue; agent loops cost API billing, which needs revenue). First goal:
