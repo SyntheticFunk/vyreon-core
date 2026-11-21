@@ -1447,7 +1447,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   core's 4 CPUs, holding back vacuum): cancelled. D-192: contain both cases (unreadable raw page →
   that asset's readings ENGINE_FAULT; empty curve tenor → only readings needing it, D-106 2.2):
   implementing in `pass-fx79`. D-404's 80% → 75% moves accepted ("5% is meh"); EVC01 explained to
-  the owner, decision pending (a per-slot sample minimum, not a window share).
+  the owner. **Decided (owner): EVC01 too: 189 of its 252 prior sessions per slot (75%), plus its
+  20-sample minimum ("requiring 75% coverage for the history required to compute a sensor requiring
+  history is sensible"); the 80% coverage target stays a goal, not a rule.** `pass-fx80` checks
+  first whether 189 binds on the recorded days (missing tapes, thin names' quiet slots), then
+  implements.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
