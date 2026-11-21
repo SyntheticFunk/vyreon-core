@@ -1605,6 +1605,18 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   default got 200): owner's call: a free FRED API key (proper identification), or a different
   user agent. Until then the working chain is H.15 → Intrinio. Droplet deploy (approved): merge into
   its branch, build, `deploy/droplet/install.sh` after checking no capture runs.
+  **Closing-print fix ready (`pass-fx87`, D-412; all tests green on the branch), NOT merged yet:**
+  session close from the listing market's official-close report (`M`), else its closing-auction
+  print (`6`), else the consolidated last print; open from its official-open report (`Q`) or
+  opening-auction print (`O`); listing market by tape (A → NYSE, C/UTP → Nasdaq) and on tape B by the
+  daily page's MIC; bins otherwise unchanged; reader label CONSOLIDATED@7, gate 2 READ@5. Held back
+  from the before/after image on purpose: it makes all 41,784 tape caches stale, so a block on it
+  first needs its tapes re-derived, which would confound the measurement. Merge after the
+  before/after, then a tape re-derivation sample (QQQ 2026-05-06 → 695.77, AAPL 2026-11-02 →
+  338.32, era-3 gate-2 counts by reason). To fix before merge: the rule citations are from memory
+  (verify against the CTS/UTP specs and exchange rulebooks), and the mechanism test uses QQQ's real
+  prices with constructed timestamps/venues (D-102: replace with real raw prints, e.g. a raw capture
+  on the droplet if one survives).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
