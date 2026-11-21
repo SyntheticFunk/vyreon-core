@@ -1574,6 +1574,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   at the curve. Building the curve fallback now (`pass-fx86`: 5xx/empty retryable, then Intrinio's
   `$DGS*` series, source recorded in the manifest); deploying it to the droplet's daily capture
   needs the owner's word.
+  **Owner (2026-11-20 ~20:00 MT):** (1) curve fallback approved for the droplet (the Fed outage is
+  likely temporary); deploy after it is built and tested. (2) Closing-print fix approved: the session
+  close/open from the listing market's own auction prints (reader identity changes; phase 1's tape
+  caches re-downloaded during the build): `pass-fx87`. Asked whether the 2 GiB per-worker
+  address-space cap is necessary: proposed replacing it with a real-memory (RSS) watchdog.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
