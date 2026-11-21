@@ -1633,6 +1633,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   consolidated close) unused; the 30-minute window has no basis; NYSE/Arca define no official open
   and a BZX `Q` without an auction carries the prior close; Network B misses NYSE Texas and maps
   IEX. Revising D-412 to the standards (`pass-fx87`).
+  **FRED API path merged (`worker` 90f7413f, D-105 amended; full suite 1,580 passed on the branch):**
+  `VYREON_FRED_KEY_FILE` names the key file (no default path); every stored request holds
+  `api_key=REDACTED`, only the transport inserts the key; the API accepted the engine's transport on
+  12 of 12 requests and builds curves bit-identical to H.15's; leak check clean (diff, commits,
+  fixtures, logs). Deploy: a Kubernetes secret mounted read-only for workers; a root 600 file on the
+  droplet named in /etc/vyreon.env. A configured but unreadable key file stops the run (fail-fast).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
