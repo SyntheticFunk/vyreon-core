@@ -1792,6 +1792,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   next. Cut for the build (mine): after round 4's fixes pass the tape sample, phase 1 starts; round 5
   runs beside the build, and any later finding on the tape family is repaired by a scoped republish
   (D-099) rather than by holding the whole build.**
+  **17:44 UTC: a780c8e0 (@11) tape sample: 256/256 PASS; closes 192/192, opens 191/192; all 39
+  basis-3 (stated Network-B market) sessions had that market's own `O`; every 5-minute body of all 256
+  (truncated 01-02 included) byte-identical to @9's; nodes deleted.**
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
