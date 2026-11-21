@@ -1452,6 +1452,10 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   history is sensible"); the 80% coverage target stays a goal, not a rule.** `pass-fx80` checks
   first whether 189 binds on the recorded days (missing tapes, thin names' quiet slots), then
   implements.
+  **Codex optimization discovery round dd started (owner, ~17:40 MT; candidate f401a104, high effort,
+  `audits/2026-11-20-optimization-round-dd/`):** five subsystems with the measured profiles: kernels
+  (M0/h1-numerics), executor and history (incl. history shared across blocks), preparation and
+  orchestration (surfaces, plan, FIELD, tail), inputs and provider requests, the reference suite.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
