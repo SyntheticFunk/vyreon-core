@@ -1726,6 +1726,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   constructed prints in tests). **Triage + fixes running (branch `pass-fx91`).** The c70ed7a2 tape
   sample still runs for real evidence (e.g. whether BZX sends ARKK's `9`).
   **15:03 UTC: c70ed7a2 tape sample: 64 PASS on all four sessions (256/256); both tape nodes deleted.**
+  **D-412 audit triaged and fixed (`audits/2026-11-21-d412-tape/triage.md`): 16 of 16 real (2 in part),
+  3 suspicions unverifiable from the laptop; fixed in both readers independently (13 commits, merged
+  `worker` 67dc64a3; METHOD @9, READ@7, D111@7, UPATH@8, EVC01@10, DLM-VWAP@3.2.3; 1,587 passed on the
+  branch).** Left by reason: halted-ETP close (7b: the tapes carry no halt messages), zero-volume `9`
+  (Intrinio's `9`s carry sizes), S1–S3 (need cluster data). D-102 gap: no frozen raw tape slice exists
+  for the close-selection tests: take one from the next tape sample. Full tests + image building;
+  Codex round 2 running. Next tape sample's checklist: verdicts PASS with the close-source comparison
+  empty, basis 1–2 on tape A/UTP, no no-close session, ARKK = BZX where BZX sent a `9`.
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
