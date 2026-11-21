@@ -1,0 +1,54 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: v-phase1-day
+  namespace: vyreon
+spec:
+  completions: 1
+  parallelism: 1
+  completionMode: Indexed
+  backoffLimitPerIndex: 1
+  template:
+    metadata:
+      labels: {app: vyreon-worker, work: day-block}
+      annotations:
+        # a day is hours of work; the node is not drained under it
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+    spec:
+      restartPolicy: Never
+      nodeSelector: {vyreon: worker, doks.digitalocean.com/node-pool: day}
+      tolerations:
+        - {key: vyreon, operator: Equal, value: worker, effect: NoSchedule}
+      containers:
+        - name: worker
+          image: registry.digitalocean.com/vyreon/vyreon-worker:cc1d67cf
+          args: ["run", "day-block", "--bin", "/opt/vyreon/bin", "--repo", "/opt/vyreon/bin"]
+          env:
+            - {name: VYREON_HOME, value: /work}
+            - {name: VYREON_REFCHECK_MINUTES, value: "600"}
+            - {name: VYREON_OPTION_EOD_SOURCE, value: bulk}
+            - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
+            - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
+            - {name: VYREON_KEY_FILE, value: /secrets/intrinio-key}
+            - {name: VYREON_FRED_KEY_FILE, value: /secrets/fred-key}
+            - name: VYREON_WORKER_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+          resources:
+            requests: {cpu: "6", memory: 10Gi}
+            limits: {memory: 14Gi}
+          volumeMounts:
+            - {name: work, mountPath: /work}
+            - {name: secrets, mountPath: /secrets, readOnly: true}
+      volumes:
+        - name: work
+          emptyDir: {}
+        # only the keys this pod reads: the ordered pass's database login stays with the ordered
+        # pass (C-016, C-020)
+        - name: secrets
+          secret:
+            secretName: vyreon-worker
+            defaultMode: 0400
+            items:
+              - {key: worker-token, path: worker-token}
+              - {key: intrinio-key, path: intrinio-key}
+              - {key: fred-key, path: fred-key}

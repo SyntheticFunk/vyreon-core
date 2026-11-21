@@ -1,0 +1,67 @@
+# The engine's workers, as plain Jobs for the first cluster run (KEDA starts them from the queue
+# at the build; see README). Each pod makes one claim, does that job and exits; a pod that finds
+# nothing to claim exits at once, so the three Jobs are applied in order: tape, then day-block,
+# then ordered-pass. Set `completions` to the number of jobs scheduled and `parallelism` to the
+# nodes of the pool.
+# One pod's failure never stops the others (C-040). Each pod is an index of its Job
+# (`completionMode: Indexed`) with its own retry budget (`backoffLimitPerIndex`): a failed pod is
+# replaced once and its index is then given up, while every other pod runs on. No `backoffLimit`
+# (with a per-index limit it defaults to unlimited) and no `maxFailedIndexes`: either, once
+# exceeded, makes Kubernetes terminate the Job's running pods, which is what a single failed pod
+# did under `backoffLimit: 0` on 2026-11-12. The job the failed pod held goes back to core's queue
+# (its `fail`, or its lease expiring) and the replacement pod claims whatever is claimable.
+# Secret `vyreon-worker` (made by hand, see README): `worker-token`, `intrinio-key`,
+# `ordered-pass-pg` (the read-only connection string of the ordered pass's login). Each pod mounts
+# only the keys it reads: tape and day-block pods never see the database login.
+# A day needs its node to itself: 6 CPUs requested on an 8-vCPU node, scratch on the node's disk.
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: v-phase1-tape
+  namespace: vyreon
+spec:
+  completions: 4
+  parallelism: 4
+  completionMode: Indexed
+  backoffLimitPerIndex: 1
+  template:
+    metadata:
+      labels: {app: vyreon-worker, work: tape}
+      annotations:
+        # the autoscaler never removes a node under a running worker (C-051)
+        cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+    spec:
+      restartPolicy: Never
+      nodeSelector: {vyreon: worker, doks.digitalocean.com/node-pool: day-std}
+      tolerations:
+        - {key: vyreon, operator: Equal, value: worker, effect: NoSchedule}
+      containers:
+        - name: worker
+          image: registry.digitalocean.com/vyreon/vyreon-worker:cc1d67cf
+          args: ["run", "tape", "--bin", "/opt/vyreon/bin", "--repo", "/opt/vyreon/bin"]
+          env:
+            - {name: VYREON_HOME, value: /work}
+            - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
+            - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
+            - {name: VYREON_KEY_FILE, value: /secrets/intrinio-key}
+            - {name: VYREON_FRED_KEY_FILE, value: /secrets/fred-key}
+            - name: VYREON_WORKER_NAME
+              valueFrom: {fieldRef: {fieldPath: metadata.name}}
+          resources:
+            requests: {cpu: "2", memory: 3Gi}
+          volumeMounts:
+            - {name: work, mountPath: /work}
+            - {name: secrets, mountPath: /secrets, readOnly: true}
+      volumes:
+        - name: work
+          emptyDir: {}
+        # only the keys this pod reads: the ordered pass's database login stays with the ordered
+        # pass (C-016, C-020)
+        - name: secrets
+          secret:
+            secretName: vyreon-worker
+            defaultMode: 0400
+            items:
+              - {key: worker-token, path: worker-token}
+              - {key: intrinio-key, path: intrinio-key}
+              - {key: fred-key, path: fred-key}
