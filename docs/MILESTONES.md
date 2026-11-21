@@ -1711,6 +1711,13 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   consolidated first print (SIP convention, as @6); close keeps D-412's order with the listing market
   taken from the tape (the `9`'s sender), the MIC only as fallback.** 97389cc0 is not the build image;
   the next tape sample must show opens 254/256 and closes ≥ 63/64 a session, ARKK from BZX's `9`.
+  **D-412 revised and merged (`worker` c70ed7a2; METHOD CONSOLIDATED@8 + READ@6; EVC01 @9): open =
+  the consolidated first print (CTS §7.0); close's listing market = the `9`'s single sender, then
+  NYSE (tape A) / Nasdaq (UTP) / the stated MIC on tape B only if it sent its own `M` or `O`, else
+  consolidated fallback; gate 2 drops READ@5's open clause.** 1,586 tests passed on the branch.
+  Full tests + image building on the merge; Codex audit of D-412 started
+  (`audits/2026-11-21-d412-tape/`). Then a tape sample on the same four sessions; expected: opens
+  254/256, gate 2 fails 1 of 192 (XLK 05-06 open), ARKK's close from BZX's `9` where sent.
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
