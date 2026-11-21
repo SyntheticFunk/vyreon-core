@@ -1916,6 +1916,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   share-count rows 12 vs 10, its history window FY2022Q4 vs FY2023Q4 first period). Off-run
   timings: day 1 286 min from block start (on: 226), day 2 173 min (on: 134). Day 3 still running;
   the comparison script is `scratchpad/byteproof` (masking rule in this entry).
+  **22:24 UTC: byte proof COMPLETE: 11,870 of 11,874 published measurements over the three days
+  equal after masking provenance; the 4 that differ are BABA's two company measurements on 11-05 and
+  11-06, from re-fetched company captures (day 3: 3,958 of 3,958 equal, BABA included).** The
+  switches (history reuse, surfaces/FIELD/refcheck/captures overlaps, parallel exporters) change
+  timing only (C-001 + D-405 hold). Times, block start → published: on (pass-3 image) 226 / 134 / 120
+  min, 480 for the block; off 286 / 173 / 146, 606 for the block: the switches save 126 min (21%)
+  over three days, ~60 min on a first day and ~26–39 on a later one, before the reuse-index fix
+  (in the phase-1 image) that removes most of the on-run's remaining later-day bookkeeping. For a
+  15-day block that is ~8–9 node-hours saved of ~28 (already inside the ~$145 projection, which
+  used the "on" times). Node deleted when its inline check ends.
 - **Phase-1 QA plan (owner, 2026-11-21: "We do phase 1, try to break it, fix what breaks, then move
   towards Reporter generating free+paid reports, and go live with web"; "worth proving this system as
   much as possible").** On top of the planned per-tranche census, external checks and per-day
