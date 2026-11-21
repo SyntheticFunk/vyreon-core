@@ -1771,8 +1771,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   **16:53 UTC: d0f58e81 (@10) tape sample: 256/256 reference verdicts PASS (none NOT_RUN); nodes
   deleted.** Against the official bar on the three complete sessions: closes 192/192, opens 191/192
   (XLK 05-06); ARKK basis 1 / BZX on all three; zero-size executions 0 everywhere; conditional-last
-  counts unchanged from @9; every 5-minute body identical to @9's (the round-2 rules move nothing on
-  these sessions).
+  counts unchanged from @9; the 5-minute bodies of the 192 complete-session caches identical to @9's
+  (corrected after Codex round 4: the 64 truncated 2026-01-02 bodies differ, because round 2's close
+  widening filled the last bin's high/low, e.g. AAPL null → 270.76 with no trade; round 3 removed it).
   **D-412 round 3 triaged and fixed (`triage-round3.md`): 15 real; 4 above the cut (the round-2 close
   widening = regression, dropped; Network-B stated market now needs its own `O`; one member's capture
   failure no longer stops the session's uploads (exit 4, others stored and judged); a retry re-judges
@@ -1781,6 +1782,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   Codex round 4 running against the build-blocking bar (regression, broken production path, plausible
   wrong number). **If the @11 tape sample matches @10 (all PASS, closes 192/192) and round 4 finds
   nothing blocking, a780c8e0 is the phase-1 build image.**
+  **Codex round 4 on a780c8e0 (`d412-round4.md`): 9 marked blocking, 3 not.** Numbers: a prior-date
+  quote on a listing-transfer day (WMT 2025-12-09) enters the session's book; a `9` carrying a
+  no-update modifier (`C`) is still used. Production paths: a retry's manifests count a different
+  member set, so every retried cache's bytes change; detached H4 readback rebuilds D111's key from the
+  live daily archive; a failed last verdict PUT lets the session complete; a recapture for a verdict
+  can fail a stored session; an old MULTI_TAPE decision survives in-place replay; partial storage can
+  lose TAPE_PROVIDER_REFUSED. Reference: disagrees on the restored DEGENERATE case. **Round-4 fixes
+  next. Cut for the build (mine): after round 4's fixes pass the tape sample, phase 1 starts; round 5
+  runs beside the build, and any later finding on the tape family is repaired by a scoped republish
+  (D-099) rather than by holding the whole build.**
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
