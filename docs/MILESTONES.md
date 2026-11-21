@@ -185,6 +185,22 @@ first publication of either; ideally free and paid are ready together. Google Ad
    **Owner, 2026-11-21: implementation work (Reporter) proceeds while phase 1 builds; expected 1–2
    weeks for Reporter + web.** First step running: a read-only Reporter-vs-core gap scan
    (`audits/2026-11-21-reporter-gap/`) → a sized, ordered work list for the fresh session.
+   **Gap scan done (`audits/2026-11-21-reporter-gap/reporter-gap.md`): port the renderers; the new
+   design is the evidence they consume.** 14 confirmed findings in today's Reporter (wrong numbers
+   among them: revisions of one day mixed across calls; exposure OI printed as whole contracts
+   (D-390); a midrank read as a strict count; provider IV able to become the headline (D-397);
+   level windows advertised at 63/126 instead of D-404's 95/126). Work list, 12 ordered items (1–3 M,
+   4–12 L): spec/profile reconciliation; versioned ready-week input/output manifests; recorded core
+   responses as fixtures (D-102); projection outcomes that distinguish failed / unavailable / private /
+   stream-backed (engine bundle + core); pinned week serving in core + a paginated adapter; free
+   reports and FIELD panels repaired; D-070 membership, 11 rankings and peers computed in the engine
+   (not Reporter); weekly aggregates in the history pass; 64 free editions + paid email with the
+   publish-time number check; the headless job core calls; core-owned delivery (web receipt,
+   beehiiv); qualification on two real weeks then a full issue. Most can start during phase 1.
+   **Pre-launch check from it (cheap):** in today's store every delivered FIELD-SUB01, FIELD-SUP01,
+   FIELD-DIM01 and M0-FIELD-ANALYTICS slot (24 each) has null reader coordinates, like the
+   stream-backed M0 slots: confirm these are intended omissions, not a collapsed projection fault
+   (finding 10). Bodies are stored exactly, so projections can be backfilled; not a build blocker.
    **Ads after free + paid are live (owner, 2026-11-21):** every free report links to a paid-product
    explainer page, and the ad campaign advertises only that explainer (Google Ads worked for the
    prototype: 1.58M impressions, 156k clicks; the lesson was a landing page with nothing real to
