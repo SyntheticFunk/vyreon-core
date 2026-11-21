@@ -1682,6 +1682,15 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   Worker log saved `checks/2026-11-21-block-1105-worker-log.txt`. **Byte-proof run started on the
   same build and node (`v-block-1105-off`: VYREON_WORKER_HISTORY=off and every overlap off, exporters
   serial): its published bodies must equal this run's apart from provenance digests (C-001 + D-405).**
+  **Codex final bottleneck check (`audits/2026-11-21-optimization-round-ee/final.md`): "Start the
+  build on 909d57ce": the curve has flattened.** Intent B (51–54 min; M0-ANALYTICS 174 of ~300
+  task CPU-min) and the surfaces (~57 min beside intent A) dominate; the 75–80-min later-day forecast
+  is too optimistic: with the surfaces' observed ~57 min, a later day lands at **≥ ~104 min** after the
+  index fix. One candidate might clear 5%: reusing exact M0 solves within a block (prior-day
+  endpoints recur: ceiling ~58 CPU-min/session, estimated 23–42 CPU-min and 3–6 wall-min if hit rates
+  hold): measure its hit rate on the first production block rather than delay. Others are small
+  (quote-window evidence indexed once, trace bytes passed through, surface inversion split, reference
+  summaries reused, fill filter copy).
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
