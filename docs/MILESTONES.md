@@ -1527,6 +1527,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   transient, fixed since): every entry P-01..P-24 is being re-checked against today's data (Claude
   agent) and its reasoning reviewed independently (Codex): still present / fixed since / never real,
   and whether reports 1–2 need corrections.**
+  **01:40 UTC: rerun (f401a104) refused day 1 at the plan: the Fed's H.15 download returned HTTP 503
+  (carry_inputs Fatal: curve-h15 503), so no curve; not an engine regression. H.15 still 503 at
+  01:50 (it served empty bodies at 01:03–01:10). Job stopped (core requeued 1422), node deleted.**
+  Risk: the droplet's daily capture at 12:06 UTC. Owner decision asked: Intrinio `$DGS*` as the
+  curve fallback when H.15 fails (the research found it equal to H.15 value for value on all 1,138
+  dates today; P-24 was its own transient outage in October), and a 503 treated as retryable.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
