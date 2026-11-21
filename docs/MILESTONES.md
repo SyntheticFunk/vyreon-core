@@ -1496,6 +1496,19 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   Q01's verified source identity (~137 cold CPU-min) but that changes an integrity rule. Two small
   correctness risks to fix: history ledger renamed without a parent-dir sync; a single admission file
   written to its final name (a crash mid-write fails the retry).
+  **Optimization triage b (prep + inputs) and c (reference check) done; all items real or partly.**
+  b: shortlist ~6–19 wall-min/session (planner threads largest-first, redundant quote-window passes
+  in the fill, one macro cutoff wait, history exporters in parallel, lazy carry fits); first day
+  measured at ~315 min to publish on the pass-2 image (fill 124 min) against 250: long blocks are the
+  lever; later days estimated ~145 min (unmeasured). c: ~40–50 CPU-min/session in the reference
+  check (≈20–30% of it), none on start → published. **Pass 3 started (21:30 MT), four tracks:**
+  fx81 reference suite (items 1–7 + 4 correctness risks + overlap/surface-stage measurements), fx82
+  executor + kernels (M0 largest-chain prerequisites first, history rows 16 at a time, intent B adopts
+  intent A's results, encode traces once, lazy carry fits, two crash-safety fixes, surface per-phase
+  timing), fx83 the four history endpoints share one verified source per asset-session (+ Q01 one
+  pass), fx84 inputs + prep (planner balance, fill redundant passes, macro wait, parallel exporters,
+  first-day captures concurrently if safe, 3 correctness risks). Owner items pending: endpoints
+  trusting Q01's verification (integrity rule); drop the A/B diagnostic in the fill (inputs 7).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
