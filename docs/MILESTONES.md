@@ -1733,7 +1733,8 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (2025-04-10..2026-11-20) in ~27 blocks of 15 on 27 day nodes: ~28 node-h a block (first day 226 min +
   14 × ~104) ≈ 760 node-h, plus tape re-downloads ~100 node-h ≈ 860 node-h × $0.167 ≈ **$145**
   (range $130–170 with reruns). Spend so far $180.41 month-to-date (DO, 2026-11-21 06:09 UTC), so the
-  build takes the total to ~$325, **past the $300 ceiling: owner's word needed.** Wall time: the
+  build takes the total to ~$325. **Owner, 2026-11-21: ceiling raised to $400 total** (phase 1 was
+  estimated at $300+ on its own before the optimization passes). Wall time: the
   request budget (~3.3M requests at ≤1,600/min ≈ 34 h of requests) and ~28 h of compute a block
   overlap: ~2–3 days.
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
