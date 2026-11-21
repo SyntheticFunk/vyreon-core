@@ -1652,6 +1652,19 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   min ("ended without a readable report": report.json truncated at line 645,531; its refcheck
   directory is now gone): an overlap defect (D-405 lever 2). Both being diagnosed (`pass-fx89`).
   Day 2 intent B started 08:51.
+  **09:51 UTC: day 2 (2026-11-06, a LATER day) PUBLISHED: 134 min from its start** (old image's
+  later days: 248 and 210 incl. their ~30-min check, so ~215/180 without; owner's later-day target
+  200). Its reference check runs beside day 3 (started at nice 19, 11.7 GiB free); day 3 (11-09)
+  started 09:51 after a 48-min download beside day 2.
+  **Both day-2 findings diagnosed and fixed (`pass-fx89`, D-405/D-408 amended 2026-11-21; held for
+  the next image):** (A) the "crash" was not the overlap: Python's json writes a non-finite float
+  as bare `Infinity`/`NaN` (invalid JSON, RFC 8259 §6), here DLM-EXPECTED-MOVE's half-spread band
+  whose upper end is `inf`; the report is now strict JSON (non-finite as strings, counted), written
+  atomically, and a check that crashes beside the next day reruns once at normal priority; (B) the
+  28 ms a reuse was a query-plan scan, not the disk: SQLite answered `parents_complete` and
+  `task_page` by reading all of the run's ~51,500 edges per call: two indexes added (all 42
+  statements' plans checked on the real index); replaying day 2's 62,849 reuses: 10.51 → 0.68 ms a
+  reuse (660 s → 43 s).
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
