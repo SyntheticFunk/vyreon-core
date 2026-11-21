@@ -1472,6 +1472,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (23–36 CPU-min every session); the reference check prices two unused QuantLib values per contract
   and could reuse its own chain summaries in a block (25–35 CPU-min); planner quote window and lazy
   carry fits on the critical path; a history store shared across blocks assessed.
+  **D-192 containment merged (`worker` 9e4382a2; full suite green on the branch).** (1) An option page
+  that can't be read: that asset-session's option source is withheld ENGINE_FAULT and only its readers
+  (T/T−5 option readers and surface, or the windows holding it) withhold; the day publishes. (2) An
+  empty curve tenor (D-106 2.2): a maturity reads the zero nodes bracketing it, so a tenor withholds
+  the maturities that read it; containment is per surface (each asset's surface is one fit, and the
+  financing spread pools one-year expiries): a missing short tenor (≤1Y) withholds every surface, a
+  missing DGS2/DGS3 only assets with expiries that far (UUP 2025-12-10: its 401- and 772-day
+  expiries); readings that use no surface publish. Finer containment (keep an asset's one-year surface
+  without its long expiries) would change the remaining values: an owner option, not done. Noted:
+  `Occ::quote_file` returns None silently on an unreadable quote file (to fix).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
