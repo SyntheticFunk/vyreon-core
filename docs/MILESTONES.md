@@ -1847,6 +1847,14 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (`cc1d67cf+f9676b89ff09`, 1,596 passed) is the phase-1 image** (launch brief's da3dade4 replaced).
   Cost seen: the tape verdict now takes 10–16 min a session (was ~2) for the reference quote pass:
   ≈ +35 node-h over phase 1 (~$6), inside the projection's range.
+- **Byte proof, days 1–2 (2026-11-05, 11-06; revisions 65–68 on vs 71–74 off, same build ceacfbc5):
+  7,912 of 7,916 published measurements equal after masking provenance (digests, result ids,
+  retrieval times, cutoffs).** The 4 that differ are BABA's CDD-CAPVAL01 and CDD-FND01 on both days,
+  and they come from inputs, not the switches: the company capture was re-fetched and differs (core
+  keeps both: identities 25f03361… vs 7d26deca… for 11-05, 0810d526… vs 6e0f5c5f… for 11-06; BABA's
+  share-count rows 12 vs 10, its history window FY2022Q4 vs FY2023Q4 first period). Off-run
+  timings: day 1 286 min from block start (on: 226), day 2 173 min (on: 134). Day 3 still running;
+  the comparison script is `scratchpad/byteproof` (masking rule in this entry).
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
