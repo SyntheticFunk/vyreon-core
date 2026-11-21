@@ -1626,6 +1626,9 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   fresh day node, history on, overlaps default; memory sampled to
   `checks/2026-11-21-block-1105-ceacfbc5-memory.tsv`, alert on any hold, refusal or worker crash.
   Baselines (old image 4944a182): first day 400 min start → published, later days 248/210.
+  05:27 UTC: first-day inputs done in **97 min** (old image 105, pass-2 image 124): the fill's own
+  CPU 188 min (×1.9) and its children's 376 min, logged for the first time (a pass-4 lead: the fill's
+  own CPU is large). Day 1 (11-05) computing.
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
