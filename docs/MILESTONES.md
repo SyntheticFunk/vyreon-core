@@ -1640,6 +1640,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   publishing) and the owner's 250-min first-day target.** Its reference check now runs beside day 2
   (deferred, D-405). Day 2 (11-06) started 07:36: quote window 341 s on 8 threads (largest-first,
   longest QQQ 168 s), plan + trim 4,147 → 232 MiB, intent A beside the surfaces at 07:48.
+  **08:38 UTC, day 2 intent A: 47,098 reuses + 704 executes in 50 min (~60 ms a reuse, no better than
+  the old 44 ms)** while the two surfaces (~200% CPU each) and day 1's deferred reference check
+  (8 python jobs at nice 19, ~84% each; load 9.5 on 8 vCPU) run beside it. Either the batched
+  commits don't cut the per-reuse cost on the cluster (laptop: 7.26 → 1.40 ms) or the coordinator is
+  CPU-starved by the overlap; the run's `reuse_commits` line and the task times will tell. Leading
+  pass-4 lever if it holds.
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
