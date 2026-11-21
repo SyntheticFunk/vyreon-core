@@ -163,6 +163,8 @@ first publication of either; ideally free and paid are ready together. Google Ad
    web only receives and serves, holds no credential into core and never calls in (the 11-17
    ruling kept). Left for scoping: the web's receiving end (how pushed pages land and publish; the
    web has no such feature yet) and porting Reporter from the older system to core's API.
+   Owner: Reporter (C#) is lightweight; on core, **core calls it only when ready** (when the week's
+   sessions are published and checked), not on a blind schedule.
    **After the MVP (owner, 2026-11-21):** automated social posting of highlights and unusual
    measurements as they are detected (the same publish-time number guard and plain-voice rules as
    the reports); CI as the home for agentic loops once there is revenue.
@@ -1916,6 +1918,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
      #19), legacy and cost. **h3-replay test edits wait until its reader digest covers non-test code
      only** (else every stored tape cache is invalidated). Then mutation testing on the critical
      crates.
+     **Reference-side items done 2026-11-21 (`worker` 24713351, Python only, image unchanged):** #5
+     XNYS calendar, #10 D-404 rule scoped per check, #11 bins aligned before comparing, #16
+     M0-FIELD-ANALYTICS compared (19 roles bit-equal on real 2025-12-10) and unverifiable owners
+     reported as `not_verified`, never passed; reference pytest 158 passed / 107 skipped (was
+     149/105). Found: `company_inputs.EARLY_CLOSES` lacks 2022-11-25, 2023-07-03, 2023-11-24 and
+     2027-11-26 (outside phase 1's range; fix before deeper history).
   6. After phase 1: `cargo audit`, `pip-audit`, an image scan, and a secret scan of vyreon-core's
      public history (before go-live). CI later (owner, 2026-11-21: "eventually", a place for agentic
      loops once there is real revenue; agent loops cost API billing, which needs revenue). First goal:
