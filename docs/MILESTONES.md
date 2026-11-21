@@ -156,7 +156,10 @@ first publication of either; ideally free and paid are ready together. Google Ad
    decided at scoping: the web droplet, its own droplet, or (my recommendation, fitting the 11-17
    ruling that core's reader API stays inside the cluster and output is pushed out) a weekly
    CronJob beside core on the always-on core node that pushes pages to the web droplet and the
-   paid issue to beehiiv.
+   paid issue to beehiiv. **Owner, same day: Reporter as part of core or a container on the core
+   node ("fairly sensible"); not on the web droplet, because the public web is the attack surface.**
+   Open: whether the web droplet reads core directly (owner: "web reading core is fine") or receives
+   pushed pages (the 11-17 ruling); asked.
    **After the MVP (owner, 2026-11-21):** automated social posting of highlights and unusual
    measurements as they are detected (the same publish-time number guard and plain-voice rules as
    the reports); CI as the home for agentic loops once there is revenue.
