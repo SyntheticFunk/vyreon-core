@@ -1701,6 +1701,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   **13:44 UTC: tape sample done: 64 PASS on each of the four sessions (256 of 256: the independent
   reference reader agrees with D-412), ~2 min a session for verdicts; tape node deleted.** Closes vs
   the official bars and the source counts being checked from the new caches.
+  **Check of the new caches (`checks/2026-11-21-d412-tape-sample.md`): the CLOSE fix works, the OPEN
+  half is wrong.** Closes: QQQ 05-06 = 695.77 and AAPL 11-02 = 338.32 (both from Nasdaq's `9`); 63/64
+  official closes matched on each complete session; five @6 errors now right. Opens: Intrinio's
+  official open is the consolidated first print (equal to @6's open on 254/256; 31 official opens off
+  the cent grid, so not auction prices), and the listing market's `O` differs on 131/256: gate 2 would
+  fail 98 of 192 instead of 6. ARKK's three wrong closes come from a stale exchange_mic (P-25: ARCX,
+  but on Cboe BZX since 2025-03-31). **D-412 is being revised (branch `pass-fx90`): open = the
+  consolidated first print (SIP convention, as @6); close keeps D-412's order with the listing market
+  taken from the tape (the `9`'s sender), the MIC only as fallback.** 97389cc0 is not the build image;
+  the next tape sample must show opens 254/256 and closes ≥ 63/64 a session, ARKK from BZX's `9`.
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
