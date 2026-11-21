@@ -93,7 +93,8 @@ Next:
 **Image cc1d67cf** (build `cc1d67cf+f9676b89ff09`, 1,596 passed; @13 tape sample 256/256 PASS, all
 six quote fields compared, bodies identical to @12, run with the phase-1 tape template; replaces
 da3dade4). Core runs `vyreon-core:139a21b` (the image needs ≥ 996ad69). Confirm the build is
-registered and admitted (`vyreon-core build register|admit`) before scheduling.
+registered and admitted (done 2026-11-21 ~20:00 UTC for its tape sample; re-check with core before
+scheduling).
 - **Range:** 2025-04-10..2026-11-20, 407 sessions (every sensor at full window on the newest week;
   no old-layout snapshot; no 2023 gap). Phase 1 opens two days after VIX's 2025-04-08 peak (~52).
 - **Layout:** blocks of 15 on ~27 `s-8vcpu-16gb-amd` day nodes (droplet limit 30: web, the engine
@@ -155,7 +156,7 @@ registered and admitted (`vyreon-core build register|admit`) before scheduling.
      transfer 2025-12-09, special dividends (EWJ 2025-12-16), every early close, the P-23 era
      boundary 2025-11-26, the bulk-file fault days (P-20, P-21), the 2025-12-05 ETF splits.
   4. Determinism at scale: a few random sessions re-run on a different node, byte for byte with
-     provenance masked (as the byte proof; script `scratchpad/byteproof`).
+     provenance masked (as the byte proof; script `~/claude-artifacts/checks/byteproof/compare.py`).
   5. Look-ahead audit over the built store: nothing uses data stamped after its cutoff (filings,
      macro releases, restated captures such as BABA's of 11-21).
   Then try to break it and fix what breaks.
@@ -297,6 +298,9 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   expose what we are doing in the marketing. Major verification and checking areas should all be
   highlighted on vyreon-web eventually"); the explainer shows a real sample issue, price, refund
   terms and the verification record (2026-11-21); plain voice; a publish-time number check.
+  Owner, 2026-11-21: the aim is reports that are readable and verifiable, not "not looking like AI"
+  (that framing "is an absolute trap"); explain freely, never invent a number (vyreon-reporter
+  README "Owner direction: readable and verifiable", 9e769bf).
 - **Ads (2026-11-21), after free + paid are live:** free reports link to a paid-product explainer;
   ads advertise only the explainer (the prototype's lesson: a landing page with nothing real to
   show); judged on purchases and cost per sale in budget tranches, stop rule fixed before spending.
