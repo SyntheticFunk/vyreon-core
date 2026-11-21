@@ -1568,6 +1568,12 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   lazy carry fits (−33% carry fits, but only ~0.7% of surface time: inversions are 95%; surface files
   byte-identical on 37 real asset-days); durable admission and ledger writes; h5_surface per-phase
   timing and per-day CPU log lines.
+  **Pass 3 complete and merged: image 4c6119bb (build 4c6119bb+b25d2deb87bd; 1,570 passed; reference
+  126) = pass 2 fixes + D-407 + D-192 containment + D-408/409/410 + reference pass 3 + D-411 gates.**
+  Not run on the cluster yet: the Fed's H.15 still answers 503 (02:40 UTC), so a block would refuse
+  at the curve. Building the curve fallback now (`pass-fx86`: 5xx/empty retryable, then Intrinio's
+  `$DGS*` series, source recorded in the manifest); deploying it to the droplet's daily capture
+  needs the owner's word.
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
