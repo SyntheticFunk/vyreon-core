@@ -1548,6 +1548,19 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   and directories, ≤60 s); profile/calendar built once per worker (E7); Q01 decodes its raw pages
   once (E3). Laptop: per-session cost −64% on nine real chains. Estimated cold intent A: endpoints
   247 → 70–100 CPU-min, Q01 83 → 45–60. Every task key moves once; no method identity moves.
+  **D-411 tape gates merged (`worker` merge of pass-fx85; full tests running; tape-cache identity
+  unchanged, gates in `h3-replay/src/official.rs`, read rule @4):** gate 1 VWAPs withheld with the
+  volume gate; gate 2 tape open/high/low/close must equal the official traded bar within half the
+  tape's price step, else the price family is withheld (TAPE_INCOMPLETE_AGAINST_OFFICIAL_BAR when
+  the tape is thin, TAPE_DIFFERS_FROM_OFFICIAL_BAR otherwise); gate 3 replay quote widths withheld
+  from 2026-11-06 (date rule: no data-based detector works; midpoints kept, unbiased). Recorded
+  days: 2025-04-11 gate 2 fires on 38 of 64; era 3 0–5 a day; P-04 days gate 1 on 56–63. **Engine
+  defect found: on complete era-3 tapes 119 of 2,133 sessions (9 assets) fail gate 2 because the
+  engine's close takes the later-stamped of two closing-auction prints (QQQ 2026-05-06 695.60 vs
+  official 695.77; AAPL 2026-11-02 339.31 vs 338.32), and some opens differ from the listing
+  market's: withheld honestly as engine-classed for now; the fix (use the listing market's own
+  closing/opening print) changes the reader identity and so every stored tape cache: owner
+  decision.**
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
