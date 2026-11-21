@@ -169,6 +169,13 @@ first publication of either; ideally free and paid are ready together. Google Ad
    core service, scheduling, archive, Reporter) and web (public, serves what core pushes); workers
    on demand.** The `vyreon-engine` droplet retires once daily go-forward runs are live on the
    cluster, its perishable captures are archived through core, and its database is carried in.
+   **Ads after free + paid are live (owner, 2026-11-21):** every free report links to a paid-product
+   explainer page, and the ad campaign advertises only that explainer (Google Ads worked for the
+   prototype: 1.58M impressions, 156k clicks; the lesson was a landing page with nothing real to
+   show). The explainer shows a real sample issue, price and refund terms, and the verification
+   record; judged on purchases and cost per sale in budget tranches with a stop rule fixed before
+   spending. Search to the free per-asset pages (intent queries such as IV, put/call ratio) is
+   worth revisiting once those pages answer with live numbers.
    **After the MVP (owner, 2026-11-21):** automated social posting of highlights and unusual
    measurements as they are detected (the same publish-time number guard and plain-voice rules as
    the reports); CI as the home for agentic loops once there is revenue.
