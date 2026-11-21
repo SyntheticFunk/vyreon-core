@@ -150,6 +150,13 @@ first publication of either; ideally free and paid are ready together. Google Ad
 7. **(5) The launch decision:** pay for Intrinio's Startup tier and integrate Reporter's output
    into the website. After it, or when wanted: the deeper history (the old snapshot layouts are
    readable since D-251..D-254; the 2023-01-18..03-07 gap needs a ruling), the FIELD campaign.
+   **Reporter placement (owner, 2026-11-21, to scope after phase 1's problems are fixed):** Reporter
+   runs on DigitalOcean and the whole system runs itself; the laptop is out of the loop. Much of
+   Reporter's framework exists for the older system and needs porting to core's API. Placement
+   decided at scoping: the web droplet, its own droplet, or (my recommendation, fitting the 11-17
+   ruling that core's reader API stays inside the cluster and output is pushed out) a weekly
+   CronJob beside core on the always-on core node that pushes pages to the web droplet and the
+   paid issue to beehiiv.
    **After the MVP (owner, 2026-11-21):** automated social posting of highlights and unusual
    measurements as they are detected (the same publish-time number guard and plain-voice rules as
    the reports); CI as the home for agentic loops once there is revenue.
