@@ -1725,6 +1725,17 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   the range; Python misses 2023–24 early closes; the reference does not check the close source;
   constructed prints in tests). **Triage + fixes running (branch `pass-fx91`).** The c70ed7a2 tape
   sample still runs for real evidence (e.g. whether BZX sends ARKK's `9`).
+  **15:03 UTC: c70ed7a2 tape sample: 64 PASS on all four sessions (256/256); both tape nodes deleted.**
+- **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
+  database build; the build runs on the current key (2,000 requests/min).** Phase 1 is now gated only
+  on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
+  Provisional totals (current measured times; refine before the decision): 407 sessions
+  (2025-04-10..2026-11-20) in ~27 blocks of 15 on 27 day nodes: ~28 node-h a block (first day 226 min +
+  14 × ~104) ≈ 760 node-h, plus tape re-downloads ~100 node-h ≈ 860 node-h × $0.167 ≈ **$145**
+  (range $130–170 with reruns). Spend so far $180.41 month-to-date (DO, 2026-11-21 06:09 UTC), so the
+  build takes the total to ~$325, **past the $300 ceiling: owner's word needed.** Wall time: the
+  request budget (~3.3M requests at ≤1,600/min ≈ 34 h of requests) and ~28 h of compute a block
+  overlap: ~2–3 days.
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
