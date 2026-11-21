@@ -1749,6 +1749,16 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   fallback 64 (all the truncated 01-02); one `9` sender at most everywhere. Reference verdicts NOT_RUN
   on all 256 (PROFILE.json missing from the image: round-2 finding 6 confirmed).** Evidence passed to
   the round-2 fix agent.
+  **D-412 round 2 triaged and fixed (`triage-round2.md`): 14 real, 2 unverifiable (ARKK's settled by the
+  @9 sample); only finding 6 (image omits PROFILE.json) above the cut line. 18 commits merged, `worker`
+  d0f58e81 (METHOD @10, READ@8, D111@8, UPATH@9, EVC01@11, UACT@4, DLM-VWAP@3.2.4); 1,588 passed on the
+  branch.** Rules chosen: a UTP `L` sets the consolidated last only if stamped and received by Intrinio
+  before 16:00:10 (the file has no SIP receipt time; cost 0 on the @9 sample); no UTP print at or
+  after 16:00:10 is price-setting (UTP §2.5.2.2); zero-share executions excluded; a bar contains its
+  close (no published standard; stated in D-412). Full tests + image building (the build now checks
+  PROFILE.json is in the image); Codex round 3 running with cut-line marks. **The build image is the
+  round-2 image if its tape sample passes (all reference verdicts PASS) and round 3 finds nothing
+  above the cut line.**
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
