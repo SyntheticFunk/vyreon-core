@@ -182,6 +182,9 @@ first publication of either; ideally free and paid are ready together. Google Ad
    `~/claude-artifacts/literature/SYNTHESIS-vyreon.md` and `SYNTHESIS-client-spec.md` (the
    e-commerce books' Vyreon actions and client spec R-ids). The archived prototype SPY reports
    (`vyreon-web` `/spy/`) are `noindex` and unlinked.
+   **Owner, 2026-11-21: implementation work (Reporter) proceeds while phase 1 builds; expected 1–2
+   weeks for Reporter + web.** First step running: a read-only Reporter-vs-core gap scan
+   (`audits/2026-11-21-reporter-gap/`) → a sized, ordered work list for the fresh session.
    **Ads after free + paid are live (owner, 2026-11-21):** every free report links to a paid-product
    explainer page, and the ad campaign advertises only that explainer (Google Ads worked for the
    prototype: 1.58M impressions, 156k clicks; the lesson was a landing page with nothing real to
