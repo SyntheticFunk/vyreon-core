@@ -1635,6 +1635,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   (pass 2: 114; old image: ~156). Intent B started 06:42 UTC; no worker crash 21 min in.
   **07:31 UTC: intent B completed in 49 min (old image 71; pass 2 crashed here): the crash fix (arena
   cap) holds on a real day.** Export index 3 min; day 1 in its tail now.
+  **07:36 UTC: day 1 (2026-11-05, a block's FIRST day) PUBLISHED: 226 min from the block's start
+  (inputs 97 + day 129), against 400 on the old image (which ran its 28-min reference check before
+  publishing) and the owner's 250-min first-day target.** Its reference check now runs beside day 2
+  (deferred, D-405). Day 2 (11-06) started 07:36: quote window 341 s on 8 threads (largest-first,
+  longest QQQ 168 s), plan + trim 4,147 → 232 MiB, intent A beside the surfaces at 07:48.
   **D-412 citations verified against the primary documents (CTS Pillar v2.11b §7.0; UTP v4.1
   §3.14; Nasdaq 4754/4752; NYSE 1.1(u), 7.35A/B; Arca 1.1(ll), 7.35-E; BZX 11.23).** The draft rule
   departs from them in places: round-lot test on the `6` print; the fallback (another market's `6`
