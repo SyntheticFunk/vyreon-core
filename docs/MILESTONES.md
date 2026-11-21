@@ -1482,6 +1482,20 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   expiries); readings that use no surface publish. Finer containment (keep an asset's one-year surface
   without its long expiries) would change the remaining values: an owner option, not done. Noted:
   `Occ::quote_file` returns None silently on an unreadable quote file (to fix).
+  **Optimization triage a (executor + kernels, `round-dd/triage/a.md`): 15 opportunities, none not
+  real.** Confirmed/partly, counted: 76–135 CPU-min and 7–26 wall-min per session on 3-day blocks;
+  31–60 CPU-min and 4–14 wall-min on 15-day blocks; 70–135 h of effort. Key point: phase 1 at ~400
+  sessions on 24–27 nodes is ~15-day blocks all starting together, so first-day-only savings shrink
+  ~5× and cross-block history reuse goes to ~0; every-day items dominate. Shortlist: M0 largest-chain
+  prerequisites first (4–8 h, 2–6 wall-min every day); four endpoints share one source admission
+  (21–39 h; 11–16 CPU-min/session on 15-day blocks, 10–30 wall-min on a first day); encode M0 traces
+  once; declare history rows 16 at a time; intent B adopts intent A's exact results; one raw pass in
+  Q01. Measure first: h5_surface phase profile (on the critical path every day, never profiled),
+  post-pass-2 intent B. Within 15-day blocks: reuse day T−5's own T surface as day T's T−5 surface
+  (could halve surface work on 10 of 15 days; needs a byte check). Owner item: endpoints could trust
+  Q01's verified source identity (~137 cold CPU-min) but that changes an integrity rule. Two small
+  correctness risks to fix: history ledger renamed without a parent-dir sync; a single admission file
+  written to its final name (a crash mid-write fails the retry).
 - **01:52 UTC Nov 19: download speed (owner's question). The download was never rate-bound.** The
   real day fetched option history at ~67 requests/min (4% of the 1,800 budget): Intrinio answers
   in ~2 s and the engine held a fixed 4 in flight. Probe (AAPL, 288 real requests): 4 → 106/min,
