@@ -1811,6 +1811,11 @@ Nothing wrong has been stored; every fault refused, held or was caught by a comp
   a refusal stopping the verdict-only fallback, the reference comparing only quote closes, reader.rs
   missing from the reader fingerprint, D-102 constructed quotes). Triage + fixes running beside
   (`pass-fx95`); they reach the build's tape family by a scoped republish if any value moves.
+  **18:39 UTC: da3dade4 (@12) tape sample: 256/256 PASS; closes 192/192, opens 191/192; no off-date
+  quotes in any of the four sessions' files (`quotes_off_session_date` 0 everywhere), and every
+  5-minute body, close source and listing basis identical to @11; nodes deleted. da3dade4 is the
+  phase-1 image.** Byte-proof run on ceacfbc5: day 1 published (177 min, switches off; its inline
+  reference check hit the old non-finite-JSON crash fixed since 909d57ce), day 2 running.
 - **Owner, 2026-11-21: the Startup tier is needed only for display rights, so it is bought AFTER the
   database build; the build runs on the current key (2,000 requests/min). If everything including phase 1 is done by 11-25, the owner buys it that day (the offer); the build does not wait for it.** Phase 1 is now gated only
   on the D-412 image (audit fixes, tape sample), the byte proof, and the owner's spend decision.
