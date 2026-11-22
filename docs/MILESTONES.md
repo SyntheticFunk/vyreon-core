@@ -118,7 +118,7 @@ Next:
 ## Phase-1 launch brief (agreed with the owner 2026-11-21; C-060, C-061)
 **Image cc1d67cf** (build `cc1d67cf+f9676b89ff09`, 1,596 passed; @13 tape sample 256/256 PASS, all
 six quote fields compared, bodies identical to @12, run with the phase-1 tape template; replaces
-da3dade4). Core runs `vyreon-core:139a21b` (the image needs ≥ 996ad69); settings since 2026-11-21
+da3dade4). Core runs `vyreon-core:a60f0fe` (deployed 2026-11-22 ~04:45 UTC: C-061..C-064, migrations to 0041); settings since 2026-11-21
 (before 23:57 UTC): `VYREON_CORE_REFCHECK_FROM=2024-07-09` (C-054; was unset), `VYREON_CORE_INTRINIO_PER_MINUTE=1900` (owner: the account's 2,000 a minute, shared by every
 node; was 1,500), both in `deploy/k8s/20-core.yaml`. Re-check the build is registered and admitted
 before scheduling.
@@ -223,7 +223,13 @@ before scheduling.
   records the carry capture already holds: skip under D-404, restart only without them). Flag-gate
   fixes on main (354059a). Round 2 running: core (all 17) and engine (#2 ledger for unpublished
   sessions, D-423 revision, #3, #10, #14, #15).
-- Then: merge both branches, the engine's full suite, new images, deploy core (migrations 0031+),
+- Core round 3 (core-r2 audit, 11 real) fixed and `core-c061` merged (a60f0fe; 37 unit + 109 database
+  tests on merged main); core image a60f0fe deployed, migrations 0031..0041 applied, queue empty. Core's
+  claim rules are not audited again before the build: the test block proves them on real data.
+- Engine round 3 running (engine-r2 audit: the D-423 skip reverted to the restart, provider dividend
+  listings omit real distributions (P-22, EEM 2023-12-20); FXI two-date adjustment; ACT01 ledger; SPY
+  beta count; reference P01 and event window; derive_day ledger; worker error dating).
+- Then: merge `eng-gap`, the engine's full suite, new images,
   register/admit the engine image (check its history profile revision), withdraw the old builds,
   `days retire --preview` to the owner, schedule the whole-range ordered passes, tapes and the test block.
 - **Owner decision (2026-11-22):** the 24 PUBLISHED days of 8 earlier builds (2022-06-06..15 and 16 in
