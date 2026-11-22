@@ -816,6 +816,47 @@ async fn withdrawing_a_build_stops_its_running_jobs() {
     scratch.drop().await;
 }
 
+/// Audit 2026-11-22 prebuild (changes-core.md) 7: a fallen day whose only unfinished pass was of a
+/// withdrawn build counted as derived again: the publishing build got no pass, the withdrawn one
+/// never ran, and no problem was opened. Now that pass is cancelled and the day's pass goes to the
+/// publishing build. The 11th's pass of the earlier build scheduled again (queued), that build
+/// withdrawn, then the new build publishes the 10th.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_fallen_day_whose_pass_is_under_a_withdrawn_build_goes_to_the_publishing_build() {
+    let (scratch, mut client, b, d) = ready("c063_unfinished").await;
+    admit(&client, &b).await;
+    admit(&client, &d).await;
+    let days = ["2025-12-10", "2025-12-11"];
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[0], days[1], 30).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, days[0], days[1], 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    for day in days {
+        publish_base_as(&mut client, &b, &block, day).await;
+    }
+    work::finish(&mut client, &block.token).await.unwrap();
+    while run_pass(&mut client, &d).await.is_some() {}
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, days[1], days[1], 1).await.unwrap();
+    let stale = count(&client, "SELECT job_id FROM core.job WHERE kind = 'ORDERED_PASS' AND state = 'QUEUED'").await;
+    build::withdraw(&mut client, &d, "its image is replaced").await.unwrap();
+
+    let w = whole_build(&mut client).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &w, days[0], days[0], 1).await.unwrap();
+    let fresh = work::claim(&mut client, Kind::DayBlock, &w, "w2", HOUR).await.unwrap().unwrap();
+    publish_base_as(&mut client, &w, &fresh, days[0]).await;
+    work::finish(&mut client, &fresh.token).await.unwrap();
+    let row = |day: &str, build: &str, state: &str| (day.to_owned(), build.to_owned(), state.to_owned());
+    assert_eq!(passes_by_build(&client).await, [row(days[0], &d, "DONE"), row(days[0], &w, "QUEUED"), row(days[1], &d, "DONE"), row(days[1], &d, "CANCELLED"), row(days[1], &w, "QUEUED")]);
+    let said = notices(&client).await;
+    assert!(said.iter().any(|n| n.contains(&format!("passes under builds that do not run cancelled: jobs {stale}; the ordered pass derives 2 days again"))), "{said:?}");
+    let mut ran = Vec::new();
+    while let Some(day) = run_pass_as(&mut client, &w).await {
+        ran.push(day);
+    }
+    assert_eq!(ran, days);
+    scratch.drop().await;
+}
+
 /// Publishes `day`'s base (the slice's real bodies under that date: core's checks never read a
 /// body's date) under the block's lease and says the day is done.
 async fn publish_day(client: &mut Client, claim: &Claim, day: &str) {
