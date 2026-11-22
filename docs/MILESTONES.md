@@ -256,6 +256,38 @@ published day to #vyreon-progress, runs the block's 10 ordered passes, then dele
 Judge in the morning: gates a–c per day, holds, memory per day, one node's request draw (Intrinio
 usage vs core's ledger), wall times; then fix what it shows.
 
+## Resume here if the session is lost (written 2026-11-22 04:55 UTC)
+Run every step with `KUBECONFIG=~/claude-artifacts/cluster-scratch/kubeconfig` and
+`VYREON_DOKS_CLUSTER=5f56e6e0-1c74-4dc9-bfdb-962ee55ebff3` (refresh the kubeconfig from DO before
+~2026-11-25). Recommendation and evidence to the owner before anything that costs money or deletes.
+1. **State:** `tail ~/claude-artifacts/cluster-scratch/testblock/run.log`; is `run.sh` still running
+   (`ps -eo args | grep -c "[t]estblock/run.sh"`)? Then `deploy/k8s/ops/health.sh`. If run.sh
+   stopped with STOP, read why; if worker nodes are up with no worker pod, `delete-idle.sh`.
+2. **Judge the test block** (2024-07-09..07-22): `vyreon-core refcheck list 2024-07-09 2024-07-22` and
+   `refcheck show <date>` (gate a); Cboe bands: `tools/external/values.sql` → `cboe.py --band-only`
+   with the cache `~/claude-artifacts/cboe-cache` (gate b); EDGAR (`tools/external/edgar.py`, gate c);
+   `vyreon-core evidence list` for any failed day; the worker's `memory after <T>` lines per day;
+   Intrinio usage (Intrinio MCP `get_account_usage`) against core's request ledger for one node's
+   draw; wall time per day. Report to the owner with numbers; fix what it shows (worktree per fix,
+   audit, merge, image) before anything else.
+3. **Core branch `core-watch`** (`/home/diggz/wt/core-watch`; may be unfinished): item 1 claim race,
+   item 3 watch checks, progress-channel routing. Finish, test (unit + `--ignored`), Codex audit,
+   merge, deploy (`docker build -f deploy/core/Dockerfile`, push, `kubectl set image ... core= migrate=`),
+   mount secret `vyreon-core-progress-webhook`. Registry login: DO API docker-credentials (pass both
+   parts by stdin, never on a command line).
+4. **Engine:** the claim retry (loose end) plus the test block's fixes → full suite → new image
+   (`deploy/worker/build.sh`), `build register/admit` with evidence, withdraw the replaced build.
+5. **Item 2 (KEDA + autoscaling):** `helm install keda kedacore/keda --namespace keda
+   --create-namespace` (2.21), one ScaledJob per kind on the `postgresql` trigger counting
+   `core.claimable_job`, pool `day` autoscale min 0; prove it on a short real run. **Item 4:** caps from
+   the measured request draw (step 2).
+6. **Full build:** schedule tapes 2024-07-23..2026-11-20 and day blocks 2024-07-23..2026-11-20 in blocks
+   of 15 (the ordered passes are already scheduled for the whole range: never schedule them again);
+   switch daily runs on from 2026-11-23 (`VYREON_CORE_DAILY_FROM`/`_BUILD`, apply `40-daily.yaml`) with
+   `VYREON_CORE_DEADLINES_FROM` = the live date; watch spend against $500.
+7. **Then:** whole-store gate (history reference check; `tools/external/flags.py`, refresh Cboe files
+   through 11-20 first), census, backups to Spaces with a restore drill, Reporter.
+
 ## Before the full build: the system runs without a watcher (owner, 2026-11-22: "do all 4")
 Tonight's test-block tapes needed an operator for four things: Job completion counts (the Job ran out
 with 51 tapes left and 8 nodes idle), node sizing and idle deletion, spotting non-failure oddities, and
