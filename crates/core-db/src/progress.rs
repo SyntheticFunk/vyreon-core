@@ -121,7 +121,9 @@ pub async fn lines(c: &impl GenericClient, profile: &str, start: &str, end: &str
     };
 
     // each day published: its day-local revision (a block publishes the base, then the day-local
-    // revision on it, C-031), with the lease of the block that published it
+    // revision on it, C-031), with the lease that published it (`core.lease_revision`; none when
+    // it was published by hand: no block, no minutes), the minutes counted from that lease's
+    // previous day-local revision or its grant
     let days = c
         .query(
             &format!(
@@ -130,10 +132,8 @@ pub async fn lines(c: &impl GenericClient, profile: &str, start: &str, end: &str
                             WHERE l.day_local AND l.profile_id = $3 AND l.published_at > $1::text::timestamptz AND l.published_at <= $2::text::timestamptz)
                  SELECT {words}, d.base, d.local, x.job_id, x.worker, x.first_session::text, x.last_session::text,
                         extract(epoch FROM d.published_at - GREATEST(x.granted_at,
-                            (SELECT max(p.published_at) FROM vyreon.day_revision p
-                             WHERE p.day_local AND p.profile_id = d.profile_id AND p.engine_build = d.engine_build
-                               AND p.represented_date BETWEEN x.first_session AND x.last_session
-                               AND p.published_at >= x.granted_at AND p.published_at < d.published_at)))::float8 / 60,
+                            (SELECT max(p.published_at) FROM core.lease_revision pr JOIN vyreon.day_revision p USING (revision_id)
+                             WHERE pr.lease_id = x.lease_id AND p.day_local AND p.published_at < d.published_at)))::float8 / 60,
                         (SELECT jsonb_build_object('id', r.refcheck_report_id, 'outcome', r.outcome, 'checked', r.checked, 'failed', r.failed,
                                                    'unexplained', r.failed_unexplained, 'reference_errors', r.reference_errors, 'why', r.why)
                          FROM core.refcheck_report r
@@ -141,11 +141,9 @@ pub async fn lines(c: &impl GenericClient, profile: &str, start: &str, end: &str
                            AND r.stored_at <= $2::text::timestamptz
                          ORDER BY r.stored_at DESC, r.refcheck_report_id DESC LIMIT 1)::text
                  FROM d LEFT JOIN LATERAL (
-                     SELECT l.job_id, l.worker, l.granted_at, j.first_session, j.last_session FROM core.lease l JOIN core.job j USING (job_id)
-                     WHERE j.kind = 'DAY_BLOCK' AND j.profile_id = d.profile_id AND j.engine_build = d.engine_build
-                       AND d.day BETWEEN j.first_session AND j.last_session
-                       AND l.granted_at <= d.published_at AND (l.ended_at IS NULL OR l.ended_at >= d.published_at)
-                     ORDER BY l.granted_at DESC LIMIT 1) x ON true
+                     SELECT l.lease_id, l.job_id, l.worker, l.granted_at, j.first_session, j.last_session
+                     FROM core.lease_revision lr JOIN core.lease l USING (lease_id) JOIN core.job j USING (job_id)
+                     WHERE lr.revision_id = d.local AND j.kind = 'DAY_BLOCK') x ON true
                  ORDER BY d.published_at, d.day",
                 words = day("d.day")
             ),

@@ -2177,6 +2177,52 @@ async fn progress_states_a_check_only_of_the_revisions_it_checked() {
     scratch.drop().await;
 }
 
+/// Audit round 2 of core-watch, 11: a day-local revision published by hand inside a running
+/// block's dates was credited to the block's worker, and its time shortened the block's next day.
+/// What published a revision is now recorded (`core.lease_revision`): the hand revision has no
+/// block and no minutes, and the block's next day counts from the block's own previous day. The
+/// publication times are set on the test's clock (granted, +10, +50 by hand, +60 min).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn progress_credits_a_day_only_to_the_lease_that_published_it() {
+    use core_db::progress;
+    let (scratch, mut client, b, _) = ready("r2w_progress_lease").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-11", 2).await.unwrap();
+    let claim = work::claim(&mut client, Kind::DayBlock, &b, "day-7f2c", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &claim, "2025-12-10").await;
+    let tenth = count(&client, "SELECT revision_id FROM vyreon.day_revision WHERE day_local AND state = 'PUBLISHED'").await;
+    let base = base_of(&client, "2025-12-10").await;
+    let by_hand = day_local(&mut client, &b, "2025-12-10", base, None).await;
+    publish_day(&mut client, &claim, "2025-12-11").await;
+    let eleventh = count(&client, "SELECT revision_id FROM vyreon.day_revision WHERE day_local AND state = 'PUBLISHED' AND represented_date = '2025-12-11'").await;
+    assert_eq!(count(&client, "SELECT count(*) FROM core.lease_revision").await, 4, "the block's two bases and two day-local revisions");
+    for (revision, minutes) in [(tenth, 10), (by_hand, 50), (eleventh, 60)] {
+        client
+            .execute(
+                "UPDATE vyreon.day_revision SET published_at = (SELECT granted_at FROM core.lease WHERE job_id = $2) + make_interval(mins => $3) WHERE revision_id = $1",
+                &[&revision, &claim.job_id, &minutes],
+            )
+            .await
+            .unwrap();
+    }
+    let now: String = client
+        .query_one("SELECT (granted_at + interval '61 minutes')::text FROM core.lease WHERE job_id = $1", &[&claim.job_id])
+        .await
+        .unwrap()
+        .get(0);
+    let posts = progress::preview(&client, PROFILE, &now).await.unwrap();
+    let lines: Vec<&str> = posts[0].lines().collect();
+    assert!(lines[1].starts_with("Published Wed Dec 10, 2025: ") && lines[1].ends_with(" · reference check not in yet"), "by hand: no block, no minutes: {}", posts[0]);
+    assert!(
+        lines[2].starts_with("Published Thu Dec 11, 2025: ")
+            && lines[2].ends_with(&format!(" · reference check not in yet · 50 min · block 2025-12-10 to 2025-12-11 on day-7f2c (job {})", claim.job_id)),
+        "{}",
+        posts[0]
+    );
+    scratch.drop().await;
+}
+
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn cancelling_a_job_ends_its_lease_and_takes_it_out_of_the_queue() {
