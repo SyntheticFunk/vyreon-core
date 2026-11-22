@@ -312,6 +312,14 @@ usage vs core's ledger), wall times; then fix what it shows.
 4. Provider fault: 2024-06-10/06-13 snapshots' positive first-session OI (new P-number).
 5. Core: deploy 7c96453 (C-065) after the block; items 2 and 4 (KEDA, caps).
 6. Then a new image, the test-block range recomputed by the full build, gate a re-judged on it.
+**Fixed on engine branch `eng-tb` (83c3be01, 2026-11-22; Codex audit running):** D-428 FND01 bridge
+(LLY 0.7857/14, 0.5385/13; GOOGL, NVDA unchanged), D-429 V02 empty chain (IBIT), D-430 claim retry,
+D-431 the reference to the engine (A, C, E, F, G, H, J). Re-run on the worker's real 2024-07-11:
+company/FIELD/price/ACT01 owners 104 → 3 unexplained (BABA, owner's call; LLY expects the fixed engine),
+IBIT/WMT/ARKK chain owners 150 → 25 (all IBIT V02, gone with D-429), IBIT option owners 22 → 0. ACT01's
+reason before 2024-11-26 stands (D-237: deliberate). Owner decisions: NVDA's challenge list (D), BABA's
+same-day dividends (I), first-session EOD zero (D-398), a young asset shown SPY's own return (C).
+Loose end: the worker leaves `<defunct>` refcheck python processes (harmless, unreaped).
 
 5. **2024-07-10 published 09:50 UTC (~100 min after day 1)**; memory after it 1,617 MiB resident, 212
    MiB after the trim.
