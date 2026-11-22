@@ -95,8 +95,15 @@ pub async fn admit(client: &Client, build: &str, evidence: &Value) -> Result<(),
 /// commit (that day is published, before the withdrawal) or the publish finds the lease ended and
 /// writes nothing; never half. A claim takes the build's row first (`work::claim`), so none is
 /// granted under a build being withdrawn. Returns the jobs whose lease it ended.
+///
+/// It takes the publish lock first, as a publish, a claim of an ordered pass, `retire`, `omit`, a
+/// schedule of ordered passes, `cancel`, a lease's failure and its expiry do (audit 2026-11-22 round 2,
+/// core-r2 7 and 8): a publish's re-derive then reads one state of the builds in all its statements
+/// (a withdrawal between them left an old build's queued pass in the way of the new build's), and the
+/// leases-then-jobs order every holder of the lock takes rows in leaves no cycle with `retire`.
 pub async fn withdraw(client: &mut Client, build: &str, reason: &str) -> Result<Vec<i64>, String> {
     let tx = client.transaction().await.map_err(db)?;
+    tx.execute(crate::work::PUBLISH_LOCK, &[]).await.map_err(db)?;
     let n = tx
         .execute("UPDATE core.engine_build SET withdrawn_at = now(), withdrawal = $2 WHERE engine_build = $1 AND admitted_at IS NOT NULL", &[&build, &reason])
         .await
@@ -104,19 +111,28 @@ pub async fn withdraw(client: &mut Client, build: &str, reason: &str) -> Result<
     if n == 0 {
         return Err(format!("engine build {build} is not admitted"));
     }
+    // the leases, then their jobs, in two statements: the order of every holder of the publish lock
+    let ended: Vec<i64> = tx
+        .query(
+            "UPDATE core.lease l SET ended_at = now(), outcome = 'CANCELLED', failure = 'its engine build was withdrawn'
+             FROM core.job j
+             WHERE l.job_id = j.job_id AND j.engine_build = $1 AND l.ended_at IS NULL
+             RETURNING l.job_id",
+            &[&build],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
     let stopped: Vec<i64> = tx
         .query(
-            "WITH ended AS (
-                 UPDATE core.lease l SET ended_at = now(), outcome = 'CANCELLED', failure = 'its engine build was withdrawn'
-                 FROM core.job j
-                 WHERE l.job_id = j.job_id AND j.engine_build = $1 AND l.ended_at IS NULL
-                 RETURNING l.job_id)
-             UPDATE core.job SET state = CASE WHEN next_session IS NULL THEN 'DONE' ELSE 'QUEUED' END,
+            "UPDATE core.job SET state = CASE WHEN next_session IS NULL THEN 'DONE' ELSE 'QUEUED' END,
                                  attempts = GREATEST(attempts - 1, 0),
                                  finished_at = CASE WHEN next_session IS NULL THEN now() END
-             WHERE job_id IN (SELECT job_id FROM ended) AND state = 'LEASED'
+             WHERE job_id = ANY($1) AND state = 'LEASED'
              RETURNING job_id",
-            &[&build],
+            &[&ended],
         )
         .await
         .map_err(db)?
