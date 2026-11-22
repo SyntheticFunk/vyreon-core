@@ -11,3 +11,4 @@ discord-webhook.txt
 spaces-only-key.txt
 spaces-storage-access-key.txt
 tiingo.txt
+__pycache__/
