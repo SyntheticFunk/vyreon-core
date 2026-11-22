@@ -136,3 +136,67 @@ pub fn inventories() -> Vec<Value> {
         })
         .collect()
 }
+
+/// The day-local derived sensor of the tests' day-local profile: DLM-MAX-PAIN reads its own day
+/// only (C-031 splits the derived sensors into a day-local profile and a history profile).
+pub const DAY_LOCAL_SENSOR: &str = "DLM-MAX-PAIN";
+
+/// The profile revision of the tests' day-local derived profile: the slice's derived profile
+/// revision with `-DAY-LOCAL`. The slice's real derived revision is one profile (engine-v1, before
+/// C-031's split); the day-local profile here is its DLM-MAX-PAIN slot under this name.
+pub fn day_local_profile() -> String {
+    format!("{}-DAY-LOCAL", text_of(&slice()["day_revision"][1]["profile_revision"]))
+}
+
+fn text_of(v: &Value) -> String {
+    v.as_str().unwrap().to_owned()
+}
+
+/// `inventory` (one of `inventories()`, the build that publishes the day's base) with the real
+/// inventory row of DLM-MAX-PAIN added under the day-local profile revision: a build that publishes
+/// each day's base and its day-local revision, as a day block does (C-031). Only the profile name
+/// is made here.
+pub fn with_day_local(mut inventory: Value) -> Value {
+    let s = slice();
+    let profile = day_local_profile();
+    let rows: Vec<Value> = s["expected_slot"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|e| e["profile_revision"] == s["day_revision"][1]["profile_revision"] && e["measurement_id"] == DAY_LOCAL_SENSOR)
+        .map(|e| {
+            let mut e = e.clone();
+            e["profile_revision"] = json!(profile);
+            e
+        })
+        .collect();
+    inventory["slots"].as_array_mut().unwrap().extend(rows);
+    inventory
+}
+
+/// `inventory` (the build that runs the ordered pass: the slice's derived build) with the profiles its
+/// pass reads registered as well: the base build's real rows and the day-local rows (`with_day_local`).
+/// The engine's pass reads exactly its own build's base and day-local profile revisions, and the
+/// cluster's image is one build for every profile; core counts a day as published for a pass only in
+/// profile revisions of the pass's build (audit 2026-11-22 round 2, core-r2 2). Only the rows' build
+/// is made here.
+pub fn reading(mut inventory: Value) -> Value {
+    let base = inventories().remove(0);
+    inventory["slots"].as_array_mut().unwrap().extend(base["slots"].as_array().unwrap().iter().cloned());
+    with_day_local(inventory)
+}
+
+/// The day-local revision of `day` computed on base revision `base`, sent as build `build`: the
+/// slice's DLM-MAX-PAIN slot, its body, receipt and reader scalars (core's checks never read a
+/// body's date or build), under the day-local profile revision.
+pub fn day_local_parts(build: &str, day: &str, base: i64) -> (Header, Scalars, Vec<SlotFiles>) {
+    let (mut h, mut s, mut f) = parts(DERIVED);
+    let keep: Vec<bool> = h.slots.iter().map(|slot| slot.measurement_id == DAY_LOCAL_SENSOR).collect();
+    let mut i = 0;
+    h.slots.retain(|_| (keep[i], i += 1).0);
+    let mut i = 0;
+    f.retain(|_| (keep[i], i += 1).0);
+    s.reader_scalar.retain(|x| x.measurement_id == DAY_LOCAL_SENSOR);
+    (h.engine_build, h.profile_revision, h.represented_date, h.base_revision, h.day_local) = (build.to_owned(), day_local_profile(), day.to_owned(), Some(base), true);
+    (h, s, f)
+}

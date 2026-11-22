@@ -33,7 +33,9 @@ async fn service(test: &str) -> Service {
     let doc = universe::read_responses(&fixtures().join("engine-v1-PROFILE.json"), &fixtures().join("intrinio-universe")).unwrap();
     universe::store(&mut client, &doc).await.unwrap();
     let mut builds = Vec::new();
-    for inventory in inventories() {
+    for (i, inventory) in inventories().into_iter().enumerate() {
+        // the base build publishes each day's day-local revision as well (C-031)
+        let inventory = if i == 0 { test_support::slice::with_day_local(inventory) } else { test_support::slice::reading(inventory) };
         let b = build::register(&mut client, &inventory).await.unwrap().engine_build;
         build::admit(&client, &b, &json!({"checklist": "worker API test"})).await.unwrap();
         builds.push(b);
@@ -195,6 +197,10 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
     let (status, published) = s.publish(token, &bundle("api-base", &header, &scalars, &files)).await;
     assert_eq!((status, published["slots"].as_i64(), published["streams"].as_i64()), (StatusCode::OK, Some(4), Some(2)), "{published}");
     assert_eq!(s.post("/lease/finish", token, json!({})).await.0, StatusCode::UNPROCESSABLE_ENTITY, "the worker has not said the day is done");
+    // and the day's day-local revision on that base (C-031): the ordered pass reads the day only with it
+    let (lh, ls, lf) = test_support::slice::day_local_parts(&s.base_build, "2025-12-10", published["revision_id"].as_i64().unwrap());
+    let (status, local) = s.publish(token, &bundle("api-day-local", &lh, &ls, &lf)).await;
+    assert_eq!((status, local["slots"].as_i64()), (StatusCode::OK, Some(1)), "{local}");
     // C-043: the published day's input captures (here T−5's real macro capture), written once;
     // one not kept is recorded with its reason
     let captures = format!("{}/worker/v1/input-captures", s.url);
@@ -280,7 +286,7 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
 
     let status = work::status(&admin).await.unwrap();
     assert_eq!(status["jobs"].as_array().unwrap().iter().map(|j| (j["kind"].as_str().unwrap(), j["state"].as_str().unwrap())).collect::<Vec<_>>(), [("DAY_BLOCK", "DONE"), ("ORDERED_PASS", "DONE"), ("TAPE", "DONE")]);
-    assert_eq!(admin.query_one("SELECT count(*) FROM vyreon.published_measurement", &[]).await.unwrap().get::<_, i64>(0), 6);
+    assert_eq!(admin.query_one("SELECT count(*) FROM vyreon.published_measurement", &[]).await.unwrap().get::<_, i64>(0), 7);
     assert_eq!(admin.query_one("SELECT sum(requests)::bigint FROM core.request_usage WHERE worker = 'tape-1'", &[]).await.unwrap().get::<_, i64>(0), 137);
     s.scratch.drop().await;
 }

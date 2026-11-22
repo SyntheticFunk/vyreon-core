@@ -6,9 +6,13 @@
 //!   vyreon-core universe on <profile> <date>          the members and their tickers on a date
 //!   vyreon-core build register <inventory.json>       register an engine build with its slot inventory
 //!   vyreon-core build admit <build> <evidence.json>   let the build's workers claim work (the checks it passed)
-//!   vyreon-core build withdraw <build> <reason>       stop them claiming
+//!   vyreon-core build withdraw <build> <reason>       stop them claiming, and stop its running jobs (their
+//!                                                     leases end; the jobs are queued again under it)
 //!   vyreon-core calendar load <sessions.json>         store the engine's trading sessions
 //!   vyreon-core schedule <tape|day-block|ordered-pass> <profile> <build> <first> <last> [block sessions]
+//!                                                     ordered passes (C-062): a session keeps its unfinished pass of
+//!                                                     this build; one of a build that does not run is cancelled and
+//!                                                     replaced; one of another build that runs refuses the range
 //!   vyreon-core tape verify <profile> <build> <session>...  schedule a verify job per session (C-059): a tape worker
 //!                                                     downloads the session's replay files again, recomputes each member's
 //!                                                     cache and runs the tape reader on it; core keeps the verdict beside
@@ -16,6 +20,22 @@
 //!   vyreon-core tape checks                           the sample (C-059): one line, then each session's checks and
 //!                                                     every member not passed
 //!   vyreon-core queue [pause <reason> | resume | retry-failed | cancel <job>...]   the queue at a glance, or change it
+//!   vyreon-core omit <profile> <session> <reason...>  omit a date whose day failed for the provider (C-061): only while
+//!                                                     its day job stands FAILED, never for an engine fault (fixed and
+//!                                                     recomputed instead). Records the reason, cancels the failed day job
+//!                                                     and the session's queued ordered pass; the reader API then states
+//!                                                     the session NOT_PUBLISHED with the cause OMITTED and the reason
+//!   vyreon-core days retire (--preview | --expect <token>) <reason> <date>...   retire published days of earlier builds (C-062): every
+//!                                                     PUBLISHED revision of each date (base, day-local, history) becomes
+//!                                                     SUPERSEDED, kept, never deleted; the unfinished jobs of the builds
+//!                                                     that published those days are cancelled; later days' history
+//!                                                     revisions that read them fall and their passes are queued again
+//!                                                     (C-037). The reason is recorded (`core.retirement`, the log), and
+//!                                                     the reader states each date NOT_PUBLISHED with the cause RETIRED.
+//!                                                     --preview does it all in a transaction rolled back and prints
+//!                                                     what it would do, with a token; the retirement itself takes
+//!                                                     --expect <that token> and is refused when what the dates hold
+//!                                                     has changed since (C-063)
 //!   vyreon-core months <first> <last>                 create the store's monthly partitions for a date range
 //!   vyreon-core publish [--vouch] <bundle>...         check, write, read back and publish day bundles, in order.
 //!                                                     A revision computed from a base must name the base revision
@@ -123,6 +143,12 @@ async fn schedule(kind: &str, profile: &str, engine_build: &str, first: &str, la
     let block: i32 = block.parse().map_err(|_| format!("block sessions: {block}"))?;
     let made = work::schedule(&mut connect().await?, work::Kind::parse(kind)?, profile, engine_build, first, last, block).await?;
     println!("{} jobs over {} sessions; {} partitions created", made.jobs, made.sessions, made.partitions);
+    if made.kept > 0 || !made.replaced.is_empty() {
+        // C-062: an ordered pass already unfinished under this build is kept; one under a build that
+        // does not run is replaced
+        let replaced: Vec<String> = made.replaced.iter().map(i64::to_string).collect();
+        println!("{} sessions kept their unfinished pass of {engine_build}; {} passes of builds that do not run replaced ({})", made.kept, replaced.len(), replaced.join(" "));
+    }
     Ok(())
 }
 
@@ -200,6 +226,63 @@ async fn queue(change: &[&str]) -> Result<(), String> {
     }
     work::sweep(&mut client).await?;
     println!("{}", serde_json::to_string_pretty(&work::status(&client).await?).map_err(|e| e.to_string())?);
+    Ok(())
+}
+
+/// C-061: `omit <profile> <session> <reason...>`.
+async fn omit(profile: &str, session: &str, reason: &[&str]) -> Result<(), String> {
+    let done = work::omit(&mut connect().await?, profile, session, &reason.join(" ")).await?;
+    let passes = match done.passes.as_slice() {
+        [] => "no queued ordered pass".to_owned(),
+        jobs => format!("ordered pass {} cancelled", jobs.iter().map(i64::to_string).collect::<Vec<_>>().join(" ")),
+    };
+    println!("{session} omitted (omission {}): day job {} cancelled ({}: {}); {passes}", done.omission_id, done.day_job, done.cause.0, done.cause.1);
+    Ok(())
+}
+
+/// C-062: `days retire (--preview | --expect <token>) <reason> <date>...`; the flags may stand
+/// anywhere, exactly one of them (C-063: a retirement takes the token its preview printed), and any
+/// other `--` word is refused before anything is done.
+fn retire_args<'a>(rest: &[&'a str]) -> Result<(&'a str, Vec<&'a str>, bool, Option<&'a str>), String> {
+    let usage = "days retire (--preview | --expect <token>) <reason> <date>...";
+    let (mut words, mut preview, mut expect) = (Vec::new(), false, None);
+    let mut args = rest.iter().copied();
+    while let Some(a) = args.next() {
+        match a {
+            "--preview" => preview = true,
+            "--expect" => match args.next() {
+                Some(token) if !token.starts_with("--") && expect.is_none() => expect = Some(token),
+                _ => return Err(format!("days retire: --expect takes one token; nothing was retired ({usage})")),
+            },
+            flag if flag.starts_with("--") => return Err(format!("days retire: unknown option {flag}; nothing was retired ({usage})")),
+            word => words.push(word),
+        }
+    }
+    if preview == expect.is_some() {
+        return Err(format!("days retire: either --preview, or --expect with the token the preview printed; nothing was retired ({usage})"));
+    }
+    match words.split_first() {
+        Some((reason, dates)) if !dates.is_empty() => Ok((reason, dates.to_vec(), preview, expect)),
+        _ => Err(format!("days retire: a reason and at least one date; nothing was retired ({usage})")),
+    }
+}
+
+async fn days_retire(rest: &[&str]) -> Result<(), String> {
+    let (reason, dates, preview, expect) = retire_args(rest)?;
+    let r = publish::retire(&mut connect().await?, reason, &dates, preview, expect).await?;
+    for v in &r.revisions {
+        println!("{} revision {} {} {} of build {} ({})", v.date, v.revision_id, v.profile_id, v.profile_revision, v.engine_build, v.kind);
+    }
+    let list = |v: &[String]| if v.is_empty() { "none".to_owned() } else { v.join(" ") };
+    let jobs: Vec<String> = r.cancelled.iter().map(i64::to_string).collect();
+    println!("unfinished jobs cancelled: {}", list(&jobs));
+    println!("later history revisions that read them, superseded: {}", r.fallen);
+    println!("days the ordered pass derives again: {}", list(&r.rederived));
+    println!("days no job derives again: {}", list(&r.unowned));
+    match r.retirement_id {
+        Some(id) => println!("retirement {id}: {} revisions superseded (kept)", r.revisions.len()),
+        None => println!("preview: nothing was changed; to retire exactly this: vyreon-core days retire --expect {} {reason:?} {}", r.token, dates.join(" ")),
+    }
     Ok(())
 }
 
@@ -755,7 +838,11 @@ async fn main() -> ExitCode {
             (Err(e), _) | (_, Err(e)) => Err(e),
         },
         ["build", "withdraw", engine_build, reason] => match connect().await {
-            Ok(client) => build::withdraw(&client, engine_build, reason).await,
+            Ok(mut client) => build::withdraw(&mut client, engine_build, reason).await.map(|stopped| {
+                if !stopped.is_empty() {
+                    println!("running jobs stopped (their leases ended, queued again under the withdrawn build): {}", stopped.iter().map(i64::to_string).collect::<Vec<_>>().join(" "));
+                }
+            }),
             Err(e) => Err(e),
         },
         ["calendar", "load", file] => match (connect().await, json_file(file)) {
@@ -767,6 +854,8 @@ async fn main() -> ExitCode {
         ["tape", "verify", profile, engine_build, ref sessions @ ..] => tape_verify(profile, engine_build, sessions).await,
         ["tape", "checks"] => tape_checks().await,
         ["queue", ref change @ ..] => queue(change).await,
+        ["omit", profile, session, ref reason @ ..] if !reason.is_empty() => omit(profile, session, reason).await,
+        ["days", "retire", ref rest @ ..] => days_retire(rest).await,
         ["api-key", "create", holder, scopes] => match connect().await {
             Ok(client) => core_db::api_key::create(&client, holder, &scopes.split(',').map(str::to_owned).collect::<Vec<_>>()).await.map(|key| println!("{key}")),
             Err(e) => Err(e),
@@ -817,7 +906,7 @@ async fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::{archive_line, publish_args};
+    use super::{archive_line, publish_args, retire_args};
 
     /// Audit 2026-11-17 round w, 18: `archive list` names the endpoint the object is kept at.
     #[test]
@@ -872,6 +961,30 @@ mod tests {
         for bad in [&[][..], &["--vouch"], &["a", "--vuoch", "b"], &["a", "--vouch=yes"]] {
             let refused = publish_args(bad).unwrap_err();
             assert!(refused.contains("nothing was published"), "{refused}");
+        }
+    }
+
+    /// C-062: `days retire` reads its whole line first: `--preview` or `--expect <token>` (C-063: one
+    /// of them) wherever it stands, the reason first, at least one date, and no other option.
+    #[test]
+    fn the_retire_command_line_is_read_whole_before_anything_is_retired() {
+        let reason = "pre-D-397 build";
+        assert_eq!(retire_args(&["--expect", "9f86d081884c7d65", reason, "2022-06-06", "2022-06-07"]), Ok((reason, vec!["2022-06-06", "2022-06-07"], false, Some("9f86d081884c7d65"))));
+        assert_eq!(retire_args(&[reason, "2022-06-06", "--expect", "9f86d081884c7d65"]), Ok((reason, vec!["2022-06-06"], false, Some("9f86d081884c7d65"))));
+        assert_eq!(retire_args(&["--preview", reason, "2022-06-06"]), Ok((reason, vec!["2022-06-06"], true, None)));
+        assert_eq!(retire_args(&[reason, "2022-06-06", "--preview"]), Ok((reason, vec!["2022-06-06"], true, None)));
+        for bad in [
+            &[][..],
+            &[reason],
+            &["--preview", reason],
+            &[reason, "--force", "2022-06-06"],
+            &[reason, "2022-06-06"],
+            &["--preview", "--expect", "9f86d081884c7d65", reason, "2022-06-06"],
+            &[reason, "2022-06-06", "--expect"],
+            &["--expect", "a", "--expect", "b", reason, "2022-06-06"],
+        ] {
+            let refused = retire_args(bad).unwrap_err();
+            assert!(refused.contains("nothing was retired"), "{refused}");
         }
     }
 }

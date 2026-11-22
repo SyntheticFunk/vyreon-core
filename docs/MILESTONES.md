@@ -227,8 +227,8 @@ before scheduling.
   register/admit the engine image (check its history profile revision), withdraw the old builds,
   `days retire --preview` to the owner, schedule the whole-range ordered passes, tapes and the test block.
 - **Owner decision (2026-11-22):** the 24 PUBLISHED days of 8 earlier builds (2022-06-06..15 and 16 in
-  phase 1's range) are retired (SUPERSEDED) with `days retire` before the test block, preview shown
-  first; after phase 1, every superseded old-build revision is deleted in one cleanup (preview first;
+  phase 1's range) are retired (SUPERSEDED) before the test block: `vyreon-core days retire --preview`,
+  shown to the owner, then `--expect <its token>` (C-062..C-064: rows kept, later history derived again); after phase 1, every superseded old-build revision is deleted in one cleanup (preview first;
   owner: "i would literally overwrite them or delete them").
 - To measure, not change: each ordered pass loads the whole published store (est. ~1 GB peak at full
   range); measure the last passes' memory and time.
@@ -276,6 +276,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
 **Loose ends (each before the step it names):**
 - **C-061 core change before the test block:** a failed or omitted day no longer holds back later
   passes; NOT_PUBLISHED sessions state their cause; omit-with-reason command; digest lines.
+  With it, C-062 (audit 2026-11-22 surface 6, above the cut line): a fallen day's pass is queued under
+  a build that runs, never two unfinished passes a session, any missing day holds no pass,
+  `days retire` (built, not run). C-063 (audit 2026-11-22 changes-core): a day is published for the
+  passes only with its day-local revision (#2, above the cut line), and the other queue fixes.
 - **The 252-session weekly baseline (C-060)** in the review Reporter reads (today unbounded in the
   engine's `vyreon-api`), before the first paid issue.
 - After the build: fix the graph declarations C-060 lists; check every company's DLM-IV-CRUSH event

@@ -80,12 +80,20 @@ pub struct Scheduled {
     pub jobs: u64,
     pub sessions: i64,
     pub partitions: i32,
+    /// Ordered passes: sessions whose unfinished pass of this build was kept (C-062).
+    pub kept: u64,
+    /// Ordered passes: unfinished passes of a build that does not run, cancelled and replaced.
+    pub replaced: Vec<i64>,
 }
 
 /// Turns "these sessions, with this build" into jobs: one per session for tapes and the ordered
 /// pass, blocks of `block` consecutive sessions for day blocks. The store's partitions for the
 /// range are created first, in their own transaction (C-021). A range that touches an unfinished
-/// job of the same kind and profile is refused.
+/// tape job or day block of the profile is refused. Ordered passes (C-062): one unfinished pass
+/// per session and profile; a session whose unfinished pass is of this build keeps it, one of a
+/// build that does not run (not admitted, or withdrawn) has it cancelled and replaced, and one of
+/// another build that runs refuses the range (withdraw that build or cancel its pass first). DONE
+/// and CANCELLED passes of any build are left as they are.
 pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &str, first: &str, last: &str, block: i32) -> Result<Scheduled, String> {
     if kind == Kind::DayBlock && block < 1 {
         return Err("a day block holds at least one session".into());
@@ -111,7 +119,32 @@ pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &st
         client.query_one("SELECT vyreon.ensure_months($1::text::date, $2::text::date)", &[&first, &last]).await.map_err(db)?.get(0)
     };
     let tx = client.transaction().await.map_err(db)?;
+    if kind == Kind::OrderedPass {
+        // a publish queues ordered passes too (`publish::rederive`, under the publish lock): one at
+        // a time, so neither reads "no unfinished pass" while the other inserts one (audit
+        // 2026-11-22 changes-core 1); the two locks in the order `omit` and `retire` take them
+        tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
+    }
     tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.map_err(db)?;
+    if kind == Kind::OrderedPass {
+        let (kept, replaced) = passes_in_range(&tx, profile, build, first, last).await?;
+        let jobs = tx
+            .execute(
+                "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, priority)
+                 SELECT 'ORDERED_PASS', $1, $2, s.session, s.session, s.session,
+                        COALESCE((SELECT max(r.priority) FROM core.job r WHERE r.job_id = ANY($5) AND r.first_session = s.session), 0)
+                 FROM core.session s
+                 WHERE s.session BETWEEN $3::text::date AND $4::text::date
+                   AND NOT EXISTS (SELECT FROM core.job u WHERE u.kind = 'ORDERED_PASS' AND u.profile_id = $1 AND u.first_session = s.session
+                                     AND u.state IN ('QUEUED', 'LEASED', 'FAILED'))
+                 ORDER BY s.session",
+                &[&profile, &build, &first, &last, &replaced],
+            )
+            .await
+            .map_err(db)?;
+        tx.commit().await.map_err(db)?;
+        return Ok(Scheduled { jobs, sessions, partitions, kept, replaced });
+    }
     let overlap: Option<i64> = tx
         .query_opt(
             "SELECT job_id FROM core.job
@@ -137,7 +170,49 @@ pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &st
         .await
         .map_err(db)?;
     tx.commit().await.map_err(db)?;
-    Ok(Scheduled { jobs, sessions, partitions })
+    Ok(Scheduled { jobs, sessions, partitions, kept: 0, replaced: Vec::new() })
+}
+
+/// C-062: the unfinished ordered passes of the profile in `first..=last` before passes of `build`
+/// are scheduled there. One of another build that runs refuses the range; one of a build that does
+/// not run is cancelled (it would never be claimed, and a later pass could not run in its place);
+/// one of `build` stays. Returns (kept, cancelled), with a logged notice when any was cancelled.
+async fn passes_in_range(tx: &impl GenericClient, profile: &str, build: &str, first: &str, last: &str) -> Result<(u64, Vec<i64>), String> {
+    let rows = tx
+        .query(
+            "SELECT job_id, engine_build, state, first_session::text,
+                    EXISTS (SELECT FROM core.engine_build b WHERE b.engine_build = core.job.engine_build AND b.admitted_at IS NOT NULL AND b.withdrawn_at IS NULL)
+             FROM core.job
+             WHERE kind = 'ORDERED_PASS' AND profile_id = $1 AND state IN ('QUEUED', 'LEASED', 'FAILED')
+               AND first_session BETWEEN $2::text::date AND $3::text::date
+             ORDER BY first_session FOR UPDATE",
+            &[&profile, &first, &last],
+        )
+        .await
+        .map_err(db)?;
+    let (mut kept, mut replaced) = (0, Vec::new());
+    for r in &rows {
+        let (job, of, state, day, runs): (i64, String, String, String, bool) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4));
+        if of == build {
+            kept += 1;
+        } else if runs || state == "LEASED" {
+            let why = if runs { "a build that runs: withdraw it or cancel the job first" } else { "under a live lease: let it end or cancel the job first" };
+            return Err(format!("{first} to {last}: {day} has unfinished ORDERED_PASS job {job} ({state}) of build {of}, {why}"));
+        } else {
+            replaced.push(job);
+        }
+    }
+    if !replaced.is_empty() {
+        tx.execute("UPDATE core.job SET state = 'CANCELLED', finished_at = now() WHERE job_id = ANY($1)", &[&replaced]).await.map_err(db)?;
+        let shown: Vec<String> = replaced.iter().take(10).map(i64::to_string).collect();
+        let more = if replaced.len() > 10 { format!(" and {} more", replaced.len() - 10) } else { String::new() };
+        notice::log(
+            tx,
+            &format!("{} ordered passes of {profile} under builds that do not run are replaced by build {build}'s: jobs {}{more} cancelled.", replaced.len(), shown.join(" ")),
+        )
+        .await?;
+    }
+    Ok((kept, replaced))
 }
 
 /// C-059: one verify job per chosen session (a TAPE job of scope `tape::VERIFY_SCOPE`): its worker
@@ -240,6 +315,9 @@ pub async fn sweep(client: &mut Client) -> Result<u64, String> {
 /// ended meanwhile.
 async fn expire(client: &mut Client, lease: i64) -> Result<bool, String> {
     let tx = client.transaction().await.map_err(db)?;
+    // a day set aside may take down its base and what read it (`requeue`): the publish lock first,
+    // before any row lock, as a publish takes it
+    tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
     let Some(row) = tx
         .query_opt(
             "UPDATE core.lease SET ended_at = now(), outcome = 'EXPIRED', failure = 'the lease was not renewed'
@@ -279,6 +357,45 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         finished(db_client, &done, "its worker, whose finish never arrived").await?;
         return Ok(false);
     }
+    // audit 2026-11-22 changes-core 10: a day block whose attempt stopped on a day it had already
+    // said was done (a prune after `day_done`, say) never tried the day it moved on to. That attempt is
+    // not counted against the block: queued again, never FAILED on a day it did not try, nor that day
+    // given the earlier day's cause. Round 2 (core-r2 4, 10): core establishes it itself. The day is
+    // the one the stop message names (C-049's evidence, as the engine writes it: `stop: <date> ...`, or
+    // `stop: prune after <date>: ...`), never the evidence's session alone, which the worker sets to its
+    // claim's first day when the message names none (`vyreon-worker` `stopped_on`); and it must be a
+    // day this very lease did (from where it began, `start_session`, which the database sets when the
+    // lease is granted, to before the block's next session). Each refund then moved the block on by a day of its own lease: bounded by the block.
+    if let Some(day) = db_client
+        .query_opt(
+            "SELECT s.day FROM core.job j
+             JOIN LATERAL (SELECT l.lease_id, l.start_session FROM core.lease l WHERE l.job_id = j.job_id ORDER BY l.lease_id DESC LIMIT 1) l ON true
+             JOIN core.job_evidence e ON e.lease_id = l.lease_id
+             CROSS JOIN LATERAL (SELECT COALESCE((regexp_match(e.message, '^stop: ([0-9]{4}-[0-9]{2}-[0-9]{2}) '))[1],
+                                                 (regexp_match(e.message, '^stop: prune after ([0-9]{4}-[0-9]{2}-[0-9]{2}):'))[1]) AS day) s
+             WHERE j.job_id = $1 AND j.state = 'LEASED' AND j.kind = 'DAY_BLOCK'
+               AND s.day >= l.start_session::text AND s.day < j.next_session::text",
+            &[&job],
+        )
+        .await
+        .map_err(db)?
+        .map(|r| r.get::<_, String>(0))
+    {
+        let next: String = db_client
+            .query_one(
+                "UPDATE core.job SET state = 'QUEUED', attempts = GREATEST(attempts - 1, 0), finished_at = NULL WHERE job_id = $1 RETURNING next_session::text",
+                &[&job],
+            )
+            .await
+            .map_err(db)?
+            .get(0);
+        notice::log(
+            db_client,
+            &format!("Day block job {job} stopped on {day}, a day it had done ({why}); {next} was not tried: queued again, the attempt not counted."),
+        )
+        .await?;
+        return Ok(true);
+    }
     let Some(again) = db_client
         .query_opt(
             "UPDATE core.job SET state = CASE WHEN attempts < max_attempts THEN 'QUEUED' ELSE 'FAILED' END,
@@ -304,7 +421,10 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
     if kind == "ORDERED_PASS" {
         // the later days' passes wait on this one by themselves (`core.claimable_job`); the day
         // blocks do not read it, and a pass is seconds to run again once its cause is fixed
-        notice::log(db_client, &format!("Ordered pass failed for the last time (job {job}): {why}. Later passes wait for it; the day blocks go on.")).await?;
+        let day: String = db_client.query_one("SELECT first_session::text FROM core.job WHERE job_id = $1", &[&job]).await.map_err(db)?.get(0);
+        let local = missing_day_local(db_client, job, &day).await?;
+        let wait = if local.is_empty() { "Later passes wait for it; the day blocks go on" } else { "The day blocks go on" };
+        notice::log(db_client, &format!("Ordered pass failed for the last time (job {job}): {why}{local}. {wait}.")).await?;
         return Ok(false);
     }
     if kind != "DAY_BLOCK" {
@@ -333,19 +453,49 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         )
         .await
         .map_err(db)?;
-    let day: String = db_client
-        .query_one("UPDATE core.job SET first_session = next_session, last_session = next_session WHERE job_id = $1 RETURNING next_session::text", &[&job])
+    let row = db_client
+        .query_one("UPDATE core.job SET first_session = next_session, last_session = next_session WHERE job_id = $1 RETURNING next_session::text, profile_id", &[&job])
+        .await
+        .map_err(db)?;
+    let (day, profile): (String, String) = (row.get(0), row.get(1));
+    let failed: i64 = db_client.query_one("SELECT count(*) FROM core.job WHERE kind = 'DAY_BLOCK' AND state = 'FAILED'", &[]).await.map_err(db)?.get(0);
+    // audit 2026-11-22 round 2 core-r2 1: a base its day-local revision never joined is superseded, so
+    // no later day's history reads the day this block leaves missing
+    let local = dropped_base_clause(crate::publish::drop_base_without_day_local(db_client, job, &day, &profile).await?, &day);
+    if failed >= FAILED_DAYS_PAUSE {
+        pause(db_client, &format!("{failed} days stand failed; the last, job {job} ({day}): {why}{local}")).await?;
+    } else {
+        let after = if rest == 1 { "; the rest of its block is queued again" } else { "" };
+        notice::log(db_client, &format!("Day {day} failed for the last time and is set aside (job {job}): {why}{after}{local}. The build goes on.")).await?;
+    }
+    Ok(false)
+}
+
+/// C-061 amended (audit 2026-11-22 changes-core 2): when the job's day has its base published but
+/// no day-local revision on it, the clause that says so (the ordered pass refuses such a day, so it
+/// is a missing day for the passes); else empty.
+async fn missing_day_local(db_client: &impl GenericClient, job: i64, day: &str) -> Result<String, String> {
+    let base: Option<i64> = db_client
+        .query_one("SELECT core.base_without_day_local($2::text::date, (SELECT profile_id FROM core.job WHERE job_id = $1))", &[&job, &day])
         .await
         .map_err(db)?
         .get(0);
-    let failed: i64 = db_client.query_one("SELECT count(*) FROM core.job WHERE kind = 'DAY_BLOCK' AND state = 'FAILED'", &[]).await.map_err(db)?.get(0);
-    if failed >= FAILED_DAYS_PAUSE {
-        pause(db_client, &format!("{failed} days stand failed; the last, job {job} ({day}): {why}")).await?;
-    } else {
-        let after = if rest == 1 { "; the rest of its block is queued again" } else { "" };
-        notice::log(db_client, &format!("Day {day} failed for the last time and is set aside (job {job}): {why}{after}. The build goes on.")).await?;
-    }
-    Ok(false)
+    Ok(base.map_or_else(String::new, |b| {
+        format!(
+            "; its base revision {b} is published but no day-local derived revision on it: the ordered passes read {day} as missing \
+             (`vyreon-core queue retry-failed` computes the day again)"
+        )
+    }))
+}
+
+/// The clause a notice gives a base `drop_base_without_day_local` superseded; else empty.
+fn dropped_base_clause(base: Option<i64>, day: &str) -> String {
+    base.map_or_else(String::new, |b| {
+        format!(
+            "; its base revision {b} was published but no day-local derived revision on it: the base is superseded, so no later day's \
+             history reads {day} (a missing date everywhere; `vyreon-core queue retry-failed` computes the day again)"
+        )
+    })
 }
 
 /// Taken by every publish before any row lock, and by the claim of an ordered pass: a pass is then
@@ -369,6 +519,9 @@ pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str
     if kind == Kind::OrderedPass {
         tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
     }
+    // the build's row, shared: a withdrawal (which updates it, then ends the build's leases) waits
+    // for this claim, or this claim reads the build withdrawn (`build::withdraw`)
+    tx.execute("SELECT FROM core.engine_build WHERE engine_build = $1 FOR SHARE", &[&build]).await.map_err(db)?;
     let Some(job) = tx
         .query_opt(
             "UPDATE core.job SET state = 'LEASED', attempts = attempts + 1
@@ -608,6 +761,8 @@ pub async fn fail(client: &mut Client, token: &str, stage: &str, message: &str, 
     // stored, logged or printed: the text is withheld whole
     let (stage, message, log) = (&scrubbed(stage), &scrubbed(message), &scrubbed(log));
     let tx = client.transaction().await.map_err(failed)?;
+    // before the lease's row, as a publish takes it: a day set aside may take down its base (`requeue`)
+    tx.execute(PUBLISH_LOCK, &[]).await.map_err(failed)?;
     let lease = held(&tx, token).await?;
     tx.execute(
         "UPDATE core.lease SET ended_at = now(), outcome = 'FAILED', failed_stage = $2, failure = $3, failure_log = $4 WHERE lease_id = $1",
@@ -681,22 +836,34 @@ pub async fn retry_failed(db_client: &impl GenericClient) -> Result<u64, String>
 /// x, 2: a repair a republish queued, then cancelled). Returns how many jobs were cancelled.
 pub async fn cancel(client: &mut Client, jobs: &[i64]) -> Result<u64, String> {
     let tx = client.transaction().await.map_err(db)?;
-    let cancelled: Vec<i64> = tx
-        .query(
-            "UPDATE core.job SET state = 'CANCELLED', finished_at = now() WHERE job_id = ANY($1) AND state IN ('QUEUED', 'LEASED', 'FAILED') RETURNING job_id",
-            &[&jobs],
-        )
-        .await
-        .map_err(db)?
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
+    // a cancelled day block may take down its day's base (`cancel_in`): the publish lock first
+    tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
+    let cancelled = cancel_in(&tx, jobs).await?;
+    tx.commit().await.map_err(db)?;
+    Ok(cancelled.len() as u64)
+}
+
+/// `cancel` inside the caller's transaction. Returns the jobs it cancelled: those of `jobs` still
+/// unfinished when it ran (one that finished meanwhile is left as it is, and not named).
+pub(crate) async fn cancel_in(tx: &impl GenericClient, jobs: &[i64]) -> Result<Vec<i64>, String> {
+    // the leases, then the jobs: the order a worker's call (`held`) and `build::withdraw` take them in
+    // (audit 2026-11-22 round 2, core-r2 8: the jobs first, under `retire`, could deadlock with a
+    // withdrawal). A live lease is only ever on a LEASED job, which is cancelled below.
     tx.execute(
         "UPDATE core.lease SET ended_at = now(), outcome = 'CANCELLED', failure = 'the job was cancelled' WHERE job_id = ANY($1) AND ended_at IS NULL",
         &[&jobs],
     )
     .await
     .map_err(db)?;
+    let rows = tx
+        .query(
+            "UPDATE core.job SET state = 'CANCELLED', finished_at = now() WHERE job_id = ANY($1) AND state IN ('QUEUED', 'LEASED', 'FAILED')
+             RETURNING job_id, kind, next_session::text, profile_id",
+            &[&jobs],
+        )
+        .await
+        .map_err(db)?;
+    let cancelled: Vec<i64> = rows.iter().map(|r| r.get(0)).collect();
     let absent: Vec<(String, String, bool)> = tx
         .query(
             "SELECT DISTINCT j.first_session::text, j.profile_id FROM core.job j
@@ -716,10 +883,124 @@ pub async fn cancel(client: &mut Client, jobs: &[i64]) -> Result<u64, String> {
         .collect();
     for profile in absent.iter().map(|(_, p, _)| p.clone()).collect::<std::collections::BTreeSet<String>>() {
         let days: Vec<(String, String, bool)> = absent.iter().filter(|(_, p, _)| *p == profile).cloned().collect();
-        crate::watch::not_derived(&tx, &days, "Cancelling their ordered pass left").await?;
+        crate::watch::not_derived(tx, &days, "Cancelling their ordered pass left").await?;
     }
+    // a day block cancelled on a day whose base it published without the day-local revision: the base
+    // is superseded, as when a block is set aside (audit 2026-11-22 round 2 core-r2 1)
+    for r in rows.iter().filter(|r| r.get::<_, String>(1) == "DAY_BLOCK") {
+        let (job, day, profile): (i64, Option<String>, String) = (r.get(0), r.get(2), r.get(3));
+        if let Some(day) = day {
+            let local = dropped_base_clause(crate::publish::drop_base_without_day_local(tx, job, &day, &profile).await?, &day);
+            if !local.is_empty() {
+                notice::log(tx, &format!("Day block job {job} cancelled on {day}{local}.")).await?;
+            }
+        }
+    }
+    Ok(cancelled)
+}
+
+/// What `omit` did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Omitted {
+    pub omission_id: i64,
+    /// The FAILED day job it cancelled.
+    pub day_job: i64,
+    /// The session's queued ordered passes it cancelled.
+    pub passes: Vec<i64>,
+    /// The day's cause when it was omitted (`core.job_failure_cause`): its code and detail.
+    pub cause: (String, String),
+}
+
+/// C-061: omits a date whose day failed for the provider. Allowed only while the session's day job
+/// of the profile stands FAILED with nothing of the day published, and never for the engine's fault
+/// hold (an engine fault is fixed and recomputed, never omitted). Records the session, profile,
+/// reason and time (`core.omitted_session`), cancels the FAILED day job and the session's queued
+/// ordered pass, and logs a notice, in one transaction. The date then reads OMITTED, with the
+/// reason, in the reader API; later passes never waited for it (`core.claimable_job`, 0031).
+pub async fn omit(client: &mut Client, profile: &str, session: &str, reason: &str) -> Result<Omitted, String> {
+    if !core_contract::is_date(session) {
+        return Err(format!("{session} is not a date written YYYY-MM-DD"));
+    }
+    let reason = scrubbed(reason.trim());
+    if reason.is_empty() {
+        return Err("an omitted date needs a reason".into());
+    }
+    let tx = client.transaction().await.map_err(db)?;
+    // one publish at a time, then the scheduler's lock (as `retire`): a base published by hand
+    // between the check below and the commit would leave a published day omitted (audit
+    // 2026-11-22 changes-core 12)
+    tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
+    tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.map_err(db)?;
+    if tx.query_opt("SELECT FROM core.session WHERE session = $1::text::date", &[&session]).await.map_err(db)?.is_none() {
+        return Err(format!("{session} is not a trading session"));
+    }
+    let jobs: Vec<(i64, String)> = tx
+        .query(
+            "SELECT job_id, state FROM core.job WHERE kind = 'DAY_BLOCK' AND profile_id = $1 AND $2::text::date BETWEEN first_session AND last_session
+               AND state <> 'CANCELLED' ORDER BY job_id DESC FOR UPDATE",
+            &[&profile, &session],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+    let only = "only a day whose job stands FAILED may be omitted";
+    if let Some((job, state)) = jobs.iter().find(|(_, s)| s == "QUEUED" || s == "LEASED") {
+        return Err(format!("{session}'s day job {job} is {state}: {only}"));
+    }
+    let Some(day_job) = jobs.iter().find(|(_, s)| s == "FAILED").map(|(j, _)| *j) else {
+        return Err(match jobs.first() {
+            Some((job, state)) => format!("{session}'s day job {job} is {state}: {only}"),
+            None => format!("no day job of {profile} covers {session}: {only}"),
+        });
+    };
+    if tx
+        .query_opt(
+            "SELECT FROM vyreon.day_revision WHERE represented_date = $1::text::date AND profile_id = $2 AND state = 'PUBLISHED' AND base_revision IS NULL",
+            &[&session, &profile],
+        )
+        .await
+        .map_err(db)?
+        .is_some()
+    {
+        return Err(format!("{session} of {profile} has a published day: nothing to omit"));
+    }
+    let row = tx.query_one("SELECT c->>'code', c->>'detail' FROM core.job_failure_cause($1) c", &[&day_job]).await.map_err(db)?;
+    let cause: (String, String) = (row.get(0), row.get(1));
+    if cause.0 == "ENGINE_FAULT" {
+        return Err(format!("{session} was held for an engine fault ({}): an engine fault is fixed and recomputed, never omitted", cause.1));
+    }
+    let omission_id: i64 = tx
+        .query_one(
+            "INSERT INTO core.omitted_session (session, profile_id, reason, job_id) VALUES ($1::text::date, $2, $3, $4) RETURNING omission_id",
+            &[&session, &profile, &reason, &day_job],
+        )
+        .await
+        .map_err(db)?
+        .get(0);
+    let passes: Vec<i64> = tx
+        .query(
+            "SELECT job_id FROM core.job WHERE kind = 'ORDERED_PASS' AND profile_id = $1 AND first_session = $2::text::date AND state = 'QUEUED' ORDER BY job_id",
+            &[&profile, &session],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let mut cancelled = passes.clone();
+    cancelled.push(day_job);
+    cancel_in(&tx, &cancelled).await?;
+    let pass = match passes.len() {
+        0 => "it had no queued ordered pass".to_owned(),
+        1 => "its ordered pass is cancelled".to_owned(),
+        n => format!("its {n} ordered passes are cancelled"),
+    };
+    notice::log(&tx, &format!("Day {session} of {profile} omitted (job {day_job}, {}: {}): {reason}. {pass}; later passes read it as missing.", cause.0, cause.1))
+        .await?;
     tx.commit().await.map_err(db)?;
-    Ok(cancelled.len() as u64)
+    Ok(Omitted { omission_id, day_job, passes, cause })
 }
 
 /// The queue at a glance: jobs by kind and state, what is claimable, and the pause.

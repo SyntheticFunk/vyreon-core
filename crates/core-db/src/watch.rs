@@ -48,6 +48,8 @@ pub const TYPICAL_SESSIONS: i64 = 20;
 /// the cluster measured 5 h 50 min from an empty disk, so 20:00 MT (13 h 30 min or more later)
 /// leaves room for the tape job and two attempts before a late session is alerted.
 pub const DEADLINE_HOUR: i32 = 20;
+/// The digest names at most this many days set aside or omitted, one line each (C-061).
+pub const MISSING_LINES: usize = 10;
 /// Sunday's report is at risk this many hours after Friday's deadline (Saturday).
 pub const AT_RISK_AFTER_HOURS: i32 = 2;
 
@@ -682,11 +684,26 @@ pub fn verdict(open: &[Open], handled: &[String], unjudged: &[String]) -> String
 }
 
 /// A post of a first line, the lines, and the open problems, cut to `LIMIT` characters: the
-/// problems that do not fit are counted, with the command that lists them all.
+/// problems that do not fit are counted, with the command that lists them all. The lines are cut
+/// first (audit 2026-11-22 changes-core 18): room is kept for the open problems' heading and their
+/// count, so long lines (ten days set aside with their causes) never push the problems out of the
+/// post; the lines that do not fit are counted.
 pub fn compose(first: &str, lines: &[String], open: &[Open]) -> String {
     let first = if first.chars().count() > 300 { one_line(first, 300) } else { first.to_owned() };
     let mut text = first;
-    for l in lines {
+    let reserve = if open.is_empty() {
+        "\nOpen problems: none".chars().count()
+    } else {
+        format!("\nOpen problems ({}):\n• … and {} more: `vyreon-core problems`", open.len(), open.len()).chars().count()
+    };
+    let cut = |n: usize| format!("\n… and {n} more lines, cut to fit");
+    for (i, l) in lines.iter().enumerate() {
+        let rest = lines.len() - i - 1;
+        let room = if rest == 0 { 0 } else { cut(lines.len()).chars().count() };
+        if text.chars().count() + 1 + l.chars().count() + room + reserve > LIMIT {
+            text.push_str(&cut(rest + 1));
+            break;
+        }
         text.push('\n');
         text.push_str(l);
     }
@@ -923,6 +940,40 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
     if retried > 0 {
         lines.push(format!("Attempts retried in the last 24 hours: {retried}"));
     }
+    // C-061: each day set aside (its day job FAILED, the day not published: no base, or no day-local
+    // revision on it) and each date omitted in the last 24 hours, with its cause code, so a provider
+    // day reads at a glance
+    let missing = c
+        .query(
+            &format!(
+                "SELECT s.session, {d}, 'Set aside', c->>'code',
+                        COALESCE('base revision ' || core.base_without_day_local(s.session, j.profile_id) || ' published, no day-local revision on it; ', '')
+                            || (c->>'detail')
+                 FROM core.job j JOIN core.session s ON s.session BETWEEN j.first_session AND j.last_session
+                 CROSS JOIN LATERAL core.job_failure_cause(j.job_id) AS c
+                 WHERE j.kind = 'DAY_BLOCK' AND j.profile_id = $2 AND j.state = 'FAILED'
+                   AND NOT core.day_published(s.session, j.profile_id)
+                 UNION ALL
+                 SELECT o.session, {o}, 'Omitted', 'OMITTED (' || (core.job_failure_cause(o.job_id)->>'code') || ')', o.reason
+                 FROM core.omitted_session o
+                 WHERE o.profile_id = $2 AND o.omitted_at > $1::text::timestamptz - interval '24 hours' AND o.omitted_at <= $1::text::timestamptz
+                 ORDER BY 1, 3 DESC",
+                d = day_of("s.session"),
+                o = day_of("o.session")
+            ),
+            &[&now, &s.profile],
+        )
+        .await
+        .map_err(db)?;
+    for (i, r) in missing.iter().enumerate() {
+        if i == MISSING_LINES {
+            lines.push(format!("… and {} more days set aside or omitted (GET /v1/sessions states each one's cause)", missing.len() - i));
+            break;
+        }
+        let (words, what, code, detail): (String, String, String, String) = (r.get(1), r.get(2), r.get(3), r.get(4));
+        lines.push(format!("{what}: {words} · {code} · {}", one_line(&detail, 160)));
+    }
+    let omitted = missing.iter().filter(|r| r.get::<_, String>(2) == "Omitted").count();
 
     // the queue, and a backfill's progress
     let kinds = c
@@ -1041,6 +1092,9 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
     }
     if retried > 0 {
         handled.push(format!("{retried} retried {}", if retried == 1 { "attempt" } else { "attempts" }));
+    }
+    if omitted > 0 {
+        handled.push(format!("{omitted} {} omitted", if omitted == 1 { "date" } else { "dates" }));
     }
     Ok(compose(&format!("{} · {today}", verdict(open, &handled, &unjudged)), &lines, open))
 }
@@ -1256,6 +1310,34 @@ mod tests {
         assert_eq!(few.lines().filter(|l| l.starts_with("• ")).count(), 2);
         assert!(!few.contains("more:"));
         assert!(compose("🟢 Running fine · Tue Nov 17", &lines, &[]).ends_with("\nOpen problems: none"));
+    }
+
+    /// Audit 2026-11-22 changes-core 18: ten long lines (days set aside with 160-character causes)
+    /// once filled the post before the open problems, and Discord's cut took the problems and their
+    /// command. The lines are cut first now: the problems' heading and count always fit.
+    #[test]
+    fn long_lines_never_push_the_open_problems_out_of_a_post() {
+        let cause = watch_cause();
+        let lines: Vec<String> = (1..=12).map(|d| format!("Set aside: Mon Dec {d:02}, 2025 · FAILED · {cause}")).collect();
+        let open: Vec<Open> = (0..3).map(|i| problem(i, &format!("Day 2025-12-{:02} failed for the last time (job {i})", i + 1))).collect();
+        let text = compose(&verdict(&open, &[], &[]), &lines, &open);
+        assert!(text.chars().count() <= LIMIT, "{}", text.chars().count());
+        assert!(text.contains("\nOpen problems (3):"), "{text}");
+        assert!(text.contains("vyreon-core problems") || text.lines().filter(|l| l.starts_with("• Day ")).count() == 3, "{text}");
+        let shown = text.lines().filter(|l| l.starts_with("Set aside: ")).count();
+        assert!(shown < 12 && text.contains(&format!("\n… and {} more lines, cut to fit", 12 - shown)), "{text}");
+        // with no problem open, the closing line stays too
+        let calm = compose("🟡 Running", &lines, &[]);
+        assert!(calm.chars().count() <= LIMIT && calm.ends_with("\nOpen problems: none"), "{calm}");
+        // lines that fit are all shown, nothing said about cutting
+        let few = compose("🟡 Running", &lines[..2], &open);
+        assert!(!few.contains("cut to fit") && few.lines().filter(|l| l.starts_with("Set aside: ")).count() == 2);
+    }
+
+    /// The first line of a real stop that is not a hold (`test_support::provider_502_stop`), cut
+    /// as the digest cuts a cause (160 characters).
+    fn watch_cause() -> String {
+        one_line(&test_support::provider_502_stop(), 160)
     }
 
     #[test]

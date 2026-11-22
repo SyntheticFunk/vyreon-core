@@ -182,7 +182,7 @@ async fn a_build_that_cannot_work_queues_nothing_and_is_a_problem() {
     assert_eq!(change.resolved, [stopped]);
     assert_eq!(jobs_of(&client, "2025-12-10").await, daily_jobs());
     // withdrawn: stopped again
-    build::withdraw(&client, &derived, "daily test").await.unwrap();
+    build::withdraw(&mut client, &derived, "daily test").await.unwrap();
     assert_eq!(watch::check(&mut client, &s, "2025-12-11 12:33:00+00").await.unwrap().opened.len(), 1);
     scratch.drop().await;
 }

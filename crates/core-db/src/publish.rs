@@ -35,7 +35,7 @@ use std::path::Path;
 use tokio::sync::mpsc::{Receiver, channel};
 use tokio_postgres::types::ToSql;
 use crate::work::{self, LeaseError};
-use tokio_postgres::{Client, Transaction};
+use tokio_postgres::{Client, GenericClient, Transaction};
 
 /// What a publish stored.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -79,10 +79,15 @@ fn refuse<T>(message: impl Into<String>) -> Result<T, Error> {
     Err(Error::Refused(message.into()))
 }
 
-/// A database error: data the database will not take (classes 22 and 23) is the bundle's fault.
+/// A database error: data the database will not take (classes 22 and 23) is the bundle's fault,
+/// except a constraint of core's own tables (the queue's, the notices'): the bundle writes only the
+/// store, so such a violation is core's, never a refused bundle that pauses the queue (audit
+/// 2026-11-22 changes-core 1: a pass queued meanwhile hit `job_one_unfinished_pass`).
 fn db(e: tokio_postgres::Error) -> Error {
     let message = e.as_db_error().map_or_else(|| e.to_string(), |d| d.message().to_owned());
+    let core_table = e.as_db_error().is_some_and(|d| d.schema() == Some("core"));
     match e.code().map(|c| &c.code()[..2]) {
+        Some("23") if core_table => Error::Failed(message),
         Some("22" | "23") => Error::Refused(message),
         _ => Error::Failed(message),
     }
@@ -117,12 +122,22 @@ pub async fn publish_file_vouched(client: &mut Client, path: &Path) -> Result<Pu
 
 /// Publishes the bundle a worker sends under its lease: the day must be its job's next session,
 /// for the job's profile and build. The day is published and the job moved on in one transaction.
+///
+/// A refusal is a failed check of live work (the service pauses the queue on it) only while the lease
+/// is live: some refusals come before the lease is checked (a bundle that ends before its scalars, or
+/// cannot be read to its end), so the lease is checked again first, and a refusal from a lease that has
+/// ended meanwhile (withdrawn, cancelled, expired) is answered as the lease gone (audit 2026-11-22
+/// round 2, core-r2 6: a withdrawn worker's truncated upload paused the replacement build's queue).
 pub async fn publish_for_lease(client: &mut Client, path: &Path, token: &str) -> Result<Published, LeaseError> {
-    publish(client, path, By::Lease(token)).await.map_err(|e| match e {
-        Error::Refused(m) if m == GONE => LeaseError::Gone,
-        Error::Refused(m) => LeaseError::Refused(m),
-        Error::Failed(m) => LeaseError::Failed(m),
-    })
+    match publish(client, path, By::Lease(token)).await {
+        Ok(published) => Ok(published),
+        Err(Error::Refused(m)) if m == GONE => Err(LeaseError::Gone),
+        Err(Error::Refused(m)) => match work::identify(&*client, token).await {
+            Err(LeaseError::Gone) => Err(LeaseError::Gone),
+            _ => Err(LeaseError::Refused(m)),
+        },
+        Err(Error::Failed(m)) => Err(LeaseError::Failed(m)),
+    }
 }
 
 const GONE: &str = "no live lease has this token";
@@ -737,15 +752,18 @@ async fn promote(tx: &Transaction<'_>, revision: i64, header: &Header, base: Opt
                 "UPDATE vyreon.day_revision SET state = 'SUPERSEDED'
                  WHERE state = 'PUBLISHED' AND base_revision IS NOT NULL AND revision_id <> $2
                    AND ((represented_date > $1::text::date AND NOT day_local) OR (represented_date = $1::text::date AND {same_day}))
-                 RETURNING represented_date::text, profile_id, engine_build, day_local"
+                 RETURNING represented_date::text, profile_id, engine_build, day_local, profile_revision"
             ),
             &[&date, &revision],
         )
         .await
         .map_err(db)?;
     superseded += fallen.len() as u64;
-    let fallen: Vec<Fallen> = fallen.iter().map(|r| Fallen { day: r.get(0), profile_id: r.get(1), engine_build: r.get(2), day_local: r.get(3) }).collect();
-    rederive(tx, header, same_day != "false", &fallen, lease).await?;
+    let fallen: Vec<Fallen> =
+        fallen.iter().map(|r| Fallen { day: r.get(0), profile_id: r.get(1), engine_build: r.get(2), day_local: r.get(3), profile_revision: r.get(4) }).collect();
+    let what = format!("{} of {date} published: {} revisions that read it are superseded", header.profile_revision, fallen.len());
+    let by = Trigger { date, what, publisher: Some(&header.engine_build), cause: "A republish left" };
+    rederive(tx, &by, same_day != "false", &fallen, lease).await?;
     // the clock, not the transaction's start: an ordered pass compares it with when its lease was
     // granted, and both are taken under the publish lock
     tx.execute("UPDATE vyreon.day_revision SET state = 'PUBLISHED', published_at = clock_timestamp() WHERE revision_id = $1", &[&revision])
@@ -754,60 +772,133 @@ async fn promote(tx: &Transaction<'_>, revision: i64, header: &Header, base: Opt
     Ok(superseded)
 }
 
-/// A revision a publish superseded because it read what the publish replaced.
+/// A revision a publish (or a retirement) superseded because it read what that replaced.
 struct Fallen {
     day: String,
     profile_id: String,
     engine_build: String,
     day_local: bool,
+    profile_revision: String,
 }
 
 /// The ordered pass derives again what fell (ARCHITECTURE 5.2): a pass running on an affected day
-/// is stopped (its lease ends and the worker is told the lease is gone) and queued again; the
-/// finished pass of each day whose history revision fell is queued again with fresh attempts.
-/// A day-local revision that fell with its day's base is the day block's to publish again on the
-/// new base. What no job will derive again is said in a notice, never left silent.
-async fn rederive(tx: &Transaction<'_>, header: &Header, same_day: bool, fallen: &[Fallen], lease: Option<&work::Held>) -> Result<(), Error> {
-    let date = header.represented_date.as_str();
+/// is stopped (its lease ends and the worker is told the lease is gone) and queued again; each day
+/// whose history revision fell and that has a finished pass but no unfinished one under a build that
+/// runs (one under a build that does not run is cancelled first, C-063) gets a pass
+/// queued with fresh attempts, under a build that runs (C-062): the publishing build when it runs
+/// and publishes the fallen revision's profile, else the fallen revision's own build when it runs
+/// (the finished pass of that build is queued again; a pass under another build is a new job, the
+/// finished one stays DONE). With neither, no job is queued: a pass under a build no worker claims
+/// would never run. A day-local revision that fell with its day's base is the day block's to
+/// publish again on the new base. What no job will derive again is said in a notice, never left
+/// silent.
+/// What made revisions fall, for `rederive`: the (earliest) day replaced, the notice's first clause,
+/// the build that published (none for a retirement) and the NOT_DERIVED problem's opening words.
+struct Trigger<'a> {
+    date: &'a str,
+    what: String,
+    publisher: Option<&'a str>,
+    cause: &'a str,
+}
+
+/// Returns (the days whose pass is queued or stopped and queued, the days no job derives again).
+async fn rederive(tx: &impl GenericClient, by: &Trigger<'_>, same_day: bool, fallen: &[Fallen], lease: Option<&work::Held>) -> Result<(Vec<String>, Vec<String>), Error> {
+    let date = by.date;
+    // whether a job's build runs (`core.build_runs`, written out: a publish also runs on a database
+    // brought to an older migration in the tests)
+    let runs = |job: &str| format!("EXISTS (SELECT FROM core.engine_build r WHERE r.engine_build = {job}.engine_build AND r.admitted_at IS NOT NULL AND r.withdrawn_at IS NULL)");
+    // a stopped pass of a build that does not run (a lease older than `build::withdraw` ending
+    // them) is cancelled, not queued where no worker claims: its day is then targeted below
     let stopped: Vec<String> = tx
         .query(
-            "WITH stopped AS (
+            &format!("WITH stopped AS (
                  UPDATE core.lease l SET ended_at = now(), outcome = 'CANCELLED', failure = 'a day it reads was published again: it is derived again'
                  FROM core.job j
                  WHERE l.job_id = j.job_id AND l.ended_at IS NULL AND j.kind = 'ORDERED_PASS'
                    AND (j.first_session > $1::text::date OR ($2 AND j.first_session = $1::text::date))
                  RETURNING j.job_id)
-             UPDATE core.job SET state = 'QUEUED', next_session = first_session, attempts = GREATEST(attempts - 1, 0), finished_at = NULL
+             UPDATE core.job SET state = CASE WHEN {r} THEN 'QUEUED' ELSE 'CANCELLED' END,
+                                 next_session = first_session, attempts = GREATEST(attempts - 1, 0),
+                                 finished_at = CASE WHEN {r} THEN NULL ELSE now() END
              WHERE job_id IN (SELECT job_id FROM stopped) AND state = 'LEASED'
-             RETURNING first_session::text",
+             RETURNING first_session::text, state = 'QUEUED'", r = runs("core.job")),
             &[&date, &same_day],
         )
         .await
         .map_err(db)?
         .iter()
+        .filter(|r| r.get::<_, bool>(1))
         .map(|r| r.get(0))
         .collect();
     let history: Vec<&Fallen> = fallen.iter().filter(|f| !f.day_local).collect();
     let days: Vec<&str> = history.iter().map(|f| f.day.as_str()).collect();
     let profiles: Vec<&str> = history.iter().map(|f| f.profile_id.as_str()).collect();
     let builds: Vec<&str> = history.iter().map(|f| f.engine_build.as_str()).collect();
-    const FALLEN: &str = "fallen AS (SELECT * FROM unnest($1::text[]::date[], $2::text[], $3::text[]) AS f(day, profile_id, engine_build))";
-    const UNFINISHED: &str = "SELECT FROM core.job u WHERE u.kind = 'ORDERED_PASS' AND u.profile_id = f.profile_id AND u.first_session = f.day
-                                  AND u.state IN ('QUEUED', 'LEASED', 'FAILED')";
+    let revisions: Vec<&str> = history.iter().map(|f| f.profile_revision.as_str()).collect();
+    const FALLEN: &str =
+        "fallen AS (SELECT * FROM unnest($1::text[]::date[], $2::text[], $3::text[], $4::text[]) AS f(day, profile_id, engine_build, profile_revision))";
+    // a pass derives a fallen day again only under a build that runs (audit 2026-11-22 changes-core
+    // 7): one of a build that does not run neither stands for the day nor keeps the publishing
+    // build from it; it is cancelled first, as `schedule` replaces it
+    let unfinished = format!(
+        "SELECT FROM core.job u WHERE u.kind = 'ORDERED_PASS' AND u.profile_id = f.profile_id AND u.first_session = f.day
+           AND u.state IN ('QUEUED', 'LEASED', 'FAILED') AND {}",
+        runs("u")
+    );
+    let replaced: Vec<i64> = tx
+        .query(
+            &format!(
+                "WITH {FALLEN}
+                 UPDATE core.job u SET state = 'CANCELLED', finished_at = now()
+                 WHERE u.kind = 'ORDERED_PASS' AND u.state IN ('QUEUED', 'FAILED') AND NOT {}
+                   AND EXISTS (SELECT FROM fallen f WHERE f.day = u.first_session AND f.profile_id = u.profile_id)
+                 RETURNING u.job_id",
+                runs("u")
+            ),
+            &[&days, &profiles, &builds, &revisions],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    // one pass per day and profile (a unique index holds it): when two history revisions of one day
+    // fell, the pass goes to the publishing build if either names it
     let requeued: Vec<String> = tx
         .query(
             &format!(
                 "WITH {FALLEN},
-                 redo AS (SELECT DISTINCT ON (f.day, f.profile_id, f.engine_build) j.job_id
-                          FROM fallen f JOIN core.job j ON j.kind = 'ORDERED_PASS' AND j.state = 'DONE' AND j.profile_id = f.profile_id
-                                                       AND j.engine_build = f.engine_build AND j.first_session = f.day
-                          WHERE NOT EXISTS ({UNFINISHED})
-                          ORDER BY f.day, f.profile_id, f.engine_build, j.job_id DESC)
-                 UPDATE core.job SET state = 'QUEUED', next_session = first_session, attempts = 0, finished_at = NULL
-                 WHERE job_id IN (SELECT job_id FROM redo)
-                 RETURNING first_session::text"
+                 target AS (SELECT DISTINCT ON (t.day, t.profile_id) t.day, t.profile_id, t.build
+                            FROM (SELECT f.day, f.profile_id,
+                                         CASE WHEN EXISTS (SELECT FROM core.engine_build r WHERE r.engine_build = $5 AND r.admitted_at IS NOT NULL AND r.withdrawn_at IS NULL)
+                                                   AND EXISTS (SELECT FROM core.expected_slot e WHERE e.engine_build = $5 AND e.profile_revision = f.profile_revision)
+                                              THEN $5
+                                              WHEN EXISTS (SELECT FROM core.engine_build r WHERE r.engine_build = f.engine_build AND r.admitted_at IS NOT NULL AND r.withdrawn_at IS NULL)
+                                              THEN f.engine_build END AS build
+                                  FROM fallen f
+                                  WHERE NOT EXISTS ({unfinished})
+                                    AND EXISTS (SELECT FROM core.job d WHERE d.kind = 'ORDERED_PASS' AND d.state = 'DONE'
+                                                  AND d.profile_id = f.profile_id AND d.first_session = f.day)) t
+                            WHERE t.build IS NOT NULL
+                            ORDER BY t.day, t.profile_id, t.build = $5 DESC, t.build),
+                 again AS (UPDATE core.job SET state = 'QUEUED', next_session = first_session, attempts = 0, finished_at = NULL
+                           WHERE job_id IN (SELECT (SELECT d.job_id FROM core.job d
+                                                    WHERE d.kind = 'ORDERED_PASS' AND d.state = 'DONE' AND d.profile_id = t.profile_id
+                                                      AND d.first_session = t.day AND d.engine_build = t.build
+                                                    ORDER BY d.job_id DESC LIMIT 1)
+                                            FROM target t)
+                           RETURNING first_session),
+                 made AS (INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, priority)
+                          SELECT 'ORDERED_PASS', t.profile_id, t.build, t.day, t.day, t.day,
+                                 (SELECT d.priority FROM core.job d WHERE d.kind = 'ORDERED_PASS' AND d.state = 'DONE' AND d.profile_id = t.profile_id
+                                    AND d.first_session = t.day ORDER BY d.job_id DESC LIMIT 1)
+                          FROM target t
+                          WHERE NOT EXISTS (SELECT FROM core.job d WHERE d.kind = 'ORDERED_PASS' AND d.state = 'DONE' AND d.profile_id = t.profile_id
+                                              AND d.first_session = t.day AND d.engine_build = t.build)
+                          RETURNING first_session)
+                 SELECT first_session::text FROM again UNION ALL SELECT first_session::text FROM made"
             ),
-            &[&days, &profiles, &builds],
+            &[&days, &profiles, &builds, &revisions, &by.publisher],
         )
         .await
         .map_err(db)?
@@ -816,7 +907,10 @@ async fn rederive(tx: &Transaction<'_>, header: &Header, same_day: bool, fallen:
         .collect();
     // (day, profile, day-local): what no job derives again
     let mut unowned: Vec<(String, String, bool)> = tx
-        .query(&format!("WITH {FALLEN} SELECT DISTINCT f.day::text, f.profile_id FROM fallen f WHERE NOT EXISTS ({UNFINISHED}) ORDER BY 1, 2"), &[&days, &profiles, &builds])
+        .query(
+            &format!("WITH {FALLEN} SELECT DISTINCT f.day::text, f.profile_id FROM fallen f WHERE NOT EXISTS ({unfinished}) ORDER BY 1, 2"),
+            &[&days, &profiles, &builds, &revisions],
+        )
         .await
         .map_err(db)?
         .iter()
@@ -827,13 +921,18 @@ async fn rederive(tx: &Transaction<'_>, header: &Header, same_day: bool, fallen:
         unowned.extend(fallen.iter().filter(|f| f.day_local).map(|f| (f.day.clone(), f.profile_id.clone(), true)));
     }
     let orphans: Vec<String> = unowned.iter().map(|(day, _, local)| if *local { format!("{day} (day-local)") } else { day.clone() }).collect();
-    if stopped.is_empty() && requeued.is_empty() && orphans.is_empty() {
-        return Ok(());
-    }
-    let mut rerun: Vec<&String> = stopped.iter().chain(&requeued).collect();
+    let mut rerun: Vec<String> = stopped.iter().chain(&requeued).cloned().collect();
     rerun.sort();
     rerun.dedup();
-    let mut text = format!("{} of {date} published: {} revisions that read it are superseded", header.profile_revision, fallen.len());
+    if rerun.is_empty() && orphans.is_empty() && replaced.is_empty() {
+        return Ok((rerun, orphans));
+    }
+    let mut text = by.what.clone();
+    if !replaced.is_empty() {
+        let mut jobs = replaced.clone();
+        jobs.sort_unstable();
+        text.push_str(&format!("; passes under builds that do not run cancelled: jobs {}", jobs.iter().map(i64::to_string).collect::<Vec<_>>().join(" ")));
+    }
     if let (Some(first), Some(last)) = (rerun.first(), rerun.last()) {
         text.push_str(&format!("; the ordered pass derives {} days again, {first} to {last}", rerun.len()));
     }
@@ -844,5 +943,250 @@ async fn rederive(tx: &Transaction<'_>, header: &Header, same_day: bool, fallen:
     }
     crate::notice::log(tx, &text).await.map_err(Error::Failed)?;
     // what no job derives again needs the owner: a problem until each day has its job (C-050)
-    crate::watch::not_derived(tx, &unowned, "A republish left").await.map_err(Error::Failed)
+    crate::watch::not_derived(tx, &unowned, by.cause).await.map_err(Error::Failed)?;
+    Ok((rerun, orphans))
+}
+
+/// C-063 amended (audit 2026-11-22 prebuild round 2, core-r2 1): when day block `job` ends for good
+/// on `day` (set aside FAILED, or cancelled) with the day's base PUBLISHED and no day-local revision
+/// published on it, the base is superseded and recorded (`core.dropped_base`), and what read it falls
+/// and is derived again (C-037, `rederive`, no publishing build). The engine's ordered pass reads every
+/// published base, so a base left so would feed later days' history while core calls its day missing;
+/// superseded, the day is missing everywhere. A later attempt publishes the day afresh: its base is a
+/// new revision and its day-local revision binds to it. Call it under the publish lock. Returns the
+/// base it superseded.
+pub(crate) async fn drop_base_without_day_local(tx: &impl GenericClient, job: i64, day: &str, profile: &str) -> Result<Option<i64>, String> {
+    let q = |e: tokio_postgres::Error| db(e).to_string();
+    let Some(base) = tx.query_one("SELECT core.base_without_day_local($1::text::date, $2)", &[&day, &profile]).await.map_err(q)?.get::<_, Option<i64>>(0) else {
+        return Ok(None);
+    };
+    tx.execute("UPDATE vyreon.day_revision SET state = 'SUPERSEDED' WHERE revision_id = $1 AND state = 'PUBLISHED'", &[&base]).await.map_err(q)?;
+    tx.execute(
+        "INSERT INTO core.dropped_base (revision_id, job_id, represented_date, profile_id) VALUES ($1, $2, $3::text::date, $4)",
+        &[&base, &job, &day, &profile],
+    )
+    .await
+    .map_err(q)?;
+    // what read it: a revision of the day computed on a base, and every later day's history revision
+    let fallen: Vec<Fallen> = tx
+        .query(
+            "UPDATE vyreon.day_revision SET state = 'SUPERSEDED'
+             WHERE state = 'PUBLISHED' AND base_revision IS NOT NULL
+               AND ((represented_date > $1::text::date AND NOT day_local) OR represented_date = $1::text::date)
+             RETURNING represented_date::text, profile_id, engine_build, day_local, profile_revision",
+            &[&day],
+        )
+        .await
+        .map_err(q)?
+        .iter()
+        .map(|r| Fallen { day: r.get(0), profile_id: r.get(1), engine_build: r.get(2), day_local: r.get(3), profile_revision: r.get(4) })
+        .collect();
+    let what = format!(
+        "Day {day}'s base revision {base} superseded: its day block (job {job}) ended without a day-local revision on it; {} revisions that read it are superseded",
+        fallen.len()
+    );
+    let by = Trigger { date: day, what, publisher: None, cause: "A day set aside without its day-local revision left" };
+    rederive(tx, &by, true, &fallen, None).await.map_err(|e| e.to_string())?;
+    Ok(Some(base))
+}
+
+/// One revision a retirement takes down.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RetiredRevision {
+    pub date: String,
+    pub revision_id: i64,
+    pub profile_id: String,
+    pub profile_revision: String,
+    pub engine_build: String,
+    /// "base", "day-local" or "history"
+    pub kind: String,
+}
+
+/// What `retire` did, or, previewed, would do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Retired {
+    /// None when previewed: nothing was changed.
+    pub retirement_id: Option<i64>,
+    pub revisions: Vec<RetiredRevision>,
+    /// The unfinished jobs of the days' builds it cancelled (as cancelled, not as selected).
+    pub cancelled: Vec<i64>,
+    /// Later days' history revisions that read a retired day and fall with it (C-037).
+    pub fallen: u64,
+    /// The days whose ordered pass is queued (or stopped and queued) to derive them again.
+    pub rederived: Vec<String>,
+    /// The days no job derives again (named in a notice and a NOT_DERIVED problem).
+    pub unowned: Vec<String>,
+    /// What the retirement takes down, as a token: the revisions, the jobs it cancels and the later
+    /// history revisions that fall with it. A preview
+    /// prints it; the retirement itself is refused unless it is given the same (audit 2026-11-22
+    /// changes-core 13).
+    pub token: String,
+}
+
+/// The token of a retirement: the first 16 hex digits of the SHA-256 of its revisions, the jobs it
+/// cancels and the later history revisions that fall with it (audit 2026-11-22 round 2, core-r2 5),
+/// each in order.
+fn retirement_token(revisions: &[RetiredRevision], cancelled: &[i64], later: &[i64]) -> String {
+    let ids = |v: &mut dyn Iterator<Item = i64>| v.map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+    let text = format!(
+        "revisions {}; jobs {}; later {}",
+        ids(&mut revisions.iter().map(|r| r.revision_id)),
+        ids(&mut cancelled.iter().copied()),
+        ids(&mut later.iter().copied())
+    );
+    sha256_hex(text.as_bytes())[..16].to_owned()
+}
+
+/// C-062: retires the published days of `dates` with the operator's reason. Every PUBLISHED revision
+/// of those dates (base, day-local and history, of every profile) becomes SUPERSEDED: every row is
+/// kept, none is deleted, and `core.retired_revision` names each with its retirement. The unfinished
+/// day blocks and ordered passes of those dates whose build published a revision of that day are
+/// cancelled (a job of another build, which will compute the day afresh, stays); a day block that
+/// also covers a date not named refuses the whole retirement. What read a retired day falls with it,
+/// as after a publish (C-037): every later day's PUBLISHED history revision is superseded and its
+/// ordered pass queued again under a build that runs (`rederive`, with no publishing build), or the
+/// day is named. The retirement, its reason, the sessions and the jobs cancelled are one row of
+/// `core.retirement` and a logged notice; the reader then states each date NOT_PUBLISHED with the
+/// cause RETIRED (unless a day job is pending or failed for it). With `preview`, everything is done
+/// and reported inside a transaction that is rolled back: the report is exactly what it would do, and
+/// its `token` names it. Without `preview`, `expect` must be that token: a retirement whose revisions,
+/// cancelled jobs or falling later history revisions are not the ones previewed (a build published one
+/// of the dates since, a job was scheduled, a later day's pass published) is refused whole, so nothing
+/// the operator did not see is taken down (audit 2026-11-22 changes-core 13, round 2 core-r2 5).
+pub async fn retire(client: &mut Client, reason: &str, dates: &[&str], preview: bool, expect: Option<&str>) -> Result<Retired, String> {
+    let fail = |e: Error| e.to_string();
+    let reason = work::scrubbed(reason.trim());
+    if reason.is_empty() {
+        return Err("a retirement needs a reason".into());
+    }
+    if dates.is_empty() {
+        return Err("name at least one date to retire".into());
+    }
+    if let Some(bad) = dates.iter().find(|d| !core_contract::is_date(d)) {
+        return Err(format!("{bad} is not a date written YYYY-MM-DD"));
+    }
+    if !preview && expect.is_none() {
+        return Err("a retirement takes down only what its preview showed: run it with --preview first and give the token it prints (--expect); nothing was retired".into());
+    }
+    let mut dates: Vec<&str> = dates.to_vec();
+    dates.sort_unstable();
+    dates.dedup();
+    let tx = client.transaction().await.map_err(|e| fail(db(e)))?;
+    // it changes what is published and cancels jobs: one publish at a time, then the scheduler's lock
+    // (the order `omit` and a schedule of ordered passes take them in; a publish takes the first only)
+    tx.execute(work::PUBLISH_LOCK, &[]).await.map_err(|e| fail(db(e)))?;
+    tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.map_err(|e| fail(db(e)))?;
+    let q = |e: tokio_postgres::Error| fail(db(e));
+    for date in &dates {
+        if tx.query_opt("SELECT FROM core.session WHERE session = $1::text::date", &[date]).await.map_err(q)?.is_none() {
+            return Err(format!("{date} is not a trading session"));
+        }
+    }
+    let revisions: Vec<RetiredRevision> = tx
+        .query(
+            "SELECT represented_date::text, revision_id, profile_id, profile_revision, engine_build,
+                    CASE WHEN base_revision IS NULL THEN 'base' WHEN day_local THEN 'day-local' ELSE 'history' END
+             FROM vyreon.day_revision WHERE represented_date = ANY($1::text[]::date[]) AND state = 'PUBLISHED'
+             ORDER BY represented_date, base_revision IS NOT NULL, day_local DESC, profile_revision FOR UPDATE",
+            &[&dates],
+        )
+        .await
+        .map_err(q)?
+        .iter()
+        .map(|r| RetiredRevision { date: r.get(0), revision_id: r.get(1), profile_id: r.get(2), profile_revision: r.get(3), engine_build: r.get(4), kind: r.get(5) })
+        .collect();
+    if let Some(empty) = dates.iter().find(|d| !revisions.iter().any(|r| r.date == **d)) {
+        return Err(format!("nothing is published on {empty}: nothing to retire"));
+    }
+    // the unfinished jobs of the builds that published these days (any revision, published once)
+    let jobs = tx
+        .query(
+            "SELECT j.job_id, j.kind, j.first_session::text, j.last_session::text,
+                    EXISTS (SELECT FROM core.session s WHERE s.session BETWEEN j.first_session AND j.last_session
+                              AND NOT s.session = ANY($1::text[]::date[]))
+             FROM core.job j
+             WHERE j.kind IN ('DAY_BLOCK', 'ORDERED_PASS') AND j.state IN ('QUEUED', 'LEASED', 'FAILED')
+               AND EXISTS (SELECT FROM vyreon.day_revision d
+                           WHERE d.represented_date = ANY($1::text[]::date[]) AND d.represented_date BETWEEN j.first_session AND j.last_session
+                             AND d.profile_id = j.profile_id AND d.engine_build = j.engine_build AND d.published_at IS NOT NULL)
+             ORDER BY j.job_id",
+            &[&dates],
+        )
+        .await
+        .map_err(q)?;
+    if let Some(wide) = jobs.iter().find(|r| r.get::<_, bool>(4)) {
+        let (job, first, last): (i64, String, String) = (wide.get(0), wide.get(2), wide.get(3));
+        return Err(format!("day block {job} ({first} to {last}) also covers dates not named: cancel or finish it first; nothing was retired"));
+    }
+    let cancelled: Vec<i64> = jobs.iter().map(|r| r.get(0)).collect();
+    // the later days' history revisions that read a retired day and fall with it (below): in the token,
+    // so a pass that published one after the preview is never taken down unseen (core-r2 5)
+    let later: Vec<i64> = tx
+        .query(
+            "SELECT revision_id FROM vyreon.day_revision
+             WHERE state = 'PUBLISHED' AND base_revision IS NOT NULL AND NOT day_local AND represented_date > $1::text::date
+               AND NOT represented_date = ANY($2::text[]::date[])
+             ORDER BY revision_id FOR UPDATE",
+            &[&dates[0], &dates],
+        )
+        .await
+        .map_err(q)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let token = retirement_token(&revisions, &cancelled, &later);
+    if let Some(expected) = expect.filter(|e| !preview && *e != token) {
+        return Err(format!(
+            "what these dates hold changed since the preview (its token {expected}, now {token}): a revision was published or superseded, \
+             a later day's history revision published or superseded, or a job scheduled or ended; preview again; nothing was retired"
+        ));
+    }
+    // the jobs it cancelled are recorded once cancelled (below): a job selected above may finish before
+    // then (its worker needs no publish lock), and is then neither cancelled nor named (core-r2 9)
+    let retirement_id: i64 = tx
+        .query_one(
+            "INSERT INTO core.retirement (reason, sessions, cancelled) VALUES ($1, $2::text[]::date[], '{}') RETURNING retirement_id",
+            &[&reason, &dates],
+        )
+        .await
+        .map_err(q)?
+        .get(0);
+    let ids: Vec<i64> = revisions.iter().map(|r| r.revision_id).collect();
+    tx.execute("UPDATE vyreon.day_revision SET state = 'SUPERSEDED' WHERE revision_id = ANY($1)", &[&ids]).await.map_err(q)?;
+    tx.execute(
+        "INSERT INTO core.retired_revision (revision_id, retirement_id, represented_date, profile_id)
+         SELECT revision_id, $2, represented_date, profile_id FROM vyreon.day_revision WHERE revision_id = ANY($1)",
+        &[&ids, &retirement_id],
+    )
+    .await
+    .map_err(q)?;
+    // after the revisions are down, so the cancel finds no published base to leave underived
+    let cancelled = work::cancel_in(&tx, &cancelled).await?;
+    tx.execute("UPDATE core.retirement SET cancelled = $2 WHERE retirement_id = $1", &[&retirement_id, &cancelled]).await.map_err(q)?;
+    // what read a retired day: every later history revision (C-037), derived again
+    let first = dates[0];
+    let fallen: Vec<Fallen> = tx
+        .query(
+            "UPDATE vyreon.day_revision SET state = 'SUPERSEDED'
+             WHERE state = 'PUBLISHED' AND base_revision IS NOT NULL AND NOT day_local AND represented_date > $1::text::date
+             RETURNING represented_date::text, profile_id, engine_build, day_local, profile_revision",
+            &[&first],
+        )
+        .await
+        .map_err(q)?
+        .iter()
+        .map(|r| Fallen { day: r.get(0), profile_id: r.get(1), engine_build: r.get(2), day_local: r.get(3), profile_revision: r.get(4) })
+        .collect();
+    let named = if dates.len() == 1 { first.to_owned() } else { format!("{} dates, {first} to {}", dates.len(), dates[dates.len() - 1]) };
+    let by = Trigger { date: first, what: format!("Retired {named}: {} revisions that read them are superseded", fallen.len()), publisher: None, cause: "A retirement left" };
+    let (rederived, unowned) = rederive(&tx, &by, true, &fallen, None).await.map_err(fail)?;
+    let jobs_text = if cancelled.is_empty() { "no unfinished job".to_owned() } else { format!("jobs {} cancelled", cancelled.iter().map(i64::to_string).collect::<Vec<_>>().join(" ")) };
+    crate::notice::log(&tx, &format!("Retirement {retirement_id}: {} published revisions of {named} superseded (kept), {jobs_text}: {reason}.", revisions.len())).await?;
+    let report = Retired { retirement_id: Some(retirement_id), revisions, cancelled, fallen: fallen.len() as u64, rederived, unowned, token };
+    if preview {
+        tx.rollback().await.map_err(q)?;
+        return Ok(Retired { retirement_id: None, ..report });
+    }
+    tx.commit().await.map_err(q)?;
+    Ok(report)
 }

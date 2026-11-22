@@ -86,7 +86,9 @@ async fn a_published_days_captures_are_kept_once_and_a_new_fetch_is_another_vers
     let doc = universe::read_responses(&fixtures.join("engine-v1-PROFILE.json"), &fixtures.join("intrinio-universe")).unwrap();
     universe::store(&mut client, &doc).await.unwrap();
     let mut builds = Vec::new();
-    for inventory in inventories() {
+    for (i, inventory) in inventories().into_iter().enumerate() {
+        // the base build publishes the day's day-local revision as well (C-031)
+        let inventory = if i == 0 { test_support::slice::with_day_local(inventory) } else { test_support::slice::reading(inventory) };
         let b = build::register(&mut client, &inventory).await.unwrap().engine_build;
         build::admit(&client, &b, &json!({"checklist": "capture test"})).await.unwrap();
         builds.push(b);
@@ -102,6 +104,10 @@ async fn a_published_days_captures_are_kept_once_and_a_new_fetch_is_another_vers
     assert!(matches!(early, Err(LeaseError::Refused(ref m)) if m.contains("has published no day")), "{early:?}");
     let (header, scalars, files) = parts(BASE);
     let path = bundle("captures-base", &header, &scalars, &files);
+    let base = publish_for_lease(&mut client, &path, &block.token).await.unwrap().revision_id;
+    std::fs::remove_file(&path).unwrap();
+    let (h, s, f) = test_support::slice::day_local_parts(&base_build, "2025-12-10", base);
+    let path = bundle("captures-day-local", &h, &s, &f);
     publish_for_lease(&mut client, &path, &block.token).await.unwrap();
     std::fs::remove_file(&path).unwrap();
 

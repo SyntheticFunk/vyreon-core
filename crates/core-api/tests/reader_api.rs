@@ -138,6 +138,77 @@ async fn every_session_is_listed_and_an_unpublished_one_says_so() {
     s.scratch.drop().await;
 }
 
+/// One day block of the base build over `day`, claimed: one attempt only.
+async fn claimed_day(client: &mut tokio_postgres::Client, day: &str) -> work::Claim {
+    let base = inventories()[0]["engine_build"].as_str().unwrap().to_owned();
+    work::schedule(client, work::Kind::DayBlock, "FREE_REPORT_64", &base, day, day, 1).await.unwrap();
+    client.execute("UPDATE core.job SET max_attempts = 1 WHERE state = 'QUEUED'", &[]).await.unwrap();
+    work::claim(client, work::Kind::DayBlock, &base, "w1", 3600.0).await.unwrap().unwrap()
+}
+
+/// The day block over `day`, failed for the last time with `message`.
+async fn failed_day(client: &mut tokio_postgres::Client, day: &str, message: &str) {
+    let claim = claimed_day(client, day).await;
+    assert!(!work::fail(client, &claim.token, &format!("day {day}"), message, "").await.unwrap());
+}
+
+/// C-061: every NOT_PUBLISHED session states its cause, in the session list, in one session and
+/// in an asset's history; a published one has none. The 10th is the slice's real day; the others
+/// are real sessions around it whose day jobs stand as each cause needs (the engine's two holds,
+/// the refused day's real provider stop, an omission, a queued and a running block, none).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn each_unpublished_session_states_its_cause() {
+    let s = service("reader_causes").await;
+    let mut client = s.scratch.client().await;
+    let base = inventories()[0]["engine_build"].as_str().unwrap().to_owned();
+    build::admit(&client, &base, &json!({"checklist": "reader test"})).await.unwrap();
+    let reason = "Intrinio delivered no option prices for 2025-12-05 on three attempts";
+    failed_day(&mut client, "2025-12-05", &test_support::provider_input_hold("2025-12-05")).await;
+    work::omit(&mut client, "FREE_REPORT_64", "2025-12-05", reason).await.unwrap();
+    failed_day(&mut client, "2025-12-08", &test_support::provider_input_hold("2025-12-08")).await;
+    failed_day(&mut client, "2025-12-09", &test_support::engine_fault_hold("2025-12-09")).await;
+    let _running = claimed_day(&mut client, "2025-12-15").await;
+    let stop = test_support::provider_502_stop();
+    failed_day(&mut client, "2025-12-11", &stop).await;
+    work::schedule(&mut client, work::Kind::DayBlock, "FREE_REPORT_64", &base, "2025-12-12", "2025-12-12", 1).await.unwrap();
+
+    let cause = |code: &str, detail: &str| json!({"code": code, "detail": detail});
+    let provider = cause("PROVIDER_INPUT_MISSING", "412 of 3904 final slots lack a provider input (more than 0.1)");
+    let expected = [
+        ("2025-12-04", cause("NOT_SCHEDULED", "no day job is queued, running or set aside for this session")),
+        ("2025-12-05", cause("OMITTED", reason)),
+        ("2025-12-08", provider.clone()),
+        ("2025-12-09", cause("ENGINE_FAULT", "400 of 3904 final slots are withheld for an engine fault (more than 0.1)")),
+        ("2025-12-10", Value::Null),
+        ("2025-12-11", cause("FAILED", stop.lines().next().unwrap())),
+        ("2025-12-12", cause("NOT_COMPUTED_YET", "its day is queued")),
+        ("2025-12-15", cause("NOT_COMPUTED_YET", "its day is being computed")),
+    ];
+    let read = |sessions: &Value| -> Vec<(String, Value)> {
+        sessions.as_array().unwrap().iter().map(|x| (x["date"].as_str().unwrap().to_owned(), x.get("cause").cloned().unwrap_or(Value::Null))).collect()
+    };
+    let want: Vec<(String, Value)> = expected.iter().map(|(d, c)| (d.to_string(), c.clone())).collect();
+    let (_, listed) = s.get("/sessions?from=2025-12-04&to=2025-12-15").await;
+    assert_eq!(read(&listed["sessions"]), want);
+    let states: Vec<&str> = listed["sessions"].as_array().unwrap().iter().map(|x| x["state"].as_str().unwrap()).collect();
+    assert_eq!(states, ["NOT_PUBLISHED", "NOT_PUBLISHED", "NOT_PUBLISHED", "NOT_PUBLISHED", "PUBLISHED", "NOT_PUBLISHED", "NOT_PUBLISHED", "NOT_PUBLISHED"]);
+    assert_eq!(s.get("/sessions/2025-12-08").await.1["session"]["cause"], provider);
+    assert!(s.get("/sessions/2025-12-10").await.1["session"].get("cause").is_none());
+    let path = "/assets/AAPL/history?from=2025-12-04&to=2025-12-15&detail=headline";
+    let first = s.get_as(&s.reader, path).await;
+    let etag = first.headers()["etag"].to_str().unwrap().to_owned();
+    assert_eq!(read(&first.json::<Value>().await.unwrap()["sessions"]), want);
+
+    // a cause that changes changes the history's ETag: the failed days queued again
+    assert_eq!(work::retry_failed(&client).await.unwrap(), 3);
+    let again = s.http.get(format!("{}{path}", s.url)).bearer_auth(&s.reader).header("if-none-match", &etag).send().await.unwrap();
+    assert_eq!(again.status(), StatusCode::OK);
+    let sessions = again.json::<Value>().await.unwrap()["sessions"].clone();
+    assert_eq!(read(&sessions)[2].1, cause("NOT_COMPUTED_YET", "its day is queued"));
+    s.scratch.drop().await;
+}
+
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn an_assets_history_carries_what_the_engine_published() {

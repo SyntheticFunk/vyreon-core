@@ -641,8 +641,10 @@ async fn a_cancelled_repair_pass_leaves_its_day_a_problem() {
     for profile in [&base, &day_local, &history] {
         send(&mut client, profile).await;
     }
-    // the day's ordered pass, finished
+    // the day's ordered pass, finished, by a build that runs (C-062: a pass is never queued again
+    // under a build no worker claims)
     let (profile, build) = (history.0.profile_id.clone(), history.0.engine_build.clone());
+    build::admit(&client, &build, &json!({"checklist": "publish test", "by": "cargo test"})).await.unwrap();
     core_db::work::schedule(&mut client, core_db::work::Kind::OrderedPass, &profile, &build, "2025-12-10", "2025-12-10", 1).await.unwrap();
     client.execute("UPDATE core.job SET state = 'DONE', next_session = NULL, finished_at = now() WHERE kind = 'ORDERED_PASS'", &[]).await.unwrap();
     let settings = core_db::watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: 20, daily: None, archive: None, refcheck_from: None };
