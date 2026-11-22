@@ -1,5 +1,8 @@
-# Superseded by 50-keda.yaml (C-066) once KEDA runs the daily build: suspend this CronJob then and
-# never run both (README, "Workers from the queue", 9). Kept as the fallback while KEDA is down.
+# Superseded by 50-keda.yaml (C-066): KEDA runs the daily build, so this CronJob is applied
+# SUSPENDED (`suspend: true` below, C-068, audit opsurface ops.md 15: applied as it was, it started a
+# second worker beside KEDA's every morning, which held a node 30 minutes for nothing). Never run both
+# (README, "Workers from the queue", 9). Kept as the fallback while KEDA is down: pause the
+# ScaledJobs, then `kubectl -n vyreon patch cronjob daily -p '{"spec":{"suspend":false}}'`.
 # Daily runs (C-051): core queues each trading session at 07:30 New York the next calendar day
 # (`core_db::daily`); this CronJob starts the worker a quarter of an hour later, Tuesday to Saturday
 # (the mornings after Monday to Friday), so the queued session is claimed with nobody starting
@@ -43,6 +46,8 @@ metadata:
 spec:
   schedule: "45 7 * * 2-6"
   timeZone: America/New_York
+  # C-068: KEDA starts the daily work; resumed only as the fallback (header)
+  suspend: true
   # never two runs at once; a start missed (control plane busy, an upgrade) still runs within 6 h
   concurrencyPolicy: Forbid
   startingDeadlineSeconds: 21600

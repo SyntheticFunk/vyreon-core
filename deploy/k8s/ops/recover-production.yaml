@@ -1,0 +1,43 @@
+# Production recovery after the database volume is lost (C-068, audit opsurface ops.md 7; README
+# "Backups and the volume", D). Not the drill (`restore-drill.yaml`, which archives nothing and is
+# deleted): this cluster becomes the database. It is recovered from the latest base backup and every
+# archived WAL file of `vyreon-pg` (serverName `vyreon-pg` in the bucket), and archives its own WAL
+# from the start under its own name (`vyreon-pg2/` in the same bucket): the plugin refuses to archive
+# into a server's path that already holds WAL (barman-cloud-check-wal-archive), so the recovered
+# database never writes over the history it came from, and that history stays recoverable.
+#
+# Its Services are `vyreon-pg2-rw`, ...: core, KEDA's triggers and the ordered pass's login are
+# repointed to `vyreon-pg2-rw` (README D). Roles, their passwords and memberships (vyreon,
+# vyreon_pass, vyreon_keda, pg_monitor) come back with the backup.
+#
+# Placed on the core node as `vyreon-pg` is (no node selector: worker pools are tainted). Size the
+# volume as `vyreon-pg`'s (`10-postgres.yaml`); a recovery of ~150 GB replays its WAL in an hour or
+# two (the drill measures it).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: vyreon-pg2
+  namespace: vyreon
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  storage:
+    size: 250Gi
+  bootstrap:
+    recovery:
+      source: vyreon-pg-backup
+      database: vyreon
+      owner: vyreon
+  externalClusters:
+    - name: vyreon-pg-backup
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: vyreon-backup
+          serverName: vyreon-pg
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: vyreon-backup
+        serverName: vyreon-pg2

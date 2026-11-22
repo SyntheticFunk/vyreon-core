@@ -2335,6 +2335,12 @@ runbook `deploy/k8s/README.md` "Workers from the queue".
   recomputed by KEDA alone); `sslmode=require` against CloudNativePG's server certificate (the
   workers connect without TLS today); KEDA's real memory on the core node; Postgres's cost of the
   four counts every 30 s (the view's per-pass functions over ~600 queued passes).
+- **Amended 2026-11-22 (C-068; audit opsurface ops.md 5, 6, 15 and the pass suspicion):** pods
+  prefer pool `day` and may run on `day-std` (the Intel fallback, node affinity); the daily block
+  has PriorityClass `vyreon-daily` (preempts) above `vyreon-backfill-block` (preempts nothing) above
+  tapes and passes; the ordered pass has a 6Gi memory limit and a 2 h deadline; KEDA 2.21 has no
+  limit on a ScaledJob's failed Jobs, so a pod failing before it claims is seen as its kind's
+  `STALLED`; CronJob `daily` is applied suspended. See C-068.
 - Tests: `core-db/tests/work.rs` `the_scaler_counts_what_a_worker_of_the_build_can_claim_and_reads_nothing_else`
   (the count equals `work::status`'s claimable per kind at each step on the real slice, per build,
   daily apart, zero when paused; the login cannot read `core.claimable_job`, `core.job`,
@@ -2471,4 +2477,56 @@ owner from the runbooks. Every real finding fixed; finding 14 is the engine's. M
   `an_upload_holds_no_connection_while_its_body_arrives` (a pool of one; fails on the old handler).
   Not measured: the core node's memory with Postgres, KEDA and core under twelve publishers (the
   recompute on two nodes, then the full build, are the measurement).
+- **3 and 11: the operator's scripts fail closed.** `ops/do.sh` treats any answer but 2xx as an error
+  (exit 1, the status and the start of DigitalOcean's message on stderr; the token goes to curl as a
+  header file, not its command line). `ops/delete-idle.sh` deletes nothing and exits 1 when the worker
+  pods or DigitalOcean's node list cannot be read (an expired kubeconfig no longer reads as "no busy
+  node"); it never deletes a node with an unfinished worker pod, drains a node with only finished
+  ones, skips the drain only on a node with no worker pod, leaves a node under 15 minutes old or not
+  running (it may be coming up for a pending pod), and reports every refused deletion (exit 1).
+  `ops/health.sh` says "spend: unreadable" on an error answer or an answer without the figure, never
+  $0.00, and says when the pods or core cannot be read. Checked with stand-in `curl`, `kubectl` and
+  DigitalOcean answers (a 401, a pool list of four nodes, one refused deletion), not on the account.
+- **5: startup failures.** The runbook's `vyreon-worker` Secret has `fred-key` (the tape and day
+  pods mount it), with a check of the keys' names; `doctl registry docker-config` loses the
+  `--read-only` flag doctl does not have (read-only is its default). KEDA 2.21.1's ScaledJob has no
+  backoff and no limit on failed Jobs (its CRD's spec fields read from the release manifest:
+  pollingInterval, min/maxReplicaCount, the two history limits, rollout, scalingStrategy, triggers,
+  envSourceContainerName, jobTargetRef), and a Job already runs one pod with no retry, so a pod that
+  fails before it claims is replaced every poll while its job is claimable, bounded by the cap and
+  the nodes. It is seen as that kind's `STALLED` (8), on `ops/health.sh` (failed Jobs per ScaledJob
+  in the last hour, pods stuck before running) and in `failedJobsHistoryLimit`'s 30 kept Jobs;
+  stopped by pausing the ScaledJob (runbook). A missing Secret key leaves the pod in
+  `CreateContainerConfigError`, pending, which KEDA counts, so that case makes no loop.
+- **6: the AMD stockout and the daily node.** Pods prefer pool `day` and allow `day-std` (required
+  affinity on the pool label, preferred `day`). The autoscaler backs a pool off after a failed
+  scale-up and grows another that fits; which one it grows when both can is its expander's, which
+  DigitalOcean does not document: checked on the first runs. `day-std` autoscaled 0..13 in the
+  runbook; nodes follow KEDA's capped pods, so about 13 between the pools in a build, and 26 only if
+  KEDA's caps failed (a lower `day-std` maximum is the owner's call). The daily block: a
+  PriorityClass, not a cap of 11 backfill blocks, because the cap reserves a Job slot and not the
+  6 CPUs (tapes of 2 and passes of 1 could still fill the room); `vyreon-daily` (1000) preempts the
+  lowest pods on one node (a tape or a pass, whose lease then expires, free of charge), a backfill
+  block (`vyreon-backfill-block`, 100, preempts nothing) only when nothing lower stands anywhere.
+  The daily tape is claimed ahead of the backfill's (priority 1); the daily block still waits for
+  every unfinished earlier tape, rightly (it reads the tape history before its day): at most the
+  backfill's tape phase, under 2 hours at the test block's rate.
+- **7: production recovery is in the runbook** (README "Backups and the volume" D,
+  `ops/recover-production.yaml`): the workers and core stopped, a new Cluster `vyreon-pg2` recovered
+  from `vyreon-pg`'s backups and archiving under its own server name from the start (the plugin will
+  not archive into a path holding another server's WAL, and the old history stays recoverable),
+  core, KEDA and the pass's login repointed to `vyreon-pg2-rw`, the schedule and a base backup on the
+  new cluster, a check before the ScaledJobs resume, then the new names committed. The drill stays
+  a drill. Not verified: CloudNativePG's handling of the recovered owner's password (the runbook sets
+  it if core cannot log in), and the whole procedure (a second drill run as D, on a copy, is the way
+  to prove it: the owner's call, about an hour and a 250 GiB volume for it).
+- **15: CronJob `daily` is applied suspended** (`suspend: true` in `40-daily.yaml`): applied as it
+  was, it started a second worker beside KEDA's every morning. MILESTONES' launch line and the
+  runbook's daily step say so.
+- **The ordered pass's memory and time (suspicion):** a 6Gi limit (a pass beside a day block is
+  killed by its own limit, not the block by the node's OOM killer; six times the ~1 GB estimate) and
+  a 2 h deadline (seconds on the test block's 10 days), with the measurement plan in README "The
+  caps": `memory.peak` and duration on the recompute and at ~100, 300 and 597 sessions; raise before
+  going on if the peak passes 4 GiB or a pass 30 minutes. Five lost leases on one session leave it
+  FAILED (C-035 amended), and later passes wait.
 
