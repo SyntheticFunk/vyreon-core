@@ -586,11 +586,14 @@ pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str
     let (job_id, profile_id, scope, attempt, next, last): (i64, String, Option<String>, i32, Option<String>, String) =
         (job.get(0), job.get(1), job.get(2), job.get(3), job.get(4), job.get(5));
     let next = next.ok_or_else(|| format!("job {job_id} has no session left to do"))?;
+    // C-064 amended (audit round 2 of core-watch, 1): granted and expiring on one clock, read when
+    // the lease is written, so a claim that waited (an ordered pass for the publish lock) never
+    // hands out a lease that expired before it was granted (`now()` is the transaction's start)
     let lease = tx
         .query_one(
             "WITH t AS (SELECT replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '') AS token)
              INSERT INTO core.lease (job_id, worker, token_sha256, granted_at, expires_at)
-             SELECT $1, $2, encode(sha256(convert_to(token, 'UTF8')), 'hex'), clock_timestamp(), now() + make_interval(secs => $3) FROM t
+             SELECT $1, $2, encode(sha256(convert_to(token, 'UTF8')), 'hex'), g.at, g.at + make_interval(secs => $3) FROM t, (SELECT clock_timestamp() AS at) g
              RETURNING (SELECT token FROM t), to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')",
             &[&job_id, &worker, &lease_seconds],
         )
@@ -684,13 +687,14 @@ pub async fn identify(db_client: &impl GenericClient, token: &str) -> Result<Hel
 }
 
 /// Renews a lease. Returns its new expiry and whether the queue is paused (a worker may finish
-/// the day it is on, then should stop).
+/// the day it is on, then should stop). The new expiry is counted from when it is written, after
+/// any wait for the lease's lock (a publish under way holds it), as a claim's is.
 pub async fn heartbeat(client: &mut Client, token: &str, lease_seconds: f64) -> Result<(String, bool), LeaseError> {
     let tx = client.transaction().await.map_err(failed)?;
     let lease = held(&tx, token).await?;
     let row = tx
         .query_one(
-            "UPDATE core.lease SET expires_at = now() + make_interval(secs => $2) WHERE lease_id = $1
+            "UPDATE core.lease SET expires_at = clock_timestamp() + make_interval(secs => $2) WHERE lease_id = $1
              RETURNING to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), (SELECT paused FROM core.queue_control)",
             &[&lease.lease_id, &lease_seconds],
         )

@@ -892,6 +892,45 @@ async fn a_withdrawal_is_stamped_when_it_ends_its_leases() {
     scratch.drop().await;
 }
 
+/// Audit 2026-11-22 prebuild round 2 (core-watch.md) 1: an ordered pass's claim waits for the
+/// publish lock; its lease was granted on the clock but expired from the transaction's start, so
+/// a wait longer than the lease handed out a lease already expired. Held 3 s behind the lock, a
+/// 2 s lease is granted after the lock is released and is still live when it comes back.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_claim_that_waited_for_the_publish_lock_gets_a_live_lease() {
+    let (scratch, mut client, b, d) = ready("r2w_lease_clock").await;
+    admit(&client, &b).await;
+    admit(&client, &d).await;
+    let day = "2025-12-10";
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, day, day, 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &block, day).await;
+    work::finish(&mut client, &block.token).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, day, day, 1).await.unwrap();
+    let mut holder = scratch.client().await;
+    let held = holder.transaction().await.unwrap();
+    held.execute(work::PUBLISH_LOCK, &[]).await.unwrap();
+    let mut c = scratch.client().await;
+    let d2 = d.clone();
+    let claiming = tokio::spawn(async move { work::claim(&mut c, Kind::OrderedPass, &d2, "pass", 2.0).await });
+    tokio::time::sleep(std::time::Duration::from_millis(3000)).await;
+    assert!(!claiming.is_finished(), "the pass's claim waits for the publish lock");
+    let released: String = held.query_one("SELECT clock_timestamp()::text", &[]).await.unwrap().get(0);
+    held.commit().await.unwrap();
+    let pass = claiming.await.unwrap().unwrap().unwrap();
+    let row = client
+        .query_one(
+            "SELECT granted_at >= $1::text::timestamptz, expires_at - granted_at = interval '2 seconds' FROM core.lease WHERE job_id = $2",
+            &[&released, &pass.job_id],
+        )
+        .await
+        .unwrap();
+    assert_eq!((row.get::<_, bool>(0), row.get::<_, bool>(1)), (true, true));
+    assert!(work::heartbeat(&mut client, &pass.token, HOUR).await.is_ok(), "the lease is live when the worker has it");
+    scratch.drop().await;
+}
+
 /// Audit 2026-11-22 prebuild (changes-core.md) 7: a fallen day whose only unfinished pass was of a
 /// withdrawn build counted as derived again: the publishing build got no pass, the withdrawn one
 /// never ran, and no problem was opened. Now that pass is cancelled and the day's pass goes to the
