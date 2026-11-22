@@ -433,6 +433,19 @@ Next: the suite → image 090d7aea → after the block: the rollout (scaler role
 KEDA, autoscaling, image admitted/914ffed7 withdrawn, backups + first backup) with the audits' fixes →
 the recompute as the build's first stage → the full build.
 
+**18:20 UTC audits (`opsurface/ops.md`, `rulings.md`): NOT converged; fixing before the rollout.**
+Suite on 090d7aea: 1,639 passed, 0 failed. Ops (15 + 2 suspicions): build-stoppers: the 597 passes owned
+by the to-be-withdrawn 914ffed7; WAL/archive failure fills the volume silently; delete-idle.sh can delete
+busy nodes on an expired kubeconfig; withdrawn builds' queued tapes/blocks block the successor; startup
+failures loop without charging an attempt (README secret lacks fred-key); no AMD-stockout fallback; the
+restore runbook has no production cutover. Rulings (16 + 1): D-442 (engine-computed factor) brought an
+ordinary-day fault (SPY 2024-07-09, five daily sensors), a T−5 look-ahead, a cross-asset cascade and
+nondeterminism to fix a 1-2 bp BABA convention gap: **D-442 reverted (coordinator, priority 1)**; D-441
+first-session now also needs the prior snapshot to lack the contract; D-440 needs a valid currency.
+**Owner decision (census): EEM 2023-12-20 $0.748 omitted by the provider's bar AND listing (P-22) — a
+wrong return no factor rule can catch (single provider); possible rule: total-return windows before an
+asset's dividend coverage start are unknown basis.** Fix agents: engine `eng-r2`, core `core-ops`.
+
 ## Timeline (owner, 2026-11-22)
 Full build ~11-25..28; a week of derived-layer QC (census, gate d, history reference check, "general
 shenanigans", possibly a derived recompute) to ~12-05; a week of Reporter + web integration to ~12-12;
