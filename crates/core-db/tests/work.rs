@@ -817,6 +817,48 @@ async fn withdrawing_a_build_stops_its_running_jobs() {
     scratch.drop().await;
 }
 
+/// Audit 2026-11-22 prebuild round 2 (core-r2.md) 7 and 8: a withdrawal took no publish lock, so it
+/// could commit between two statements of a publish's re-derive (an old build's queued pass then stood
+/// in the way of the new build's), and it locked a live job's lease then the job while `retire` locked
+/// the job then the lease. A withdrawal now waits for the publish lock, as `retire` does, and both lock
+/// leases before jobs: a retirement and a withdrawal of the build running the day's block, released
+/// together, both end, and the block is cancelled whichever ran first.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_withdrawal_waits_for_the_publish_lock_and_a_retirement_beside_it_ends() {
+    let (scratch, mut client, b, _) = ready("r2_withdraw_lock").await;
+    admit(&client, &b).await;
+    let day = "2025-12-10";
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, day, day, 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &block, day).await;
+    work::finish(&mut client, &block.token).await.unwrap();
+    // the day's block again, running: a live lease of the build that published the day
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, day, day, 1).await.unwrap();
+    let again = work::claim(&mut client, Kind::DayBlock, &b, "w2", HOUR).await.unwrap().unwrap();
+    let preview = publish::retire(&mut client, "an earlier build", &[day], true, None).await.unwrap();
+    assert_eq!(preview.cancelled, [again.job_id]);
+
+    let mut holder = scratch.client().await;
+    let held = holder.transaction().await.unwrap();
+    held.execute(work::PUBLISH_LOCK, &[]).await.unwrap();
+    let (mut c1, mut c2) = (scratch.client().await, scratch.client().await);
+    let b2 = b.clone();
+    let withdrawing = tokio::spawn(async move { build::withdraw(&mut c1, &b2, "its image is replaced").await });
+    let token = preview.token.clone();
+    let retiring = tokio::spawn(async move { publish::retire(&mut c2, "an earlier build", &[day], false, Some(&token)).await });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert!(!withdrawing.is_finished(), "the withdrawal waits for the publish lock");
+    assert!(!retiring.is_finished());
+    held.commit().await.unwrap();
+    withdrawing.await.unwrap().unwrap();
+    retiring.await.unwrap().unwrap();
+    assert_eq!(job_state(&client, again.job_id).await, "CANCELLED");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.lease WHERE ended_at IS NULL").await, 0);
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE state = 'PUBLISHED'").await, 0);
+    scratch.drop().await;
+}
+
 /// Audit 2026-11-22 prebuild (changes-core.md) 7: a fallen day whose only unfinished pass was of a
 /// withdrawn build counted as derived again: the publishing build got no pass, the withdrawn one
 /// never ran, and no problem was opened. Now that pass is cancelled and the day's pass goes to the
