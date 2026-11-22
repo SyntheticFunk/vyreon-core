@@ -2593,4 +2593,10 @@ owner from the runbooks. Every real finding fixed; finding 14 is the engine's. M
   `the_backups_are_judged_on_the_plugins_record_alone`, `the_backup_evidence_is_the_plugins_record`,
   `a_failing_archive_is_a_problem_before_the_volume_fills`. Not verified: the plugin keys its
   window by the server name (the B8 check), and the API read on the cluster.
+- **17: the ledger's bound is a real one.** Usage booked at release (`core.request_usage`) splits one
+  minute's requests across two when releases straddle its end, so "reported plus unreleased per
+  minute" was no upper bound. `vyreon-core budget` now books each lease by its grant minute (used if
+  released, its full size if not) and states "at most" for a minute as its and the previous minute's
+  leases: a lease's requests are made within 35 s of its grant. Test
+  `the_ledger_shows_the_grants_never_released`.
 

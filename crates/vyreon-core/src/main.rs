@@ -654,14 +654,11 @@ async fn budget_ledger(hours: &str) -> Result<(), String> {
     println!("committed now: {} of {ceiling} a minute", core_db::budget::committed(&client).await?);
     let (n, requests) = core_db::budget::unreleased(&client, hours).await?;
     println!("leases never released in the last {hours} h: {n} ({requests} requests granted; what they used is unknown)");
-    println!("busiest minutes (UTC): reported at release + granted and never released, workers");
+    println!("busiest minutes (UTC), by the leases granted in them: used as reported + granted and never released; at most this many requests were made in the minute (its and the previous minute's leases); workers");
     for m in core_db::budget::ledger(&client, hours, 10).await? {
-        println!("{} {:>5} + {:>4}  {} workers", m.minute, m.released, m.unreleased, m.workers);
+        println!("{} {:>5} + {:>4}  at most {:>5}  {} workers", m.minute, m.released, m.unreleased, m.bound, m.workers);
     }
-    println!(
-        "reported requests are booked in the minute their lease was released, not made: an upper bound per minute is the two together; \
-         Intrinio's own account usage is the measure of what was spent"
-    );
+    println!("a lease's requests fall in its grant minute or the next, so the bound is an upper bound per minute; Intrinio's own account usage is the measure of what was spent");
     Ok(())
 }
 

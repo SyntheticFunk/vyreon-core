@@ -142,10 +142,10 @@ async fn a_tape_cache_is_written_once_and_a_tape_job_needs_every_listed_member()
     scratch.drop().await;
 }
 
-/// C-068 (audit opsurface ops.md 12): a worker that dies after drawing, or whose release never
-/// reaches core, leaves nothing in `request_usage`, so the minute totals the runbook judged
-/// concurrency by showed headroom that was not there. The ledger states such grants beside the
-/// reported requests (the counts of the test block's one node: a lease of 600 and one of 150 used).
+/// C-068 (audit opsurface ops.md 12 and round 2, 17): a worker that dies after drawing, or whose
+/// release never reaches core, leaves nothing in `request_usage`, and usage booked at release splits
+/// a minute's requests across two. The ledger books each lease at its grant, states the grants never
+/// released, and bounds each minute by its and the previous minute's leases.
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn the_ledger_shows_the_grants_never_released() {
@@ -157,8 +157,24 @@ async fn the_ledger_shows_the_grants_never_released() {
     // day-b's pod is killed: its lease is never released; once past its validity it is unreleased
     client.execute("UPDATE core.budget_lease SET valid_until = now() - interval '1 second' WHERE budget_lease_id = $1", &[&lost]).await.unwrap();
     assert_eq!(budget::unreleased(&client, 6.0).await.unwrap(), (1, 600));
+    // both granted this minute (`granted_at` is the clock's; the test runs within one minute or
+    // across two, so the bound is read where it is highest)
     let minutes = budget::ledger(&client, 6.0, 10).await.unwrap();
-    assert_eq!(minutes.len(), 1, "{minutes:?}");
-    assert_eq!((minutes[0].released, minutes[0].unreleased, minutes[0].workers), (150, 600, 2));
+    let (released, unreleased): (i64, i64) = (minutes.iter().map(|m| m.released).sum(), minutes.iter().map(|m| m.unreleased).sum());
+    assert_eq!((released, unreleased), (150, 600), "{minutes:?}");
+    assert_eq!(minutes[0].bound, 750, "{minutes:?}");
+    // round 2, 17: two leases of 100 used in one minute, released either side of its end, booked at
+    // release fell 100 and 100 into two minutes; booked at grant, the minute after their grants is
+    // bounded by both
+    let at = |s: &str| format!("date_trunc('minute', now()) - interval '{s}'");
+    for (grant, release) in [("10 minutes 40 seconds", "10 minutes 1 second"), ("10 minutes 30 seconds", "9 minutes 59 seconds")] {
+        let (id, _) = granted(budget::draw(&mut client, budget, "day-c", 100).await.unwrap());
+        client
+            .execute(&format!("UPDATE core.budget_lease SET granted_at = {}, valid_until = {} + interval '35 seconds', used = 100, released_at = {} WHERE budget_lease_id = $1", at(grant), at(grant), at(release)), &[&id])
+            .await
+            .unwrap();
+    }
+    let minutes = budget::ledger(&client, 6.0, 10).await.unwrap();
+    assert!(minutes.iter().any(|m| (m.released, m.unreleased, m.bound, m.workers) == (200, 0, 200, 1)), "the minute's 200 requests in one row: {minutes:?}");
     scratch.drop().await;
 }

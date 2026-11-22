@@ -119,38 +119,45 @@ pub async fn committed(client: &Client) -> Result<i32, String> {
     Ok(client.query_one(COMMITTED, &[]).await.map_err(db)?.get(0))
 }
 
-/// One minute of the request ledger (C-068, audit opsurface ops.md 12): the requests workers
-/// reported, booked in the minute their lease was released (`release`), and the requests of leases
-/// granted in that minute and never released (a worker that died, or whose release never reached
-/// core: the worker logs a failed release and goes on). Neither is when the requests were made: a
-/// lease spans up to `lease_seconds` (30) plus its answer's way, so a burst can straddle two minutes.
-/// `released + unreleased` is an upper bound on a minute's requests through core's budget; the
-/// provider's own usage (Intrinio's account usage) is the measure of what was spent.
+/// One minute of the request ledger (C-068, audit opsurface ops.md 12; round 2, 17). Booked by the
+/// minute each lease was GRANTED: `released` what its worker reported using, `unreleased` the full
+/// size of the leases never released (a worker that died, or whose release never reached core).
+/// A lease's requests are made between its grant and its end, at most `lease_seconds` (30) plus its
+/// answer's way (5) later, so the requests made in a minute come only from leases granted in that
+/// minute or the one before: `bound` (this minute's and the previous minute's leases, used or, if
+/// unreleased, their full size) is an upper bound on the requests made in the minute. The minutes of
+/// `core.request_usage` (booked at release) are not: two releases either side of a minute's end
+/// split one minute's requests across two.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LedgerMinute {
     pub minute: String,
     pub released: i64,
     pub unreleased: i64,
+    pub bound: i64,
     pub workers: i64,
 }
 
-/// The busiest `top` minutes of the last `hours` hours by `released + unreleased`, busiest first.
+/// The `top` minutes of the last `hours` hours with the highest `bound`, highest first.
 pub async fn ledger(client: &Client, hours: f64, top: i64) -> Result<Vec<LedgerMinute>, String> {
     let rows = client
         .query(
-            "WITH u AS (SELECT minute, sum(requests)::bigint AS n, array_agg(DISTINCT worker) AS w FROM core.request_usage
-                        WHERE minute > now() - make_interval(secs => $1::float8 * 3600) GROUP BY minute),
-                  g AS (SELECT date_trunc('minute', granted_at) AS minute, sum(granted)::bigint AS n, array_agg(DISTINCT worker) AS w FROM core.budget_lease
-                        WHERE released_at IS NULL AND valid_until < now() AND granted_at > now() - make_interval(secs => $1::float8 * 3600) GROUP BY 1)
-             SELECT to_char(minute AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI'), COALESCE(u.n, 0), COALESCE(g.n, 0),
-                    (SELECT count(DISTINCT x) FROM unnest(COALESCE(u.w, '{}') || COALESCE(g.w, '{}')) x)
-             FROM u FULL JOIN g USING (minute)
-             ORDER BY COALESCE(u.n, 0) + COALESCE(g.n, 0) DESC, minute LIMIT $2",
+            "WITH m AS (SELECT date_trunc('minute', granted_at) AS minute,
+                               COALESCE(sum(used) FILTER (WHERE released_at IS NOT NULL), 0)::bigint AS released,
+                               COALESCE(sum(granted) FILTER (WHERE released_at IS NULL), 0)::bigint AS unreleased,
+                               count(DISTINCT worker) AS workers
+                        FROM core.budget_lease WHERE granted_at > now() - make_interval(secs => $1::float8 * 3600) - interval '1 minute'
+                        GROUP BY 1),
+                  b AS (SELECT m.*, m.released + m.unreleased
+                                    + COALESCE((SELECT p.released + p.unreleased FROM m p WHERE p.minute = m.minute - interval '1 minute'), 0) AS bound
+                        FROM m)
+             SELECT to_char(minute AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI'), released, unreleased, bound, workers FROM b
+             WHERE minute > now() - make_interval(secs => $1::float8 * 3600)
+             ORDER BY bound DESC, minute LIMIT $2",
             &[&hours, &top],
         )
         .await
         .map_err(db)?;
-    Ok(rows.iter().map(|r| LedgerMinute { minute: r.get(0), released: r.get(1), unreleased: r.get(2), workers: r.get(3) }).collect())
+    Ok(rows.iter().map(|r| LedgerMinute { minute: r.get(0), released: r.get(1), unreleased: r.get(2), bound: r.get(3), workers: r.get(4) }).collect())
 }
 
 /// The leases granted in the last `hours` hours that ended unreleased, and their requests (each

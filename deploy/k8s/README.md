@@ -438,16 +438,16 @@ ScaledJob and Job.
   while the request budget has headroom): one node averaged 101 requests a minute over its wall
   time with bursts of 500-760 while a day downloads (2026-11-22); core grants at most 1,900 a minute
   (`VYREON_CORE_INTRINIO_PER_MINUTE`), so more nodes than the budget holds only wait in it, at node
-  cost. Check: `vyreon-core budget [hours]` (C-068): what is committed now, the busiest minutes with
-  the requests workers reported and the grants never released, and how many leases ended
-  unreleased. **The ledger's limits:** a worker's usage is booked in the minute its lease was
-  *released*, not when its requests were made (a lease spans 30 s and its answer's way, so a burst
-  can fall across two minutes); a worker that dies after drawing, or whose release never reaches
-  core (the worker logs the failure and goes on), reports nothing, so `core.request_usage` alone
-  shows headroom that was not there. Core's budget itself is not fooled: an unreleased lease is held
-  at its full size until a minute after its validity. Judge a raise on the reported **plus**
-  unreleased column (an upper bound) and on Intrinio's own account usage for the same hours
-  (Intrinio MCP `get_account_usage`), never on `request_usage` alone.
+  cost. Check: `vyreon-core budget [hours]` (C-068): what is committed now, the leases never
+  released, and the busiest minutes **booked by the minute each lease was granted**: what its worker
+  reported using, the full size of leases never released (a worker that died, or whose release never
+  reached core), and "at most": the minute's and the previous minute's leases together, an upper
+  bound on the requests made in the minute (a lease's requests fall within 35 s of its grant).
+  `core.request_usage` alone is no measure of a minute: it books usage when a lease is released, so
+  two releases either side of a minute's end split one minute's requests, and a dead worker's
+  requests never arrive. Judge a raise on "at most" and on Intrinio's own account usage for the same
+  hours (Intrinio MCP `get_account_usage`). Core's budget itself is not fooled: an unreleased lease
+  is held at its full size until a minute after its validity.
 - **The ordered pass's memory and time (C-068; measured, not known):** limit 6Gi, deadline 2 h
   (`50-keda.yaml`). Each pass reads every published date of its base measurements, so its memory and
   time grow with the store (engine audit finding 14). Measure on the recompute's 10 passes and at
