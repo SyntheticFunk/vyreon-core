@@ -258,6 +258,18 @@ completions early (claim race). `~/claude-artifacts/cluster-scratch/testblock/ru
 published day to #vyreon-progress, runs the block's 10 ordered passes, then deletes the last node.
 Judge in the morning: gates a–c per day, holds, memory per day, one node's request draw (Intrinio
 usage vs core's ledger), wall times; then fix what it shows.
+**Test-block findings so far (fix before the full build):**
+1. **2024-07-09 published 08:09 UTC: 193 min block start → published** (226 measured before); 3,898
+   slots delivered; day 2 started at once. Requests: bursts ~500-760/min while a day downloads, ~0
+   during compute (core ledger, by quarter hour 7,146 / 1,222 / 7,826 / 7,752).
+2. **IBIT VS-V02, VS-V03-CURRENT, VS-V03-MATCHED-NATIVE are engine-fault bodies before IBIT's first
+   option session (2024-11-19)**, while its VS-O01..O06/L01/Q01-Q05 publish their stated absence: the
+   V02/V03 family does not read C-057's first option session. Mislabel (priority 3), no wrong number,
+   no hold; ~275 asset-sessions in phase 1 (IBIT to 2024-11-19, ETHA to 2025-04-09).
+3. **SAI-ACT01 / -INTRADAY withheld MISSING_REQUIRED_INPUT on 62 assets before the option
+   trade-count feed's start (2024-11-26):** the absence is expected; the reason should be the
+   provider's coverage start (PROVIDER_COVERAGE_START), not a missing input. Census item; check the
+   code before calling it a defect.
 
 ## Owner questions for the morning (2026-11-22)
 1. Spend stays with the operator (`health.sh`) and item 4's hard caps rather than a billing token in
