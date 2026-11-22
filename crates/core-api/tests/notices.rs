@@ -67,7 +67,7 @@ async fn problems_are_posted_once_in_order_silently_and_events_only_logged() {
     let logged: Vec<String> = notice::recent_log(&client, 20).await.unwrap().into_iter().rev().map(|(_, m)| m).collect();
     assert_eq!(logged.len(), 4, "{logged:?}");
     assert_eq!(logged[0], format!("Engine build {b} admitted: its workers may claim work."));
-    assert_eq!(logged[1], "Day block 2025-12-10 to 2025-12-10 done by day-1 (1 blocks to go).");
+    assert_eq!(logged[1], "Day block 2025-12-10 to 2025-12-10 done in 0 min by day-1 (1 blocks to go).");
     assert_eq!(logged[2], "Queue paused: a check failed on 2025-12-11. No work is handed out until `vyreon-core queue resume`.");
     assert_eq!(logged[3], "Queue resumed.");
     let queued: Vec<String> = notice::unsent(&client, 20).await.unwrap().into_iter().map(|(_, m)| m).collect();
@@ -314,5 +314,67 @@ async fn a_core_whose_watch_stalled_is_not_live() {
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     assert_eq!(status(&url).await, 200, "the watch ticks again");
     watcher.abort();
+    scratch.drop().await;
+}
+
+/// A webhook that saves every post (Discord's Execute Webhook with `wait=true`).
+async fn saving_webhook(State(received): State<Received>, Json(body): Json<Value>) -> (StatusCode, Json<Value>) {
+    let mut received = received.lock().unwrap();
+    received.push(body.clone());
+    (StatusCode::OK, Json(json!({"id": format!("{}", 2_000 + received.len()), "content": body["content"]})))
+}
+
+async fn saving(path: &'static str) -> (String, Received) {
+    let received: Received = Arc::default();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}{path}", listener.local_addr().unwrap());
+    let stub = Router::new().route(path, post(saving_webhook)).with_state(received.clone());
+    tokio::spawn(async move { axum::serve(listener, stub).await.unwrap() });
+    (url, received)
+}
+
+/// C-065: the progress channel's posts go to its own webhook, silently and naming no one, in their
+/// own order: a progress webhook that cannot be reached holds back no alert and repeats none, the
+/// alerts' sender never posts progress, and progress older than six hours is not posted at all.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn progress_posts_go_their_own_way_and_never_hold_an_alert() {
+    use core_api::notices::send_unsent_on;
+    use core_db::notice::Channel;
+    let (scratch, client, app) = ready_app("progress_channel").await;
+    let http = reqwest::Client::new();
+    notice::progress(&client, "progress a 1", "Progress · Sat Nov 22 14:00–14:30 MT\nStarted block 2025-12-10 to 2025-12-11 on day-7f2c (job 1, attempt 1)").await.unwrap();
+    notice::alert(&client, "🔴 an alert").await.unwrap();
+    notice::progress(&client, "progress b 1", "Progress · Sat Nov 22 14:30–15:00 MT\n15:02 Queue resumed.").await.unwrap();
+    assert!(!notice::progress(&client, "progress b 1", "again").await.unwrap(), "a window's post is queued once");
+
+    // the progress webhook unreachable: its post waits; the alert goes regardless, once
+    let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap();
+    assert!(send_unsent_on(&app, &http, &format!("http://{closed}/hook"), Channel::Progress).await.is_err());
+    let (alerts, alerts_got) = saving("/webhooks/1/alerts").await;
+    assert_eq!(send_unsent(&app, &http, &alerts).await.unwrap(), 1);
+    assert_eq!(send_unsent(&app, &http, &alerts).await.unwrap(), 0);
+    assert_eq!(alerts_got.lock().unwrap().iter().map(|p| p["content"].as_str().unwrap().to_owned()).collect::<Vec<_>>(), ["🔴 an alert"]);
+
+    // then the progress posts, in order, silent
+    let (progress, progress_got) = saving("/webhooks/2/progress").await;
+    assert_eq!(send_unsent_on(&app, &http, &progress, Channel::Progress).await.unwrap(), 2);
+    let got = progress_got.lock().unwrap().clone();
+    assert_eq!(got.len(), 2);
+    assert!(got[0]["content"].as_str().unwrap().starts_with("Progress · Sat Nov 22 14:00–14:30 MT"));
+    assert!(got[1]["content"].as_str().unwrap().ends_with("Queue resumed."));
+    for p in &got {
+        assert_eq!(p["flags"], 4096, "silent: no sound, no push");
+        assert_eq!(p["allowed_mentions"], json!({"parse": []}), "names no one");
+    }
+    assert_eq!(alerts_got.lock().unwrap().len(), 1, "no alert repeated");
+
+    // a backlog older than six hours (the webhook was down) is not posted
+    notice::progress(&client, "progress c 1", "Progress · Sat Nov 22 06:00–06:30 MT\n06:10 Queue resumed.").await.unwrap();
+    client.execute("UPDATE core.notice SET created_at = now() - interval '7 hours' WHERE once = 'progress c 1'", &[]).await.unwrap();
+    assert_eq!(send_unsent_on(&app, &http, &progress, Channel::Progress).await.unwrap(), 0);
+    assert_eq!(progress_got.lock().unwrap().len(), 2);
+    let why: String = client.query_one("SELECT last_error FROM core.notice WHERE once = 'progress c 1'", &[]).await.unwrap().get(0);
+    assert_eq!(why, "not posted: older than 6 h (progress)");
     scratch.drop().await;
 }
