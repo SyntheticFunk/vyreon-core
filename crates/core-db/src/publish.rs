@@ -794,21 +794,24 @@ struct Trigger<'a> {
 /// Returns (the days whose pass is queued or stopped and queued, the days no job derives again).
 async fn rederive(tx: &Transaction<'_>, by: &Trigger<'_>, same_day: bool, fallen: &[Fallen], lease: Option<&work::Held>) -> Result<(Vec<String>, Vec<String>), Error> {
     let date = by.date;
+    // whether a job's build runs (`core.build_runs`, written out: a publish also runs on a database
+    // brought to an older migration in the tests)
+    let runs = |job: &str| format!("EXISTS (SELECT FROM core.engine_build r WHERE r.engine_build = {job}.engine_build AND r.admitted_at IS NOT NULL AND r.withdrawn_at IS NULL)");
     // a stopped pass of a build that does not run (a lease older than `build::withdraw` ending
     // them) is cancelled, not queued where no worker claims: its day is then targeted below
     let stopped: Vec<String> = tx
         .query(
-            "WITH stopped AS (
+            &format!("WITH stopped AS (
                  UPDATE core.lease l SET ended_at = now(), outcome = 'CANCELLED', failure = 'a day it reads was published again: it is derived again'
                  FROM core.job j
                  WHERE l.job_id = j.job_id AND l.ended_at IS NULL AND j.kind = 'ORDERED_PASS'
                    AND (j.first_session > $1::text::date OR ($2 AND j.first_session = $1::text::date))
                  RETURNING j.job_id)
-             UPDATE core.job SET state = CASE WHEN core.build_runs(engine_build) THEN 'QUEUED' ELSE 'CANCELLED' END,
+             UPDATE core.job SET state = CASE WHEN {r} THEN 'QUEUED' ELSE 'CANCELLED' END,
                                  next_session = first_session, attempts = GREATEST(attempts - 1, 0),
-                                 finished_at = CASE WHEN core.build_runs(engine_build) THEN NULL ELSE now() END
+                                 finished_at = CASE WHEN {r} THEN NULL ELSE now() END
              WHERE job_id IN (SELECT job_id FROM stopped) AND state = 'LEASED'
-             RETURNING first_session::text, state = 'QUEUED'",
+             RETURNING first_session::text, state = 'QUEUED'", r = runs("core.job")),
             &[&date, &same_day],
         )
         .await
@@ -827,16 +830,20 @@ async fn rederive(tx: &Transaction<'_>, by: &Trigger<'_>, same_day: bool, fallen
     // a pass derives a fallen day again only under a build that runs (audit 2026-11-22 changes-core
     // 7): one of a build that does not run neither stands for the day nor keeps the publishing
     // build from it; it is cancelled first, as `schedule` replaces it
-    const UNFINISHED: &str = "SELECT FROM core.job u WHERE u.kind = 'ORDERED_PASS' AND u.profile_id = f.profile_id AND u.first_session = f.day
-                                  AND u.state IN ('QUEUED', 'LEASED', 'FAILED') AND core.build_runs(u.engine_build)";
+    let unfinished = format!(
+        "SELECT FROM core.job u WHERE u.kind = 'ORDERED_PASS' AND u.profile_id = f.profile_id AND u.first_session = f.day
+           AND u.state IN ('QUEUED', 'LEASED', 'FAILED') AND {}",
+        runs("u")
+    );
     let replaced: Vec<i64> = tx
         .query(
             &format!(
                 "WITH {FALLEN}
                  UPDATE core.job u SET state = 'CANCELLED', finished_at = now()
-                 WHERE u.kind = 'ORDERED_PASS' AND u.state IN ('QUEUED', 'FAILED') AND NOT core.build_runs(u.engine_build)
+                 WHERE u.kind = 'ORDERED_PASS' AND u.state IN ('QUEUED', 'FAILED') AND NOT {}
                    AND EXISTS (SELECT FROM fallen f WHERE f.day = u.first_session AND f.profile_id = u.profile_id)
-                 RETURNING u.job_id"
+                 RETURNING u.job_id",
+                runs("u")
             ),
             &[&days, &profiles, &builds, &revisions],
         )
@@ -859,7 +866,7 @@ async fn rederive(tx: &Transaction<'_>, by: &Trigger<'_>, same_day: bool, fallen
                                               WHEN EXISTS (SELECT FROM core.engine_build r WHERE r.engine_build = f.engine_build AND r.admitted_at IS NOT NULL AND r.withdrawn_at IS NULL)
                                               THEN f.engine_build END AS build
                                   FROM fallen f
-                                  WHERE NOT EXISTS ({UNFINISHED})
+                                  WHERE NOT EXISTS ({unfinished})
                                     AND EXISTS (SELECT FROM core.job d WHERE d.kind = 'ORDERED_PASS' AND d.state = 'DONE'
                                                   AND d.profile_id = f.profile_id AND d.first_session = f.day)) t
                             WHERE t.build IS NOT NULL
@@ -891,7 +898,7 @@ async fn rederive(tx: &Transaction<'_>, by: &Trigger<'_>, same_day: bool, fallen
     // (day, profile, day-local): what no job derives again
     let mut unowned: Vec<(String, String, bool)> = tx
         .query(
-            &format!("WITH {FALLEN} SELECT DISTINCT f.day::text, f.profile_id FROM fallen f WHERE NOT EXISTS ({UNFINISHED}) ORDER BY 1, 2"),
+            &format!("WITH {FALLEN} SELECT DISTINCT f.day::text, f.profile_id FROM fallen f WHERE NOT EXISTS ({unfinished}) ORDER BY 1, 2"),
             &[&days, &profiles, &builds, &revisions],
         )
         .await
