@@ -3,6 +3,9 @@
 # Secret `vyreon-core` (made by hand, see README): `worker-token-sha256`. Secret `vyreon-core-webhook`
 # (key `webhook`: the Discord channel's webhook URL, made by hand from a file, never printed) is
 # mounted read-only; while it is absent the channel's posts wait unsent (C-050). Secret
+# `vyreon-core-progress-webhook` (key `webhook`: the progress channel's webhook URL, made by hand
+# from a file the same way, never printed) is mounted read-only; while it is absent nothing is
+# composed or posted for that channel (C-065). Secret
 # `vyreon-core-spaces` (keys `key-id` and `secret`: a Spaces access key limited to the bucket, made
 # by hand from files, never printed; README "Perishable archive") is mounted read-only; the archive
 # (C-052) is on only when its five settings below are uncommented and the Secret exists.
@@ -54,6 +57,10 @@ spec:
             # the owner's channel (C-050)
             - name: VYREON_CORE_WEBHOOK_FILE
               value: /etc/vyreon-core/webhook/webhook
+            # the progress channel (C-065): every 30 minutes, silently, what moved (days published
+            # with their counts, blocks started and done, the log, the queue's counts); optional
+            - name: VYREON_CORE_PROGRESS_WEBHOOK_FILE
+              value: /etc/vyreon-core/progress-webhook/webhook
             - name: VYREON_CORE_VOLUME_GIB      # 10-postgres.yaml's storage size
               value: "120"
             # Intrinio requests a minute shared through core's leases (C-025): 2,000 is the
@@ -114,10 +121,13 @@ spec:
           volumeMounts:
             - {name: spool, mountPath: /var/spool/vyreon-core}
             - {name: webhook, mountPath: /etc/vyreon-core/webhook, readOnly: true}
+            - {name: progress-webhook, mountPath: /etc/vyreon-core/progress-webhook, readOnly: true}
             - {name: spaces, mountPath: /etc/vyreon-core/spaces, readOnly: true}
       volumes:
         - name: webhook
           secret: {secretName: vyreon-core-webhook, optional: true, defaultMode: 0440}
+        - name: progress-webhook
+          secret: {secretName: vyreon-core-progress-webhook, optional: true, defaultMode: 0440}
         # the bucket's key (C-052): core alone holds it; workers get one pre-signed URL per object
         - name: spaces
           secret: {secretName: vyreon-core-spaces, optional: true, defaultMode: 0440}

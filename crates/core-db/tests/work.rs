@@ -892,6 +892,90 @@ async fn a_withdrawal_is_stamped_when_it_ends_its_leases() {
     scratch.drop().await;
 }
 
+/// Audit 2026-11-22 prebuild round 2 (core-watch.md) 1: an ordered pass's claim waits for the
+/// publish lock; its lease was granted on the clock but expired from the transaction's start, so
+/// a wait longer than the lease handed out a lease already expired. Held 3 s behind the lock, a
+/// 2 s lease is granted after the lock is released and is still live when it comes back.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_claim_that_waited_for_the_publish_lock_gets_a_live_lease() {
+    let (scratch, mut client, b, d) = ready("r2w_lease_clock").await;
+    admit(&client, &b).await;
+    admit(&client, &d).await;
+    let day = "2025-12-10";
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, day, day, 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &block, day).await;
+    work::finish(&mut client, &block.token).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, day, day, 1).await.unwrap();
+    let mut holder = scratch.client().await;
+    let held = holder.transaction().await.unwrap();
+    held.execute(work::PUBLISH_LOCK, &[]).await.unwrap();
+    let mut c = scratch.client().await;
+    let d2 = d.clone();
+    let claiming = tokio::spawn(async move { work::claim(&mut c, Kind::OrderedPass, &d2, "pass", 2.0).await });
+    tokio::time::sleep(std::time::Duration::from_millis(3000)).await;
+    assert!(!claiming.is_finished(), "the pass's claim waits for the publish lock");
+    let released: String = held.query_one("SELECT clock_timestamp()::text", &[]).await.unwrap().get(0);
+    held.commit().await.unwrap();
+    let pass = claiming.await.unwrap().unwrap().unwrap();
+    let row = client
+        .query_one(
+            "SELECT granted_at >= $1::text::timestamptz, expires_at - granted_at = interval '2 seconds' FROM core.lease WHERE job_id = $2",
+            &[&released, &pass.job_id],
+        )
+        .await
+        .unwrap();
+    assert_eq!((row.get::<_, bool>(0), row.get::<_, bool>(1)), (true, true));
+    assert!(work::heartbeat(&mut client, &pass.token, HOUR).await.is_ok(), "the lease is live when the worker has it");
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-22 prebuild round 2 (core-watch.md) 3: a pause committed while a claim ran (after
+/// its statement's snapshot) let the claim lease, stamped after the pause (C-025). A claim now
+/// holds the queue's control row shared: behind a pause not yet committed it waits and reads the
+/// queue paused; a pause behind a claim waits for it and is stamped after it.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_pause_during_a_claim_hands_out_no_lease_after_it() {
+    let (scratch, mut client, b, _) = ready("r2w_pause_claim").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-09", "2025-12-10", 1).await.unwrap();
+    let mut pauser = scratch.client().await;
+    let pausing = pauser.transaction().await.unwrap();
+    work::pause(&pausing, "a check failed").await.unwrap();
+    let mut c = scratch.client().await;
+    let b2 = b.clone();
+    let claiming = tokio::spawn(async move { work::claim(&mut c, Kind::Tape, &b2, "tape-1", HOUR).await });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert!(!claiming.is_finished(), "the claim waits for the pause under way");
+    pausing.commit().await.unwrap();
+    assert_eq!(claiming.await.unwrap().unwrap(), None, "the pause committed first: nothing is handed out");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.lease").await, 0);
+    work::resume(&client).await.unwrap();
+
+    // a claim under way (holding the control row as a claim does): the pause waits and is
+    // stamped after it
+    let mut claimer = scratch.client().await;
+    let in_flight = claimer.transaction().await.unwrap();
+    in_flight.execute("SELECT paused FROM core.queue_control FOR SHARE", &[]).await.unwrap();
+    let mut p = scratch.client().await;
+    let pause = tokio::spawn(async move {
+        let tx = p.transaction().await.unwrap();
+        work::pause(&tx, "a check failed").await.unwrap();
+        tx.commit().await.unwrap();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert!(!pause.is_finished(), "the pause waits for the claim under way");
+    let ended: String = in_flight.query_one("SELECT clock_timestamp()::text", &[]).await.unwrap().get(0);
+    in_flight.commit().await.unwrap();
+    pause.await.unwrap();
+    let after: bool = client.query_one("SELECT changed_at >= $1::text::timestamptz FROM core.queue_control", &[&ended]).await.unwrap().get(0);
+    assert!(after, "the pause is stamped after the claim it waited for");
+    assert_eq!(work::claim(&mut client, Kind::Tape, &b, "tape-2", HOUR).await.unwrap(), None);
+    scratch.drop().await;
+}
+
 /// Audit 2026-11-22 prebuild (changes-core.md) 7: a fallen day whose only unfinished pass was of a
 /// withdrawn build counted as derived again: the publishing build got no pass, the withdrawn one
 /// never ran, and no problem was opened. Now that pass is cancelled and the day's pass goes to the
@@ -1782,7 +1866,7 @@ async fn a_done_job_whose_finish_is_lost_is_done_and_one_bad_lease_stops_no_clai
     assert_eq!(second.sessions, ["2025-12-11", "2025-12-12"]);
     assert_eq!(job_state(&client, first.job_id).await, "DONE");
     let said: String = client.query_one("SELECT message FROM core.notice WHERE NOT post ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
-    assert_eq!(said, "Day block 2025-12-10 to 2025-12-10 done by its worker, whose finish never arrived (1 blocks to go).");
+    assert_eq!(said, "Day block 2025-12-10 to 2025-12-10 done in 0 min by its worker, whose finish never arrived (1 blocks to go).");
     // its finish arriving late, or twice, is answered as done
     assert_eq!(work::finish(&mut client, &first.token).await, Ok(first.job_id));
     assert_eq!(work::finish(&mut client, &first.token).await, Ok(first.job_id));
@@ -1843,6 +1927,363 @@ async fn workers_claiming_at_once_each_get_a_different_job() {
     jobs.dedup();
     assert_eq!(jobs.len(), 5, "five jobs, each claimed once; three workers found nothing");
     assert_eq!(work::status(&client).await.unwrap()["live_leases"], 5);
+    scratch.drop().await;
+}
+
+/// `pods` claims of tape work at the same moment (each on its own connection, released together by
+/// a barrier); returns what each got.
+async fn claim_at_once(scratch: &Scratch, b: &str, pods: usize) -> Vec<Option<i64>> {
+    let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(pods));
+    let mut claims = Vec::new();
+    for i in 0..pods {
+        let (mut worker, b, barrier) = (scratch.client().await, b.to_owned(), barrier.clone());
+        claims.push(tokio::spawn(async move {
+            barrier.wait().await;
+            work::claim(&mut worker, Kind::Tape, &b, &format!("pod-{i}"), HOUR).await.unwrap().map(|c| c.job_id)
+        }));
+    }
+    let mut got = Vec::new();
+    for claim in claims {
+        got.push(claim.await.unwrap());
+    }
+    got
+}
+
+/// C-065 (the claim race of 2026-11-22: 24 tape pods claiming at once, about half found "no job to
+/// claim" while 195 were claimable). Many claims at once over N claimable jobs lease exactly
+/// min(N, claims) distinct jobs: none finds nothing while a job is left, and none is leased twice.
+/// The real calendar's sessions 2020-01-02 to 2026-12-31, a tape job each (1,759: a queue as long as
+/// a full build's, so each claim's look at it takes as long as on the cluster, where the race showed);
+/// several rounds, since the race needs one claim's snapshot taken before another's commit and its
+/// row lock after it. Then the last 10 jobs under 32 claims: exactly 10 leased.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn claims_at_once_each_lease_a_job_while_any_is_claimable() {
+    let (scratch, mut client, b, _) = ready("claim_race").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2020-01-02", "2026-12-31", 1).await.unwrap();
+    let total = count(&client, "SELECT count(*) FROM core.job WHERE kind = 'TAPE' AND state = 'QUEUED'").await;
+    assert_eq!(total, 1759);
+    let pods = 32;
+    let mut leased = Vec::new();
+    for round in 0..8 {
+        let got = claim_at_once(&scratch, &b, pods).await;
+        let jobs: Vec<i64> = got.iter().flatten().copied().collect();
+        assert_eq!(jobs.len(), pods, "round {round}: {pods} claims at once over {} claimable jobs each lease one", total as usize - leased.len());
+        leased.extend(jobs);
+    }
+    assert_eq!(count(&client, "SELECT count(*) FROM core.claim_miss").await, 0, "no claim found nothing while work waited");
+    // all but the last 10 claimable jobs cancelled: 32 claims at once lease exactly those 10
+    let gone = count(&client, "WITH c AS (UPDATE core.job SET state = 'CANCELLED' WHERE state = 'QUEUED'
+                                          AND job_id NOT IN (SELECT job_id FROM core.job WHERE state = 'QUEUED' ORDER BY job_id DESC LIMIT 10) RETURNING 1)
+                                SELECT count(*) FROM c").await;
+    assert_eq!(gone, total - 8 * pods as i64 - 10);
+    let got = claim_at_once(&scratch, &b, pods).await;
+    let last: Vec<i64> = got.iter().flatten().copied().collect();
+    assert_eq!(last.len(), 10, "32 claims over the last 10 jobs lease all 10");
+    leased.extend(last);
+    assert_eq!(count(&client, "SELECT count(*) FROM core.claimable_job").await, 0);
+    let mut distinct = leased.clone();
+    distinct.sort();
+    distinct.dedup();
+    assert_eq!(distinct.len(), leased.len(), "no job leased twice");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.lease WHERE ended_at IS NULL").await, leased.len() as i64);
+    scratch.drop().await;
+}
+
+/// C-065, amended by audit round 2 of core-watch (6, 8): a claim that finds only work other claims
+/// are taking (held FOR UPDATE, as a claim in flight holds it) answers that there is nothing and
+/// keeps no miss; one that finds a claimable job no claim holds tries it again, and keeps a miss
+/// naming it only when it still cannot lease it after `CLAIM_TRIES` looks; one that finds the
+/// queue empty keeps nothing.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_claim_misses_only_work_no_other_claim_holds() {
+    let (scratch, mut client, b, _) = ready("claim_miss").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-10", "2025-12-10", 1).await.unwrap();
+    let job = count(&client, "SELECT job_id FROM core.job WHERE kind = 'TAPE'").await;
+    // audit round 2 of core-watch, 6: the job held as a claim in flight holds it (FOR UPDATE):
+    // another claim taking it is healthy concurrency, no miss
+    let mut holder = scratch.client().await;
+    let tx = holder.transaction().await.unwrap();
+    tx.execute("SELECT FROM core.job WHERE kind = 'TAPE' FOR UPDATE", &[]).await.unwrap();
+    assert!(work::claim(&mut client, Kind::Tape, &b, "tape-pod-1", HOUR).await.unwrap().is_none());
+    assert_eq!(count(&client, "SELECT count(*) FROM core.claim_miss").await, 0, "work other claims are taking is no miss");
+    drop(tx);
+    // held by a lock no claim takes (an insert that references the job holds KEY SHARE on it),
+    // which still stops a claim's FOR UPDATE: the job is free of claims and not leased, a miss
+    // naming it
+    let tx = holder.transaction().await.unwrap();
+    tx.execute("SELECT FROM core.job WHERE kind = 'TAPE' FOR KEY SHARE", &[]).await.unwrap();
+    assert!(work::claim(&mut client, Kind::Tape, &b, "tape-pod-1", HOUR).await.unwrap().is_none());
+    let miss = client.query_one("SELECT kind, engine_build, worker, daily, claimable, job_id FROM core.claim_miss", &[]).await.unwrap();
+    assert_eq!(
+        (miss.get::<_, String>(0), miss.get::<_, String>(1), miss.get::<_, String>(2), miss.get::<_, bool>(3), miss.get::<_, i64>(4), miss.get::<_, Option<i64>>(5)),
+        ("TAPE".to_string(), b.clone(), "tape-pod-1".to_string(), false, 1, Some(job))
+    );
+    // a daily worker's claim counts only daily work: none is claimable for it, so no miss
+    assert!(work::claim_as(&mut client, Kind::Tape, &b, "daily-pod", HOUR, true).await.unwrap().is_none());
+    drop(tx);
+    let got = work::claim(&mut client, Kind::Tape, &b, "tape-pod-2", HOUR).await.unwrap().unwrap();
+    // the queue empty: nothing kept
+    assert!(work::claim(&mut client, Kind::Tape, &b, "tape-pod-3", HOUR).await.unwrap().is_none());
+    assert_eq!(count(&client, "SELECT count(*) FROM core.claim_miss").await, 1);
+    assert_eq!(got.sessions, ["2025-12-10"]);
+    scratch.drop().await;
+}
+
+/// `now` moved on by `minutes`, as the database reads it.
+async fn later(client: &Client, now: &str, minutes: i32) -> String {
+    client.query_one("SELECT ($1::text::timestamptz + make_interval(mins => $2))::text", &[&now, &minutes]).await.unwrap().get(0)
+}
+
+/// C-065, the progress channel: the real slice's day published under a block's lease reads as one
+/// line with its counts (the tally core keeps of the published bodies), the block's start and its
+/// log lines follow, and the queue's counts; one window each 30 minutes, queued for the progress
+/// channel only; a window in which nothing happened posts nothing.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn the_progress_channel_says_what_moved_every_half_hour() {
+    use core_db::notice::{self, Channel};
+    use core_db::progress;
+    let (scratch, mut client, b, _) = ready("progress").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-11", 2).await.unwrap();
+    let claim = work::claim(&mut client, Kind::DayBlock, &b, "day-7f2c", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &claim, "2025-12-10").await;
+    let t0 = watch::now(&client).await.unwrap();
+
+    let first = progress::tick(&mut client, PROFILE, &t0).await.unwrap().unwrap();
+    assert_eq!(first.posts, 1);
+    let post: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'progress'", &[]).await.unwrap().get(0);
+    let (slots, withheld, provider): (i64, i64, i64) = {
+        let r = client
+            .query_one(
+                "SELECT sum(slots)::bigint, sum(withheld)::bigint, sum(provider_withheld)::bigint FROM core.revision_tally t
+                 JOIN vyreon.day_revision d USING (revision_id) WHERE d.represented_date = '2025-12-10' AND (d.base_revision IS NULL OR d.day_local)",
+                &[],
+            )
+            .await
+            .unwrap();
+        (r.get(0), r.get(1), r.get(2))
+    };
+    assert!(slots > 0);
+    let lines: Vec<&str> = post.lines().collect();
+    assert!(lines[0].starts_with("Progress · ") && lines[0].ends_with(" MT"), "{post}");
+    let reasons = match (provider, withheld - provider) {
+        (0, 0) => "none withheld".to_string(),
+        (p, 0) => format!("withheld: {} provider input", progress::thousands(p)),
+        (0, e) => format!("withheld: {} engine fault", progress::thousands(e)),
+        (p, e) => format!("withheld: {} provider input, {} engine fault", progress::thousands(p), progress::thousands(e)),
+    };
+    assert_eq!(
+        lines[1],
+        format!(
+            "Published Wed Dec 10, 2025: {} slots, {} with a value, {reasons} · reference check not in yet · 0 min · block 2025-12-10 to 2025-12-11 on day-7f2c (job {})",
+            progress::thousands(slots),
+            progress::thousands(slots - withheld),
+            claim.job_id
+        )
+    );
+    assert_eq!(lines[2], format!("Started block 2025-12-10 to 2025-12-11 on day-7f2c (job {}, attempt 1)", claim.job_id));
+    assert!(lines[3].ends_with(&format!("Engine build {b} admitted: its workers may claim work.")), "{post}");
+    assert_eq!(lines[4], "Day blocks: 0 done in this window · 0 of 1 done · 1 running");
+    assert_eq!(lines.len(), 5, "{post}");
+    // the window is the progress channel's only: the owner's channel has nothing to send
+    assert!(notice::unsent(&client, 10).await.unwrap().is_empty());
+    assert_eq!(notice::unsent_on(&client, 10, Channel::Progress).await.unwrap().len(), 1);
+
+    // not due again before 30 minutes
+    let early = later(&client, &t0, 29).await;
+    assert_eq!(progress::tick(&mut client, PROFILE, &early).await.unwrap(), None);
+    // the block's second day and its end, in the next window
+    publish_day(&mut client, &claim, "2025-12-11").await;
+    work::finish(&mut client, &claim.token).await.unwrap();
+    let t1 = later(&client, &t0, 30).await;
+    assert_eq!(progress::tick(&mut client, PROFILE, &t1).await.unwrap().unwrap().posts, 1);
+    let post: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'progress' ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    let lines: Vec<&str> = post.lines().collect();
+    assert!(lines[1].starts_with("Published Thu Dec 11, 2025: "), "{post}");
+    assert!(lines[2].ends_with("Day block 2025-12-10 to 2025-12-11 done in 0 min by day-7f2c (0 blocks to go)."), "{post}");
+    assert_eq!(lines[3], "Day blocks: 1 done in this window · 1 of 1 done");
+    // a window in which nothing happened: recorded, nothing posted
+    let t2 = later(&client, &t1, 30).await;
+    let quiet = progress::tick(&mut client, PROFILE, &t2).await.unwrap().unwrap();
+    assert_eq!((quiet.lines, quiet.posts), (0, 0));
+    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'progress'").await, 2);
+    assert_eq!(count(&client, "SELECT count(*) FROM core.progress_window").await, 3);
+    scratch.drop().await;
+}
+
+/// The reference check a worker sends for `session`, as its account states it: the real B0
+/// census report's counts summed over its measurements (`test_support::REFCHECK_REPORT_2025_12_16`,
+/// 3,958 failures of 91,066, from a suite without rulings) with `reference_errors` as given, of
+/// the revisions it checked.
+fn refcheck_of(session: &str, base: i64, local: i64, reference_errors: i64) -> core_db::refcheck::Checked {
+    use std::io::{Read, Write};
+    let mut text = String::new();
+    flate2::read::GzDecoder::new(test_support::REFCHECK_REPORT_2025_12_16).read_to_string(&mut text).unwrap();
+    let report: Value = serde_json::from_str(&text).unwrap();
+    let summary = report["summary"].as_object().unwrap();
+    let sum = |k: &str| summary.values().map(|m| m[k].as_i64().unwrap_or(0)).sum::<i64>();
+    let account = json!({
+        "schema": core_db::refcheck::SCHEMA, "session": session, "outcome": "COMPLETED", "why": null,
+        "wall_seconds": 2460.5, "suite_seconds": 2400.25, "cpu_seconds": 16800.0, "cpu_complete": true, "jobs": 8, "deadline_seconds": 7200,
+        "revisions": [base, local],
+        "counts": {"checked": sum("checked"), "passed": sum("passed"), "failed": sum("failed"), "skipped": sum("skipped"),
+                   "reference_errors": reference_errors, "failure_classes": report["failure_classes"].as_array().unwrap().len(),
+                   "measurements_failing": summary.values().filter(|m| m["failed"].as_i64().unwrap_or(0) > 0).count()},
+        "summary": report["summary"], "report_trimmed": null,
+    });
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    gz.write_all(account.to_string().as_bytes()).unwrap();
+    core_db::refcheck::check(gz.finish().unwrap(), session).unwrap()
+}
+
+/// Audit round 2 of core-watch, 2 and 10: progress chose a day's reference check by its base alone,
+/// so a day-local revision published again on the same base read as checked by the report of the
+/// one it replaced; and reference errors were left out of the verdict. Now the day line takes only
+/// a report of both its revisions (C-054) and states the reference errors beside the verdict.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn progress_states_a_check_only_of_the_revisions_it_checked() {
+    use core_db::progress;
+    let (scratch, mut client, b, _) = ready("r2w_progress_check").await;
+    admit(&client, &b).await;
+    let day = "2025-12-10";
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, day, day, 1).await.unwrap();
+    let claim = work::claim(&mut client, Kind::DayBlock, &b, "day-7f2c", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &claim, day).await;
+    let base = base_of(&client, day).await;
+    let local = count(&client, "SELECT revision_id FROM vyreon.day_revision WHERE day_local AND state = 'PUBLISHED'").await;
+    core_db::refcheck::put(&mut client, &claim.token, &refcheck_of(day, base, local, 9)).await.unwrap();
+    let now = watch::now(&client).await.unwrap();
+    let posts = progress::preview(&client, PROFILE, &now).await.unwrap();
+    let day_line = posts[0].lines().nth(1).unwrap().to_string();
+    assert!(
+        day_line.contains(" · reference check: 3,958 failures of 91,066, not triaged against rulings; 9 reference errors not judged · "),
+        "{day_line}"
+    );
+    // the day-local revision published again by hand on the same base: its line has no check yet
+    let again = day_local(&mut client, &b, day, base, None).await;
+    assert_ne!(again, local);
+    let now = watch::now(&client).await.unwrap();
+    let posts = progress::preview(&client, PROFILE, &now).await.unwrap();
+    let lines: Vec<&str> = posts[0].lines().collect();
+    assert_eq!(lines[1], day_line, "the first revision's line keeps its own check");
+    assert!(lines[2].starts_with("Published Wed Dec 10, 2025: ") && lines[2].contains(" · reference check not in yet"), "{}", posts[0]);
+    assert!(!posts[0].contains("Reference check of"), "the report is stated once, on the line of what it checked: {}", posts[0]);
+    scratch.drop().await;
+}
+
+/// Audit round 2 of core-watch, 11: a day-local revision published by hand inside a running
+/// block's dates was credited to the block's worker, and its time shortened the block's next day.
+/// What published a revision is now recorded (`core.lease_revision`): the hand revision has no
+/// block and no minutes, and the block's next day counts from the block's own previous day. The
+/// publication times are set on the test's clock (granted, +10, +50 by hand, +60 min).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn progress_credits_a_day_only_to_the_lease_that_published_it() {
+    use core_db::progress;
+    let (scratch, mut client, b, _) = ready("r2w_progress_lease").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-11", 2).await.unwrap();
+    let claim = work::claim(&mut client, Kind::DayBlock, &b, "day-7f2c", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &claim, "2025-12-10").await;
+    let tenth = count(&client, "SELECT revision_id FROM vyreon.day_revision WHERE day_local AND state = 'PUBLISHED'").await;
+    let base = base_of(&client, "2025-12-10").await;
+    let by_hand = day_local(&mut client, &b, "2025-12-10", base, None).await;
+    publish_day(&mut client, &claim, "2025-12-11").await;
+    let eleventh = count(&client, "SELECT revision_id FROM vyreon.day_revision WHERE day_local AND state = 'PUBLISHED' AND represented_date = '2025-12-11'").await;
+    assert_eq!(count(&client, "SELECT count(*) FROM core.lease_revision").await, 4, "the block's two bases and two day-local revisions");
+    for (revision, minutes) in [(tenth, 10), (by_hand, 50), (eleventh, 60)] {
+        client
+            .execute(
+                "UPDATE vyreon.day_revision SET published_at = (SELECT granted_at FROM core.lease WHERE job_id = $2) + make_interval(mins => $3) WHERE revision_id = $1",
+                &[&revision, &claim.job_id, &minutes],
+            )
+            .await
+            .unwrap();
+    }
+    let now: String = client
+        .query_one("SELECT (granted_at + interval '61 minutes')::text FROM core.lease WHERE job_id = $1", &[&claim.job_id])
+        .await
+        .unwrap()
+        .get(0);
+    let posts = progress::preview(&client, PROFILE, &now).await.unwrap();
+    let lines: Vec<&str> = posts[0].lines().collect();
+    assert!(lines[1].starts_with("Published Wed Dec 10, 2025: ") && lines[1].ends_with(" · reference check not in yet"), "by hand: no block, no minutes: {}", posts[0]);
+    assert!(
+        lines[2].starts_with("Published Thu Dec 11, 2025: ")
+            && lines[2].ends_with(&format!(" · reference check not in yet · 50 min · block 2025-12-10 to 2025-12-11 on day-7f2c (job {})", claim.job_id)),
+        "{}",
+        posts[0]
+    );
+    scratch.drop().await;
+}
+
+/// Audit round 2 of core-watch, 12: an ordered pass done, then an earlier day published again in
+/// the same window: the pass is queued again (C-037) with no `finished_at`, and the window counted
+/// it as not done. A lease that ended DONE in the window counts its job done in it.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_pass_done_then_queued_again_counts_as_done_in_its_window() {
+    use core_db::progress;
+    let (scratch, mut client, b, d) = ready("r2w_progress_done").await;
+    admit(&client, &b).await;
+    admit(&client, &d).await;
+    let day = "2025-12-10";
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, day, day, 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "day-7f2c", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &block, day).await;
+    work::finish(&mut client, &block.token).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, day, day, 1).await.unwrap();
+    assert_eq!(run_pass(&mut client, &d).await.as_deref(), Some(day));
+    base_by_hand(&mut client, day).await;
+    assert_eq!(count(&client, "SELECT count(*) FROM core.job WHERE kind = 'ORDERED_PASS' AND state = 'QUEUED'").await, 1, "the pass is queued again");
+    let now = watch::now(&client).await.unwrap();
+    let posts = progress::preview(&client, PROFILE, &now).await.unwrap();
+    assert!(posts[0].lines().any(|l| l == "Ordered passes: 1 done in this window · 0 of 1 done · 1 waiting"), "{}", posts[0]);
+    scratch.drop().await;
+}
+
+/// Audit round 2 of core-watch, 9 and the retention note: a pause whose transaction began before a
+/// window ended and committed after it was composed was stamped inside that window (its
+/// transaction's start), so the next window left it out by its time and the channel never said
+/// it. Each window now records what it stated and the next takes what is not stated yet; windows
+/// and posts done with are kept a week.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn an_event_committed_after_its_window_is_in_the_next_and_windows_are_kept_a_week() {
+    use core_db::notice::{self, Channel};
+    use core_db::progress;
+    let (scratch, mut client, _, _) = ready("r2w_progress_late").await;
+    let mut pauser = scratch.client().await;
+    let pausing = pauser.transaction().await.unwrap();
+    work::pause(&pausing, "a check failed").await.unwrap();
+    let t0 = watch::now(&client).await.unwrap();
+    let first = progress::tick(&mut client, PROFILE, &t0).await.unwrap().unwrap();
+    assert_eq!(first.posts, 0, "the pause is not committed when the window is composed");
+    pausing.commit().await.unwrap();
+    let t1 = later(&client, &t0, 30).await;
+    assert_eq!(progress::tick(&mut client, PROFILE, &t1).await.unwrap().unwrap().posts, 1);
+    let post: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'progress'", &[]).await.unwrap().get(0);
+    assert!(post.lines().any(|l| l.ends_with(" Queue paused: a check failed. No work is handed out until `vyreon-core queue resume`.")), "{post}");
+    let t2 = later(&client, &t1, 30).await;
+    assert_eq!(progress::tick(&mut client, PROFILE, &t2).await.unwrap().unwrap().posts, 0, "stated once");
+
+    // a week on: the windows before are gone with what they stated, the newest kept; the post
+    // delivered is gone, one still to send is kept
+    let post_id = notice::next_on(&client, 120, Channel::Progress).await.unwrap().unwrap().id;
+    notice::sent(&client, post_id).await.unwrap();
+    notice::progress(&client, "progress test unsent", "Progress · unsent").await.unwrap();
+    let week: String = client.query_one("SELECT (now() + interval '7 days 2 hours')::text", &[]).await.unwrap().get(0);
+    assert_eq!(count(&client, "SELECT count(*) FROM core.progress_window").await, 3);
+    progress::tick(&mut client, PROFILE, &week).await.unwrap().unwrap();
+    assert_eq!(count(&client, "SELECT count(*) FROM core.progress_window").await, 1, "only the newest window is kept");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.progress_shown").await, 0);
+    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'progress'").await, 1, "the post not sent yet stays");
     scratch.drop().await;
 }
 

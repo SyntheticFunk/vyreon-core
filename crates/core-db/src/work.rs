@@ -503,6 +503,34 @@ fn dropped_base_clause(base: Option<i64>, day: &str) -> String {
 /// what it published), never in between (`publish`).
 pub const PUBLISH_LOCK: &str = "SELECT pg_advisory_xact_lock(hashtextextended('vyreon publish', 0))";
 
+/// How many times one claim looks for a claimable row before it answers that there is none while
+/// some no other claim holds is still claimable (C-065): each look after the first is a fresh
+/// snapshot.
+pub const CLAIM_TRIES: i32 = 3;
+
+/// The longest worker name a claim takes: a Kubernetes pod's host name (an RFC 1123 label is at
+/// most 63 characters).
+pub const WORKER_NAME_MAX: usize = 63;
+
+/// Whether `worker` is a name a claim takes (audit 2026-11-22 prebuild round 2, core-watch.md, 5):
+/// 1 to `WORKER_NAME_MAX` letters, digits, '.', '_' or '-', beginning with a letter or a digit, as
+/// a pod's host name is (the engine's worker names itself `VYREON_WORKER_NAME` or its host name).
+/// The name is stored with the lease and posted in notices and progress lines, so one that could
+/// carry a credential (a URL, `key=value`, a header, anything with a space, ':', '/', '=' or '@')
+/// is refused before it is stored. The refusal never repeats the name.
+pub fn worker_name(worker: &str) -> Result<(), String> {
+    let mut chars = worker.chars();
+    let first_ok = chars.next().is_some_and(|c| c.is_ascii_alphanumeric());
+    if first_ok && worker.len() <= WORKER_NAME_MAX && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
+        Ok(())
+    } else {
+        Err(format!(
+            "a claim names its worker with 1 to {WORKER_NAME_MAX} letters, digits, '.', '_' or '-', beginning with a letter or a digit \
+             (a pod's host name); this one is not such a name (not repeated here)"
+        ))
+    }
+}
+
 /// Claims the earliest claimable job of `kind` for the worker's own build, if there is one; a daily
 /// run's job (priority 1, C-051) before any other.
 pub async fn claim(client: &mut Client, kind: Kind, build: &str, worker: &str, lease_seconds: f64) -> Result<Option<Claim>, String> {
@@ -512,6 +540,7 @@ pub async fn claim(client: &mut Client, kind: Kind, build: &str, worker: &str, l
 /// `claim`; with `daily_only`, only a daily run's job (priority 1): the daily CronJob's worker
 /// never takes a backfill block (C-051 amended, audit round x, 13).
 pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str, lease_seconds: f64, daily_only: bool) -> Result<Option<Claim>, String> {
+    worker_name(worker)?;
     // expired leases end first, each in its own transaction; one that cannot be ended is reported
     // by the service's sweeper every half minute and does not stop this claim
     let _ = sweep(client).await;
@@ -519,33 +548,98 @@ pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str
     if kind == Kind::OrderedPass {
         tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
     }
+    // the queue's control row, shared (audit round 2 of core-watch, 3): a pause (which updates it)
+    // waits for this claim to commit, or this claim waits for the pause and reads the queue
+    // paused; the claimable view reads `paused` from each statement's snapshot, so without the
+    // lock a pause committed during the claim still let it lease, stamped after the pause (C-025)
+    let paused: bool = tx.query_one("SELECT paused FROM core.queue_control FOR SHARE", &[]).await.map_err(db)?.get(0);
+    if paused {
+        return Ok(None);
+    }
     // the build's row, shared: a withdrawal (which updates it, then ends the build's leases) waits
     // for this claim, or this claim reads the build withdrawn (`build::withdraw`)
     tx.execute("SELECT FROM core.engine_build WHERE engine_build = $1 FOR SHARE", &[&build]).await.map_err(db)?;
-    let Some(job) = tx
-        .query_opt(
-            "UPDATE core.job SET state = 'LEASED', attempts = attempts + 1
-             WHERE job_id = (SELECT j.job_id FROM core.job j
-                             WHERE j.job_id IN (SELECT job_id FROM core.claimable_job WHERE kind = $1 AND engine_build = $2 AND next_session IS NOT NULL)
-                               AND (NOT $3 OR j.priority = 1)
-                             ORDER BY j.priority DESC, j.first_session, j.job_id LIMIT 1 FOR UPDATE SKIP LOCKED)
-               AND state = 'QUEUED'
-             RETURNING job_id, profile_id, scope::text, attempts, next_session::text, last_session::text",
-            &[&kind.name(), &build, &daily_only],
-        )
-        .await
-        .map_err(db)?
-    else {
+    // C-065 (the claim race of 2026-11-22): the row is locked by the inner SELECT, whose own
+    // condition says `j.state = 'QUEUED'`. Under READ COMMITTED a row another claim leased and
+    // committed after this statement's snapshot is re-read at its newest version when it is locked
+    // (PostgreSQL's EvalPlanQual recheck of the locking scan's own conditions): with the state among
+    // them it fails the recheck and the scan goes on to the next claimable row, instead of handing
+    // the row to the outer `AND state = 'QUEUED'`, which dropped it and returned nothing. The view's
+    // own `state = 'QUEUED'` is read from the snapshot and is not rechecked.
+    let mut tries = 0;
+    // a claimable job no other claim holds, found by the last look and held KEY SHARE since
+    let mut free: Option<i64> = None;
+    let job = loop {
+        tries += 1;
+        let job = tx
+            .query_opt(
+                "UPDATE core.job SET state = 'LEASED', attempts = attempts + 1
+                 WHERE job_id = (SELECT j.job_id FROM core.job j
+                                 WHERE j.state = 'QUEUED'
+                                   AND j.job_id IN (SELECT job_id FROM core.claimable_job WHERE kind = $1 AND engine_build = $2 AND next_session IS NOT NULL)
+                                   AND (NOT $3 OR j.priority = 1)
+                                 ORDER BY j.priority DESC, j.first_session, j.job_id LIMIT 1 FOR UPDATE SKIP LOCKED)
+                   AND state = 'QUEUED'
+                 RETURNING job_id, profile_id, scope::text, attempts, next_session::text, last_session::text",
+                &[&kind.name(), &build, &daily_only],
+            )
+            .await
+            .map_err(db)?;
+        if job.is_some() {
+            break job;
+        }
+        // nothing leased (audit round 2 of core-watch, 6 and 8): is a claimable job there that no
+        // other claim holds? A claim holds its row FOR UPDATE, which conflicts with this look's
+        // KEY SHARE, so the look skips exactly the jobs claims in flight are taking (healthy
+        // concurrency: nothing for this claim, and no miss), and finds a job queued after the last
+        // statement's snapshot or released by a claim that rolled back, which the next statement
+        // then takes: the answer "nothing" is true as of the last look. Held KEY SHARE until this
+        // claim ends, the job found is skipped by other claims while this one tries it again.
+        let look = tx
+            .query_one(
+                "WITH free AS (SELECT j.job_id FROM core.job j
+                               WHERE j.state = 'QUEUED'
+                                 AND j.job_id IN (SELECT job_id FROM core.claimable_job WHERE kind = $1 AND engine_build = $2 AND next_session IS NOT NULL)
+                                 AND (NOT $3 OR j.priority = 1)
+                               ORDER BY j.priority DESC, j.first_session, j.job_id LIMIT 1 FOR KEY SHARE SKIP LOCKED)
+                 SELECT (SELECT job_id FROM free),
+                        (SELECT count(*) FROM core.claimable_job WHERE kind = $1 AND engine_build = $2 AND next_session IS NOT NULL AND (NOT $3 OR priority = 1))",
+                &[&kind.name(), &build, &daily_only],
+            )
+            .await
+            .map_err(db)?;
+        let (found, claimable): (Option<i64>, i64) = (look.get(0), look.get(1));
+        let Some(found) = found else {
+            break None;
+        };
+        // a job no other claim held was there before this try too, and still none was leased after
+        // `CLAIM_TRIES` tries: a miss, kept for the watch (CLAIMS_EMPTY) with the job it could not take
+        if free.is_some() && tries >= CLAIM_TRIES {
+            tx.execute(
+                "INSERT INTO core.claim_miss (kind, engine_build, worker, daily, claimable, job_id) VALUES ($1, $2, $3, $4, $5, $6)",
+                &[&kind.name(), &build, &worker, &daily_only, &claimable, &found],
+            )
+            .await
+            .map_err(db)?;
+            tx.commit().await.map_err(db)?;
+            return Ok(None);
+        }
+        free = Some(found);
+    };
+    let Some(job) = job else {
         return Ok(None);
     };
     let (job_id, profile_id, scope, attempt, next, last): (i64, String, Option<String>, i32, Option<String>, String) =
         (job.get(0), job.get(1), job.get(2), job.get(3), job.get(4), job.get(5));
     let next = next.ok_or_else(|| format!("job {job_id} has no session left to do"))?;
+    // C-064 amended (audit round 2 of core-watch, 1): granted and expiring on one clock, read when
+    // the lease is written, so a claim that waited (an ordered pass for the publish lock) never
+    // hands out a lease that expired before it was granted (`now()` is the transaction's start)
     let lease = tx
         .query_one(
             "WITH t AS (SELECT replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '') AS token)
              INSERT INTO core.lease (job_id, worker, token_sha256, granted_at, expires_at)
-             SELECT $1, $2, encode(sha256(convert_to(token, 'UTF8')), 'hex'), clock_timestamp(), now() + make_interval(secs => $3) FROM t
+             SELECT $1, $2, encode(sha256(convert_to(token, 'UTF8')), 'hex'), g.at, g.at + make_interval(secs => $3) FROM t, (SELECT clock_timestamp() AS at) g
              RETURNING (SELECT token FROM t), to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')",
             &[&job_id, &worker, &lease_seconds],
         )
@@ -639,13 +733,14 @@ pub async fn identify(db_client: &impl GenericClient, token: &str) -> Result<Hel
 }
 
 /// Renews a lease. Returns its new expiry and whether the queue is paused (a worker may finish
-/// the day it is on, then should stop).
+/// the day it is on, then should stop). The new expiry is counted from when it is written, after
+/// any wait for the lease's lock (a publish under way holds it), as a claim's is.
 pub async fn heartbeat(client: &mut Client, token: &str, lease_seconds: f64) -> Result<(String, bool), LeaseError> {
     let tx = client.transaction().await.map_err(failed)?;
     let lease = held(&tx, token).await?;
     let row = tx
         .query_one(
-            "UPDATE core.lease SET expires_at = now() + make_interval(secs => $2) WHERE lease_id = $1
+            "UPDATE core.lease SET expires_at = clock_timestamp() + make_interval(secs => $2) WHERE lease_id = $1
              RETURNING to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), (SELECT paused FROM core.queue_control)",
             &[&lease.lease_id, &lease_seconds],
         )
@@ -737,14 +832,17 @@ pub async fn finish(client: &mut Client, token: &str) -> Result<i64, LeaseError>
 
 /// What `finished` reads of a job just made DONE.
 const FINISHED: &str = "kind, first_session::text, last_session::text,
-    (SELECT count(*) FROM core.job o WHERE o.kind = core.job.kind AND o.job_id <> core.job.job_id AND o.state IN ('QUEUED', 'LEASED', 'FAILED'))";
+    (SELECT count(*) FROM core.job o WHERE o.kind = core.job.kind AND o.job_id <> core.job.job_id AND o.state IN ('QUEUED', 'LEASED', 'FAILED')),
+    (SELECT extract(epoch FROM clock_timestamp() - min(l.granted_at))::float8 / 60 FROM core.lease l WHERE l.job_id = core.job.job_id)";
 
 /// The log line of a finished job (C-050: logged, not posted): one per day block; for the many
 /// small jobs, only when the last one is in.
 async fn finished(db_client: &impl GenericClient, job: &tokio_postgres::Row, by: &str) -> Result<(), String> {
-    let (kind, first, last, remaining): (String, String, String, i64) = (job.get(0), job.get(1), job.get(2), job.get(3));
+    let (kind, first, last, remaining, minutes): (String, String, String, i64, Option<f64>) = (job.get(0), job.get(1), job.get(2), job.get(3), job.get(4));
     if kind == "DAY_BLOCK" {
-        notice::log(db_client, &format!("Day block {first} to {last} done by {by} ({remaining} blocks to go).")).await
+        // C-065: with the block's minutes, from its first lease (every attempt's time included)
+        let minutes = minutes.map_or(String::new(), |m| format!(" in {m:.0} min"));
+        notice::log(db_client, &format!("Day block {first} to {last} done{minutes} by {by} ({remaining} blocks to go).")).await
     } else if remaining == 0 {
         let what = if kind == "TAPE" { "tape" } else { "ordered pass" };
         notice::log(db_client, &format!("Every scheduled {what} job is done (the last: {last}).")).await
@@ -784,14 +882,19 @@ pub fn scrubbed(text: &str) -> String {
     }
 }
 
-/// Stops claims until `resume`. The first reason is kept: it is what stopped the queue. Call it in
+/// Stops claims until `resume`. The first reason is kept: it is what stopped the queue. A claim
+/// under way holds the control row shared, so the pause waits for it and is stamped after it
+/// (`changed_at` on the clock, once the row is locked); every lease granted is then either before
+/// the pause or refused by it. Call it in
 /// a transaction: the pause and its notice are one event (C-027), and a restart between two
 /// autocommitted statements would leave the queue paused with no notice (a second `pause` then
 /// changes nothing, so would not repair it).
 pub async fn pause(db_client: &impl GenericClient, reason: &str) -> Result<(), String> {
     let reason = &scrubbed(reason);
+    // the row first: an UPDATE computes its new row (and its clock) before it waits for a locker
+    db_client.execute("SELECT FROM core.queue_control FOR UPDATE", &[]).await.map_err(db)?;
     let paused = db_client
-        .execute("UPDATE core.queue_control SET paused = true, reason = $1, changed_at = now() WHERE NOT paused", &[&reason])
+        .execute("UPDATE core.queue_control SET paused = true, reason = $1, changed_at = clock_timestamp() WHERE NOT paused", &[&reason])
         .await
         .map_err(db)?;
     if paused == 1 {
@@ -804,7 +907,7 @@ pub async fn pause(db_client: &impl GenericClient, reason: &str) -> Result<(), S
 /// a transaction, as `pause`.
 pub async fn resume(db_client: &impl GenericClient) -> Result<Option<String>, String> {
     let was: Option<String> = db_client.query_one("SELECT reason FROM core.queue_control", &[]).await.map_err(db)?.get(0);
-    let resumed = db_client.execute("UPDATE core.queue_control SET paused = false, reason = NULL, changed_at = now() WHERE paused", &[]).await.map_err(db)?;
+    let resumed = db_client.execute("UPDATE core.queue_control SET paused = false, reason = NULL, changed_at = clock_timestamp() WHERE paused", &[]).await.map_err(db)?;
     if resumed == 1 {
         notice::log(db_client, "Queue resumed.").await?;
     }
@@ -1020,4 +1123,26 @@ pub async fn status(db_client: &impl GenericClient) -> Result<Value, String> {
         .await
         .map_err(db)?;
     serde_json::from_str(row.get(0)).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Audit 2026-11-22 prebuild round 2 (core-watch.md) 5: the names real workers give (pods of
+    /// the test block, 2026-11-02 and 10-28; the tests' own) are taken; a name that could carry a
+    /// credential is refused, and the refusal does not repeat it.
+    #[test]
+    fn a_worker_name_is_a_host_name() {
+        for name in ["v-block-1102-0-wqlv9", "v-block-1028-0-jxmxt", "day-7f2c", "w1", "laptop.local", "DESKTOP_7"] {
+            assert_eq!(worker_name(name), Ok(()), "{name}");
+        }
+        let long = "a".repeat(WORKER_NAME_MAX + 1);
+        for name in ["", " ", "-pod", "https://discord.com/api/webhooks/1/a-token", "password=a-token", "Bearer a-token", "pod a-token", "pod@a-token", &long] {
+            let refused = worker_name(name).unwrap_err();
+            assert!(name.trim().is_empty() || !refused.contains(name.trim()), "{refused}");
+            assert!(!refused.contains("a-token"), "{refused}");
+        }
+        assert_eq!(worker_name(&"a".repeat(WORKER_NAME_MAX)), Ok(()));
+    }
 }

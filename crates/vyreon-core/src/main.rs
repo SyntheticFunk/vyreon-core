@@ -58,6 +58,7 @@
 //!   vyreon-core problems                              the open problems (C-050), oldest first, and the last resolved
 //!   vyreon-core digest [weekly]                       print the 09:00 digest (or the Saturday check) as it would be posted now
 //!   vyreon-core log [n]                               the newest n (20) logged events, which are not posted
+//!   vyreon-core progress                              the last 30 minutes as the progress channel (C-065) would post them
 //!   vyreon-core daily [queue]                         the daily runs (C-051): their settings, the sessions
 //!                                                     handled and the next due; `queue` queues what is due now
 //!                                                     (the service does it every minute by itself)
@@ -71,6 +72,11 @@
 //!                                                     VYREON_CORE_SPOOL (the temp dir), VYREON_CORE_LEASE_SECONDS (300),
 //!                                                     VYREON_CORE_INTRINIO_PER_MINUTE (1800), VYREON_CORE_WEBHOOK_FILE
 //!                                                     (a file holding the Discord webhook URL; without it the posts wait).
+//!                                                     VYREON_CORE_PROGRESS_WEBHOOK_FILE (C-065, optional: a file holding a
+//!                                                     second channel's webhook URL; core then posts the run's progress
+//!                                                     there every 30 minutes, silently: days published with their counts
+//!                                                     and reference checks, blocks started, the logged events, the queue's
+//!                                                     counts; unset or absent: nothing is composed or posted for it).
 //!                                                     The watch (C-050), also read by `problems` and `digest`:
 //!                                                     VYREON_CORE_WATCH_PROFILE (FREE_REPORT_64), VYREON_CORE_DEADLINES_FROM
 //!                                                     (the first session with a publishing deadline; unset: the daily
@@ -110,8 +116,14 @@ fn conninfo(name: &str) -> Result<String, String> {
         return Ok(v);
     }
     let file = std::env::var(format!("{name}_FILE")).map_err(|_| format!("set {name} or {name}_FILE"))?;
-    let text = std::fs::read_to_string(&file).map_err(|e| format!("{file}: {e}"))?;
-    Ok(text.trim().to_owned())
+    secret_file(&format!("{name}_FILE"), &file)
+}
+
+/// The trimmed text of the file the setting `name` names. A read failure names the setting, never
+/// its value: a secret put in the setting itself by mistake (a connection string, a webhook URL)
+/// would otherwise be printed (audit 2026-11-22 prebuild round 2, core-watch.md, 4).
+fn secret_file(name: &str, file: &str) -> Result<String, String> {
+    std::fs::read_to_string(file).map(|t| t.trim().to_owned()).map_err(|e| format!("{name}: the file it names cannot be read ({})", e.kind()))
 }
 
 async fn connect_to(name: &str) -> Result<Client, String> {
@@ -333,7 +345,7 @@ async fn publish_bundles(bundles: &[&str], vouched: bool) -> Result<(), String> 
 
 fn setting<T: std::str::FromStr>(name: &str, default: T) -> Result<T, String> {
     match std::env::var(name) {
-        Ok(v) => v.parse().map_err(|_| format!("{name}: cannot read {v}")),
+        Ok(v) => v.parse().map_err(|_| format!("{name}: cannot read its value")),
         Err(_) => Ok(default),
     }
 }
@@ -345,7 +357,7 @@ fn set(name: &str) -> Option<String> {
 
 fn date_setting(name: &str) -> Result<Option<String>, String> {
     match set(name) {
-        Some(d) if !core_contract::is_date(&d) => Err(format!("{name}: {d} is not a date written YYYY-MM-DD")),
+        Some(d) if !core_contract::is_date(&d) => Err(format!("{name} is not a date written YYYY-MM-DD")),
         d => Ok(d),
     }
 }
@@ -374,7 +386,7 @@ fn watch_settings() -> Result<watch::Settings, String> {
         Some(_) => {
             let alert_days = match set("VYREON_CORE_ARCHIVE_ALERT_DAYS") {
                 None => None,
-                Some(v) => Some(v.parse::<i32>().ok().filter(|d| *d >= 1).ok_or_else(|| format!("VYREON_CORE_ARCHIVE_ALERT_DAYS: {v} is not a whole number of days from 1"))?),
+                Some(v) => Some(v.parse::<i32>().ok().filter(|d| *d >= 1).ok_or_else(|| "VYREON_CORE_ARCHIVE_ALERT_DAYS is not a whole number of days from 1".to_string())?),
             };
             let expected_from = date_setting("VYREON_CORE_ARCHIVE_FROM")?.or_else(|| daily.as_ref().map(|d| d.from.clone()));
             Some(watch::ArchiveWatch { expected_from, alert_days })
@@ -383,6 +395,30 @@ fn watch_settings() -> Result<watch::Settings, String> {
     // C-054: every published day from this session is expected to have its reference check
     let refcheck_from = date_setting("VYREON_CORE_REFCHECK_FROM")?;
     Ok(watch::Settings { profile, deadlines_from, volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64), deadline_hour, daily, archive, refcheck_from })
+}
+
+/// A Discord webhook's URL from the file a setting names; None (said, never the URL, nor the
+/// setting's value, which may be the URL put there by mistake) when the setting or the file is
+/// absent or empty.
+fn webhook_setting(name: &str, without: &str) -> Option<String> {
+    match webhook_from(name, std::env::var(name).ok().as_deref(), without) {
+        Ok(url) => Some(url),
+        Err(said) => {
+            println!("{said}");
+            None
+        }
+    }
+}
+
+/// `webhook_setting` for the setting's value `file`: the URL, or what is said instead.
+fn webhook_from(name: &str, file: Option<&str>, without: &str) -> Result<String, String> {
+    let Some(file) = file else {
+        return Err(format!("{name} is not set: {without}"));
+    };
+    match secret_file(name, file) {
+        Ok(url) if !url.is_empty() => Ok(url),
+        _ => Err(format!("the file {name} names is absent or empty: {without}")),
+    }
 }
 
 /// The perishable archive's bucket and key (C-052): all five settings or none. The key's files
@@ -528,6 +564,19 @@ async fn digest(weekly: bool) -> Result<(), String> {
     Ok(())
 }
 
+async fn progress_preview() -> Result<(), String> {
+    let client = connect().await?;
+    let now = watch::now(&client).await?;
+    let posts = core_db::progress::preview(&client, &watch_settings()?.profile, &now).await?;
+    if posts.is_empty() {
+        println!("nothing happened in the last 30 minutes: no progress post");
+    }
+    for p in posts {
+        println!("{p}\n");
+    }
+    Ok(())
+}
+
 async fn log(n: &str) -> Result<(), String> {
     let n: i64 = n.parse().map_err(|_| format!("how many: {n}"))?;
     for (at, message) in notice::recent_log(&connect().await?, n).await?.iter().rev() {
@@ -566,23 +615,19 @@ async fn serve() -> Result<(), String> {
     let listener = tokio::net::TcpListener::bind(&listen).await.map_err(|e| format!("{listen}: {e}"))?;
     core_api::spawn_sweeper(app.clone());
     // the webhook's file may be absent (the Secret not created yet): the posts then wait unsent
-    let webhook = match std::env::var("VYREON_CORE_WEBHOOK_FILE") {
-        Ok(file) => match std::fs::read_to_string(&file) {
-            Ok(text) if !text.trim().is_empty() => Some(text.trim().to_owned()),
-            _ => {
-                println!("{file} is absent or empty: the channel's posts are kept unsent");
-                None
-            }
-        },
-        Err(_) => {
-            println!("VYREON_CORE_WEBHOOK_FILE is not set: the channel's posts are kept unsent");
-            None
-        }
-    };
+    let webhook = webhook_setting("VYREON_CORE_WEBHOOK_FILE", "the channel's posts are kept unsent");
+    // C-065: the progress channel, optional; absent, nothing is composed or posted for it
+    let progress = webhook_setting("VYREON_CORE_PROGRESS_WEBHOOK_FILE", "no progress is posted");
     // the watch and the sender run apart: delivering posts never delays the watch's queueing
-    core_api::notices::spawn_watch(app.clone(), watch_settings()?, std::time::Duration::from_secs(60));
+    let settings = watch_settings()?;
+    let profile = settings.profile.clone();
+    core_api::notices::spawn_watch(app.clone(), settings, std::time::Duration::from_secs(60));
     if let Some(webhook) = webhook {
         core_api::notices::spawn_sender(app.clone(), webhook, std::time::Duration::from_secs(15));
+    }
+    if let Some(webhook) = progress {
+        core_api::notices::spawn_progress(app.clone(), profile, std::time::Duration::from_secs(60));
+        core_api::notices::spawn_sender_on(app.clone(), webhook, std::time::Duration::from_secs(15), notice::Channel::Progress);
     }
     println!("vyreon-core listening on {listen} (the single-instance lock is held, C-053)");
     let mut ping = tokio::time::interval(std::time::Duration::from_secs(15));
@@ -878,6 +923,7 @@ async fn main() -> ExitCode {
         ["problems"] => problems().await,
         ["digest"] => digest(false).await,
         ["digest", "weekly"] => digest(true).await,
+        ["progress"] => progress_preview().await,
         ["daily"] => daily_runs(false).await,
         ["daily", "queue"] => daily_runs(true).await,
         ["log"] => log("20").await,
@@ -907,6 +953,21 @@ async fn main() -> ExitCode {
 #[cfg(test)]
 mod tests {
     use super::{archive_line, publish_args, retire_args};
+
+    /// Audit 2026-11-22 prebuild round 2 (core-watch.md) 4: the webhook URL put in the setting
+    /// itself (instead of the file that holds it) printed the whole URL, token and all, when the
+    /// file could not be read. What is said names the setting only. The URL is the shape of the
+    /// existing tests' (`notices::tests`), not a real one.
+    #[test]
+    fn a_setting_that_cannot_be_read_is_named_never_printed() {
+        let url = "https://discord.com/api/webhooks/1/a-token";
+        let said = super::webhook_from("VYREON_CORE_PROGRESS_WEBHOOK_FILE", Some(url), "no progress is posted").unwrap_err();
+        assert_eq!(said, "the file VYREON_CORE_PROGRESS_WEBHOOK_FILE names is absent or empty: no progress is posted");
+        assert_eq!(super::webhook_from("VYREON_CORE_WEBHOOK_FILE", None, "kept").unwrap_err(), "VYREON_CORE_WEBHOOK_FILE is not set: kept");
+        let conninfo = "host=db user=vyreon password=a-token";
+        let said = super::secret_file("VYREON_CORE_PG_FILE", conninfo).unwrap_err();
+        assert!(said.starts_with("VYREON_CORE_PG_FILE: the file it names cannot be read (") && !said.contains("a-token"), "{said}");
+    }
 
     /// Audit 2026-11-17 round w, 18: `archive list` names the endpoint the object is kept at.
     #[test]

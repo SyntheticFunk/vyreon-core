@@ -280,6 +280,11 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Option<Item>>, 
         .await
         .map_err(db)?
         .get(0);
+    // the lease it is published under, if any (audit round 2 of core-watch, 11: what published a
+    // day is recorded, never inferred from overlapping dates and times)
+    if let Some(lease) = &lease {
+        tx.execute("INSERT INTO core.lease_revision (revision_id, lease_id) VALUES ($1, $2)", &[&revision, &lease.lease_id]).await.map_err(db)?;
+    }
 
     let insert_slot = tx
         .prepare(

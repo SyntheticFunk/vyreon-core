@@ -188,6 +188,8 @@ async fn a_last_failure_and_a_provider_burst_are_problems_from_the_evidence() {
     failed_attempt(&mut client, &b, provider).await;
     let now = watch::now(&client).await.unwrap();
     assert_eq!(check(&mut client, &s, &now).await, opened(&["Provider (Intrinio) errors stopped 3 attempts in the last 30 minutes (HTTP 502)"]));
+    // a worker goes on with the queued blocks (C-065: else the work, claimable with no lease, is a stall)
+    work::claim(&mut client, Kind::DayBlock, &b, "w2", 4.0 * 3600.0).await.unwrap().unwrap();
     let in_an_hour = later_text(&client, 1).await;
     // still open within the quiet hours, and (C-050 amended 2026-11-20) restated without a post
     let still = watch::Change { restated: vec!["Provider (Intrinio) errors are still stopping attempts".into()], ..Default::default() };
@@ -502,5 +504,162 @@ async fn many_open_problems_fit_one_post() {
     assert!(digest.starts_with("🔴 Needs you: Mon Mar 3 not published by its Tue 10:00 MT deadline (and "), "{digest}");
     assert!(digest.contains(&format!("\nOpen problems ({late}):\n")));
     assert!(digest.ends_with(" more: `vyreon-core problems`"), "{digest}");
+    scratch.drop().await;
+}
+
+/// `now` moved on by `minutes`, as the database reads it.
+async fn minutes_after(client: &Client, now: &str, minutes: i32) -> String {
+    client.query_one("SELECT ($1::text::timestamptz + make_interval(mins => $2))::text", &[&now, &minutes]).await.unwrap().get(0)
+}
+
+/// A check `minutes` after `now`.
+async fn check_after(client: &mut Client, s: &Settings, now: &str, minutes: i32) -> watch::Change {
+    let at = minutes_after(client, now, minutes).await;
+    check(client, s, &at).await
+}
+
+/// C-065 (health.sh's stall): work claimable and no worker holding a lease for 15 minutes is one
+/// problem, resolved when a worker claims; a lease that ends starts the clock again; when only
+/// daily runs' jobs wait, 30 minutes (CronJob `daily` starts 15 minutes after the queueing).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn claimable_work_with_no_worker_for_a_quarter_hour_is_a_stall() {
+    let (scratch, mut client, b) = ready("stall").await;
+    build::admit(&client, &b, &json!({"checklist": "watch test"})).await.unwrap();
+    let s = settings(None);
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-08", "2025-12-10", 1).await.unwrap();
+    let t0 = watch::now(&client).await.unwrap();
+    assert_eq!(check(&mut client, &s, &t0).await, opened(&[]));
+    assert_eq!(check_after(&mut client, &s, &t0, 14).await, opened(&[]));
+    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.stall_seen", &[]).await.unwrap().get(0);
+    let stalled = format!("Work stalled since {since} MT: 3 claimable (3 tape jobs) and no worker holds a lease, so no worker pod is running");
+    assert_eq!(check_after(&mut client, &s, &t0, 15).await, opened(&[&stalled]));
+    assert_eq!(posts(&client).await, [format!("🔴 {stalled}\nTo see more: `vyreon-core queue`")]);
+    // a worker claims: resolved, and the clock is gone
+    let claim = work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();
+    assert_eq!(check_after(&mut client, &s, &t0, 16).await.resolved, [stalled]);
+    assert_eq!(client.query_one("SELECT count(*) FROM core.stall_seen", &[]).await.unwrap().get::<_, i64>(0), 0);
+
+    // its job cancelled, the other two are daily runs' jobs: 30 minutes before a stall
+    work::cancel(&mut client, &[claim.job_id]).await.unwrap();
+    client.execute("UPDATE core.job SET priority = 1 WHERE state = 'QUEUED'", &[]).await.unwrap();
+    let t1 = watch::now(&client).await.unwrap();
+    assert_eq!(check(&mut client, &s, &t1).await, opened(&[]));
+    assert_eq!(check_after(&mut client, &s, &t1, 29).await, opened(&[]), "a daily run's start takes up to 30 minutes");
+    let opened_now = check_after(&mut client, &s, &t1, 30).await.opened;
+    assert_eq!(opened_now.len(), 1);
+    assert!(opened_now[0].contains(": 2 claimable (2 tape jobs) and no worker holds a lease"), "{opened_now:?}");
+    // a paused queue hands nothing out: that is its own problem, not a stall
+    work::pause(&client, "watch test").await.unwrap();
+    let paused = check_after(&mut client, &s, &t1, 31).await;
+    assert_eq!(paused.resolved.len(), 1);
+    assert!(paused.opened[0].starts_with("Work queue paused"), "{paused:?}");
+    scratch.drop().await;
+}
+
+/// Audit round 2 of core-watch, 7: the stall's clock survived a pause and resume the watch did not
+/// see (a restart over an overnight pause), so the resumed queue read as stalled at once. The
+/// clock now starts no earlier than the resume (the queue's `changed_at`, set here to when the
+/// resume happens on the test's clock, as `resume` stamps it).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_stall_counts_from_when_the_queue_was_resumed() {
+    let (scratch, mut client, b) = ready("stall_resume").await;
+    build::admit(&client, &b, &json!({"checklist": "watch test"})).await.unwrap();
+    let s = settings(None);
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-09", "2025-12-10", 1).await.unwrap();
+    let t0 = watch::now(&client).await.unwrap();
+    assert_eq!(check(&mut client, &s, &t0).await, opened(&[]));
+    // the watch away: the queue paused, then resumed 20 minutes on
+    work::pause(&client, "watch test").await.unwrap();
+    work::resume(&client).await.unwrap();
+    let resumed = minutes_after(&client, &t0, 20).await;
+    client.execute("UPDATE core.queue_control SET changed_at = $1::text::timestamptz", &[&resumed]).await.unwrap();
+    assert_eq!(check_after(&mut client, &s, &t0, 30).await, opened(&[]), "10 minutes since the resume, not 30");
+    let since: String = client.query_one("SELECT to_char(changed_at AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.queue_control", &[]).await.unwrap().get(0);
+    let stalled = format!("Work stalled since {since} MT: 2 claimable (2 tape jobs) and no worker holds a lease, so no worker pod is running");
+    assert_eq!(check_after(&mut client, &s, &t0, 35).await, opened(&[&stalled]));
+    // a live lease: resolved, the claimability view not read
+    work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();
+    assert_eq!(check_after(&mut client, &s, &t0, 36).await.resolved, [stalled]);
+    scratch.drop().await;
+}
+
+/// C-065 (health.sh's "pods that found nothing to claim"): three claims in ten minutes that found
+/// nothing while a job no other claim held stayed claimable are one problem; it resolves when no
+/// such claim recurs. Audit round 2 of core-watch: claims that found only work other claims were
+/// taking keep no miss (6); misses whose job was leased after are none, even with another job of
+/// the same kind and build queued since (6); equal counts name the same work every time (16).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn workers_leaving_while_work_waits_are_a_problem() {
+    let (scratch, mut client, b) = ready("claims_empty").await;
+    build::admit(&client, &b, &json!({"checklist": "watch test"})).await.unwrap();
+    let s = settings(None);
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-09", "2025-12-10", 1).await.unwrap();
+    // both jobs held as claims in flight hold them: no miss at all
+    let mut holder = scratch.client().await;
+    let tx = holder.transaction().await.unwrap();
+    tx.execute("SELECT FROM core.job WHERE kind = 'TAPE' FOR UPDATE", &[]).await.unwrap();
+    for pod in ["tape-a", "tape-b", "tape-c"] {
+        assert!(work::claim(&mut client, Kind::Tape, &b, pod, 3600.0).await.unwrap().is_none());
+    }
+    let t0 = watch::now(&client).await.unwrap();
+    assert_eq!(check(&mut client, &s, &t0).await, opened(&[]), "work others were taking is no miss");
+    drop(tx);
+    // both jobs held by a lock no claim takes, which still stops a claim: claims free of others
+    // that could not lease them
+    let tx = holder.transaction().await.unwrap();
+    tx.execute("SELECT FROM core.job WHERE kind = 'TAPE' FOR KEY SHARE", &[]).await.unwrap();
+    for pod in ["tape-1", "tape-2"] {
+        assert!(work::claim(&mut client, Kind::Tape, &b, pod, 3600.0).await.unwrap().is_none());
+    }
+    let t0 = watch::now(&client).await.unwrap();
+    assert_eq!(check(&mut client, &s, &t0).await, opened(&[]), "two are not yet a problem");
+    assert!(work::claim(&mut client, Kind::Tape, &b, "tape-3", 3600.0).await.unwrap().is_none());
+    let t0 = watch::now(&client).await.unwrap();
+    let short = |b: &str| if b.chars().count() > 16 { format!("{}…", b.chars().take(12).collect::<String>()) } else { b.to_string() };
+    let summary = format!("Workers left with nothing while work waited: 3 claims found nothing in the last 10 min, 2 tape jobs of build {} still claimable", short(&b));
+    assert_eq!(check(&mut client, &s, &t0).await, opened(&[&summary]));
+    drop(tx);
+    // ten minutes without one: resolved
+    assert_eq!(check_after(&mut client, &s, &t0, 11).await.resolved, [summary]);
+
+    // misses whose job was leased a moment later: not a problem, though another tape job of the
+    // build was queued since
+    let tx = holder.transaction().await.unwrap();
+    tx.execute("SELECT FROM core.job WHERE kind = 'TAPE' FOR KEY SHARE", &[]).await.unwrap();
+    for pod in ["tape-4", "tape-5", "tape-6"] {
+        assert!(work::claim(&mut client, Kind::Tape, &b, pod, 3600.0).await.unwrap().is_none());
+    }
+    drop(tx);
+    work::claim(&mut client, Kind::Tape, &b, "tape-7", 3600.0).await.unwrap().unwrap();
+    work::claim(&mut client, Kind::Tape, &b, "tape-8", 3600.0).await.unwrap().unwrap();
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-11", "2025-12-11", 1).await.unwrap();
+    let t1 = watch::now(&client).await.unwrap();
+    assert_eq!(check(&mut client, &s, &t1).await, opened(&[]), "the job queued since is not the work they missed");
+
+    // the second build's tape jobs missed as often as the first's: the summary names the same
+    // build every time (the first by kind, then build)
+    let other: String = client.query_one("SELECT engine_build FROM core.engine_build WHERE engine_build <> $1", &[&b]).await.unwrap().get(0);
+    build::admit(&client, &other, &json!({"checklist": "watch test"})).await.unwrap();
+    work::schedule(&mut client, Kind::Tape, PROFILE, &other, "2025-12-12", "2025-12-12", 1).await.unwrap();
+    let tx = holder.transaction().await.unwrap();
+    tx.execute("SELECT FROM core.job WHERE kind = 'TAPE' AND state = 'QUEUED' FOR KEY SHARE", &[]).await.unwrap();
+    for pod in ["tape-9", "tape-10"] {
+        assert!(work::claim(&mut client, Kind::Tape, &b, pod, 3600.0).await.unwrap().is_none());
+        assert!(work::claim(&mut client, Kind::Tape, &other, pod, 3600.0).await.unwrap().is_none());
+    }
+    let t2 = watch::now(&client).await.unwrap();
+    let first = if b < other { &b } else { &other };
+    let named = format!("Workers left with nothing while work waited: 4 claims found nothing in the last 10 min, 1 tape jobs of build {} still claimable", short(first));
+    assert_eq!(check(&mut client, &s, &t2).await, opened(&[&named]));
+    drop(tx);
+    let t1 = minutes_after(&client, &t2, 11).await;
+    check(&mut client, &s, &t1).await;
+    // a week later the misses are gone
+    let week = minutes_after(&client, &t1, 7 * 24 * 60 + 1).await;
+    check(&mut client, &s, &week).await;
+    assert_eq!(client.query_one("SELECT count(*) FROM core.claim_miss", &[]).await.unwrap().get::<_, i64>(0), 0);
     scratch.drop().await;
 }

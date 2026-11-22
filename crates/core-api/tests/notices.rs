@@ -67,7 +67,7 @@ async fn problems_are_posted_once_in_order_silently_and_events_only_logged() {
     let logged: Vec<String> = notice::recent_log(&client, 20).await.unwrap().into_iter().rev().map(|(_, m)| m).collect();
     assert_eq!(logged.len(), 4, "{logged:?}");
     assert_eq!(logged[0], format!("Engine build {b} admitted: its workers may claim work."));
-    assert_eq!(logged[1], "Day block 2025-12-10 to 2025-12-10 done by day-1 (1 blocks to go).");
+    assert_eq!(logged[1], "Day block 2025-12-10 to 2025-12-10 done in 0 min by day-1 (1 blocks to go).");
     assert_eq!(logged[2], "Queue paused: a check failed on 2025-12-11. No work is handed out until `vyreon-core queue resume`.");
     assert_eq!(logged[3], "Queue resumed.");
     let queued: Vec<String> = notice::unsent(&client, 20).await.unwrap().into_iter().map(|(_, m)| m).collect();
@@ -114,9 +114,13 @@ async fn problems_are_posted_once_in_order_silently_and_events_only_logged() {
     assert_eq!(send_unsent(&app, &http, &url).await.unwrap(), 0);
     assert_eq!(received.lock().unwrap().len(), 3);
 
-    // a long message is cut to Discord's limit
+    // a long message is cut to the limit, the characters cut counted (audit round 2 of
+    // core-watch, 14: never cut silently)
     let long = payload(&"x".repeat(5000));
-    assert_eq!(long["content"].as_str().unwrap().chars().count(), 1901);
+    let content = long["content"].as_str().unwrap();
+    assert_eq!(content.chars().count(), 1900);
+    let kept = content.chars().take_while(|c| *c == 'x').count();
+    assert!(content.ends_with(&format!("… ({} characters cut)", core_db::progress::thousands((5000 - kept) as i64))), "{content}");
     scratch.drop().await;
 }
 
@@ -314,5 +318,112 @@ async fn a_core_whose_watch_stalled_is_not_live() {
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
     assert_eq!(status(&url).await, 200, "the watch ticks again");
     watcher.abort();
+    scratch.drop().await;
+}
+
+/// A webhook that saves every post (Discord's Execute Webhook with `wait=true`).
+async fn saving_webhook(State(received): State<Received>, Json(body): Json<Value>) -> (StatusCode, Json<Value>) {
+    let mut received = received.lock().unwrap();
+    received.push(body.clone());
+    (StatusCode::OK, Json(json!({"id": format!("{}", 2_000 + received.len()), "content": body["content"]})))
+}
+
+async fn saving(path: &'static str) -> (String, Received) {
+    let received: Received = Arc::default();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}{path}", listener.local_addr().unwrap());
+    let stub = Router::new().route(path, post(saving_webhook)).with_state(received.clone());
+    tokio::spawn(async move { axum::serve(listener, stub).await.unwrap() });
+    (url, received)
+}
+
+/// C-065: the progress channel's posts go to its own webhook, silently and naming no one, in their
+/// own order: a progress webhook that cannot be reached holds back no alert and repeats none, the
+/// alerts' sender never posts progress, and progress older than six hours is not posted at all.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn progress_posts_go_their_own_way_and_never_hold_an_alert() {
+    use core_api::notices::send_unsent_on;
+    use core_db::notice::Channel;
+    let (scratch, client, app) = ready_app("progress_channel").await;
+    let http = reqwest::Client::new();
+    notice::progress(&client, "progress a 1", "Progress · Sat Nov 22 14:00–14:30 MT\nStarted block 2025-12-10 to 2025-12-11 on day-7f2c (job 1, attempt 1)").await.unwrap();
+    notice::alert(&client, "🔴 an alert").await.unwrap();
+    notice::progress(&client, "progress b 1", "Progress · Sat Nov 22 14:30–15:00 MT\n15:02 Queue resumed.").await.unwrap();
+    assert!(!notice::progress(&client, "progress b 1", "again").await.unwrap(), "a window's post is queued once");
+
+    // the progress webhook unreachable: its post waits; the alert goes regardless, once
+    let closed = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap().local_addr().unwrap();
+    assert!(send_unsent_on(&app, &http, &format!("http://{closed}/hook"), Channel::Progress).await.is_err());
+    let (alerts, alerts_got) = saving("/webhooks/1/alerts").await;
+    assert_eq!(send_unsent(&app, &http, &alerts).await.unwrap(), 1);
+    assert_eq!(send_unsent(&app, &http, &alerts).await.unwrap(), 0);
+    assert_eq!(alerts_got.lock().unwrap().iter().map(|p| p["content"].as_str().unwrap().to_owned()).collect::<Vec<_>>(), ["🔴 an alert"]);
+
+    // then the progress posts, in order, silent
+    let (progress, progress_got) = saving("/webhooks/2/progress").await;
+    assert_eq!(send_unsent_on(&app, &http, &progress, Channel::Progress).await.unwrap(), 2);
+    let got = progress_got.lock().unwrap().clone();
+    assert_eq!(got.len(), 2);
+    assert!(got[0]["content"].as_str().unwrap().starts_with("Progress · Sat Nov 22 14:00–14:30 MT"));
+    assert!(got[1]["content"].as_str().unwrap().ends_with("Queue resumed."));
+    for p in &got {
+        assert_eq!(p["flags"], 4096, "silent: no sound, no push");
+        assert_eq!(p["allowed_mentions"], json!({"parse": []}), "names no one");
+    }
+    assert_eq!(alerts_got.lock().unwrap().len(), 1, "no alert repeated");
+
+    // a backlog older than six hours (the webhook was down) is not posted
+    notice::progress(&client, "progress c 1", "Progress · Sat Nov 22 06:00–06:30 MT\n06:10 Queue resumed.").await.unwrap();
+    client.execute("UPDATE core.notice SET created_at = now() - interval '7 hours' WHERE once = 'progress c 1'", &[]).await.unwrap();
+    assert_eq!(send_unsent_on(&app, &http, &progress, Channel::Progress).await.unwrap(), 0);
+    assert_eq!(progress_got.lock().unwrap().len(), 2);
+    let why: String = client.query_one("SELECT last_error FROM core.notice WHERE once = 'progress c 1'", &[]).await.unwrap().get(0);
+    assert_eq!(why, "not posted: older than 6 h (progress)");
+    scratch.drop().await;
+}
+
+/// A webhook that takes `DELAY` before it saves a post: a slow Discord.
+const DELAY: std::time::Duration = std::time::Duration::from_millis(1500);
+async fn slow_webhook(State(received): State<Received>, Json(body): Json<Value>) -> (StatusCode, Json<Value>) {
+    tokio::time::sleep(DELAY).await;
+    saving_webhook(State(received), Json(body)).await
+}
+
+/// Audit 2026-11-22 prebuild round 2 (core-watch.md) 13 and 15: the sender held its pooled
+/// connection across each post and rate-limit wait, so a slow progress webhook kept a connection
+/// an alert (or the watch) could need; and the six-hour cutoff ran once a batch, so a post just
+/// under six hours old went out after its deadline behind a slow one. With a pool of one
+/// connection, the connection is free while the progress sender waits on its webhook; and the
+/// second post, past six hours by the time the first is delivered, is not posted.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_slow_progress_webhook_holds_no_connection_and_posts_nothing_past_its_deadline() {
+    use core_api::notices::send_unsent_on;
+    use core_db::notice::Channel;
+    let (scratch, client, app) = ready_app("progress_slow").await;
+    let pool = deadpool_postgres::Pool::builder(deadpool_postgres::Manager::new(scratch.config.clone(), tokio_postgres::NoTls)).max_size(1).build().unwrap();
+    let app = App::new(pool, app.config.clone());
+    notice::progress(&client, "progress a 1", "Progress · Sat Nov 22 14:00–14:30 MT\n14:02 Queue resumed.").await.unwrap();
+    notice::progress(&client, "progress b 1", "Progress · Sat Nov 22 08:30–09:00 MT\n08:40 Queue resumed.").await.unwrap();
+    // the second's age just under the cutoff: past it once the first (1.5 s) is delivered
+    client.execute("UPDATE core.notice SET created_at = now() - interval '6 hours' + interval '1 second' WHERE once = 'progress b 1'", &[]).await.unwrap();
+    let received: Received = Arc::default();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/webhooks/2/progress", listener.local_addr().unwrap());
+    let stub = Router::new().route("/webhooks/2/progress", post(slow_webhook)).with_state(received.clone());
+    tokio::spawn(async move { axum::serve(listener, stub).await.unwrap() });
+    let sending = {
+        let app = app.clone();
+        tokio::spawn(async move { send_unsent_on(&app, &reqwest::Client::new(), &url, Channel::Progress).await })
+    };
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let free = tokio::time::timeout(std::time::Duration::from_millis(500), app.pool.get()).await;
+    assert!(matches!(free, Ok(Ok(_))), "the pool's one connection is free while the sender waits on the webhook");
+    drop(free);
+    assert_eq!(sending.await.unwrap().unwrap(), 1, "the first is posted; the second is past its deadline");
+    assert_eq!(received.lock().unwrap().len(), 1);
+    let why: String = client.query_one("SELECT last_error FROM core.notice WHERE once = 'progress b 1'", &[]).await.unwrap().get(0);
+    assert_eq!(why, "not posted: older than 6 h (progress)");
     scratch.drop().await;
 }
