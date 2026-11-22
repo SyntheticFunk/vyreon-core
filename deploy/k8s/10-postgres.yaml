@@ -1,8 +1,20 @@
 # The database (C-003): PostgreSQL under CloudNativePG, one instance, data on a DigitalOcean volume
 # (the cluster's default storage class). The operator creates the database `vyreon` owned by
 # `vyreon`, a Secret `vyreon-pg-app` with that user's name and password, and the Service
-# `vyreon-pg-rw`. Backups to Spaces are added once a database is worth keeping (C-013).
-# The worker pools are tainted, so this lands on the core pool.
+# `vyreon-pg-rw`. The worker pools are tainted, so this lands on the core pool.
+#
+# The volume (C-067): DigitalOcean block storage, StorageClass `do-block-storage`
+# (allowVolumeExpansion: true). A larger `storage.size` is applied by the operator to the PVC in
+# place (`resizeInUseVolumes`, default true) and the CSI driver grows the volume and its filesystem
+# while Postgres runs (60 -> 120 GiB on 2026-11-16 with the pod up since 11-11, no restart). It can
+# only grow. Keep `VYREON_CORE_VOLUME_GIB` in 20-core.yaml equal to it (the DATABASE_FULL alert).
+#
+# Backups (C-013, C-067): the Barman Cloud plugin (CloudNativePG >= 1.26 deprecates the in-tree
+# `.spec.backup.barmanObjectStore`; 1.32 removes it) archives every WAL file to the ObjectStore
+# `vyreon-backup` (15-backup.yaml), which also takes the weekly base backups and holds the
+# retention. The plugin (namespace cnpg-system) must be installed before this section is applied:
+# CloudNativePG adds the plugin's sidecar to the Postgres pod, which RESTARTS the database (one
+# instance: a minute or two of downtime; README "Backups and the volume").
 apiVersion: postgresql.cnpg.io/v1
 kind: Cluster
 metadata:
@@ -23,4 +35,9 @@ spec:
         # KEDA's trigger: core.claimable_count only (migration 0046, C-066)
         - CREATE ROLE vyreon_scaler NOLOGIN
   storage:
-    size: 120Gi
+    size: 250Gi
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: vyreon-backup

@@ -22,6 +22,9 @@ only by that Job).
 | `delete-idle.sh` | delete every `day*` node with no running, pending or starting worker pod; run after every run ends |
 | `job-day-block.yaml` | day-block worker Job on the phase-1 image; set `metadata.name`, `completions`, `parallelism`, and the node pool |
 | `job-tape.yaml` | tape worker Job on the phase-1 image; same fields |
+| `backup-now.yaml` | an on-demand base backup of `vyreon-pg` (`kubectl create -f`; C-067) |
+| `restore-drill.yaml` | the temporary cluster of the restore drill (`../README.md`, "Backups and the volume") |
+| `drill-counts.sql` | the drill's comparison: per month, day revisions by state and measurement rows with a digest; diff source against restore |
 
 A Job only claims work core has scheduled (`vyreon-core schedule <tape|day-block|ordered-pass> ...`,
 see `crates/vyreon-core/src/main.rs`); an image is registered and admitted in core first

@@ -357,6 +357,7 @@ being written on branch `core-keda`); (4) the rulings image admitted, 914ffed7 w
 volume grows 120 → 250 GB with the next core restart (measured 2024-07 days ~134 MB each, 2026-11 ~200
 MB; 597 days plus history revisions and tape caches would reach the 118 GB volume; +$13/month), and
 CloudNativePG backups to Spaces (weekly full + WAL, ~30 days, a bucket and key only for backups) with one
+<<<<<<< HEAD
 restore drill, before the full build. **Before the recompute (owner, 2026-11-22): a Codex failure-surface
 audit of the build's operation** once KEDA, backups and the rulings are merged: scale (passes over 597
 days, Postgres under 12 publishers, volume and WAL), KEDA and the autoscaler (nodes from zero, lost nodes,
@@ -366,6 +367,12 @@ from each stage by the owner from the runbooks. Its fixes land before the recomp
 cases, not real failure paths): fix them all and go (owner): the recompute is the build's first stage; if
 gate a passes on it, the full build follows without a pause.** Then watch: history-pass memory at full range (tonight's 10 passes
 give the first number), the core node under 12 publishing workers, and the database size posted daily.
+=======
+restore drill, before the full build. Written, not applied (C-067; runbook `deploy/k8s/README.md`
+"Backups and the volume"): the volume by a patch, no restart; the plugin's one Postgres restart
+inside the KEDA rollout. Then watch: history-pass memory at full range (tonight's 10 passes give
+the first number), the core node under 12 publishing workers, and the database size posted daily.
+>>>>>>> core-backup
 **Measured request draw, one node, test block 04:56-16:37 UTC:** 71,112 requests (~11,800 a day), 101 a
 minute over wall time, bursts averaging 658 with a peak of 1,900 (the ceiling) and p95 1,800. Cap for the
 full build: 12 nodes (two thirds of the ~18 the average allows), proven on 2 nodes in the recompute.
@@ -484,6 +491,8 @@ token once the shape settles; the reader API stays inside the cluster; backups w
 restore; a read-only exposure check and an attack-surface audit. Phone recovery is the owner's.
 
 **Loose ends (each before the step it names):**
+- **Watch WAL archiving before the full build:** a failing archive fills `pg_wal` on the volume, which core's
+  DATABASE_FULL check (`pg_database_size`) does not see; core's watch reads `pg_stat_archiver` (C-067 risk).
 - **Progress channel (owner, 2026-11-22; before the full build, with the claim fixes; built on
   `core-watch`, C-065: deploy with `20-core.yaml`, whose optional mount reads the secret):** a second
   Discord webhook (`progress-webhook.txt`, git-ignored; cluster secret `vyreon-core-progress-webhook`,

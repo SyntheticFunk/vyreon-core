@@ -532,3 +532,210 @@ until the cluster's archive has been seen working; retiring it is a separate ste
 
 **Off:** comment out the five settings and apply; workers are told the archive is off and send
 nothing. Nothing in the bucket is ever deleted by core.
+
+## Backups and the volume (C-067)
+
+The database volume grows from 120 to 250 GiB, and the database is backed up to Spaces: continuous
+WAL archiving plus a weekly full base backup, recoverable to any moment of the last 30 days, in the
+bucket `vyreon-pg-backup` with a key for that bucket only; then one restore drill. **Written, not
+applied. Nothing here is applied without the owner's word; $ marks what costs money; RESTART marks
+the one step that restarts Postgres.** Commands run from the repository root with `KUBECONFIG` set; none prints a key.
+
+| Item | Price | Today (DB ~8 GB) | After phase 1 (DB ~150 GB) |
+|---|---|---|---|
+| Volume 120 → 250 GiB | $0.10 a GB-month | +$13 a month | same |
+| Spaces (subscription already paid for `vyreon-data`: $5 a month, 250 GiB stored and 1 TiB out included, shared by every bucket) | $0.02 a GiB-month beyond 250 GiB; uploads free | ~25-50 GB: $0 extra, if `vyreon-data` leaves room | ~0.5-1.2 TB: about $5-20 a month extra |
+| cert-manager, the plugin | free; on the core node | | |
+
+The backup estimate: a 30-day window with weekly fulls holds about six fulls at once (the newest
+one older than 30 days plus the five after it), each the database's size less gzip's saving (the
+tape caches and streams are stored compressed already, so assume one half to the whole), plus 30
+days of WAL. The build itself writes roughly its own size again in WAL, gone 30 days later. Measure
+the real numbers after the first week (the bucket's size in the control panel) and correct this.
+
+### Why the plugin (CloudNativePG 1.30.1)
+
+The cluster runs CloudNativePG 1.30.1 (`kubectl get deploy -n cnpg-system cnpg-controller-manager`).
+Its documentation deprecates the in-tree `.spec.backup.barmanObjectStore` since 1.26: "CloudNativePG
+1.31 is the last minor release that ships with native Barman Cloud support", "removed starting from
+1.32.0", "You must migrate to the plugin before upgrading to 1.32"
+(https://cloudnative-pg.io/docs/1.30/appendixes/backup_barmanobjectstore). The replacement is the
+Barman Cloud plugin, v0.16.0 (2026-11-09), which needs CloudNativePG 1.30 or newer and cert-manager,
+installed in `cnpg-system` (https://cloudnative-pg.io/plugin-barman-cloud/docs/installation/). The
+in-tree path would work today and need a migration (a second restart) before 1.32; the plugin
+costs one more install now (cert-manager: three small Deployments on the core node; the plugin's
+TLS certificates last 90 days and cert-manager renews them, so it stays installed). Manifests:
+`15-backup.yaml` (ObjectStore `vyreon-backup`, ScheduledBackup `vyreon-pg-weekly`) and the
+`plugins` section of `10-postgres.yaml`; other sources: plugin "Usage", "Object stores",
+"Retention policies", "Migration" (https://cloudnative-pg.io/plugin-barman-cloud/docs/).
+
+### A. The volume, 120 → 250 GiB ($; no restart)
+
+Checked on the live objects (2026-11-22): StorageClass `do-block-storage` has
+`allowVolumeExpansion: true`, provisioner `dobs.csi.digitalocean.com`; the Cluster has
+`resizeInUseVolumes: true` (the default). CloudNativePG applies a new size to every PVC and, where
+the StorageClass resizes online, "the change is immediately applied to the pods"
+(https://cloudnative-pg.io/docs/1.30/storage, "Volume expansion"); DigitalOcean grows a volume when
+the PVC's request grows, only upwards, to at most 10,000 GB
+(https://docs.digitalocean.com/products/kubernetes/how-to/add-volumes/;
+https://github.com/digitalocean/csi-digitalocean, "Volume Expansion"). This cluster already did it
+once: 60 → 120 GiB on 2026-11-16 while `vyreon-pg-1` ran on (started 2026-11-11, 0 restarts).
+
+1. Grow only the size (not the whole file: its `plugins` section restarts Postgres and needs the
+   plugin installed first, B2):
+   ```sh
+   kubectl -n vyreon patch cluster vyreon-pg --type merge -p '{"spec":{"storage":{"size":"250Gi"}}}'
+   ```
+2. Verify, after a few minutes (the PVC's status lags the volume):
+   ```sh
+   kubectl -n vyreon get pvc vyreon-pg-1                     # CAPACITY 250Gi, no condition left
+   kubectl -n vyreon exec vyreon-pg-1 -c postgres -- df -h /var/lib/postgresql/data   # Size ~246G
+   deploy/k8s/ops/do.sh GET "/v2/volumes?name=$(kubectl -n vyreon get pvc vyreon-pg-1 -o jsonpath='{.spec.volumeName}')" \
+     | python3 -c 'import json,sys; print([v["size_gigabytes"] for v in json.load(sys.stdin)["volumes"]])'   # [250]
+   kubectl -n vyreon get pod vyreon-pg-1                     # same age, RESTARTS 0
+   ```
+   If the PVC shows `FileSystemResizePending`, the filesystem grows at the next mount (B6's restart).
+3. Core's `VYREON_CORE_VOLUME_GIB` is `250` in `20-core.yaml`: deploy it with the next core image
+   (KEDA's rollout, `sed ... 20-core.yaml | kubectl apply -f -`), **after** step 2 shows 250 (a
+   threshold above the real volume would make `DATABASE_FULL` warn late). The core rollout restarts
+   core, not Postgres.
+
+### B. Backups
+
+1. **cert-manager** (free; once), v1.21.3 (2026-10-23; supports Kubernetes 1.33-1.36,
+   https://cert-manager.io/docs/releases/), pinned by its SHA-256:
+   ```sh
+   curl -sSLO https://github.com/cert-manager/cert-manager/releases/download/v1.21.3/cert-manager.yaml
+   echo "c04a51295adda2b1a775146751f973e787190778c7f35180861d9678876e5c74  cert-manager.yaml" | sha256sum -c
+   kubectl apply -f cert-manager.yaml
+   kubectl -n cert-manager rollout status deploy/cert-manager-webhook
+   ```
+2. **The plugin** (free; once), v0.16.0, into `cnpg-system`:
+   ```sh
+   curl -sSL -o barman-cloud-v0.16.0.yaml https://github.com/cloudnative-pg/plugin-barman-cloud/releases/download/v0.16.0/manifest.yaml
+   echo "aee614683892dd4b44ff9f7afaca55254f1c28de17abbaa0552bf2e1228f7155  barman-cloud-v0.16.0.yaml" | sha256sum -c
+   kubectl apply -f barman-cloud-v0.16.0.yaml
+   kubectl -n cnpg-system rollout status deploy/barman-cloud
+   kubectl -n cnpg-system get certificate                    # barman-cloud-client, -server: READY True
+   ```
+3. **The bucket and its key** ($ only beyond the subscription; DigitalOcean control panel):
+   - Spaces Object Storage, Create Bucket: region NYC3, name `vyreon-pg-backup` (if taken, use
+     another and change `destinationPath` in `15-backup.yaml`), file listing restricted, no CDN.
+     Nothing else goes in it.
+   - Access Keys, Create Access Key, **Limited access**, the bucket `vyreon-pg-backup` only, with
+     **Read/Write/Delete** (the retention deletes old backups; the panel offers Read or
+     Read/Write/Delete: https://docs.digitalocean.com/products/spaces/how-to/manage-access/).
+     The secret is shown once. Save both without echoing them and with no trailing newline (the
+     Secret takes the files' bytes as they are):
+     ```sh
+     umask 077
+     read -rs -p "key id: " v; printf '%s' "$v" > backup-spaces-key-id; unset v; echo
+     read -rs -p "secret: " v; printf '%s' "$v" > backup-spaces-secret; unset v; echo
+     ```
+     Keep the two files where the other keys are kept (mode 600, git-ignored).
+4. **The Secret** (from the files):
+   ```sh
+   kubectl -n vyreon create secret generic vyreon-backup-spaces \
+     --from-file=ACCESS_KEY_ID=backup-spaces-key-id --from-file=ACCESS_SECRET_KEY=backup-spaces-secret
+   ```
+5. **The store and the schedule** (free; nothing runs until Sunday 09:00 UTC):
+   `kubectl apply -f deploy/k8s/15-backup.yaml`
+6. **RESTART. WAL archiving on: Postgres restarts.** Adding the plugin to the Cluster adds its sidecar
+   to the Postgres pod, a rolling update (plugin docs, "Migration"); with one instance the
+   database is down while `vyreon-pg-1` is recreated on the same volume (expected a minute or
+   two). Core waits (its readiness probe fails, it is not restarted); a worker publishing in that
+   window gets an error. So, with nothing in flight (best: in the KEDA rollout, before core's new
+   image, when nothing runs):
+   ```sh
+   kubectl -n vyreon exec deploy/vyreon-core -- vyreon-core queue pause "plugin restart"
+   kubectl -n vyreon get pods -l app=vyreon-worker           # none Running
+   kubectl diff -f deploy/k8s/10-postgres.yaml               # expect: plugins added; postInitSQL
+                                                             # added (read only at bootstrap); size 250Gi
+                                                             # already; anything else: stop
+   kubectl apply -f deploy/k8s/10-postgres.yaml
+   kubectl -n vyreon get pods -w                             # vyreon-pg-1 recreated, Running, Ready
+   kubectl -n vyreon get pod vyreon-pg-1 -o jsonpath='{.spec.initContainers[*].name} | {.spec.containers[*].name}{"\n"}'
+                                                             # the plugin's sidecar is listed
+   kubectl -n vyreon exec deploy/vyreon-core -- vyreon-core queue resume
+   ```
+7. **Verify WAL archiving.** The Cluster's `ContinuousArchiving` condition was already True before
+   (with no store it archives to nowhere), so read Postgres itself:
+   ```sh
+   kubectl -n vyreon exec vyreon-pg-1 -c postgres -- psql -d vyreon -Atc "SELECT now(), pg_switch_wal()"
+   # a minute later: archived_count grows, last_archived_time after the switch, failed_count 0
+   kubectl -n vyreon exec vyreon-pg-1 -c postgres -- psql -d vyreon -Atc \
+     "SELECT archived_count, last_archived_wal, last_archived_time, failed_count, last_failed_time FROM pg_stat_archiver"
+   kubectl -n vyreon get cluster vyreon-pg -o jsonpath='{.status.conditions[?(@.type=="ContinuousArchiving")]}{"\n"}'
+   ```
+   On failure: the sidecar's log (`kubectl -n vyreon logs vyreon-pg-1 -c <sidecar name from step 6>`)
+   names the cause (key, bucket, endpoint, checksum).
+8. **The first base backup, on demand:**
+   ```sh
+   kubectl create -f deploy/k8s/ops/backup-now.yaml
+   kubectl -n vyreon get backup -w                           # PHASE completed (minutes at 8 GB)
+   kubectl -n vyreon get objectstore vyreon-backup -o jsonpath='{.status}{"\n"}'
+                                                             # vyreon-pg's firstRecoverabilityPoint
+   ```
+   The bucket now holds `vyreon-pg/base/<backup id>/` and `vyreon-pg/wals/`. Then the restore
+   drill (C). After it passes: the laptop safety dump `~/claude-artifacts/db-backups/vyreon-20261116T*.dump`
+   may go (MILESTONES), on the owner's word.
+9. **Each week:** `kubectl -n vyreon get scheduledbackup,backup` (the last schedule time and a
+   completed Backup each Sunday); the bucket's size in the panel.
+
+**Watch:** if archiving fails, Postgres keeps every unarchived WAL file in `pg_wal` on the
+database volume until it succeeds. Core's `DATABASE_FULL` reads `pg_database_size`, which does
+not count `pg_wal`, so a failing archive can fill the volume unseen by the channel: check
+`pg_stat_archiver` (step 7) with every health check until the watch reads it.
+
+**Off:** remove the `plugins` section from `10-postgres.yaml` and apply (RESTART: Postgres restarts), and
+`kubectl delete scheduledbackup -n vyreon vyreon-pg-weekly`. The bucket keeps what it holds;
+deleting it is a separate, previewed step.
+
+### C. The restore drill (once after B8; then after any change to backups)
+
+A temporary cluster `vyreon-pg-drill` in the same Kubernetes cluster and namespace, restored from
+the latest base backup and every archived WAL file, compared with `vyreon-pg`, then deleted. It
+has no `plugins` section, so it never writes to the bucket (plugin docs, "Usage"). Its Services
+(`vyreon-pg-drill-rw`, ...) do not touch core's.
+
+**Cost and duration, today (~8 GB):** a 30 GiB volume for about an hour (under one cent);
+downloading from Spaces NYC3 to the cluster's NYC1 nodes is free (Spaces pricing,
+https://docs.digitalocean.com/products/spaces/details/pricing/) and within the included 1 TiB in
+any case; the core node has room (Postgres under a GiB here). About 30-45 minutes of the
+operator's time, the queue paused for about 20 of them. At ~150 GB: a 200 GiB volume and, better,
+a `day` node (see `ops/restore-drill.yaml`; $0.17 an hour), an hour or two to restore.
+
+1. **Freeze the source:** nothing may publish between its count and the restore's end.
+   ```sh
+   kubectl -n vyreon exec deploy/vyreon-core -- vyreon-core queue pause "restore drill"
+   kubectl -n vyreon get pods -l app=vyreon-worker           # none Running
+   kubectl -n vyreon exec vyreon-pg-1 -c postgres -- psql -d vyreon -Atc "SELECT now(), pg_switch_wal()"
+   # wait until pg_stat_archiver's last_archived_time is after that now() (B7)
+   ```
+2. **Count the source:**
+   ```sh
+   kubectl -n vyreon exec -i vyreon-pg-1 -c postgres -- psql -d vyreon -At -v ON_ERROR_STOP=1 \
+     < deploy/k8s/ops/drill-counts.sql > drill-source.txt
+   ```
+3. **Restore:**
+   ```sh
+   kubectl apply -f deploy/k8s/ops/restore-drill.yaml
+   kubectl -n vyreon get cluster vyreon-pg-drill -w          # "Cluster in healthy state"; note the time taken
+   ```
+   Once it is healthy its contents are fixed: `queue resume` now.
+4. **Count the restore and compare:**
+   ```sh
+   kubectl -n vyreon exec -i vyreon-pg-drill-1 -c postgres -- psql -d vyreon -At -v ON_ERROR_STOP=1 \
+     < deploy/k8s/ops/drill-counts.sql > drill-restore.txt
+   diff drill-source.txt drill-restore.txt && echo "restore matches"
+   ```
+   Per month: day revisions by state, measurement rows and a digest of their body hashes. Any
+   difference fails the drill: keep the drill cluster, find why, and do not delete the laptop dump.
+5. **Delete the drill** (it names `vyreon-pg-drill`; never `vyreon-pg`):
+   ```sh
+   kubectl -n vyreon delete cluster vyreon-pg-drill
+   kubectl -n vyreon get pvc                                 # vyreon-pg-1 only
+   deploy/k8s/ops/do.sh GET "/v2/volumes?region=nyc1" | python3 -c 'import json,sys; print([(v["name"],v["size_gigabytes"]) for v in json.load(sys.stdin)["volumes"]])'
+                                                             # the drill's pvc-... volume gone (reclaim Delete)
+   ```
+6. Record in `docs/MILESTONES.md`: the date, the backup used, the restore's duration, the result.

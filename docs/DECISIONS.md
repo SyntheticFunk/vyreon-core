@@ -90,6 +90,8 @@ ordered pass run on the core node and are the only pods with database credential
 ## C-013 Database backups come after a database worth keeping (owner, 2026-11-10)
 No base backups or WAL archiving during the first builds: a lost build is rebuilt. Backups to Spaces
 and a restore drill are set up when a database is accepted. The perishable archive is unaffected.
+Amended (owner, 2026-11-17 and 11-21): backups start as soon as the test block is stored, not at
+acceptance; how, in C-067.
 
 ## C-014 Robustness built in from the start (owner, 2026-11-10)
 (a) Measurement tables partitioned by month (PostgreSQL declarative partitioning). (b) A build is
@@ -2315,3 +2317,45 @@ runbook `deploy/k8s/README.md` "Workers from the queue".
   daily apart, zero when paused; the login cannot read `core.claimable_job`, `core.job`,
   `vyreon.day_revision` or call `core.build_runs`). The manifest checked against KEDA 2.21.1's CRD
   schemas (no unknown fields).
+
+## C-067 Backups by CloudNativePG's Barman Cloud plugin to a bucket of their own; the volume to 250 GiB (owner, 2026-11-17, 11-21 and 11-22)
+Owner: "given that recomputation has a known time and money cost its actually WORTH backing shit
+up" (11-17); as soon as the test block is stored (11-21); with the KEDA rollout, before the full
+build, and the volume grown 120 -> 250 GB (11-22). Written, not applied: `10-postgres.yaml`,
+`15-backup.yaml`, `ops/backup-now.yaml`, `ops/restore-drill.yaml`, `ops/drill-counts.sql`, runbook
+`deploy/k8s/README.md` "Backups and the volume".
+- **The plugin, not the in-tree `barmanObjectStore`.** The cluster runs CloudNativePG 1.30.1; its
+  docs deprecate native Barman Cloud since 1.26 and remove it from 1.32 ("You must migrate to the
+  plugin before upgrading to 1.32"; https://cloudnative-pg.io/docs/1.30/appendixes/backup_barmanobjectstore).
+  Plugin v0.16.0 needs CloudNativePG >= 1.30 and cert-manager (v1.21.3, Kubernetes 1.33-1.36),
+  both pinned by SHA-256. The cost: cert-manager on the core node, kept for the plugin's 90-day
+  certificates. The in-tree path would work until 1.31 and then need a migration, a second
+  Postgres restart.
+- **What:** continuous WAL archiving (gzip) and a full base backup each Sunday 09:00 UTC (02:00 MT,
+  no daily session queued), retention a 30-day recovery window (about six fulls held), to
+  `s3://vyreon-pg-backup/` at `https://nyc3.digitaloceanspaces.com`, path-style as core's archive
+  (C-052). A bucket used for nothing else, a limited Read/Write/Delete key for it alone (the
+  retention deletes); Secret `vyreon-backup-spaces` made by hand from files. Not `vyreon-data`:
+  core never deletes there (C-052), the backup key must delete, and a key that can delete backups
+  should not reach the perishables (nor core's key the backups). The
+  boto3 checksum variables (`when_required`) the plugin documents for S3-compatible stores are set.
+- **The volume:** 250 GiB, `VYREON_CORE_VOLUME_GIB` with it. Online: StorageClass
+  `do-block-storage` allows expansion, `resizeInUseVolumes` is on, and 60 -> 120 GiB on 2026-11-16
+  ran without restarting Postgres. Applied with a patch of the size alone, before the plugin.
+- **One restart:** adding the plugin recreates the Postgres pod (a rolling update; one instance,
+  so a minute or two down). Done with the queue paused and no worker running, best inside the KEDA
+  rollout. Core is not restarted by it (readiness, C-053).
+- **The drill:** a temporary cluster `vyreon-pg-drill` in the same namespace, recovered from the
+  latest base backup and all WAL (no archiving of its own, so it never writes to the bucket); per
+  month day revisions by state and measurement rows with an XOR digest of their body hashes,
+  diffed against the source frozen by `queue pause`; then deleted. About $0 and 30-45 minutes at
+  today's ~8 GB; a `day` node and an hour or two at ~150 GB.
+- **Cost:** volume +$13 a month. Spaces: the $5 subscription (250 GiB, 1 TiB out) is already paid
+  for `vyreon-data` and shared; today's backups (~25-50 GB) fit; after phase 1 (~150 GB, ~0.5-1.2
+  TB held) about $5-20 a month beyond it at $0.02 a GiB. Measured after the first week.
+- **Not verified:** everything on the cluster (the drill is the proof); Spaces' answers to
+  barman-cloud through boto3 (the checksum variables are the documented workaround, not tested
+  here); the sidecar's CPU during the weekly gzip of ~150 GB on the 4-vCPU core node; the backup
+  sizes above. **Open:** a failing archive keeps WAL in `pg_wal`, which `DATABASE_FULL`
+  (`pg_database_size`) does not count; until the watch reads `pg_stat_archiver`, the runbook's
+  check is manual.
