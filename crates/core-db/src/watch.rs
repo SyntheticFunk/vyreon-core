@@ -296,7 +296,10 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open])
     // archiving fails; both, and the base backups, are watched where a volume is set (production)
     if let Some(volume) = s.volume_bytes.filter(|v| *v > 0) {
         let st = storage(c, now).await?;
-        found.extend(storage_found(&st, volume, s.backup_days, is_open(open, "DATABASE_FULL", "volume")));
+        found.extend(storage_found(&st, volume, is_open(open, "DATABASE_FULL", "volume")));
+    }
+    if let Some(days) = s.backup_days {
+        backups(c, days, now, open, &mut found).await?;
     }
     let row = c
         .query_one(
@@ -355,9 +358,6 @@ pub struct Storage {
     /// WAL files finished and not yet archived (`.ready`), and minutes the oldest has waited.
     pub waiting: i64,
     pub oldest_waiting: Option<f64>,
-    /// Days since the newest base backup finished: its backup history file (`*.backup`), which
-    /// `pg_backup_stop` writes into `pg_wal` and keeps there until the next base backup; None: none.
-    pub backup_age: Option<f64>,
 }
 
 /// Reads `Storage` at `now`. Never fails for want of a privilege: the functions that need
@@ -392,7 +392,6 @@ pub async fn storage(c: &impl GenericClient, now: &str) -> Result<Storage, Strin
         .query_one(
             "SELECT (SELECT sum(pg_database_size(oid))::bigint FROM pg_database),
                     (SELECT COALESCE(sum(size), 0)::bigint FROM pg_ls_waldir()),
-                    (SELECT extract(epoch FROM $1::text::timestamptz - max(modification))::float8 / 86400 FROM pg_ls_waldir() WHERE name LIKE '%.backup'),
                     (SELECT count(*) FROM pg_ls_archive_statusdir() WHERE name LIKE '%.ready'),
                     (SELECT extract(epoch FROM $1::text::timestamptz - min(modification))::float8 / 60 FROM pg_ls_archive_statusdir() WHERE name LIKE '%.ready')",
             &[&now],
@@ -401,35 +400,34 @@ pub async fn storage(c: &impl GenericClient, now: &str) -> Result<Storage, Strin
         .map_err(db)?;
     st.data = r.get(0);
     st.wal = Some(r.get(1));
-    st.backup_age = r.get(2);
-    st.waiting = r.get(3);
-    st.oldest_waiting = r.get(4);
+    st.waiting = r.get(2);
+    st.oldest_waiting = r.get(3);
     Ok(st)
 }
 
 /// The problems `st` makes against a volume of `volume` bytes (C-068, audit opsurface ops.md 2):
 /// `DATABASE_FULL` on the data and the WAL together (a failing archive grows `pg_wal`, which
 /// `pg_database_size` never counted), `WAL_ARCHIVING` when archiving fails or is stuck (or the WAL
-/// cannot be read), `BACKUP_STALE` when the newest base backup is older than `backup_days`.
-pub fn storage_found(st: &Storage, volume: i64, backup_days: Option<i32>, full_open: bool) -> Vec<Found> {
+/// cannot be read). Round 2, 16: without the WAL (the login lost `pg_monitor`) an open
+/// `DATABASE_FULL` stays open, never resolved on the data alone.
+pub fn storage_found(st: &Storage, volume: i64, full_open: bool) -> Vec<Found> {
     let mut found = Vec::new();
     let used = st.data + st.wal.unwrap_or(0);
     let share = used as f64 / volume as f64;
-    if if full_open { share > DATABASE_CLEAR } else { share > DATABASE_FULL } {
-        let wal = st.wal.map_or_else(|| " (WAL not read)".to_owned(), |w| format!(", {} of it WAL", gigabytes(w)));
-        found.push(Found {
-            kind: "DATABASE_FULL",
-            key: "volume".into(),
-            summary: format!("Database volume {:.0}% full: {} of {}{wal}", share * 100.0, gigabytes(used), gigabytes(volume)),
-            command: "vyreon-core digest".into(),
-            detail: None,
-        });
+    let blind_open = full_open && st.wal.is_none();
+    if blind_open || if full_open { share > DATABASE_CLEAR } else { share > DATABASE_FULL } {
+        let summary = match st.wal {
+            Some(w) => format!("Database volume {:.0}% full: {} of {}, {} of it WAL", share * 100.0, gigabytes(used), gigabytes(volume), gigabytes(w)),
+            None if blind_open => format!("Database volume: cannot be judged while the WAL is unreadable ({} of data alone); it was full", gigabytes(st.data)),
+            None => format!("Database volume {:.0}% full on the data alone: {} of {} (WAL not read)", share * 100.0, gigabytes(used), gigabytes(volume)),
+        };
+        found.push(Found { kind: "DATABASE_FULL", key: "volume".into(), summary, command: "vyreon-core digest".into(), detail: None });
     }
     if !st.readable {
         found.push(Found {
             kind: "WAL_ARCHIVING",
             key: "unreadable".into(),
-            summary: "The watch cannot read the WAL or the base backups: the core login lacks pg_monitor (deploy/k8s/README.md, Backups B0)".into(),
+            summary: "The watch cannot read the WAL: the core login lacks pg_monitor (deploy/k8s/README.md, Backups B0)".into(),
             command: "vyreon-core digest".into(),
             detail: None,
         });
@@ -453,17 +451,167 @@ pub fn storage_found(st: &Storage, volume: i64, backup_days: Option<i32>, full_o
             detail: None,
         });
     }
-    if let Some(days) = backup_days.filter(|_| st.readable) {
-        let summary = match st.backup_age {
-            None => Some("No base backup is recorded on the database server (no backup history file in pg_wal)".to_owned()),
-            Some(a) if a > f64::from(days) => Some(format!("The newest base backup finished {} ago, more than {days} days", age((a * 86400.0) as i64))),
-            Some(_) => None,
+    found
+}
+
+/// What the backup plugin itself records (C-068 round 2, `round2-core.md` 2 and 3), as core read it
+/// through the Kubernetes API: whether the database's Cluster archives its WAL through the Barman
+/// Cloud plugin (`spec.plugins`, `isWALArchiver`), and the plugin's recovery window for the server
+/// (the ObjectStore's `status.serverRecoveryWindow.<server>`, which the plugin keeps from the backups
+/// it finds in the bucket). PostgreSQL's own signs are not evidence: CloudNativePG reports a WAL file
+/// archived when no archiver is configured, and `pg_backup_stop` writes its history file before the
+/// copy to the bucket is complete.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BackupEvidence {
+    pub cluster: String,
+    pub archiver: bool,
+    pub object_store: Option<String>,
+    pub server: Option<String>,
+    pub first_recoverability_point: Option<String>,
+    pub last_successful_backup: Option<String>,
+    pub last_failed_backup: Option<String>,
+}
+
+/// The plugin's name in a Cluster's `spec.plugins` (plugin-barman-cloud v0.16.0).
+pub const BARMAN_PLUGIN: &str = "barman-cloud.cloudnative-pg.io";
+
+impl BackupEvidence {
+    /// From the Cluster object `cluster` (named `name`), and the ObjectStore its archiver names, if
+    /// read (`store`). The server is the plugin's `serverName`, else the Cluster's name.
+    pub fn from_objects(name: &str, cluster: &Value, store: Option<&Value>) -> BackupEvidence {
+        let archiver = cluster["spec"]["plugins"]
+            .as_array()
+            .and_then(|p| p.iter().find(|p| p["name"] == BARMAN_PLUGIN && p["isWALArchiver"] == true && p["enabled"] != false))
+            .cloned();
+        let object_store = archiver.as_ref().and_then(|p| p["parameters"]["barmanObjectName"].as_str()).map(str::to_owned);
+        let server = archiver.as_ref().map(|p| p["parameters"]["serverName"].as_str().unwrap_or(name).to_owned());
+        let window = match (store, &server) {
+            (Some(store), Some(server)) => store["status"]["serverRecoveryWindow"][server.as_str()].clone(),
+            _ => Value::Null,
         };
-        if let Some(summary) = summary {
-            found.push(Found { kind: "BACKUP_STALE", key: "base backup".into(), summary, command: "kubectl -n vyreon get scheduledbackup,backup".into(), detail: None });
+        let at = |k: &str| window[k].as_str().map(str::to_owned);
+        BackupEvidence {
+            cluster: name.to_owned(),
+            archiver: archiver.is_some() && object_store.is_some(),
+            object_store,
+            server,
+            first_recoverability_point: at("firstRecoverabilityPoint"),
+            last_successful_backup: at("lastSuccessfulBackupTime"),
+            last_failed_backup: at("lastFailedBackupTime"),
         }
     }
-    found
+}
+
+/// Keeps what a read of the plugin's record found, or why it failed (one row, replaced).
+pub async fn put_backup_evidence(c: &impl GenericClient, read: Result<&BackupEvidence, &str>) -> Result<(), String> {
+    let e = read.ok().cloned().unwrap_or_default();
+    let error = read.err().map(|e| one_line(e, 300));
+    c.execute(
+        "INSERT INTO core.backup_evidence (one, read_at, error, cluster, archiver, object_store, server, first_recoverability_point, last_successful_backup, last_failed_backup)
+         VALUES (true, clock_timestamp(), $1, $2, $3, $4, $5, $6::text::timestamptz, $7::text::timestamptz, $8::text::timestamptz)
+         ON CONFLICT (one) DO UPDATE SET read_at = EXCLUDED.read_at, error = EXCLUDED.error, cluster = EXCLUDED.cluster, archiver = EXCLUDED.archiver,
+             object_store = EXCLUDED.object_store, server = EXCLUDED.server, first_recoverability_point = EXCLUDED.first_recoverability_point,
+             last_successful_backup = EXCLUDED.last_successful_backup, last_failed_backup = EXCLUDED.last_failed_backup",
+        &[
+            &error,
+            &read.ok().map(|_| e.cluster.clone()),
+            &read.ok().map(|_| e.archiver),
+            &e.object_store,
+            &e.server,
+            &e.first_recoverability_point,
+            &e.last_successful_backup,
+            &e.last_failed_backup,
+        ],
+    )
+    .await
+    .map_err(db)?;
+    Ok(())
+}
+
+/// The digest's words for the backups, from the plugin's record only (never PostgreSQL's own signs).
+async fn backup_words(c: &impl GenericClient, now: &str) -> Result<String, String> {
+    let row = c
+        .query_opt(
+            "SELECT error IS NULL AND read_at > $1::text::timestamptz - interval '15 minutes', archiver,
+                    extract(epoch FROM $1::text::timestamptz - last_successful_backup)::float8, first_recoverability_point IS NOT NULL
+             FROM core.backup_evidence",
+            &[&now],
+        )
+        .await
+        .map_err(db)?;
+    Ok(match row.map(|r| (r.get::<_, bool>(0), r.get::<_, Option<bool>>(1), r.get::<_, Option<f64>>(2), r.get::<_, bool>(3))) {
+        Some((true, Some(true), Some(ago), true)) => format!("WAL archived by the plugin; newest recoverable base backup {} ago (the plugin's record)", age(ago as i64)),
+        Some((true, Some(true), _, _)) => "WAL archived by the plugin; no recoverable base backup recorded".into(),
+        Some((true, _, _, _)) => "WAL archiving is not configured".into(),
+        _ => "backups unverified (the plugin's record not read)".into(),
+    })
+}
+
+/// The plugin's record older than this is no evidence (core reads it every 5 minutes).
+pub const EVIDENCE_STALE_MINUTES: f64 = 15.0;
+
+/// C-068 round 2: the backups as the plugin records them, when `backup_days` is set. A problem unless
+/// there is evidence: the record read within `EVIDENCE_STALE_MINUTES`, the Cluster archiving its WAL
+/// through the plugin (`WAL_ARCHIVING` key `not configured` otherwise), and a recovery window with a
+/// successful base backup no older than `backup_days` (`BACKUP_STALE` otherwise).
+async fn backups(c: &impl GenericClient, days: i32, now: &str, open: &[Open], found: &mut Vec<Found>) -> Result<(), String> {
+    // without evidence nothing the plugin's record said is resolved (round 2, 16's principle): an open
+    // "archiving is off" stays open while the record cannot be read
+    let keep_off = |found: &mut Vec<Found>| {
+        if let Some(o) = open.iter().find(|o| o.kind == "WAL_ARCHIVING" && o.key == "not configured") {
+            found.push(Found { kind: "WAL_ARCHIVING", key: o.key.clone(), summary: o.summary.clone(), command: o.command.clone(), detail: None });
+        }
+    };
+    let row = c
+        .query_opt(
+            "SELECT extract(epoch FROM $1::text::timestamptz - read_at)::float8 / 60, error, archiver, server, object_store,
+                    first_recoverability_point IS NOT NULL,
+                    extract(epoch FROM $1::text::timestamptz - last_successful_backup)::float8 / 86400,
+                    last_failed_backup > COALESCE(last_successful_backup, '-infinity')
+             FROM core.backup_evidence",
+            &[&now],
+        )
+        .await
+        .map_err(db)?;
+    let stale = |why: String| Found { kind: "BACKUP_STALE", key: "base backup".into(), summary: why, command: "kubectl -n vyreon get objectstore,backup".into(), detail: None };
+    let Some(r) = row else {
+        found.push(stale("Backups unverified: core has never read the backup plugin's record (VYREON_CORE_PG_CLUSTER, its Role: README B0)".into()));
+        keep_off(found);
+        return Ok(());
+    };
+    let (ago, error, archiver, server, store, window, backup_age, failed_last): (f64, Option<String>, Option<bool>, Option<String>, Option<String>, bool, Option<f64>, Option<bool>) =
+        (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6), r.get(7));
+    if let Some(e) = error {
+        found.push(stale(format!("Backups unverified: core cannot read the backup plugin's record: {}", one_line(&e, 160))));
+        keep_off(found);
+        return Ok(());
+    }
+    if ago >= EVIDENCE_STALE_MINUTES {
+        found.push(stale(format!("Backups unverified: the backup plugin's record was last read {} ago", age((ago * 60.0) as i64))));
+        keep_off(found);
+        return Ok(());
+    }
+    if archiver != Some(true) {
+        found.push(Found {
+            kind: "WAL_ARCHIVING",
+            key: "not configured".into(),
+            summary: "WAL archiving is off: the database's Cluster has no Barman Cloud WAL archiver, so no WAL reaches the bucket (10-postgres.yaml `plugins`)".into(),
+            command: "kubectl -n vyreon get cluster -o yaml".into(),
+            detail: None,
+        });
+    }
+    let failed = if failed_last == Some(true) { "; the newest attempt failed" } else { "" };
+    let server = server.unwrap_or_default();
+    let store = store.unwrap_or_default();
+    match backup_age {
+        Some(a) if window && a <= f64::from(days) => {}
+        Some(a) if window => found.push(stale(format!(
+            "The newest recoverable base backup of {server} finished {} ago, more than {days} days{failed}",
+            age((a * 86400.0) as i64)
+        ))),
+        _ => found.push(stale(format!("No recoverable base backup: the plugin records none for {server} in ObjectStore {store}{failed}"))),
+    }
+    Ok(())
 }
 
 /// In GiB, the unit the volume is sized in (`120Gi`).
@@ -1425,17 +1573,15 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
 
     lines.push(match s.volume_bytes.filter(|v| *v > 0) {
         Some(v) => {
-            // C-068: the volume's use with the WAL, the archiver and the newest base backup
+            // C-068: the volume's use with the WAL; round 2: the backups only as the plugin records them
             let st = storage(c, now).await?;
             let used = st.data + st.wal.unwrap_or(0);
             let wal = st.wal.map_or_else(|| "WAL not read".to_owned(), |w| format!("WAL {}", gigabytes(w)));
-            let archived = st.archived_ago.map_or_else(|| "nothing archived yet".to_owned(), |m| format!("last WAL archived {} ago", age((m * 60.0) as i64)));
-            let backup = match (st.readable, st.backup_age) {
-                (false, _) => String::new(),
-                (true, None) => " · no base backup recorded".to_owned(),
-                (true, Some(d)) => format!(" · newest base backup {} ago", age((d * 86400.0) as i64)),
+            let backup = match s.backup_days {
+                None => String::new(),
+                Some(_) => format!(" · {}", backup_words(c, now).await?),
             };
-            format!("Database size: {} of {} ({:.0}%) · {wal} · {archived}{backup}", gigabytes(used), gigabytes(v), 100.0 * used as f64 / v as f64)
+            format!("Database size: {} of {} ({:.0}%) · {wal}{backup}", gigabytes(used), gigabytes(v), 100.0 * used as f64 / v as f64)
         }
         None => {
             let size: i64 = c.query_one("SELECT pg_database_size(current_database())", &[]).await.map_err(db)?.get(0);
@@ -1731,41 +1877,56 @@ mod tests {
     /// C-068 (audit opsurface ops.md 2): the volume of C-067 (250 GiB). A failing archive grows
     /// `pg_wal` while the data stays put: the volume fills with the data alone at 150 GiB (60%, no
     /// alert before) and 60 GiB of WAL (84%); archiving failing for 15 minutes or a WAL file waiting
-    /// 30 is a problem, a single failure followed by a success is not; a base backup older than the
-    /// week and a day is; a login without `pg_monitor` is told, never read as healthy.
+    /// 30 is a problem, a single failure followed by a success is not; a login without `pg_monitor` is
+    /// told, never read as healthy, and (round 2, 16) an open full volume stays open while the WAL
+    /// cannot be read.
     #[test]
-    fn a_failing_archive_and_a_stale_backup_are_problems_before_the_volume_fills() {
+    fn a_failing_archive_is_a_problem_before_the_volume_fills() {
         const GIB: i64 = 1 << 30;
         let volume = 250 * GIB;
-        let healthy = Storage { readable: true, data: 150 * GIB, wal: Some(GIB), archived_ago: Some(2.0), failed_ago: None, waiting: 0, oldest_waiting: None, backup_age: Some(3.0) };
-        assert_eq!(storage_found(&healthy, volume, Some(8), false), []);
-        let kinds = |st: &Storage| storage_found(st, volume, Some(8), false).iter().map(|f| (f.kind, f.key.clone())).collect::<Vec<_>>();
+        let healthy = Storage { readable: true, data: 150 * GIB, wal: Some(GIB), archived_ago: Some(2.0), failed_ago: None, waiting: 0, oldest_waiting: None };
+        assert_eq!(storage_found(&healthy, volume, false), []);
+        let kinds = |st: &Storage| storage_found(st, volume, false).iter().map(|f| (f.kind, f.key.clone())).collect::<Vec<_>>();
         let k = |a: &'static str, b: &str| (a, b.to_owned());
-        // archiving fails: the last failure after the last success, nothing archived for 15 minutes
         let failing = Storage { archived_ago: Some(20.0), failed_ago: Some(1.0), waiting: 4, oldest_waiting: Some(19.0), wal: Some(60 * GIB), ..healthy.clone() };
         assert_eq!(kinds(&failing), [k("DATABASE_FULL", "volume"), k("WAL_ARCHIVING", "archiver")]);
-        let said = &storage_found(&failing, volume, Some(8), false)[0].summary;
-        assert_eq!(said, "Database volume 84% full: 210.0 GiB of 250.0 GiB, 60.0 GiB of it WAL");
-        // one failure, then archived again: not a problem; failing for under 15 minutes: not yet
+        assert_eq!(storage_found(&failing, volume, false)[0].summary, "Database volume 84% full: 210.0 GiB of 250.0 GiB, 60.0 GiB of it WAL");
         assert_eq!(kinds(&Storage { archived_ago: Some(1.0), failed_ago: Some(3.0), ..healthy.clone() }), []);
         assert_eq!(kinds(&Storage { archived_ago: Some(10.0), failed_ago: Some(1.0), ..healthy.clone() }), []);
-        // never archived and failing (the bucket's key wrong from the start)
         assert_eq!(kinds(&Storage { archived_ago: None, failed_ago: Some(1.0), ..healthy.clone() }), [k("WAL_ARCHIVING", "archiver")]);
-        // stuck: no failure recorded, a finished WAL file waiting 30 minutes
         let stuck = Storage { waiting: 7, oldest_waiting: Some(30.0), ..healthy.clone() };
         assert_eq!(kinds(&stuck), [k("WAL_ARCHIVING", "archiver")]);
-        assert!(storage_found(&stuck, volume, None, false)[0].summary.starts_with("WAL archiving to the backup bucket is stuck: last success 2 min ago, last failure never; 7 WAL files waiting"));
-        // the newest base backup nine days old, or none
-        assert_eq!(kinds(&Storage { backup_age: Some(9.0), ..healthy.clone() }), [k("BACKUP_STALE", "base backup")]);
-        assert_eq!(kinds(&Storage { backup_age: None, ..healthy.clone() }), [k("BACKUP_STALE", "base backup")]);
-        assert_eq!(storage_found(&Storage { backup_age: None, ..healthy.clone() }, volume, None, false), [], "not watched unless asked");
-        // without pg_monitor: told, and the backups not judged
-        let blind = Storage { readable: false, wal: None, backup_age: None, ..healthy.clone() };
+        assert!(storage_found(&stuck, volume, false)[0].summary.starts_with("WAL archiving to the backup bucket is stuck: last success 2 min ago, last failure never; 7 WAL files waiting"));
+        // without pg_monitor: told; a full volume open with 100 GiB of data and 110 of WAL is not
+        // resolved on the 100 alone
+        let blind = Storage { readable: false, data: 100 * GIB, wal: None, ..healthy.clone() };
         assert_eq!(kinds(&blind), [k("WAL_ARCHIVING", "unreadable")]);
-        // the full volume clears below 78% once open
+        let still = storage_found(&blind, volume, true);
+        assert_eq!((still[0].kind, still[0].summary.as_str()), ("DATABASE_FULL", "Database volume: cannot be judged while the WAL is unreadable (100.0 GiB of data alone); it was full"));
         let nearly = Storage { data: 196 * GIB, wal: Some(0), ..healthy.clone() };
-        assert_eq!(storage_found(&nearly, volume, None, false), [], "78.4%: not yet full");
-        assert_eq!(storage_found(&nearly, volume, None, true).len(), 1, "78.4%: still full once open");
+        assert_eq!(storage_found(&nearly, volume, false), [], "78.4%: not yet full");
+        assert_eq!(storage_found(&nearly, volume, true).len(), 1, "78.4%: still full once open");
+    }
+
+    /// C-068 round 2 (`round2-core.md` 2, 3): the evidence is the plugin's own record, in the shapes
+    /// of CloudNativePG 1.30's Cluster (`spec.plugins`) and plugin-barman-cloud v0.16.0's ObjectStore
+    /// CRD (`status.serverRecoveryWindow`, read from its release manifest), named as this cluster's
+    /// manifests name them (`10-postgres.yaml`, `15-backup.yaml`).
+    #[test]
+    fn the_backup_evidence_is_the_plugins_record() {
+        let cluster = json!({"spec": {"plugins": [{"name": BARMAN_PLUGIN, "isWALArchiver": true, "parameters": {"barmanObjectName": "vyreon-backup"}}]}});
+        let store = json!({"status": {"serverRecoveryWindow": {"vyreon-pg": {
+            "firstRecoverabilityPoint": "2026-11-23T09:04:11Z", "lastSuccessfulBackupTime": "2026-11-23T09:04:11Z"}}}});
+        let e = BackupEvidence::from_objects("vyreon-pg", &cluster, Some(&store));
+        assert!(e.archiver);
+        assert_eq!((e.object_store.as_deref(), e.server.as_deref(), e.last_successful_backup.as_deref()), (Some("vyreon-backup"), Some("vyreon-pg"), Some("2026-11-23T09:04:11Z")));
+        // the plugin removed (CloudNativePG then reports every WAL file archived): no archiver
+        let bare = BackupEvidence::from_objects("vyreon-pg", &json!({"spec": {}}), None);
+        assert!(!bare.archiver && bare.last_successful_backup.is_none());
+        // a recovered cluster archiving under its own server name reads its own window, not the old
+        let pg2 = json!({"spec": {"plugins": [{"name": BARMAN_PLUGIN, "isWALArchiver": true, "parameters": {"barmanObjectName": "vyreon-backup", "serverName": "vyreon-pg2"}}]}});
+        let e = BackupEvidence::from_objects("vyreon-pg2", &pg2, Some(&store));
+        assert!(e.archiver && e.server.as_deref() == Some("vyreon-pg2") && e.first_recoverability_point.is_none());
     }
 
     #[test]

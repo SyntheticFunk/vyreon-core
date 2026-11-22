@@ -703,7 +703,13 @@ once: 60 → 120 GiB on 2026-11-16 while `vyreon-pg-1` ran on (started 2026-11-1
    kubectl -n vyreon exec vyreon-pg-1 -c postgres -- psql -d vyreon -c "GRANT pg_monitor TO vyreon"
    ```
    Without it the channel says so (`WAL_ARCHIVING`, "the core login lacks pg_monitor") and the
-   volume is judged on the data alone.
+   volume is judged on the data alone (an open `DATABASE_FULL` stays open).
+   Core also reads the **backup plugin's own record** through the Kubernetes API (C-068 round 2):
+   `20-core.yaml` makes its ServiceAccount `vyreon-core` with a Role that may only `get` the
+   Cluster and the ObjectStore, and sets `VYREON_CORE_PG_CLUSTER=vyreon-pg`; it is applied with core.
+   Check after the core rollout: `kubectl -n vyreon auth can-i get objectstores.barmancloud.cnpg.io
+   --as=system:serviceaccount:vyreon:vyreon-core` says yes, and core's log has no "backups: the
+   plugin's record cannot be read".
 1. **cert-manager** (free; once), v1.21.3 (2026-10-23; supports Kubernetes 1.33-1.36,
    https://cert-manager.io/docs/releases/), pinned by its SHA-256:
    ```sh
@@ -771,6 +777,11 @@ once: 60 → 120 GiB on 2026-11-16 while `vyreon-pg-1` ran on (started 2026-11-1
    ```
    On failure: the sidecar's log (`kubectl -n vyreon logs vyreon-pg-1 -c <sidecar name from step 6>`)
    names the cause (key, bucket, endpoint, checksum).
+   **PostgreSQL's count is not proof** (C-068 round 2): with no archiver configured CloudNativePG
+   still answers each WAL file archived, so `archived_count` grows anyway. The proof is the bucket:
+   `SELECT pg_walfile_name(pg_switch_wal())` names the file just closed; it must appear in the
+   sidecar's log as archived and under `vyreon-pg/wals/` in the bucket (Spaces panel). Core's watch
+   checks the Cluster's `spec.plugins` (`WAL_ARCHIVING` "archiving is off" without the archiver).
 8. **The first base backup, on demand:**
    ```sh
    kubectl create -f deploy/k8s/ops/backup-now.yaml
@@ -792,14 +803,15 @@ database volume until it succeeds. Core's watch alerts on the channel, each one 
 - `DATABASE_FULL`: every database **and the WAL** above 80% of `VYREON_CORE_VOLUME_GIB` (clears
   below 78%). The filesystem itself is a little smaller than the volume (`df` shows ~246G of 250);
   the 20% margin covers it.
-- `BACKUP_STALE`: the newest base backup finished more than `VYREON_CORE_BACKUP_MAX_DAYS` (8) days
-  ago, or none is recorded (read from the backup history file `pg_backup_stop` leaves in `pg_wal`
-  until the next base backup). Until B8's first backup this is open, and true.
-The 09:00 digest's "Database size" line adds the WAL, the last archived WAL and the newest base
-backup. **Verify once after B8:** `kubectl -n vyreon exec vyreon-pg-1 -c postgres -- psql -d vyreon
--Atc "SELECT name, modification FROM pg_ls_waldir() WHERE name LIKE '%.backup'"` shows the backup's
-file (if the plugin's backup leaves none, `BACKUP_STALE` stays open: report it, do not unset the
-setting).
+- `BACKUP_STALE`: no evidence of a recoverable base backup newer than `VYREON_CORE_BACKUP_MAX_DAYS`
+  (8) days, from the plugin's own record (the ObjectStore's `status.serverRecoveryWindow.<server>`:
+  `firstRecoverabilityPoint` and `lastSuccessfulBackupTime`), or that record not read in 15
+  minutes ("Backups unverified", with why). Until B8's first backup it is open, and true.
+- `WAL_ARCHIVING` "archiving is off": the Cluster has no Barman Cloud WAL archiver in `spec.plugins`.
+The 09:00 digest's "Database size" line adds the WAL and the backups as the plugin records them.
+**Verify once after B8:** `kubectl -n vyreon get objectstore vyreon-backup -o
+jsonpath='{.status.serverRecoveryWindow}{"\n"}'` shows `vyreon-pg` with both times, and within 5
+minutes `BACKUP_STALE` resolves on the channel.
 
 **Off:** remove the `plugins` section from `10-postgres.yaml` and apply (RESTART: Postgres restarts), and
 `kubectl delete scheduledbackup -n vyreon vyreon-pg-weekly`. The bucket keeps what it holds;

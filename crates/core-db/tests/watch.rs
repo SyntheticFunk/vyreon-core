@@ -696,14 +696,15 @@ async fn a_stall_is_per_kind_and_a_waiting_chain_is_one() {
     scratch.drop().await;
 }
 
-/// C-068 (audit opsurface ops.md 2): the watch reads the server's WAL, archiver and backups. On the
-/// test server (a superuser, so `pg_monitor`'s functions are open to it; archiving off, so nothing
-/// archived, nothing failed, no base backup): the volume's use counts every database and the WAL,
-/// and a check with a volume set raises nothing but what the settings ask (no base backup is
-/// recorded here, so a backup age asked for is a problem).
+/// C-068 (audit opsurface ops.md 2) and its round 2 (2, 3): the watch reads the server's WAL and
+/// archiver, and the backups only from the plugin's own record (`core.backup_evidence`, which core
+/// keeps from the Kubernetes API). On the test server (a superuser: `pg_monitor`'s functions open to
+/// it; archiving off) the volume's use counts every database and the WAL. With backups watched: no
+/// record is a problem (no evidence), a record with a recent recoverable base backup is none, a
+/// Cluster without the plugin's archiver is `WAL_ARCHIVING`, a failed read is unverified again.
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
-async fn the_watch_reads_the_wal_the_archiver_and_the_base_backups() {
+async fn the_backups_are_judged_on_the_plugins_record_alone() {
     let (scratch, mut client, _) = ready("storage").await;
     let now = watch::now(&client).await.unwrap();
     let st = watch::storage(&client, &now).await.unwrap();
@@ -713,12 +714,30 @@ async fn the_watch_reads_the_wal_the_archiver_and_the_base_backups() {
     s.volume_bytes = Some(250 << 30);
     assert_eq!(check(&mut client, &s, &now).await, opened(&[]), "{st:?}");
     s.backup_days = Some(8);
-    assert_eq!(
-        check(&mut client, &s, &now).await,
-        opened(&["No base backup is recorded on the database server (no backup history file in pg_wal)"])
-    );
+    let never = "Backups unverified: core has never read the backup plugin's record (VYREON_CORE_PG_CLUSTER, its Role: README B0)";
+    assert_eq!(check(&mut client, &s, &now).await, opened(&[never]));
+    // the plugin's record: archiving through it, a base backup three days ago
+    let three_days: String = client.query_one("SELECT to_char((now() - interval '3 days') AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')", &[]).await.unwrap().get(0);
+    let cluster = json!({"spec": {"plugins": [{"name": watch::BARMAN_PLUGIN, "isWALArchiver": true, "parameters": {"barmanObjectName": "vyreon-backup"}}]}});
+    let store = json!({"status": {"serverRecoveryWindow": {"vyreon-pg": {"firstRecoverabilityPoint": three_days, "lastSuccessfulBackupTime": three_days}}}});
+    let good = watch::BackupEvidence::from_objects("vyreon-pg", &cluster, Some(&store));
+    watch::put_backup_evidence(&client, Ok(&good)).await.unwrap();
+    let now = watch::now(&client).await.unwrap();
+    assert_eq!(check(&mut client, &s, &now).await.resolved, [never]);
     let digest = watch::digest(&client, &s, &now).await.unwrap();
-    assert!(digest.contains(" of 250.0 GiB (") && digest.contains(" · WAL ") && digest.contains("no base backup recorded"), "{digest}");
+    assert!(digest.contains(" of 250.0 GiB (") && digest.contains("newest recoverable base backup 3 days ago (the plugin's record)"), "{digest}");
+    // the plugin taken out of the Cluster: WAL goes nowhere, whatever PostgreSQL counts as archived
+    let bare = watch::BackupEvidence::from_objects("vyreon-pg", &json!({"spec": {}}), None);
+    watch::put_backup_evidence(&client, Ok(&bare)).await.unwrap();
+    let now = watch::now(&client).await.unwrap();
+    let off = check(&mut client, &s, &now).await.opened;
+    assert!(off.iter().any(|o| o.starts_with("WAL archiving is off")) && off.iter().any(|o| o.starts_with("No recoverable base backup")), "{off:?}");
+    // a read that fails: unverified, never the last good record
+    watch::put_backup_evidence(&client, Err("GET objectstores/vyreon-backup: 403 Forbidden")).await.unwrap();
+    let now = watch::now(&client).await.unwrap();
+    let change = check(&mut client, &s, &now).await;
+    assert!(change.restated.iter().any(|r| r.starts_with("Backups unverified: core cannot read the backup plugin's record: GET objectstores/vyreon-backup: 403")), "{change:?}");
+    assert!(change.resolved.is_empty(), "nothing is resolved without evidence: {change:?}");
     scratch.drop().await;
 }
 

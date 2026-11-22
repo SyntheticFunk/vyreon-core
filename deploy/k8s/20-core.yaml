@@ -9,6 +9,38 @@
 # `vyreon-core-spaces` (keys `key-id` and `secret`: a Spaces access key limited to the bucket, made
 # by hand from files, never printed; README "Perishable archive") is mounted read-only; the archive
 # (C-052) is on only when its five settings below are uncommented and the Secret exists.
+# C-068 round 2: core reads the backup plugin's own record (the database's Cluster and the
+# ObjectStore it archives to) through the Kubernetes API, as the evidence that WAL is archived and a
+# base backup is recoverable. Its service account may `get` those two kinds in this namespace, and
+# nothing else.
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: vyreon-core
+  namespace: vyreon
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: vyreon-core-backup-reader
+  namespace: vyreon
+rules:
+  - apiGroups: ["postgresql.cnpg.io"]
+    resources: ["clusters"]
+    verbs: ["get"]
+  - apiGroups: ["barmancloud.cnpg.io"]
+    resources: ["objectstores"]
+    verbs: ["get"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: vyreon-core-backup-reader
+  namespace: vyreon
+subjects:
+  - {kind: ServiceAccount, name: vyreon-core, namespace: vyreon}
+roleRef: {apiGroup: rbac.authorization.k8s.io, kind: Role, name: vyreon-core-backup-reader}
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -28,6 +60,9 @@ spec:
     spec:
       # the image's user (deploy/core/Dockerfile): the webhook's file is readable by its group only
       securityContext: {fsGroup: 10001}
+      # C-068 round 2: reads the backup plugin's record (the Role above), nothing else
+      serviceAccountName: vyreon-core
+      automountServiceAccountToken: true
       initContainers:
         - name: migrate
           image: VYREON_CORE_IMAGE
@@ -63,11 +98,15 @@ spec:
               value: /etc/vyreon-core/progress-webhook/webhook
             - name: VYREON_CORE_VOLUME_GIB      # 10-postgres.yaml's storage size
               value: "250"
-            # C-068: the newest base backup older than this many days is a problem (the weekly
-            # schedule plus a day); the WAL archiving and the volume's WAL are watched with the
-            # volume. Needs `GRANT pg_monitor TO vyreon` (README, Backups B0)
+            # C-068: the newest recoverable base backup (the plugin's record, below) older than this
+            # many days, or none, or the record unread, is a problem (the weekly schedule plus a
+            # day); the WAL archiving and the volume's WAL are watched with the volume. Needs
+            # `GRANT pg_monitor TO vyreon` (README, Backups B0)
             - name: VYREON_CORE_BACKUP_MAX_DAYS
               value: "8"
+            # C-068 round 2: the Cluster whose backup plugin record is the evidence (read every 5 min)
+            - name: VYREON_CORE_PG_CLUSTER
+              value: vyreon-pg
             # Intrinio requests a minute shared through core's leases (C-025): 2,000 is the
             # provider's limit for the whole account, every node shares it; 1,900 (owner, 2026-11-21)
             - name: VYREON_CORE_INTRINIO_PER_MINUTE

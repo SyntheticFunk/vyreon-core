@@ -2571,4 +2571,26 @@ owner from the runbooks. Every real finding fixed; finding 14 is the engine's. M
   session's caches were all held already finishes without a request; its `DONE` lease no longer
   counts. A tape lease must have stored a tape cache (a body or the provider's absence) between its
   grant and its end. Test `a_refused_key_is_cleared_only_by_work_that_calls_the_provider`.
+- **2, 3 and 16: the backups are judged on the plugin's own record, and nothing resolves without
+  evidence** (replaces the backup history file above; migration 0051, `core.backup_evidence`;
+  `core_api::backups`). Two of PostgreSQL's signs were false evidence: CloudNativePG 1.30.1 answers
+  every WAL file archived when no archiver is configured (so `archived_count` grows and `.ready`
+  clears with WAL going nowhere), and `pg_backup_stop` writes its history file before Barman has
+  uploaded the label and written `backup.info` (a failed backup looked fresh). Core now reads,
+  every 5 minutes, the database's Cluster (`spec.plugins`: a Barman Cloud WAL archiver naming an
+  ObjectStore) and that ObjectStore's `status.serverRecoveryWindow.<server>`
+  (`firstRecoverabilityPoint`, `lastSuccessfulBackupTime`, `lastFailedBackupTime`: the plugin's
+  record of what is recoverable from the bucket; field names from plugin-barman-cloud v0.16.0's CRD)
+  through the Kubernetes API, as its own ServiceAccount whose Role may only `get` those two kinds
+  (`20-core.yaml`). The watch alerts on the absence of evidence: no record, a failed read or one
+  older than 15 minutes is `BACKUP_STALE` "Backups unverified" (with why); no archiver is
+  `WAL_ARCHIVING` "archiving is off"; no recovery window or a last success older than
+  `VYREON_CORE_BACKUP_MAX_DAYS` is `BACKUP_STALE`. While the record cannot be read, an open "archiving
+  is off" stays open; while the WAL cannot be read (no `pg_monitor`), an open `DATABASE_FULL` stays
+  open ("cannot be judged"). `pg_stat_archiver`'s failures and waiting files still raise
+  `WAL_ARCHIVING` (they are real failures when the plugin archives). The runbook's B7 proof is the
+  WAL file in the bucket, not PostgreSQL's count. Tests
+  `the_backups_are_judged_on_the_plugins_record_alone`, `the_backup_evidence_is_the_plugins_record`,
+  `a_failing_archive_is_a_problem_before_the_volume_fills`. Not verified: the plugin keys its
+  window by the server name (the B8 check), and the API read on the cluster.
 

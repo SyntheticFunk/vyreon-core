@@ -94,7 +94,10 @@
 //!                                                     runs' first session, else none), VYREON_CORE_DEADLINE_HOUR (20:
 //!                                                     the deadline's hour, MT, the next calendar day), VYREON_CORE_VOLUME_GIB
 //!                                                     (the database volume's size; unset: not checked), VYREON_CORE_BACKUP_MAX_DAYS
-//!                                                     (C-068: the newest base backup's largest age in days; unset: not checked).
+//!                                                     (C-068: the newest recoverable base backup's largest age in days, from
+//!                                                     the backup plugin's record; unset: not checked), VYREON_CORE_PG_CLUSTER
+//!                                                     (the CloudNativePG Cluster whose plugin record core reads every 5 min
+//!                                                     from the Kubernetes API with its service account; unset: not read).
 //!                                                     Daily runs (C-051), both or neither: VYREON_CORE_DAILY_FROM (the first
 //!                                                     session core queues by itself; unset: none) and VYREON_CORE_DAILY_BUILD
 //!                                                     (the admitted engine build they are queued for).
@@ -710,6 +713,10 @@ async fn serve() -> Result<(), String> {
     // the watch and the sender run apart: delivering posts never delays the watch's queueing
     let settings = watch_settings()?;
     let profile = settings.profile.clone();
+    // C-068 round 2: the backup plugin's record, read from the Kubernetes API, is the backups' evidence
+    if let Some(cluster) = set("VYREON_CORE_PG_CLUSTER") {
+        core_api::backups::spawn(app.clone(), core_api::backups::Kube::in_cluster(), cluster, std::time::Duration::from_secs(300));
+    }
     core_api::notices::spawn_watch(app.clone(), settings, std::time::Duration::from_secs(60));
     if let Some(webhook) = webhook {
         core_api::notices::spawn_sender(app.clone(), webhook, std::time::Duration::from_secs(15));
