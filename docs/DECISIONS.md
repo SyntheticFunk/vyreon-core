@@ -2325,7 +2325,7 @@ runbook `deploy/k8s/README.md` "Workers from the queue".
   rule, nodes only while the request budget has headroom: one node averaged 101 requests a minute
   with bursts of 500-760, core grants at most 1,900, so 12 average about 64% and their bursts wait in
   core's budget); daily block 1; pass 1 (C-046). Pool `day`: autoscaled, min 0, max 13: the hard
-  cost cap, $2.17 an hour. Pods name pool `day` (pool `day-std` carries the same label and taint).
+  cost cap, $2.17 an hour. Pods name pool `day` (pool `day-intel` carries the same label and taint; amended 2026-11-22: `day-std` replaced, its size no longer offered in nyc1).
 - **Scale to zero:** DigitalOcean's autoscaling page (updated 2026-10-29) supports a pool at 0; the
   doctl `node-pool create` reference still says "Scale-to-zero is not supported". The API's answer
   and the first run decide (runbook). The autoscaler's template for an empty `day` pool (read from

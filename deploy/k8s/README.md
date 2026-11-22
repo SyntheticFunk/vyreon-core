@@ -374,8 +374,8 @@ https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md; 
 publishes no default; the cluster's `cluster_autoscaler_configuration.scale_down_unneeded_time` can
 set it, `PUT /v2/kubernetes/clusters/{id}`).
 
-**Pool `day-std`, the Intel fallback (C-068; $ only while nodes run; the owner).** nyc1 has refused
-AMD capacity (MILESTONES "Layout"). Every worker pod now allows pool `day-std` (Intel
+**Pool `day-intel`, the Intel fallback (C-068; owner 2026-11-22: Basic Intel `s-8vcpu-16gb-intel`, $0.167/h like `day`, autoscale 0..13; the old `day-intel` pool's `s-8vcpu-16gb` is no longer offered in nyc1 and could create no node, so it is deleted).** nyc1 has refused
+AMD capacity (MILESTONES "Layout"). Every worker pod now allows pool `day-intel` (Intel
 `s-8vcpu-16gb`, same label and taint) and prefers `day` (node affinity, `50-keda.yaml`). The
 scheduler places a pod on an existing `day` node first; when no node fits, the autoscaler grows a
 pool that fits, and after a failed scale-up (DigitalOcean out of AMD droplets) it backs that pool off
@@ -386,19 +386,19 @@ scheduler, not the scale-up. So Intel nodes may be chosen when AMD is available:
 stages at 0.54-0.73 of Intel's time), the same caps. Set it autoscaled, as `day` (same PUT, the
 pool's id from `GET .../node_pools`):
 ```sh
-deploy/k8s/ops/do.sh PUT /v2/kubernetes/clusters/$VYREON_DOKS_CLUSTER/node_pools/<day-std id> \
-  '{"name":"day-std","count":0,"auto_scale":true,"min_nodes":0,"max_nodes":13,
+deploy/k8s/ops/do.sh PUT /v2/kubernetes/clusters/$VYREON_DOKS_CLUSTER/node_pools/<day-intel id> \
+  '{"name":"day-intel","count":0,"auto_scale":true,"min_nodes":0,"max_nodes":13,
     "labels":{"vyreon":"worker"},"taints":[{"key":"vyreon","value":"worker","effect":"NoSchedule"}]}'
 ```
 **Cost (C-068 round 2, 18):** nodes follow the pods and the pods KEDA's caps: 12 backfill blocks and
 the daily one a node each, 24 tapes three a node (a tape does not fit beside a block), passes beside
 blocks. With every cap working that is up to 21 nodes, if tapes of later dates run while 12 earlier
 blocks do (in a newest-first build blocks wait for every earlier tape, so the two rarely overlap,
-but nothing forbids it). So the pools' maxima are the cap that binds: `day` 13 plus `day-std`'s.
-`day-std` at 13: up to 26 nodes, $4.34 an hour; at 6: 19, $3.17; at 0 (no autoscaling): no fallback,
+but nothing forbids it). So the pools' maxima are the cap that binds: `day` 13 plus `day-intel`'s.
+`day-intel` at 13: up to 26 nodes, $4.34 an hour; at 6: 19, $3.17; at 0 (no autoscaling): no fallback,
 13, $2.17. The owner's call; a lower maximum is a partial fallback. **Check on
 the first runs:** which pool the autoscaler grows (`kubectl get nodes -L doks.digitalocean.com/node-pool`);
-if it grows `day-std` while `day` has room, say so in MILESTONES (a cost and speed question, not a
+if it grows `day-intel` while `day` has room, say so in MILESTONES (a cost and speed question, not a
 correctness one).
 
 ### 4. Apply the ScaledJobs (free until pods start)
@@ -469,7 +469,7 @@ ScaledJob and Job.
 ### 6. Cost guard ($)
 
 At most `max_nodes` x $0.167 an hour: 13 nodes, $2.17 an hour, $52 a day if every slot is busy, plus
-`day-std`'s maximum (3: the pools' maxima are the cap that binds).
+`day-intel`'s maximum (3: the pools' maxima are the cap that binds).
 Nodes exist only while worker pods run, plus about 10 minutes each. `ops/health.sh` shows spend
 against the ceiling (MILESTONES "Machines and money") and flags a worker node with no worker pod
 (`!! idle node`); the autoscaler should leave none for longer than about 10 minutes. The account's
