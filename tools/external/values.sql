@@ -1,5 +1,5 @@
 -- VS-IVS01 iv30 for the Cboe pairs (the five and the nine more) from the published base revisions, with state and reason.
--- psql -X -A -F $'\t' -d vyreon -v from=2026-11-02 -v to=2026-11-13 -f values.sql
+-- psql -X -A -P footer=off -F $'\t' -d vyreon -v from=2026-11-02 -v to=2026-11-13 -f values.sql
 SELECT m.represented_date AS date, m.object_id,
        r->>'state' AS state,
        CASE WHEN r->>'state' = 'SUPPORTED' THEN r->>'value' END AS iv30,

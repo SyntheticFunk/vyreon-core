@@ -2,13 +2,15 @@
 -- and beside it the engine's own unusualness of the same reading (DLM-UNUSUALNESS
 -- `DLM-IV30/iv30/robust_z_63`, `percentile_63`, `line_95`), from the published revisions.
 -- `from` must reach 63 sessions before the first session judged (about 95 calendar days).
--- psql -X -A -F $'\t' -d vyreon -v from=2024-07-09 -v to=2026-11-20 -f flags.sql > flags.tsv
+-- psql -X -A -P footer=off -F $'\t' -d vyreon -v from=2024-07-09 -v to=2026-11-20 -f flags.sql > flags.tsv
+-- Every published profile revision is read and named: flags.py refuses two rows of one (date, object).
 WITH pairs(object_id) AS (
     VALUES ('SPY'), ('QQQ'), ('IWM'), ('GLD'), ('USO'), ('AAPL'), ('AMZN'), ('GOOGL'), ('EEM'),
            ('EWZ'), ('TLT'), ('DIA'), ('SLV'), ('FXI')
 ),
 iv AS (
-    SELECT m.represented_date AS date, m.object_id,
+    SELECT m.represented_date AS date, m.object_id, d.profile_revision,
+           m.science_version || '/' || m.method_version AS version,
            r->>'state' AS state,
            CASE WHEN r->>'state' = 'SUPPORTED'
                 THEN COALESCE(r->'value'->>'data', r->'value'->>'Number', r->>'value') END AS iv30,
@@ -31,7 +33,10 @@ unusual AS (
            max(CASE WHEN r->>'role_id' = 'DLM-IV30/iv30/percentile_63' AND r->>'state' = 'SUPPORTED'
                     THEN COALESCE(r->'value'->>'data', r->'value'->>'Number', r->>'value') END) AS percentile,
            max(CASE WHEN r->>'role_id' = 'DLM-IV30/iv30/line_95' AND r->>'state' = 'SUPPORTED'
-                    THEN COALESCE(r->'value'->>'data', r->'value'->>'Number', r->>'value') END) AS line
+                    THEN COALESCE(r->'value'->>'data', r->'value'->>'Number', r->>'value') END) AS line,
+           max(CASE WHEN r->>'role_id' = 'DLM-IV30/iv30/line_95' THEN r->>'state' END) AS line_state,
+           max(CASE WHEN r->>'role_id' = 'DLM-IV30/iv30/line_95' THEN r->>'reason' END) AS line_reason,
+           count(DISTINCT d.profile_revision) AS profiles
     FROM vyreon.measurement m
     JOIN vyreon.day_revision d USING (revision_id, represented_date)
     CROSS JOIN LATERAL jsonb_array_elements(m.body->'measurement'->'value'->'roles') r
@@ -42,8 +47,9 @@ unusual AS (
       AND r->>'role_id' LIKE 'DLM-IV30/iv30/%'
     GROUP BY 1, 2
 )
-SELECT iv.date, iv.object_id, iv.state, iv.iv30, iv.reason,
+SELECT iv.date, iv.object_id, iv.profile_revision, iv.version, iv.state, iv.iv30, iv.reason,
        COALESCE(u.z_state, '') AS z_state, COALESCE(u.z_reason, '') AS z_reason,
-       u.z, u.percentile, u.line
+       u.z, u.percentile, u.line, COALESCE(u.line_state, '') AS line_state,
+       COALESCE(u.line_reason, '') AS line_reason, COALESCE(u.profiles, 0) AS unusual_profiles
 FROM iv LEFT JOIN unusual u USING (date, object_id)
 ORDER BY 1, 2;

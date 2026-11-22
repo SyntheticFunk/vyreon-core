@@ -1,12 +1,13 @@
 """Flag agreement, the whole-store gate (d): our iv30's extremes against Cboe's own index (README "Flag
 agreement", declared 2026-11-21 before any phase-1 value existed).
 
-    psql -X -A -F $'\t' -d vyreon -v from=A -v to=B -f flags.sql > flags.tsv
+    psql -X -A -P footer=off -F $'\t' -d vyreon -v from=A -v to=B -f flags.sql > flags.tsv
     python3 -I flags.py flags.tsv FIRST LAST CACHE > report.json
 
 FIRST..LAST: the sessions judged (flags.tsv must reach 63 sessions before FIRST). CACHE: the nine more
 indices (`cboe.py fetch`), checked against the committed `cboe/fetched.json`; the five read the
-committed files. Exit 0 when every judged pair passes, 1 when one fails, 2 when nothing is judged.
+committed files. Exit 0 when every judged pair passes, 1 when one fails, 2 when nothing is judged or the
+gate is incomplete (the nine not read, or an index with no close on a judged session through LAST).
 
 Both series are ranked exactly as the engine ranks a reading for D-070 (`h5-derived` `unusual::score`,
 `vyreon_coordinates::unusual_flag`): today against the prior 63 sessions of the XNYS calendar (today
@@ -14,7 +15,9 @@ excluded), at least 48 of them present (D-404's floor), withheld when the prior 
 distinct values, when the robust scale is not positive or below a millionth of the values; percentile
 = share of the prior values below today, ties (within 1e-12 relative, D-134) counting half. Extreme:
 percentile >= 1 - 0.10 (high) or <= 0.10 (low). The robust-z half of D-070 is not judged; the
-engine's full flag on each index-extreme session is reported beside.
+engine's full flag on each index-extreme session is reported beside. D-273: our prior sessions of
+another science or method version of VS-IVS01 are not compared (the engine's `score_of_version`, which
+also checks the parents' versions; the gate sees VS-IVS01's own labels only).
 """
 from __future__ import annotations
 
@@ -50,6 +53,16 @@ def _median(v: list[float]) -> float:
 
 def tied(a: float, b: float) -> bool:
     return a == b or abs(a - b) <= TIE_REL * max(abs(a), abs(b))
+
+
+def score_of_version(today: float | None, prior: list[float | None], other: list[float | None]) -> tuple[str, float | None]:
+    """The engine's `unusual::score_of_version`: the minimum met only with other-version sessions withholds."""
+    state, p = score(today, prior)
+    if state == "INSUFFICIENT_HISTORY":
+        n = lambda v: sum(1 for x in v if x is not None and math.isfinite(x))
+        if n(other) > 0 and n(prior) + n(other) >= MIN_ELIGIBLE:
+            return "HISTORY_OF_ANOTHER_METHOD_VERSION", None
+    return state, p
 
 
 def score(today: float | None, prior: list[float | None]) -> tuple[str, float | None]:
@@ -99,13 +112,16 @@ def _num(s: str | None) -> float | None:
 def pair(obj: str, index: str, rows: dict, close: dict[str, float], calendar: list[str],
          judged_sessions: list[str]) -> dict:
     ours = {d: _num(r["iv30"]) if r["state"] == "SUPPORTED" else None for d, r in rows.items()}
+    version = {d: r.get("version") for d, r in rows.items()}
     pos = {d: i for i, d in enumerate(calendar)}
     sessions = []
     for t in judged_sessions:
         i = pos[t]
-        prior_days = calendar[i - WINDOW:i]
+        prior_days = calendar[max(0, i - WINDOW):i]
         s_idx, p_idx = score(close.get(t), [close.get(d) for d in prior_days])
-        s_our, p_our = score(ours.get(t), [ours.get(d) for d in prior_days])
+        same = [ours.get(d) if version.get(d) == version.get(t) else None for d in prior_days]
+        other = [ours.get(d) if version.get(d) != version.get(t) else None for d in prior_days]
+        s_our, p_our = score_of_version(ours.get(t), same, other)
         r = rows.get(t)
         s = {"date": t, "index": close.get(t), "index_state": s_idx, "index_percentile": p_idx,
              "index_edge": edge(p_idx), "ours": ours.get(t), "ours_state": s_our,
@@ -114,9 +130,13 @@ def pair(obj: str, index: str, rows: dict, close: dict[str, float], calendar: li
             s["ours_published"] = "NOT_PUBLISHED"
         elif r["state"] != "SUPPORTED":
             s["ours_published"] = f'{r["state"]} {r["reason"]}'.strip()
-        if r is not None and r.get("z") and r.get("percentile") and r.get("line"):
-            z, p, line = float(r["z"]), float(r["percentile"]), float(r["line"])
-            s["engine"] = {"z": z, "percentile": p, "line": line, "flagged": engine_flag(z, p, line)}
+        if r is not None and r.get("z") and r.get("percentile"):
+            z, p = float(r["z"]), float(r["percentile"])
+            line = _num(r.get("line"))
+            s["engine"] = {"z": z, "percentile": p, "line": line,
+                           "flagged": engine_flag(z, p, line) if line is not None else None}
+            if line is None:
+                s["engine"]["line_state"] = f'{r.get("line_state") or "ABSENT"} {r.get("line_reason") or ""}'.strip()
             if p_our is not None and abs(p - p_our) > 1e-12:
                 s["engine_percentile_differs"] = True
         elif r is not None and r.get("z_state"):
@@ -158,7 +178,13 @@ def main(path: str, first: str, last: str, cache: str | None) -> int:
     by_obj: dict[str, dict] = {}
     with open(path, newline="") as fh:
         for r in csv.DictReader(fh, delimiter="\t"):
-            by_obj.setdefault(r["object_id"], {})[r["date"]] = r
+            rows = by_obj.setdefault(r["object_id"], {})
+            if r["date"] in rows:
+                raise SystemExit(f'{path}: two rows for {r["object_id"]} on {r["date"]} (profile revisions '
+                                 f'{rows[r["date"]].get("profile_revision")}, {r.get("profile_revision")}): refused')
+            if int(r.get("unusual_profiles") or 0) > 1:
+                raise SystemExit(f'{path}: unusualness of {r["object_id"]} on {r["date"]} from two profile revisions: refused')
+            rows[r["date"]] = r
     dates = sorted({d for rows in by_obj.values() for d in rows})
     calendar = xnys_sessions("2022-01-03", max(last, dates[-1] if dates else last))
     known = set(calendar)
@@ -179,14 +205,19 @@ def main(path: str, first: str, last: str, cache: str | None) -> int:
     if cache:
         report["more_files"] = cboe.verify_cache(Path(cache))
         pairs += [(o, i, cboe.closes(i, Path(cache))) for o, i in cboe.MORE.items()]
+    # an index whose file ends before LAST cannot judge the last sessions: the gate is incomplete
+    short = {i: max(c) for _, i, c in pairs if c and max(c) < judged[-1]}
+    if short:
+        report["complete"] = False
+        report["indices_ending_before_last"] = short
     for obj, index, close in pairs:
         report["pairs"][f"{index}/{obj}"] = pair(obj, index, by_obj.get(obj, {}), close, calendar, judged)
     verdicts = [p["pass"] for p in report["pairs"].values() if p["judged"]]
     report["judged_pairs"] = len(verdicts)
-    report["pass"] = (all(verdicts) if verdicts else None) if cache else None
+    report["pass"] = (all(verdicts) if verdicts else None) if report["complete"] else None
     json.dump(report, sys.stdout, indent=1)
     print()
-    if not cache or not verdicts:
+    if not report["complete"] or not verdicts:
         return 2
     return 0 if all(verdicts) else 1
 

@@ -18,9 +18,9 @@ def _tsv(tmp: Path, obj: str, series: dict[str, float], scale: float = 0.01) -> 
     out = tmp / "flags.tsv"
     with open(out, "w", newline="") as fh:
         w = csv.writer(fh, delimiter="\t")
-        w.writerow(["date", "object_id", "state", "iv30", "reason", "z_state", "z_reason", "z", "percentile", "line"])
+        w.writerow(["date", "object_id", "profile_revision", "version", "state", "iv30", "reason", "z_state", "z_reason", "z", "percentile", "line", "line_state", "line_reason", "unusual_profiles"])
         for d, v in sorted(series.items()):
-            w.writerow([d, obj, "SUPPORTED", repr(v * scale), "", "", "", "", "", ""])
+            w.writerow([d, obj, "P", "s/m", "SUPPORTED", repr(v * scale), "", "", "", "", "", "", "", "", "0"])
     return out
 
 

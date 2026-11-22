@@ -1,10 +1,10 @@
 """Cboe volatility indices against the engine's VS-IVS01 iv30 (bands in README.md, declared first).
 
     python3 -I cboe.py fetch CACHE                       # the nine more indices into CACHE
-    python3 -I cboe.py VALUES.tsv [CACHE] [--band-only] > report.json
+    python3 -I cboe.py VALUES.tsv [CACHE] [--band-only] > report.json   (VALUES: psql -X -A -P footer=off ...)
 
 VALUES.tsv: one row per (date, object) with columns date, object_id, state, iv30, reason, as
-`values.sql` prints them from core's published store (`psql -A -F $'\t'`). The five original pairs
+`values.sql` prints them from core's published store (`psql -A -P footer=off -F $'\t'`). The five original pairs
 read the committed files in `cboe/`; with CACHE the nine more pairs are added, read from CACHE and
 checked against the committed `cboe/fetched.json`. `--band-only` reports band 1 alone (dates of
 mixed builds, not a correlation panel). Exit 0 on pass.
