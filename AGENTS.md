@@ -5,6 +5,18 @@ that Reporter and plain Python read, the job queue that hands date blocks to eng
 Intrinio request budget, the point-in-time security universe, and the cluster that runs the workers.
 The engine computes; core schedules, stores and serves. The measurements are the product.
 
+## Working memory (owner, 2026-11-22)
+Context is lost over time; the files are the memory. Sessions run for days on this method:
+- **State lives in `docs/MILESTONES.md`**, not in a session's context or a handoff summary: its Terms,
+  the step list, "Resume here" and the current section. Record each item there as it lands (with its
+  commit), so a summarised session or a new one reads the truth. Trust the files and the code over any
+  summary, including your own earlier messages.
+- **A `/loop` pointed at MILESTONES and these rules** drives long work; each wake re-reads the files.
+- **A fresh session starts with an alignment discussion** with the owner (play back your understanding,
+  propose a numbered plan), before acting. A term the files do not define gets defined there.
+- **A step done by hand a second time** is flagged as missing automation, not repeated silently: the
+  system must be runnable by the owner from these files, without an agent.
+
 ## Authority
 - `docs/PRODUCT_INTENT.md` is the ultimate guide (a copy of the engine's; the engine's is canonical).
 - Science belongs to the engine: `/home/diggz/vyreon-engine` (tag `engine-v1`), its
