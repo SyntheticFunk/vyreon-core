@@ -56,17 +56,21 @@ pub fn thousands(n: i64) -> String {
 }
 
 /// A reference check's outcome in words, from its report's fields (`outcome`, `checked`, `failed`,
-/// `unexplained`: `failed_unexplained`, null from a suite without rulings, C-056; `why`).
+/// `unexplained`: `failed_unexplained`, null from a suite without rulings, C-056;
+/// `reference_errors`; `why`). Reference errors (comparisons the reference suite itself could not
+/// make) are unjudged, so they are stated beside the verdict, never folded into it (C-054
+/// amended 2026-11-20; audit round 2 of core-watch, 10).
 pub fn refcheck_words(r: &Value) -> String {
     let n = |k: &str| r[k].as_i64();
     match r["outcome"].as_str() {
         Some("COMPLETED") => {
             let (checked, failed) = (thousands(n("checked").unwrap_or(0)), n("failed").unwrap_or(0));
+            let errors = n("reference_errors").filter(|e| *e > 0).map_or(String::new(), |e| format!("; {} reference errors not judged", thousands(e)));
             match n("unexplained") {
-                _ if failed == 0 => format!("reference check agrees ({checked} comparisons)"),
-                Some(0) => format!("reference check agrees ({checked} comparisons; {} failures explained by rulings)", thousands(failed)),
-                Some(u) => format!("reference check DISAGREES: {} unexplained failures of {checked}", thousands(u)),
-                None => format!("reference check: {} failures of {checked}, not triaged against rulings", thousands(failed)),
+                _ if failed == 0 => format!("reference check agrees ({checked} comparisons{errors})"),
+                Some(0) => format!("reference check agrees ({checked} comparisons; {} failures explained by rulings{errors})", thousands(failed)),
+                Some(u) => format!("reference check DISAGREES: {} unexplained failures of {checked}{errors}", thousands(u)),
+                None => format!("reference check: {} failures of {checked}, not triaged against rulings{errors}", thousands(failed)),
             }
         }
         Some(outcome) => {
@@ -130,8 +134,11 @@ pub async fn lines(c: &impl GenericClient, profile: &str, start: &str, end: &str
                              WHERE p.day_local AND p.profile_id = d.profile_id AND p.engine_build = d.engine_build
                                AND p.represented_date BETWEEN x.first_session AND x.last_session
                                AND p.published_at >= x.granted_at AND p.published_at < d.published_at)))::float8 / 60,
-                        (SELECT jsonb_build_object('outcome', r.outcome, 'checked', r.checked, 'failed', r.failed, 'unexplained', r.failed_unexplained, 'why', r.why)
-                         FROM core.refcheck_report r WHERE r.base_revision = d.base AND r.stored_at <= $2::text::timestamptz
+                        (SELECT jsonb_build_object('id', r.refcheck_report_id, 'outcome', r.outcome, 'checked', r.checked, 'failed', r.failed,
+                                                   'unexplained', r.failed_unexplained, 'reference_errors', r.reference_errors, 'why', r.why)
+                         FROM core.refcheck_report r
+                         WHERE r.base_revision = d.base AND (r.day_local_revision IS NULL OR r.day_local_revision = d.local)
+                           AND r.stored_at <= $2::text::timestamptz
                          ORDER BY r.stored_at DESC, r.refcheck_report_id DESC LIMIT 1)::text
                  FROM d LEFT JOIN LATERAL (
                      SELECT l.job_id, l.worker, l.granted_at, j.first_session, j.last_session FROM core.lease l JOIN core.job j USING (job_id)
@@ -146,7 +153,9 @@ pub async fn lines(c: &impl GenericClient, profile: &str, start: &str, end: &str
         )
         .await
         .map_err(db)?;
-    let mut published_bases = Vec::new();
+    // the reports a day line already states (C-054: a report is of the base and the day-local
+    // revision it checked, both: audit round 2 of core-watch, 2)
+    let mut stated: Vec<i64> = Vec::new();
     if !days.is_empty() {
         let revisions: Vec<i64> = days.iter().flat_map(|r| [r.get::<_, i64>(1), r.get::<_, i64>(2)]).collect();
         watch::tally(c, &revisions).await?;
@@ -169,30 +178,40 @@ pub async fn lines(c: &impl GenericClient, profile: &str, start: &str, end: &str
                 (Some(f), Some(l), Some(w), Some(j)) => Some((f.as_str(), l.as_str(), w.as_str(), j)),
                 _ => None,
             };
+            stated.extend(check.as_ref().and_then(|c| c["id"].as_i64()));
             lines.push(day_line(&words, tally, check.as_ref(), minutes, block));
-            published_bases.push(base);
         }
         happened = true;
     }
 
-    // reference checks that came in for days published before
+    // reference checks that came in for days published before, each said of the revisions it
+    // checked when they are no longer the day's published ones
     let checks = c
         .query(
             &format!(
-                "SELECT {words}, jsonb_build_object('outcome', r.outcome, 'checked', r.checked, 'failed', r.failed, 'unexplained', r.failed_unexplained, 'why', r.why)::text
+                "SELECT {words}, jsonb_build_object('outcome', r.outcome, 'checked', r.checked, 'failed', r.failed, 'unexplained', r.failed_unexplained,
+                                                   'reference_errors', r.reference_errors, 'why', r.why)::text,
+                        b.state = 'PUBLISHED' AND (r.day_local_revision IS NULL
+                            OR EXISTS (SELECT FROM vyreon.day_revision x WHERE x.revision_id = r.day_local_revision AND x.state = 'PUBLISHED')),
+                        r.base_revision, r.day_local_revision
                  FROM core.refcheck_report r JOIN vyreon.day_revision b ON b.revision_id = r.base_revision
-                 WHERE b.profile_id = $3 AND r.stored_at > $1::text::timestamptz AND r.stored_at <= $2::text::timestamptz AND NOT r.base_revision = ANY($4)
+                 WHERE b.profile_id = $3 AND r.stored_at > $1::text::timestamptz AND r.stored_at <= $2::text::timestamptz AND NOT r.refcheck_report_id = ANY($4)
                  ORDER BY r.stored_at, r.refcheck_report_id",
                 words = day("r.session")
             ),
-            &[&start, &end, &profile, &published_bases],
+            &[&start, &end, &profile, &stated],
         )
         .await
         .map_err(db)?;
     for r in &checks {
-        let (words, check): (String, String) = (r.get(0), r.get(1));
+        let (words, check, current, base, local): (String, String, bool, i64, Option<i64>) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4));
         let check: Value = serde_json::from_str(&check).map_err(|e| e.to_string())?;
-        lines.push(format!("Reference check of {words}: {}", refcheck_words(&check).trim_start_matches("reference check ")));
+        let of = match (current, local) {
+            (true, _) => String::new(),
+            (false, Some(l)) => format!(" (revisions {base} and {l}, since replaced)"),
+            (false, None) => format!(" (revision {base}, since replaced)"),
+        };
+        lines.push(format!("Reference check of {words}{of}: {}", refcheck_words(&check).trim_start_matches("reference check ")));
         happened = true;
     }
 
@@ -379,6 +398,22 @@ mod tests {
             "reference check DISAGREES: 12 unexplained failures of 91,066"
         );
         assert_eq!(refcheck_words(&json!({"outcome": "TIMEOUT", "why": "the suite ran past 3600 s"})), "reference check did not complete (timeout: the suite ran past 3600 s)");
+        // audit round 2 of core-watch, 10: reference errors are stated beside the verdict, never
+        // read as agreement (9 a day: build 48d87154's suite on 2026-11-02 to 11-04, C-054; here
+        // beside the B0 report's counts)
+        assert_eq!(
+            refcheck_words(&json!({"outcome": "COMPLETED", "checked": 91066, "failed": 0, "reference_errors": 9})),
+            "reference check agrees (91,066 comparisons; 9 reference errors not judged)"
+        );
+        assert_eq!(
+            refcheck_words(&json!({"outcome": "COMPLETED", "checked": 91066, "failed": 3958, "unexplained": null, "reference_errors": 9})),
+            "reference check: 3,958 failures of 91,066, not triaged against rulings; 9 reference errors not judged"
+        );
+        assert_eq!(
+            refcheck_words(&json!({"outcome": "COMPLETED", "checked": 91066, "failed": 3958, "unexplained": 12, "reference_errors": 9})),
+            "reference check DISAGREES: 12 unexplained failures of 91,066; 9 reference errors not judged"
+        );
+        assert_eq!(refcheck_words(&json!({"outcome": "COMPLETED", "checked": 91066, "failed": 0, "reference_errors": 0})), "reference check agrees (91,066 comparisons)");
     }
 
     /// Posts stay under Discord's limit, continue under the header, stop at `MAX_POSTS`, and count

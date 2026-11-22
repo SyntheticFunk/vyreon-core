@@ -2116,6 +2116,67 @@ async fn the_progress_channel_says_what_moved_every_half_hour() {
     scratch.drop().await;
 }
 
+/// The reference check a worker sends for `session`, as its account states it: the real B0
+/// census report's counts summed over its measurements (`test_support::REFCHECK_REPORT_2025_12_16`,
+/// 3,958 failures of 91,066, from a suite without rulings) with `reference_errors` as given, of
+/// the revisions it checked.
+fn refcheck_of(session: &str, base: i64, local: i64, reference_errors: i64) -> core_db::refcheck::Checked {
+    use std::io::{Read, Write};
+    let mut text = String::new();
+    flate2::read::GzDecoder::new(test_support::REFCHECK_REPORT_2025_12_16).read_to_string(&mut text).unwrap();
+    let report: Value = serde_json::from_str(&text).unwrap();
+    let summary = report["summary"].as_object().unwrap();
+    let sum = |k: &str| summary.values().map(|m| m[k].as_i64().unwrap_or(0)).sum::<i64>();
+    let account = json!({
+        "schema": core_db::refcheck::SCHEMA, "session": session, "outcome": "COMPLETED", "why": null,
+        "wall_seconds": 2460.5, "suite_seconds": 2400.25, "cpu_seconds": 16800.0, "cpu_complete": true, "jobs": 8, "deadline_seconds": 7200,
+        "revisions": [base, local],
+        "counts": {"checked": sum("checked"), "passed": sum("passed"), "failed": sum("failed"), "skipped": sum("skipped"),
+                   "reference_errors": reference_errors, "failure_classes": report["failure_classes"].as_array().unwrap().len(),
+                   "measurements_failing": summary.values().filter(|m| m["failed"].as_i64().unwrap_or(0) > 0).count()},
+        "summary": report["summary"], "report_trimmed": null,
+    });
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    gz.write_all(account.to_string().as_bytes()).unwrap();
+    core_db::refcheck::check(gz.finish().unwrap(), session).unwrap()
+}
+
+/// Audit round 2 of core-watch, 2 and 10: progress chose a day's reference check by its base alone,
+/// so a day-local revision published again on the same base read as checked by the report of the
+/// one it replaced; and reference errors were left out of the verdict. Now the day line takes only
+/// a report of both its revisions (C-054) and states the reference errors beside the verdict.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn progress_states_a_check_only_of_the_revisions_it_checked() {
+    use core_db::progress;
+    let (scratch, mut client, b, _) = ready("r2w_progress_check").await;
+    admit(&client, &b).await;
+    let day = "2025-12-10";
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, day, day, 1).await.unwrap();
+    let claim = work::claim(&mut client, Kind::DayBlock, &b, "day-7f2c", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &claim, day).await;
+    let base = base_of(&client, day).await;
+    let local = count(&client, "SELECT revision_id FROM vyreon.day_revision WHERE day_local AND state = 'PUBLISHED'").await;
+    core_db::refcheck::put(&mut client, &claim.token, &refcheck_of(day, base, local, 9)).await.unwrap();
+    let now = watch::now(&client).await.unwrap();
+    let posts = progress::preview(&client, PROFILE, &now).await.unwrap();
+    let day_line = posts[0].lines().nth(1).unwrap().to_string();
+    assert!(
+        day_line.contains(" · reference check: 3,958 failures of 91,066, not triaged against rulings; 9 reference errors not judged · "),
+        "{day_line}"
+    );
+    // the day-local revision published again by hand on the same base: its line has no check yet
+    let again = day_local(&mut client, &b, day, base, None).await;
+    assert_ne!(again, local);
+    let now = watch::now(&client).await.unwrap();
+    let posts = progress::preview(&client, PROFILE, &now).await.unwrap();
+    let lines: Vec<&str> = posts[0].lines().collect();
+    assert_eq!(lines[1], day_line, "the first revision's line keeps its own check");
+    assert!(lines[2].starts_with("Published Wed Dec 10, 2025: ") && lines[2].contains(" · reference check not in yet"), "{}", posts[0]);
+    assert!(!posts[0].contains("Reference check of"), "the report is stated once, on the line of what it checked: {}", posts[0]);
+    scratch.drop().await;
+}
+
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn cancelling_a_job_ends_its_lease_and_takes_it_out_of_the_queue() {
