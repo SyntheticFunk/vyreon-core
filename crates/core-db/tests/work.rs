@@ -1521,6 +1521,69 @@ async fn a_block_that_stops_after_a_done_day_is_queued_again_uncounted() {
     scratch.drop().await;
 }
 
+/// C-049's evidence of a lease, as the worker sends it: its account line alone.
+async fn evidence(client: &mut Client, token: &str, stage: &str, message: &str, session: &str) {
+    let account = json!({"schema": core_db::evidence::SCHEMA, "stage": stage, "message": message, "session": session});
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    std::io::Write::write_all(&mut gz, format!("{account}\n").as_bytes()).unwrap();
+    let checked = core_db::evidence::check(gz.finish().unwrap()).unwrap();
+    assert!(core_db::evidence::put(client, token, &checked).await.unwrap());
+}
+
+/// Audit 2026-11-22 prebuild round 2 (core-r2.md) 10: the supplied worker names its claim's first day
+/// for a stop whose message names none (`vyreon-worker` `stopped_on`): after the 10th was done, the
+/// 11th's disk guard stopped the block (`diskguard: stop, ...`, vyreon-cli `guards.rs`, no date) and its
+/// evidence named the 10th, so core refunded a real failure of the 11th. Core now reads the day from
+/// the message: none named, the attempt is counted, and on the last one the 11th is set aside with
+/// its own cause.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_stop_that_names_no_day_is_counted() {
+    let (scratch, mut client, b, _) = ready("r2_fallback_day").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-11", 30).await.unwrap();
+    client.execute("UPDATE core.job SET max_attempts = 1 WHERE kind = 'DAY_BLOCK'", &[]).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &block, "2025-12-10").await;
+    let stop = "diskguard: stop, /work has 11 GB free (minimum 40 GB)";
+    evidence(&mut client, &block.token, "day 2025-12-10", stop, "2025-12-10").await;
+    assert!(!work::fail(&mut client, &block.token, "day 2025-12-10", stop, "log").await.unwrap(), "out of attempts");
+    let row = client.query_one("SELECT state, first_session::text FROM core.job WHERE job_id = $1", &[&block.job_id]).await.unwrap();
+    assert_eq!((row.get::<_, String>(0), row.get::<_, String>(1)), ("FAILED".to_owned(), "2025-12-11".to_owned()));
+    assert_eq!(cause(&client, "2025-12-11").await, ("FAILED".into(), stop.into()));
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-22 prebuild round 2 (core-r2.md) 4: core took a refund's progress on trust, so a
+/// worker that named the same done day on every new lease was refunded without end while its block
+/// held the later passes. A refund now needs the day the stop names to be one this lease did: the
+/// first lease publishes the 10th and stops pruning after it (refunded); the next lease, which began
+/// at the 11th, names the 10th again and moves nothing on: counted.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_refund_needs_a_day_done_under_the_same_lease() {
+    let (scratch, mut client, b, _) = ready("r2_bounded_refund").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-11", 30).await.unwrap();
+    let stop = "stop: prune after 2025-12-10: No space left on device (os error 28)";
+    let first = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &first, "2025-12-10").await;
+    evidence(&mut client, &first.token, "day 2025-12-10", stop, "2025-12-10").await;
+    assert!(work::fail(&mut client, &first.token, "day 2025-12-10", stop, "log").await.unwrap());
+    let attempts = format!("SELECT attempts FROM core.job WHERE job_id = {}", first.job_id);
+    assert_eq!(client.query_one(&attempts, &[]).await.unwrap().get::<_, i32>(0), 0, "the 10th was done under this lease: refunded");
+    for n in 1..=2 {
+        let again = work::claim(&mut client, Kind::DayBlock, &b, "w2", HOUR).await.unwrap().unwrap();
+        assert_eq!(again.sessions, ["2025-12-11"]);
+        evidence(&mut client, &again.token, "day 2025-12-10", stop, "2025-12-10").await;
+        assert!(work::fail(&mut client, &again.token, "day 2025-12-10", stop, "log").await.unwrap());
+        assert_eq!(client.query_one(&attempts, &[]).await.unwrap().get::<_, i32>(0), n, "a stale day names no progress of this lease: counted");
+    }
+    let refunds = notices(&client).await.iter().filter(|n| n.contains("the attempt not counted")).count();
+    assert_eq!(refunds, 1);
+    scratch.drop().await;
+}
+
 async fn job_state(client: &Client, job: i64) -> String {
     client.query_one("SELECT state FROM core.job WHERE job_id = $1", &[&job]).await.unwrap().get(0)
 }
