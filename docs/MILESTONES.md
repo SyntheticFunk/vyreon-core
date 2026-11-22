@@ -350,6 +350,12 @@ progress webhook; stop run.sh's posts); (3) KEDA (release manifest, no Helm) wit
 triggered by core's claimable count of its own build, pool `day` autoscaling min 0 max 12 (manifests
 being written on branch `core-keda`); (4) the rulings image admitted, 914ffed7 withdrawn; (5) recompute
 2024-07-09..07-22 as 2 blocks of 5 started by KEDA alone; gate a judges; (6) the full build.
+**Added (owner, 2026-11-22: "schedule this all along with the KEDA implementation"):** the database
+volume grows 120 → 250 GB with the next core restart (measured 2024-07 days ~134 MB each, 2026-11 ~200
+MB; 597 days plus history revisions and tape caches would reach the 118 GB volume; +$13/month), and
+CloudNativePG backups to Spaces (weekly full + WAL, ~30 days, a bucket and key only for backups) with one
+restore drill, before the full build. Then watch: history-pass memory at full range (tonight's 10 passes
+give the first number), the core node under 12 publishing workers, and the database size posted daily.
 **Measured request draw, one node, test block 04:56-16:37 UTC:** 71,112 requests (~11,800 a day), 101 a
 minute over wall time, bursts averaging 658 with a peak of 1,900 (the ceiling) and p95 1,800. Cap for the
 full build: 12 nodes (two thirds of the ~18 the average allows), proven on 2 nodes in the recompute.
