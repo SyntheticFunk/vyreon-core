@@ -122,12 +122,22 @@ pub async fn publish_file_vouched(client: &mut Client, path: &Path) -> Result<Pu
 
 /// Publishes the bundle a worker sends under its lease: the day must be its job's next session,
 /// for the job's profile and build. The day is published and the job moved on in one transaction.
+///
+/// A refusal is a failed check of live work (the service pauses the queue on it) only while the lease
+/// is live: some refusals come before the lease is checked (a bundle that ends before its scalars, or
+/// cannot be read to its end), so the lease is checked again first, and a refusal from a lease that has
+/// ended meanwhile (withdrawn, cancelled, expired) is answered as the lease gone (audit 2026-11-22
+/// round 2, core-r2 6: a withdrawn worker's truncated upload paused the replacement build's queue).
 pub async fn publish_for_lease(client: &mut Client, path: &Path, token: &str) -> Result<Published, LeaseError> {
-    publish(client, path, By::Lease(token)).await.map_err(|e| match e {
-        Error::Refused(m) if m == GONE => LeaseError::Gone,
-        Error::Refused(m) => LeaseError::Refused(m),
-        Error::Failed(m) => LeaseError::Failed(m),
-    })
+    match publish(client, path, By::Lease(token)).await {
+        Ok(published) => Ok(published),
+        Err(Error::Refused(m)) if m == GONE => Err(LeaseError::Gone),
+        Err(Error::Refused(m)) => match work::identify(&*client, token).await {
+            Err(LeaseError::Gone) => Err(LeaseError::Gone),
+            _ => Err(LeaseError::Refused(m)),
+        },
+        Err(Error::Failed(m)) => Err(LeaseError::Failed(m)),
+    }
 }
 
 const GONE: &str = "no live lease has this token";
