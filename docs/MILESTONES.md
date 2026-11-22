@@ -113,7 +113,9 @@ Next:
 5. **Launch decision:** proven unattended operation first (owner, 2026-11-22: explicit go-live
    criterion; the owner may be mobilized to field work for weeks): two weeks of daily runs, history
    passes and the Sunday issue with nobody touching the system, judged afterwards from the digest and
-   the log. Then Intrinio's Startup tier (display/redistribution rights; covers free and paid),
+   the log; and the owner can restart the system after a bad day from the repository's runbooks, `health.sh`
+   and Discord alone, with no agent (owner, 2026-11-22: not "the only one who knows how to run the system").
+   Then Intrinio's Startup tier (display/redistribution rights; covers free and paid),
    security before launch, Reporter's output live on the web; then the ads (owner's plan below).
    After it, or when wanted: deeper history (old snapshot layouts readable since D-251..D-254; the
    2023-01-18..03-07 gap needs a ruling), the FIELD campaign, social posting, CI.
