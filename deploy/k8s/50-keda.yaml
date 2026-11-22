@@ -1,0 +1,392 @@
+# Workers from the queue (C-066; MILESTONES "Before the full build", items 2 and 4). KEDA starts a
+# worker Job when core holds claimable work of its kind for its engine build, and nothing otherwise;
+# the autoscaled pool `day` brings up a node for a pod that does not fit and removes a node idle for
+# about 10 minutes (README, "Workers from the queue"). Nobody applies Jobs, counts completions or
+# deletes idle nodes.
+#
+# Placeholders the operator sets on apply (README):
+#   VYREON_WORKER_IMAGE  the worker image (registry.digitalocean.com/vyreon/vyreon-worker:<tag>)
+#   VYREON_ENGINE_BUILD  that image's engine build, as `build register` printed it (<commit>+<inventory>)
+# The two always change together: a trigger counts only its build's work (a worker claims only its
+# own build's jobs), so pods of another image would find nothing. Every other admitted build's
+# claimable work (the old build's ordered passes until it is withdrawn) starts no pod here.
+#
+# Each trigger asks core's database, through the read-only login `vyreon_keda` (group
+# `vyreon_scaler`, migration 0046), `core.claimable_count(kind, build, daily)`: the rows of
+# `core.claimable_job` a worker of that build could claim now. A claimed job leaves the count, so the
+# count is the work no pod holds yet; with `targetQueryValue: 1`, one Job per claimable job.
+#
+# Scaling (KEDA 2.21, pkg/scaling/executor/scale_jobs.go): strategy `accurate` creates
+#   min(claimable - pending Jobs, maxReplicaCount - unfinished Jobs)
+# Jobs each poll, where a Job is pending until its pod is Running (or Succeeded). A pod waiting for
+# a node, or pulling the image, is pending and holds back the next poll: one claimable job starts one
+# pod, not one each 30 seconds while a node comes up. The one window left: a pod Running but not yet
+# claimed (the worker claims within a second of starting; 2026-11-22's day pod claimed 0.9 s after
+# its container started), so a poll landing in it starts one extra pod, which finds nothing and exits.
+#
+# Each Job is one pod with no retry (`backoffLimit: 0`; C-040's rule, never a Job-wide limit over
+# several pods, holds trivially). A failed pod's job goes back to core's queue (its `fail`, or its
+# lease expiring), and the next poll starts a new Job for it: core's attempts (C-035) are the retry,
+# and a Kubernetes retry beside them would start a second pod for the same job.
+#
+# `rollout.strategy: gradual`: changing a ScaledJob (a new image, a new cap) never deletes running
+# Jobs; KEDA's default ("immediate") terminates them, and with them hours of a day block.
+#
+# Pods are the Job templates of `ops/job-*.yaml` (tape, day block) and `30-workers.yaml` (ordered
+# pass): the same labels (`app: vyreon-worker`, `work: <kind>`; `ops/health.sh` reads them), the
+# worker toleration, pool `day` only, the same requests and limits, `safe-to-evict: "false"`, and
+# each pod mounts only the keys it reads (C-016, C-020). Secret `vyreon-worker` (README).
+#
+# The caps (C-066; change them here and apply again, `gradual` keeps the running Jobs):
+#   tape              24  3 a node (2 CPUs of a node's 7.4 free), 8 nodes: the test block's 24 tape
+#                         pods on 8 nodes (2026-11-22), 240 tapes in 42 minutes
+#   day-block         12  one a node (6 CPUs); the owner's rule: nodes only while the request budget
+#                         has headroom; one node drew 101 requests a minute over its wall time and
+#                         bursts of 500-760 while a day downloads; core grants at most 1,900 a minute
+#                         (VYREON_CORE_INTRINIO_PER_MINUTE), so 12 average 64% of it and their bursts
+#                         wait in core's budget, never refused by the provider. Raise it only from
+#                         core's request ledger (README).
+#   day-block-daily    1  the daily session's block (C-051), outside the backfill's 12 so a
+#                         backfill holding every slot for a day and more never delays it
+#   ordered-pass       1  date order (C-046): one pass at a time; the claim holds every later pass
+#                         behind an unfinished one anyway
+# Pool `day` max_nodes = 13 (12 day blocks + the daily one): the hard cost cap, 13 x $0.167 an
+# hour = $2.17 an hour at most. A day-block pod beyond the pool's nodes waits Pending, holding
+# nothing (it has not claimed); keep max_nodes >= day-block + day-block-daily.
+---
+# The trigger's database password. A namespaced TriggerAuthentication reads its Secret from its own
+# namespace (KEDA 2.21 `resolver.getTriggerAuthSpec`: `TriggerAuthentication` -> the ScaledJob's
+# namespace; only a ClusterTriggerAuthentication reads KEDA's namespace), so Secret
+# `vyreon-scaler-pg` (key `password`) lives in `vyreon`, made by hand from a file (README).
+apiVersion: keda.sh/v1alpha1
+kind: TriggerAuthentication
+metadata:
+  name: vyreon-scaler-pg
+  namespace: vyreon
+spec:
+  secretTargetRef:
+    - {parameter: password, name: vyreon-scaler-pg, key: password}
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: tape
+  namespace: vyreon
+spec:
+  pollingInterval: 30
+  minReplicaCount: 0
+  maxReplicaCount: 24
+  successfulJobsHistoryLimit: 30
+  failedJobsHistoryLimit: 30
+  rollout: {strategy: gradual}
+  scalingStrategy: {strategy: accurate}
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    backoffLimit: 0
+    # a tape takes minutes (2026-11-22: 1.5 to 7); a pod still going after 2 h is stuck: stopped,
+    # its lease expires and the job is queued again (an attempt, C-035)
+    activeDeadlineSeconds: 7200
+    template:
+      metadata:
+        labels: {app: vyreon-worker, work: tape}
+        annotations:
+          # the autoscaler never removes a node under a running worker (C-051)
+          cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+      spec:
+        restartPolicy: Never
+        serviceAccountName: default
+        imagePullSecrets:
+          - {name: regcred}
+        nodeSelector: {vyreon: worker, doks.digitalocean.com/node-pool: day}
+        tolerations:
+          - {key: vyreon, operator: Equal, value: worker, effect: NoSchedule}
+        containers:
+          - name: worker
+            image: VYREON_WORKER_IMAGE
+            args: ["run", "tape", "--bin", "/opt/vyreon/bin", "--repo", "/opt/vyreon/bin"]
+            env:
+              - {name: VYREON_HOME, value: /work}
+              - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
+              - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
+              - {name: VYREON_KEY_FILE, value: /secrets/intrinio-key}
+              - {name: VYREON_FRED_KEY_FILE, value: /secrets/fred-key}
+              - name: VYREON_WORKER_NAME
+                valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            resources:
+              requests: {cpu: "2", memory: 3Gi}
+            volumeMounts:
+              - {name: work, mountPath: /work}
+              - {name: secrets, mountPath: /secrets, readOnly: true}
+        volumes:
+          - name: work
+            emptyDir: {}
+          # only the keys this pod reads: the ordered pass's database login stays with the ordered
+          # pass (C-016, C-020)
+          - name: secrets
+            secret:
+              secretName: vyreon-worker
+              defaultMode: 0400
+              items:
+                - {key: worker-token, path: worker-token}
+                - {key: intrinio-key, path: intrinio-key}
+                - {key: fred-key, path: fred-key}
+  triggers:
+    - type: postgresql
+      name: claimable-tapes
+      authenticationRef: {name: vyreon-scaler-pg}
+      metadata:
+        host: vyreon-pg-rw.vyreon.svc.cluster.local
+        port: "5432"
+        userName: vyreon_keda
+        dbName: vyreon
+        sslmode: require
+        query: "SELECT core.claimable_count('TAPE', 'VYREON_ENGINE_BUILD')"
+        targetQueryValue: "1"
+        activationTargetQueryValue: "0"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: day-block
+  namespace: vyreon
+spec:
+  pollingInterval: 30
+  minReplicaCount: 0
+  maxReplicaCount: 12
+  successfulJobsHistoryLimit: 30
+  failedJobsHistoryLimit: 30
+  rollout: {strategy: gradual}
+  scalingStrategy: {strategy: accurate}
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    backoffLimit: 0
+    # a block of 15 sessions: about 226 min for its first day and 120-134 for each later one
+    # (2026-11-21), about 35 h; a pod still going after 72 h is stuck: stopped, its lease expires
+    # and the block resumes at its next session on a new pod (an attempt, C-035)
+    activeDeadlineSeconds: 259200
+    template:
+      metadata:
+        labels: {app: vyreon-worker, work: day-block}
+        annotations:
+          # a day is hours of work; the node is not drained under it
+          cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+      spec:
+        restartPolicy: Never
+        serviceAccountName: default
+        imagePullSecrets:
+          - {name: regcred}
+        nodeSelector: {vyreon: worker, doks.digitalocean.com/node-pool: day}
+        tolerations:
+          - {key: vyreon, operator: Equal, value: worker, effect: NoSchedule}
+        containers:
+          - name: worker
+            image: VYREON_WORKER_IMAGE
+            args: ["run", "day-block", "--bin", "/opt/vyreon/bin", "--repo", "/opt/vyreon/bin"]
+            env:
+              - {name: VYREON_HOME, value: /work}
+              - {name: VYREON_REFCHECK_MINUTES, value: "600"}
+              - {name: VYREON_OPTION_EOD_SOURCE, value: bulk}
+              - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
+              - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
+              - {name: VYREON_KEY_FILE, value: /secrets/intrinio-key}
+              - {name: VYREON_FRED_KEY_FILE, value: /secrets/fred-key}
+              - name: VYREON_WORKER_NAME
+                valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            resources:
+              requests: {cpu: "6", memory: 10Gi}
+              limits: {memory: 14Gi}
+            volumeMounts:
+              - {name: work, mountPath: /work}
+              - {name: secrets, mountPath: /secrets, readOnly: true}
+        volumes:
+          - name: work
+            emptyDir: {}
+          # only the keys this pod reads: the ordered pass's database login stays with the ordered
+          # pass (C-016, C-020)
+          - name: secrets
+            secret:
+              secretName: vyreon-worker
+              defaultMode: 0400
+              items:
+                - {key: worker-token, path: worker-token}
+                - {key: intrinio-key, path: intrinio-key}
+                - {key: fred-key, path: fred-key}
+  triggers:
+    # the backfill's and by-hand blocks only: a daily session's block is day-block-daily's, so the
+    # two never start a pod each for the same job (a pod of this ScaledJob still takes a daily block
+    # first if one is claimable when it claims, C-051)
+    - type: postgresql
+      name: claimable-blocks
+      authenticationRef: {name: vyreon-scaler-pg}
+      metadata:
+        host: vyreon-pg-rw.vyreon.svc.cluster.local
+        port: "5432"
+        userName: vyreon_keda
+        dbName: vyreon
+        sslmode: require
+        query: "SELECT core.claimable_count('DAY_BLOCK', 'VYREON_ENGINE_BUILD', false)"
+        targetQueryValue: "1"
+        activationTargetQueryValue: "0"
+---
+# The daily session's block (C-051): core queues it at 07:30 New York the next calendar day; this
+# starts its pod within a poll, beside the backfill's slots. Its pod claims only the daily runs' jobs
+# (`VYREON_WORKER_DAILY` "0": daily only, asked once), never a backfill block, so the daily slot is
+# never held for a day and more. Replaces CronJob `daily` (40-daily.yaml) once
+# VYREON_CORE_DAILY_BUILD is this file's build (README, "Workers from the queue": the daily runs).
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: day-block-daily
+  namespace: vyreon
+spec:
+  pollingInterval: 30
+  minReplicaCount: 0
+  maxReplicaCount: 1
+  successfulJobsHistoryLimit: 10
+  failedJobsHistoryLimit: 10
+  rollout: {strategy: gradual}
+  scalingStrategy: {strategy: accurate}
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    backoffLimit: 0
+    # one session: 5 h 50 min measured from an empty disk; stopped at 23 h as the CronJob's run was
+    activeDeadlineSeconds: 82800
+    template:
+      metadata:
+        labels: {app: vyreon-worker, work: day-block, daily: "true"}
+        annotations:
+          cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+      spec:
+        restartPolicy: Never
+        serviceAccountName: default
+        imagePullSecrets:
+          - {name: regcred}
+        nodeSelector: {vyreon: worker, doks.digitalocean.com/node-pool: day}
+        tolerations:
+          - {key: vyreon, operator: Equal, value: worker, effect: NoSchedule}
+        containers:
+          - name: worker
+            image: VYREON_WORKER_IMAGE
+            args: ["run", "day-block", "--bin", "/opt/vyreon/bin", "--repo", "/opt/vyreon/bin"]
+            env:
+              - {name: VYREON_WORKER_DAILY, value: "0"}
+              - {name: VYREON_HOME, value: /work}
+              - {name: VYREON_REFCHECK_MINUTES, value: "600"}
+              - {name: VYREON_OPTION_EOD_SOURCE, value: bulk}
+              - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
+              - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
+              - {name: VYREON_KEY_FILE, value: /secrets/intrinio-key}
+              - {name: VYREON_FRED_KEY_FILE, value: /secrets/fred-key}
+              - name: VYREON_WORKER_NAME
+                valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            resources:
+              requests: {cpu: "6", memory: 10Gi}
+              limits: {memory: 14Gi}
+            volumeMounts:
+              - {name: work, mountPath: /work}
+              - {name: secrets, mountPath: /secrets, readOnly: true}
+        volumes:
+          - name: work
+            emptyDir: {}
+          - name: secrets
+            secret:
+              secretName: vyreon-worker
+              defaultMode: 0400
+              items:
+                - {key: worker-token, path: worker-token}
+                - {key: intrinio-key, path: intrinio-key}
+                - {key: fred-key, path: fred-key}
+  triggers:
+    - type: postgresql
+      name: claimable-daily-blocks
+      authenticationRef: {name: vyreon-scaler-pg}
+      metadata:
+        host: vyreon-pg-rw.vyreon.svc.cluster.local
+        port: "5432"
+        userName: vyreon_keda
+        dbName: vyreon
+        sslmode: require
+        query: "SELECT core.claimable_count('DAY_BLOCK', 'VYREON_ENGINE_BUILD', true)"
+        targetQueryValue: "1"
+        activationTargetQueryValue: "0"
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: ordered-pass
+  namespace: vyreon
+spec:
+  pollingInterval: 30
+  minReplicaCount: 0
+  # one day at a time, in date order (C-046): never parallel
+  maxReplicaCount: 1
+  successfulJobsHistoryLimit: 30
+  failedJobsHistoryLimit: 30
+  rollout: {strategy: gradual}
+  scalingStrategy: {strategy: accurate}
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    backoffLimit: 0
+    # a pass reads the published store and computes one session; a pod still going after 6 h is
+    # stuck: stopped, its lease expires and the pass is queued again (an attempt)
+    activeDeadlineSeconds: 21600
+    template:
+      metadata:
+        labels: {app: vyreon-worker, work: ordered-pass}
+        annotations:
+          # the autoscaler never removes a node under a running worker (C-051)
+          cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+      spec:
+        restartPolicy: Never
+        serviceAccountName: default
+        imagePullSecrets:
+          - {name: regcred}
+        nodeSelector: {vyreon: worker, doks.digitalocean.com/node-pool: day}
+        tolerations:
+          - {key: vyreon, operator: Equal, value: worker, effect: NoSchedule}
+        containers:
+          - name: worker
+            image: VYREON_WORKER_IMAGE
+            args: ["run", "ordered-pass", "--bin", "/opt/vyreon/bin", "--repo", "/opt/vyreon/bin"]
+            env:
+              - {name: VYREON_HOME, value: /work}
+              - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
+              - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
+              - {name: VYREON_CORE_PG_RO_FILE, value: /secrets/ordered-pass-pg}
+              - name: VYREON_WORKER_NAME
+                valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            resources:
+              requests: {cpu: "1", memory: 2Gi}
+            volumeMounts:
+              - {name: work, mountPath: /work}
+              - {name: secrets, mountPath: /secrets, readOnly: true}
+        volumes:
+          - name: work
+            emptyDir: {}
+          # only the keys this pod reads: it calls no provider
+          - name: secrets
+            secret:
+              secretName: vyreon-worker
+              defaultMode: 0400
+              items:
+                - {key: worker-token, path: worker-token}
+                - {key: ordered-pass-pg, path: ordered-pass-pg}
+  triggers:
+    # every claimable pass of the build, the daily session's among them (it waits for the backfill's
+    # earlier passes by the claim's own rule, C-051)
+    - type: postgresql
+      name: claimable-passes
+      authenticationRef: {name: vyreon-scaler-pg}
+      metadata:
+        host: vyreon-pg-rw.vyreon.svc.cluster.local
+        port: "5432"
+        userName: vyreon_keda
+        dbName: vyreon
+        sslmode: require
+        query: "SELECT core.claimable_count('ORDERED_PASS', 'VYREON_ENGINE_BUILD')"
+        targetQueryValue: "1"
+        activationTargetQueryValue: "0"

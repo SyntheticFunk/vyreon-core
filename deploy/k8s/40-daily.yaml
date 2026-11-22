@@ -1,3 +1,5 @@
+# Superseded by 50-keda.yaml (C-066) once KEDA runs the daily build: suspend this CronJob then and
+# never run both (README, "Workers from the queue", 9). Kept as the fallback while KEDA is down.
 # Daily runs (C-051): core queues each trading session at 07:30 New York the next calendar day
 # (`core_db::daily`); this CronJob starts the worker a quarter of an hour later, Tuesday to Saturday
 # (the mornings after Monday to Friday), so the queued session is claimed with nobody starting

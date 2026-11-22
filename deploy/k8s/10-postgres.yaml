@@ -20,5 +20,7 @@ spec:
       postInitSQL:
         - CREATE ROLE vyreon_reader NOLOGIN
         - CREATE ROLE vyreon_ordered_pass NOLOGIN
+        # KEDA's trigger: core.claimable_count only (migration 0046, C-066)
+        - CREATE ROLE vyreon_scaler NOLOGIN
   storage:
     size: 120Gi

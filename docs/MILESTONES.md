@@ -391,10 +391,10 @@ Run every step with `KUBECONFIG=~/claude-artifacts/cluster-scratch/kubeconfig` a
    docker-credentials, both parts by stdin.
 4. **Engine:** the claim retry (loose end) plus the test block's fixes → full suite → new image
    (`deploy/worker/build.sh`), `build register/admit` with evidence, withdraw the replaced build.
-5. **Item 2 (KEDA + autoscaling):** `helm install keda kedacore/keda --namespace keda
-   --create-namespace` (2.21), one ScaledJob per kind on the `postgresql` trigger counting
-   `core.claimable_job`, pool `day` autoscale min 0; prove it on a short real run. **Item 4:** caps from
-   the measured request draw (step 2).
+5. **Items 2 and 4 (KEDA, autoscaling, caps):** written on branch `core-keda` (C-066); merge, then
+   `deploy/k8s/README.md` "Workers from the queue" steps 1-4 (KEDA 2.21.1 by its release manifest,
+   no Helm; the `vyreon_scaler` role before the core image with 0046), proven by step 10 (the test
+   block's recompute started by KEDA alone).
 6. **Full build:** schedule tapes 2024-07-23..2026-11-20 and day blocks 2024-07-23..2026-11-20 in blocks
    of 15 (the ordered passes are already scheduled for the whole range: never schedule them again);
    switch daily runs on from 2026-11-23 (`VYREON_CORE_DAILY_FROM`/`_BUILD`, apply `40-daily.yaml`) with
@@ -413,7 +413,10 @@ day aside; three standing failures pause and alert).
 2. **Workers and nodes follow the queue:** KEDA (designed 2026-11-10, `deploy/k8s/README.md` "After
    this run"; not installed) with one ScaledJob per kind (tape, day block, ordered pass) on the
    `postgresql` trigger counting `core.claimable_job`; pool `day` autoscaling min 0, max N, so nodes
-   appear with pending pods and leave when idle. Proven on a real run before the full build.
+   appear with pending pods and leave when idle. Proven on a real run before the full build. *Written on branch
+   `core-keda` (C-066, not merged or applied): `deploy/k8s/50-keda.yaml` (four ScaledJobs: the
+   daily block apart), migration 0046 (`core.claimable_count`, login `vyreon_keda`), runbook
+   `deploy/k8s/README.md` "Workers from the queue" with the test block's recompute as its first run.*
 3. **Core's watch takes over `health.sh`:** stall (claimable, no live lease for 15 min), pods finding
    nothing while work waits, worker nodes up with no worker, spend against the ceiling: each an alert;
    plus the progress channel (below). *Built on `core-watch` (C-065): STALLED, CLAIMS_EMPTY and the
@@ -421,7 +424,8 @@ day aside; three standing failures pause and alert).
    idle nodes are item 2's.*
 4. **Hard caps instead of judgement:** the autoscaler's max nodes and KEDA's max replicas set from one
    node's measured request draw (owner's rule 2026-11-19) so the system cannot pass 1,900 requests a
-   minute or the spend ceiling.
+   minute or the spend ceiling. *Written (C-066): tapes 24, blocks 12, daily block 1, pass 1;
+   pool `day` max 13 ($2.17 an hour).*
 
 ## Work during phase 1
 **Reporter gap scan** (`~/claude-artifacts/audits/2026-11-21-reporter-gap/reporter-gap.md`): port
