@@ -1697,3 +1697,61 @@ mechanism the smallest the queue allows.* Migration 0029; `crates/core-db/src/ta
     asset-sessions on 2026-11-20). Tests: `core-db/tests/tape_check.rs` (three members of 64
     checked; a NOT_COMPARED after a DIFFER; a MATCH whose reader FAILS beside a kept PASS; a newer
     method version's cache superseding the checked one), `tape::tests`.
+
+## C-060 Phase 1 starts where today's values are final: 2024-07-09..2026-11-20, a warm-up chain of 596 sessions (owner, 2026-11-21)
+*Standard:* the warm-up period of history-dependent calculations: TA-Lib gives every function a
+lookback (bars before its first valid output) and an unstable period for those that carry memory,
+whose outputs depend on where the data starts and are discarded. Product intent: Reporter's window is
+"at least 252 accepted trading sessions" (free pages plot each sensor over time); the paid issue
+states each flag's robust z and own-history percentile beside the flag count of ordinary weeks
+(D-067).
+- **Criterion (owner):** at the live date every value of the current week, base and derived, is
+  final: building further back later (to the provider's starts, 2022-05-27 for snapshots) changes no
+  value from the live date on. The 252 sessions behind it are populated; their oldest points may move
+  on a deeper build.
+- **Measured** (code inventory 2026-11-21, engine `worker` 24713351, core dbe5d0e; checked at the
+  cited lines): base sensors take their history from the provider (option captures 223 sessions,
+  daily 379, `h3-o04` `history_production.rs`, `day_inputs.rs`), so store depth does not reach them;
+  tape caches are fetched again when missing and start at the earliest TAPE job (each day reads 252
+  tape sessions, D-310). The longest chain through the store is the flag line: pool 252 sessions of
+  every security's z (`unusual.rs` LINE_WINDOW, `ordered.rs:188`) + z window 63 + DLM-PCR-HISTORY
+  `sma_30` 29 (`h5-derived/src/lib.rs:367`) = **344**. The 126/252 level percentiles are not scored
+  (`unusual::scored` excludes "percentile"), so they end at 252.
+- **Weekly baseline (owner):** the D-067 baseline of ordinary weeks had no bound (engine
+  `vyreon-api/src/main.rs:790-798`: every earlier week back to the first stored) and so could never
+  be final. It becomes a **fixed window of 252 sessions**, the horizon of the flag line's pool and of
+  Reporter's window (control-chart practice asks at least 20–25 subgroups, Montgomery, *Introduction
+  to Statistical Quality Control*; 252 sessions is ~50 weeks). The engine records it with the code
+  change (wherever the review is computed for Reporter, gap-scan item 7).
+- **Range:** 344 + 252 = 596 sessions before the current week: start **2024-07-09**, end 2026-11-20,
+  597 sessions; tapes from **2023-07-07** (252 before the start). Snapshot windows of the first day
+  reach 2023-12-27 (the 20-column layout, D-252, read before on the cluster); the 2023 snapshot gap is
+  not reached. D-359's partial snapshots (2023-10-30, 2023-11-17) are past sessions before the start,
+  skipped and stated in windows since D-404 (not the 200-session withholding D-359's text describes).
+- **Replaces** the 2025-04-10 start ("every sensor at full window on the newest week", a weaker
+  test) and the per-tranche gate's history parts: the ordered passes run once for the range after the
+  blocks (C-046), so the history reference check and the flag-agreement test judge the whole store
+  after them. Per day as each publishes: the in-worker reference check, the Cboe bands, EDGAR.
+- **Order:** a test block 2024-07-09..07-22 (with its tape history) first; then the rest; daily runs
+  (C-051) switched on with the build, from 2026-11-23, deadlines from the live date.
+- Graph declarations that disagree with the code (judged by the code here; to fix after the build):
+  DLM-PCR-HISTORY declared 252 (reads 30), DLM-EVENT-WINDOW 252 (reads T), DLM-IV-CRUSH 252 (no bound:
+  the latest confirmed event in the store; checked after the build that every company's event lies
+  inside it). A later deepening re-runs every later ordered pass (C-037) and changes their provenance
+  bytes (`history_sha256`), not their values.
+
+## C-061 A failed day is a missing date: stated with its cause, never a block on later history (owner, 2026-11-21; built before the test block)
+Owner: "failed should count as failed such as missing or whatever. same as a missing date. If the
+problem is on the provider side it should be clear to us so we can just omit that date."
+- **Already so in the engine:** history windows walk the calendar; a session with no published day is
+  `NOT_PUBLISHED`, ineligible, one fewer against D-404's 75% floor (`h5-derived/src/lib.rs:141-156`;
+  unusualness `prior_values`).
+- **Not so in core:** a FAILED day block holds back every later ordered pass, and its own pass (never
+  claimable, its base unpublished) holds back the rest (`core.claimable_job`, 0029). C-037 already
+  re-derives every later pass when a day publishes later, so the wait buys nothing.
+- **Change:** a FAILED or omitted day block, and its unpublished day's pass, no longer hold back later
+  passes; a day queued again holds them as any pending day does. `GET /v1/sessions` states each
+  NOT_PUBLISHED session's cause: PROVIDER_INPUT_MISSING (the provider-input hold, with its counts),
+  ENGINE_FAULT (the fault hold), FAILED (the stop's first line), NOT_COMPUTED_YET (queued or running),
+  OMITTED (with the operator's reason); omitting a date is one command with a reason; the digest lists
+  each set-aside day with its cause. An engine fault is fixed and recomputed, never omitted.

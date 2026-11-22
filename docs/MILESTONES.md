@@ -8,6 +8,27 @@ then reference lists. Decisions: core `docs/DECISIONS.md` (C-numbers), engine `d
 Paths under `~/claude-artifacts/` are on the laptop (`checks/`, `audits/`, `cluster-scratch/`).
 Times are UTC unless marked MT. Write a time only after `date -u`.
 
+## Terms (agreed with the owner 2026-11-21; define a word here before using it in a plan)
+- **Phase 1:** the database build back far enough for the MVP reports: 2024-07-09..2026-11-20 (C-060).
+- **Final:** a value that building further back would not change. At the live date every value of
+  the current week is final (C-060's chain: 596 sessions behind it).
+- **Warm-up:** the sessions at the start of a build whose derived values are not final (TA-Lib's
+  lookback and unstable period); stored, never reported as current.
+- **Live:** the date we declare the database up; from it every new session is computed by the daily
+  runs (C-051) and reports publish each Sunday.
+- **Block:** a DAY_BLOCK job, consecutive sessions one worker computes (15 in phase 1).
+- **Ordered pass:** the history-derived pass of one session (unusualness, windows over the store); runs
+  once per session, in date order, after the blocks (C-046).
+- **Test block:** the first block run alone (2024-07-09..07-22) before the rest; what "tranche" meant
+  in the 2026-11-18 gate. "Tranche" is retired.
+- **Gates a–c (per day, as it publishes):** (a) the in-worker reference check; (b) the Cboe bands;
+  (c) EDGAR. **Whole-store gate (after the ordered passes):** the history reference check and the
+  flag-agreement test (d). A failure stops the build: diagnose, fix, recompute.
+- **Failed day:** a day out of attempts; a missing date in every window, stated with its cause
+  (C-061). **Omitted:** a failed day we drop on purpose, with its reason (provider faults only).
+- **Coverage goal (80%):** per sensor over its asset-days, measured, never enforced. **Window floor
+  (75%, D-404):** per history window, a rule. **Day hold (10%):** per day, a rule (`exports.rs`).
+
 ## Steps to the MVP (the list shown to the owner on a status request; keep it current)
 **DATED COMMITMENT: the paid pilot (live on www.vyreonlabs.net/early-access, read 2026-11-16).**
 One customer has paid USD 10 for four weekly email issues on Sundays **2027-01-10, 01-17, 01-24,
@@ -56,8 +77,8 @@ Done:
   sessions. Image **cc1d67cf** is the phase-1 image.
 
 Next:
-1. **Phase 1, the build** (launch brief below). Newest blocks first; the newest two weeks are
-   judged while the rest run (owner's step 4a).
+1. **Phase 1, the build** (launch brief below; range and depth C-060): the test block, then the rest;
+   gates a–c per day, the whole-store gate after the ordered passes.
 2. **Verify phase 1:** the QA plan below; then the full examination of the built store (owner,
    2026-11-16): per rule, does it generalise cleanly (fired how often, on what; over-firing; never
    fired; resting on one case) → a short list of rule changes (each a scoped recalculation) and the
@@ -68,7 +89,12 @@ Next:
    is added ("feels like complexity that will cause problems ... If rules are being applied on some
    days but not others then we shouldnt be doing it"): the census reads the outputs (absences by
    reason, per sensor, asset, date; continuity). Rules required by a published standard fire only
-   on their events by nature.
+   on their events by nature. **Origin (owner, 2026-11-21):** every rule was written on ~40 sparse
+   dates (the B0/B1 censuses) because a full build cost too much; the build is the first population.
+   "We are building a measurement system, we don't want one-off handling, we want generalizable
+   sensors." Base layer censused once its days are in, derived after the ordered passes; the criteria
+   (fired only on its origin case, never fired, over-fires against the 80% goal, fires at a code-change
+   date) are written down before the census is read.
 3. **Reporter on the phase-1 database:** the gap scan's work list (below); a proper paid report
    beside the free one; then "a significant body of iteration on the reports themselves" until free
    and paid are generated with confidence. Weekly comparison (owner, 2026-11-17): per sensor this
@@ -89,67 +115,65 @@ Next:
    After it, or when wanted: deeper history (old snapshot layouts readable since D-251..D-254; the
    2023-01-18..03-07 gap needs a ruling), the FIELD campaign, social posting, CI.
 
-## Phase-1 launch brief (for the session that launches it)
+## Phase-1 launch brief (agreed with the owner 2026-11-21; C-060, C-061)
 **Image cc1d67cf** (build `cc1d67cf+f9676b89ff09`, 1,596 passed; @13 tape sample 256/256 PASS, all
 six quote fields compared, bodies identical to @12, run with the phase-1 tape template; replaces
-da3dade4). Core runs `vyreon-core:139a21b` (the image needs ≥ 996ad69). Confirm the build is
-registered and admitted (done 2026-11-21 ~20:00 UTC for its tape sample; re-check with core before
-scheduling).
-- **Range:** 2025-04-10..2026-11-20, 407 sessions (every sensor at full window on the newest week;
-  no old-layout snapshot; no 2023 gap). Phase 1 opens two days after VIX's 2025-04-08 peak (~52).
-- **Layout:** blocks of 15 on ~27 `s-8vcpu-16gb-amd` day nodes (droplet limit 30: web, the engine
-  droplet, the core node, 27 workers), newest blocks first. nyc1 has refused AMD capacity before;
-  the fallback pool `day-std` (s-8vcpu-16gb Intel) is slower (AMD runs stages at 0.54–0.73 of
-  Intel's time).
-- **Tapes:** every tape cache is re-derived under @13 (D-412 changed the reader identity, so all
-  stored caches are stale). Tape jobs from 2024-04-09 (2025-04-10 reads 252 prior tape sessions,
-  D-310). The tape verdict now takes 10–16 min a session (≈ +35 node-h). A day job must never start
-  before its tape history is cached; schedule an older date's tape job only after later days have
-  claimed (tape history starts at the earliest uncancelled TAPE job).
+da3dade4). Core runs `vyreon-core:139a21b` (the image needs ≥ 996ad69); settings since 2026-11-21
+(before 23:57 UTC): `VYREON_CORE_REFCHECK_FROM=2024-07-09` (C-054; was unset), `VYREON_CORE_INTRINIO_PER_MINUTE=1900` (owner: the account's 2,000 a minute, shared by every
+node; was 1,500), both in `deploy/k8s/20-core.yaml`. Re-check the build is registered and admitted
+before scheduling.
+- **Range (C-060):** 2024-07-09..2026-11-20, 597 sessions: today's values final (warm-up chain 596 =
+  flag-line pool 252 + z 63 + sma_30 29, then the 252-session weekly baseline). The 2023 snapshot gap
+  is not reached; D-359's partial sessions are before the start (skipped and stated, D-404).
+- **Order (owner: one pass, so every known change lands first):** (0) the flag-agreement code and
+  C-061's core change, built, audited and deployed; (1) tapes 2023-07-07..2024-07-22 and the test block 2024-07-09..07-22 on one day node;
+  judge its days (gates a–c, holds, memory, one node's request draw) and fix what it shows; (2) the rest: tapes to
+  2026-11-20, then blocks of 15, nodes added only while the request budget has headroom (owner,
+  2026-11-19); (3) the ordered passes, scheduled ONCE for the whole range (C-046); (4) the whole-store gate. Daily runs (C-051) switched on when the full build
+  starts, from 2026-11-23 (`VYREON_CORE_DAILY_FROM`/`_BUILD`, apply `40-daily.yaml`); set
+  `VYREON_CORE_DEADLINES_FROM` to the live date so deadlines don't fire during the build.
+- **Layout:** `s-8vcpu-16gb-amd` day nodes (droplet limit 30: web, the engine droplet, the core node,
+  up to 27 workers). nyc1 has refused AMD capacity before; the fallback pool `day-std` (s-8vcpu-16gb
+  Intel) is slower (AMD runs stages at 0.54–0.73 of Intel's time).
+- **Tapes:** every tape cache is re-derived under @13 (D-412 changed the reader identity). A day block
+  claims only when no unfinished TAPE job is dated at or before its last session (`claimable_job`):
+  every tape the block reads must be done first. The tape verdict takes 10–16 min a session.
 - **Templates and scripts (`deploy/k8s/ops/`, README there):** `job-day-block.yaml`, `job-tape.yaml`
-  (image cc1d67cf, `fred-key` now mounted: 25f1f75 fixed the projection that missed it); set
-  `metadata.name`, `completions`, `parallelism`, the pool. `delete-idle.sh` after every run ends
-  (selects by label `app=vyreon-worker`, every `day*` pool); `scale-pool.sh`, `do.sh`. Secret
-  `vyreon-worker` keys: `worker-token`, `intrinio-key`, `fred-key`, `ordered-pass-pg`. Kubeconfig
-  `~/claude-artifacts/cluster-scratch/kubeconfig` (expires after 7 days; refresh from DO).
-- **Scheduling (C-046):** schedule the ordered passes ONCE for the whole range (before the first
-  block or after the last): 402 runs. With each tranche it is quadratic (2,602 runs; 81,003 day by
-  day). After any job fails for the last time: read its evidence (`vyreon-core evidence list|show`),
-  fix or accept the cause, then `vyreon-core queue resume`; check `core.queue_control` whenever pods
-  find nothing to claim.
-- **Settings to check:** `VYREON_CORE_REFCHECK_FROM` = 2025-04-10 (C-054); `VYREON_CORE_DAILY_FROM`
-  and `VYREON_CORE_DEADLINES_FROM` stay unset until daily runs start.
+  (image cc1d67cf, `fred-key` mounted); set `metadata.name`, `completions`, `parallelism`, the pool.
+  `delete-idle.sh` after every run ends; `scale-pool.sh`, `do.sh`. Secret `vyreon-worker` keys:
+  `worker-token`, `intrinio-key`, `fred-key`, `ordered-pass-pg`. Kubeconfig
+  `~/claude-artifacts/cluster-scratch/kubeconfig` (downloaded 2026-11-18; expires ~2026-11-25:
+  refresh from DO before then).
+- **Failed days (C-061):** core sets a failed day aside and the build goes on (3 standing failed days
+  pause the queue). Read its evidence (`vyreon-core evidence list|show`); a provider cause is a
+  missing date (omitted with its reason once C-061 is built); an engine cause is fixed and recomputed.
+  Check `core.queue_control` whenever pods find nothing to claim.
 - **Spend:** DigitalOcean $180.41 month-to-date at 2026-11-21 06:09 UTC, before the build. Projection
-  ~$145 (range $130–170 with reruns): ~28 node-h a 15-day block (first day 226 min + 14 × ~104) ≈
-  760 node-h + tape re-downloads ~100 node-h, × $0.167. Ceiling **$400** total (owner, 2026-11-21).
-  Wall time ~2–3 days (≈3.3M requests at ≤1,600/min ≈ 34 h, overlapping ~28 h of compute a block).
-  Keep the running total here; warn before passing the ceiling.
-- **Watch:** core's request budget (Intrinio 2,000/min, shared through core's leases, C-025; 27
-  nodes start their first days together). Owner rule (2026-11-19): start another node only when the
-  download budget has headroom (measure one node's steady draw on the first block). Worker memory
-  over a 15-day block on 16 GB (D-407 trims after each plan and day; logged `memory after <T>`); any
-  hold, refusal or worker crash; refcheck unexplained counts; the Discord digest; the M0 solve-reuse
-  hit rate within a block (Codex round ee's one >5% lead: measure, don't build first).
+  ~$210 (range $190–250 with reruns): 40 blocks × ~28 node-h ≈ 1,115 node-h + tapes ~145 node-h, ×
+  $0.167. Ceiling **$500** total (owner, 2026-11-21: "There may be multiple computes if we find
+  errors"). Wall time ~2–3 days, bound by the request budget. Keep the running total here.
+- **Watch:** core's request budget (1,900/min, shared through core's leases, C-025; whether presigned
+  downloads count against the provider's 2,000 is not proven: watch for rate-limit refusals before
+  adding nodes); worker memory over a 15-day block on 16 GB (logged `memory after <T>`); holds,
+  refusals, crashes; refcheck unexplained counts; the Discord digest; the M0 solve-reuse hit rate.
 - **Expected absences in range (not faults):** P-23 tape eras (before 2025-11-26 thin trades, before
-  2025-09-04 no quotes: D-411 gate 2 fired on 38 of 64 on 2025-04-11); replay quote widths withheld
-  from 2026-11-06 (P-04, D-411 gate 3); EVC01 quote-width flags from ~2026-06, volume flags from
-  ~2026-09 only if P-04 is reconciled; QQQ 2026-09-28 a stated absence (P-21); EMB histories short
-  to ~2025-10 (D-290); SAI-EXQ01 and M0-PRINT-SIZE withheld EVENT_SOURCE_NOT_RETAINED before
-  2026-10-23 (the droplet holds the cohort prints from 10-23: check they are read, D-263/C-052).
-- **Tranche gate (owner, 2026-11-18: "the consequences of a wrong number are unfortunately quite
-  large"):** each tranche passes, before the next starts: (a) refcheck in the worker on every day;
-  (b) the Cboe bands (`tools/external`); (c) EDGAR; (d) once 63 sessions of history exist, a
-  flag-agreement test: when a Cboe index is in the top tenth of its last 63 sessions, our matching
-  iv30 is flagged too. **(d) declared 2026-11-21 (owner-approved definition) in
-  `tools/external/README.md` "Flag agreement": the percentile half of D-070 on the 14 Cboe pairs, both
-  directions ≥ 0.80 with ≥ 10 index-extreme sessions; the check code is to be written in
-  `tools/external` before the first tranche is judged.** A failed check stops phase 1: diagnose, fix, recompute the affected
-  days. Bands are not moved after the fact. VXSLV/SLV and VXFXI/FXI correlation judged on 63-session
-  panels only (owner, 2026-11-19, declared in the README).
+  2025-09-04 no quotes); replay quote widths withheld from 2026-11-06 (P-04, D-411 gate 3); EVC01
+  quote-width flags from ~2026-06, volume flags from ~2026-09 only if P-04 is reconciled; QQQ
+  2026-09-28 a stated absence (P-21); EMB histories short to ~2025-10 (D-290); SAI-EXQ01 and
+  M0-PRINT-SIZE withheld EVENT_SOURCE_NOT_RETAINED before 2026-10-23 (check the droplet's cohort
+  prints from 10-23 are read, D-263/C-052).
+- **Gates (owner, 2026-11-18: "the consequences of a wrong number are unfortunately quite large"):**
+  per day as it publishes (a) refcheck in the worker, (b) the Cboe bands (`tools/external`), (c) EDGAR;
+  after the ordered passes, the whole store: the history reference check (QA 1) and (d) the
+  flag-agreement test (`tools/external/README.md` "Flag agreement", declared 2026-11-21: the
+  percentile half of D-070 on the 14 Cboe pairs, both directions ≥ 0.80 with ≥ 10 index-extreme
+  sessions; code in `tools/external` before any phase-1 value is judged). A failed check stops phase
+  1: diagnose, fix, recompute the affected days. Bands are not moved after the fact. VXSLV/SLV and
+  VXFXI/FXI judged on 63-session panels only (owner, 2026-11-19, declared in the README).
 - **QA plan (owner, 2026-11-21: "We do phase 1, try to break it, fix what breaks, then move towards
   Reporter generating free+paid reports, and go live with web"; "worth proving this system as much
   as possible"):**
-  1. History reference check as a gate on the first (newest) tranche: `tools/reference` recomputes
+  1. History reference check as the whole-store gate after the ordered passes: `tools/reference` recomputes
      z-scores, percentiles, one-year windows, flags, technicals and EVC baselines from the built
      store; the rest of the build is trusted only after it passes.
   2. Continuity plots for the owner's eye: every sensor × asset over the range (jumps the market did
@@ -162,13 +186,13 @@ scheduling).
   5. Look-ahead audit over the built store: nothing uses data stamped after its cutoff (filings,
      macro releases, restated captures such as BABA's of 11-21).
   Then try to break it and fix what breaks.
-- **Per-tranche census (owner, 2026-11-16: "the database must hold enough data points to judge the
+- **Census (owner, 2026-11-16: "the database must hold enough data points to judge the
   event rules"):** per event rule (first chain, strike adjustment, OI outage, split and rename
   translation, receipt ratio, bank not-applicable, refused snapshot rows, capture failures, provider
   comparison classes): how often it fired, on which assets and dates, and every withheld state by
   reason. Owner: expect a rule to fail to generalise; one sensor affected → single-sensor rebuild;
   many → full rebuild of phase 1; decided from the evidence.
-- **Backups as soon as the first tranche is stored** (owner, 2026-11-21; not after its census):
+- **Backups as soon as the test block is stored** (owner, 2026-11-21; not after its census):
   CloudNativePG scheduled backups to Spaces, weekly full plus continuous WAL archiving, ~30 days, a
   bucket and key only for backups; then one restore drill. Owner, 2026-11-17: "given that
   recomputation has a known time and money cost its actually WORTH backing shit up." Then delete the
@@ -224,6 +248,12 @@ token once the shape settles; the reader API stays inside the cluster; backups w
 restore; a read-only exposure check and an attack-surface audit. Phone recovery is the owner's.
 
 **Loose ends (each before the step it names):**
+- **C-061 core change before the test block:** a failed or omitted day no longer holds back later
+  passes; NOT_PUBLISHED sessions state their cause; omit-with-reason command; digest lines.
+- **The 252-session weekly baseline (C-060)** in the review Reporter reads (today unbounded in the
+  engine's `vyreon-api`), before the first paid issue.
+- After the build: fix the graph declarations C-060 lists; check every company's DLM-IV-CRUSH event
+  lies inside the build.
 - **Trades-API switch before daily publishing** (owner, 2026-11-18: daily runs take trades from the
   trades API, quotes from the replay; engine D-089 amendment not built). Measured 2026-11-17: NVDA
   4,970,460 trades, 498 requests, 25 min; SPY 96 requests; all 64 likely a few thousand requests a
@@ -269,21 +299,23 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
 - The production droplet's 2025-12-10 store (177 withheld activity slots): rebind and republish on
   the owner's word; the droplet's retirement once the cluster's daily runs keep the perishable
   prints and its database is carried in.
-- Deeper history, not phase 1: the 2023-01-18..03-07 snapshot gap; D-359 partial-snapshot sessions
-  (change the hold, or end the history at the partial session), decided on build evidence.
+- Deeper history, not phase 1: the 2023-01-18..03-07 snapshot gap. (D-359's partial sessions are
+  skipped and stated in windows since D-404; nothing left to rule.)
+- The day hold (10% of slots lacking a provider input): whether a held day publishes its good assets
+  with the rest stated instead of failing whole (E11's spirit), judged on the build's held days.
 - A tape-verify DIFFER (C-059), if one appears: recheck vs replace.
 
 ## Standing owner rulings that still govern the work
-- **Spend:** ceiling **$400 in total** (2026-11-21; was $300, "willing to expand as necessary");
+- **Spend:** ceiling **$500 in total** (2026-11-21, for phase 1 and its reruns; was $400);
   running total kept here, owner warned before a step passes it; billing alert declined
   (2026-11-21: "we will be watching"). Standing infrastructure is just "on"; worker nodes and test
   droplets as many in parallel as testing needs, without asking, each deleted when idle (2026-11-16).
 - **Sequence (2026-11-21):** phase 1 → verify phase 1 → Reporter → web, Reporter work beside phase 1;
   phase 1 the priority (2026-11-17: "The database build is 10-ish days alone for phase 1. Then we can
-  sprint towards live launch readiness."). Phase 1 = newest two weeks, then back to 2025-04-10;
+  sprint towards live launch readiness."). Phase 1 = 2024-07-09..2026-11-20 (C-060, owner 2026-11-21; was the newest two weeks, then back to 2025-04-10);
   deeper history after launch (2026-11-16). Universe: the 64 for a long time, robust to renames and
   delistings (2026-11-14). FIELD campaign after the build; only structural changes before it.
-- **Phase-1 QA (2026-11-21):** the plan, tranche gate (2026-11-18) and censuses in the launch brief;
+- **Phase-1 QA (2026-11-21):** the plan, gates (2026-11-18; per day and whole store since 2026-11-21) and censuses in the launch brief;
   no rule tracking added (2026-11-16).
 - **Startup tier (2026-11-21):** after the build (display rights only); on 11-25 if phase 1 is done;
   the build never waits for it. Free and paid together ideally, free first if need be (2026-11-14).
@@ -369,7 +401,7 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   unsolved share (owner 2026-11-15).
 
 ## Machines and money
-- **Spend:** DigitalOcean $180.41 month-to-date (2026-11-21 06:09 UTC), before phase 1; ceiling $400.
+- **Spend:** DigitalOcean $180.41 month-to-date (2026-11-21 06:09 UTC), before phase 1; ceiling $500.
 - **Droplets (4 of 30 before the build):** web (`Telemetry-Backend`), `vyreon-engine-shared-8vcpu-amd`,
   the cluster's core node, workers as running. Limit 30 (up to 27 workers).
 - **Droplet `ssh vyreon-engine`** (8 vCPU, $112 a month): Postgres, the daily capture and archive
@@ -408,7 +440,7 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
 ## Not yet proven
 - 27 nodes at once (request budget, nyc1 AMD capacity, core under load; whether presigned downloads
   count against the 2,000 a minute); a 15-day block (memory on 16 GB; M0 solve-reuse hit rate).
-- The history reference check over built histories; the flag-agreement test (declared, not built);
+- The history reference check over built histories; the flag-agreement test (declared; code next);
   refcheck across ~400 sessions; the reuse-index fix's later-day time (~104 min expected).
 - Daily go-forward in production (C-051; the daily claim through HTTP, `JOB_COMPLETION_INDEX` on the
   cluster), deadline alerts, scaling the pool to 0; the trades-API path.
