@@ -281,13 +281,12 @@ Run every step with `KUBECONFIG=~/claude-artifacts/cluster-scratch/kubeconfig` a
    Intrinio usage (Intrinio MCP `get_account_usage`) against core's request ledger for one node's
    draw; wall time per day. Report to the owner with numbers; fix what it shows (worktree per fix,
    audit, merge, image) before anything else.
-3. **Core branch `core-watch`** (`/home/diggz/wt/core-watch`, tip a486c53, built 2026-11-22: C-065,
-   migration 0042; 40 unit + 115 database tests; claim race reproduced 3/3 before, never after): item 1
-   claim race, item 3 STALLED (15 min; 30 for daily-only work) and CLAIMS_EMPTY (3 misses in 10 min),
-   progress channel (`VYREON_CORE_PROGRESS_WEBHOOK_FILE`, 30-min batches). Codex audit started
-   2026-11-22 05:0x UTC (`audits/2026-11-22-prebuild/round2/core-watch.md`): triage, fix, merge, deploy (`docker build -f deploy/core/Dockerfile`, push, `kubectl set image ... core= migrate=`),
-   mount secret `vyreon-core-progress-webhook`. Registry login: DO API docker-credentials (pass both
-   parts by stdin, never on a command line).
+3. **Core `core-watch` merged into main** (2026-11-22 ~07:00 UTC; C-065 and its audit's 16 fixes,
+   migrations 0042..0045; 43 unit + 123 database tests on merged main). NOT deployed: deploy after the
+   test block finishes (core restart under a publishing block avoided): build, push, `kubectl set image
+   ... core= migrate=`, set `VYREON_CORE_PROGRESS_WEBHOOK_FILE` and mount secret
+   `vyreon-core-progress-webhook` (manifest done), then stop run.sh's own posts. Registry login: DO API
+   docker-credentials, both parts by stdin.
 4. **Engine:** the claim retry (loose end) plus the test block's fixes → full suite → new image
    (`deploy/worker/build.sh`), `build register/admit` with evidence, withdraw the replaced build.
 5. **Item 2 (KEDA + autoscaling):** `helm install keda kedacore/keda --namespace keda
