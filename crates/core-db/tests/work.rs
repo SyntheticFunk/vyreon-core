@@ -1481,6 +1481,43 @@ async fn a_retirement_token_covers_the_later_history_it_takes_down() {
     scratch.drop().await;
 }
 
+/// Audit 2026-11-22 prebuild round 2 (core-r2.md) 9: a retirement selected its jobs without locking
+/// them and recorded them all as cancelled; one whose worker finished in between (its finish takes no
+/// publish lock) was skipped by the cancel but named in the retirement. A worker finishing the day's
+/// block holds its lease and job while the retirement runs; it commits; the retirement names no job.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_retirement_names_only_the_jobs_it_cancelled() {
+    let (scratch, mut client, b, _) = ready("r2_retire_cancelled").await;
+    admit(&client, &b).await;
+    let day = "2025-12-10";
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, day, day, 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &block, day).await;
+    let preview = publish::retire(&mut client, "an earlier build", &[day], true, None).await.unwrap();
+    assert_eq!(preview.cancelled, [block.job_id]);
+    // the worker's finish, under way: its lease and job held, both ended in its transaction
+    let mut worker = scratch.client().await;
+    let finishing = worker.transaction().await.unwrap();
+    finishing.execute("SELECT FROM core.lease l JOIN core.job j USING (job_id) WHERE j.job_id = $1 AND l.ended_at IS NULL FOR UPDATE OF l, j", &[&block.job_id]).await.unwrap();
+    finishing.execute("UPDATE core.lease SET ended_at = now(), outcome = 'DONE' WHERE job_id = $1 AND ended_at IS NULL", &[&block.job_id]).await.unwrap();
+    finishing.execute("UPDATE core.job SET state = 'DONE', finished_at = now() WHERE job_id = $1", &[&block.job_id]).await.unwrap();
+    let mut c = scratch.client().await;
+    let token = preview.token.clone();
+    let retiring = tokio::spawn(async move { publish::retire(&mut c, "an earlier build", &[day], false, Some(&token)).await });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert!(!retiring.is_finished(), "the retirement waits for the job's lease");
+    finishing.commit().await.unwrap();
+    let retired = retiring.await.unwrap().unwrap();
+    assert_eq!(retired.cancelled, Vec::<i64>::new());
+    assert_eq!(job_state(&client, block.job_id).await, "DONE");
+    let recorded: Vec<i64> = client.query_one("SELECT cancelled FROM core.retirement", &[]).await.unwrap().get(0);
+    assert_eq!(recorded, Vec::<i64>::new());
+    let said = notices(&client).await;
+    assert!(said.iter().any(|n| n.starts_with("Retirement ") && n.contains("no unfinished job")), "{said:?}");
+    scratch.drop().await;
+}
+
 /// C-061: `omit` takes only a day whose job stands FAILED, never the engine's fault hold; it
 /// records the reason, cancels the day job and the session's queued pass and logs a notice; the
 /// digest names each day set aside and each date omitted with its cause code.
