@@ -252,7 +252,8 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   passes; NOT_PUBLISHED sessions state their cause; omit-with-reason command; digest lines.
   With it, C-062 (audit 2026-11-22 surface 6, above the cut line): a fallen day's pass is queued under
   a build that runs, never two unfinished passes a session, any missing day holds no pass,
-  `days retire` (built, not run).
+  `days retire` (built, not run). C-063 (audit 2026-11-22 changes-core): a day is published for the
+  passes only with its day-local revision (#2, above the cut line), and the other queue fixes.
 - **The 252-session weekly baseline (C-060)** in the review Reporter reads (today unbounded in the
   engine's `vyreon-api`), before the first paid issue.
 - After the build: fix the graph declarations C-060 lists; check every company's DLM-IV-CRUSH event
@@ -298,7 +299,8 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   asset's stated lack; if old eras omit it, every payer of that era is withheld).
 - The 24 days core holds from 8 earlier builds (2022-06-06..15, pre-D-397, Reporter refuses them; and
   16 in phase 1's range: 2025-04-11, 2025-12-10/11, 2026-10-28..11-13): retire them with
-  `vyreon-core days retire --preview` then without (C-062: rows kept, later history derived again)
+  `vyreon-core days retire --preview` then `--expect <its token>` (C-062, C-063: rows kept, later
+  history derived again)
   before the test block, or leave them. C-062's recommended order: withdraw the old builds, retire,
   schedule the phase-1 passes for the whole range, then the test block.
 - At daily-runs deploy: pool `day` scaling to 0 (DO's pages disagree) or min 1 (~$120 a month).
