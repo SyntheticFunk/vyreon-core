@@ -62,6 +62,7 @@ spec:
       securityContext: {fsGroup: 10001}
       # C-068 round 2: reads the backup plugin's record (the Role above), nothing else
       serviceAccountName: vyreon-core
+      imagePullSecrets: [{name: regcred}]   # its own account has no pull secret (the default account carries it)
       automountServiceAccountToken: true
       initContainers:
         - name: migrate
