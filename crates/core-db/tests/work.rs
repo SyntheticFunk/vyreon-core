@@ -1192,6 +1192,27 @@ async fn a_date_is_omitted_only_when_its_day_failed_for_the_provider() {
     let lines: Vec<&str> = digest.lines().filter(|l| l.starts_with("Set aside: ") || l.starts_with("Omitted: ")).collect();
     let cut = watch::one_line(&first_line, 160);
     assert_eq!(lines, [format!("Omitted: Wed Dec 10, 2025 · OMITTED (PROVIDER_INPUT_MISSING) · {reason}"), format!("Set aside: Thu Dec 11, 2025 · FAILED · {cut}")], "{digest}");
+
+    // audit 2026-11-22 changes-core 11: an omission states the session only while it is current.
+    // Scheduled again, the 10th fails on the engine's hold: that is its cause now, not the old
+    // omission; published by hand and then retired, it reads RETIRED
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[0], days[0], 1).await.unwrap();
+    client.execute("UPDATE core.job SET max_attempts = 1 WHERE kind = 'DAY_BLOCK' AND state = 'QUEUED'", &[]).await.unwrap();
+    assert_eq!(cause(&client, days[0]).await.0, "NOT_COMPUTED_YET");
+    let anew = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    work::fail(&mut client, &anew.token, "day 2025-12-10", &test_support::engine_fault_hold(days[0]), "log").await.unwrap();
+    assert_eq!(cause(&client, days[0]).await.0, "ENGINE_FAULT", "the current failure, not the old omission");
+    work::cancel(&mut client, &[anew.job_id]).await.unwrap();
+    assert_eq!(cause(&client, days[0]).await.0, "NOT_SCHEDULED");
+    let (mut h, sc, f) = parts(BASE);
+    h.represented_date = days[0].into();
+    let path = bundle(&unique("c063-omitted-then-published"), &h, &sc, &f);
+    publish_file(&mut client, &path).await.unwrap();
+    std::fs::remove_file(&path).unwrap();
+    let retired = "published by hand by mistake";
+    let preview = publish::retire(&mut client, retired, &[days[0]], true, None).await.unwrap();
+    publish::retire(&mut client, retired, &[days[0]], false, Some(&preview.token)).await.unwrap();
+    assert_eq!(cause(&client, days[0]).await, ("RETIRED".into(), retired.into()));
     scratch.drop().await;
 }
 
