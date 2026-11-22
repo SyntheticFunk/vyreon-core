@@ -279,6 +279,10 @@ lines; digests, text, JSONB, receipts, versions, states, scalar values).
 - **The claim carries the member manifest**: for each session, each member's key, security id,
   ticker in use (none when not listed), group and company flag, and the provider sources' first
   dates. The engine ignores it until E6.
+- **Amended 2026-11-22 (C-065): a claim leases a job whenever one is claimable and unlocked.** The
+  locking scan itself requires `state = 'QUEUED'`, so a row leased by a concurrent claim fails
+  PostgreSQL's re-check and the scan takes the next; a claim that still finds nothing while work is
+  claimable looks again (3 times) and is kept as a miss for the watch.
 
 - **Amended 2026-11-20 (audit 2026-11-20-pass1-round-cc, core.md, triage c.md, 12): requests outside the budget.** The budget covers the
   workers; a tool run by hand with the same key (`tools/external/datashop.py fetch`) is not drawn
@@ -822,6 +826,9 @@ published for a week. Migration 0018; `crates/core-db/src/watch.rs`.
   engine's science (D-069), and core does not compute it. Reporter's dry run is a placeholder line.
 - **v2 (seam in `watch.rs`):** spend against the budget (needs a DigitalOcean billing-read token)
   and idle worker nodes (needs Kubernetes read access): each is one more source of problems.
+  *Amended 2026-11-22 (C-065):* neither is built; spend stays the operator's (no cloud token in
+  core), idle nodes the autoscaler's. Two kinds added from core's rows: `STALLED` and `CLAIMS_EMPTY`.
+  A second, optional channel carries progress (C-065); this channel is unchanged.
 - **Deploying:** migration 0018; `deploy/k8s/20-core.yaml` mounts Secret `vyreon-core-webhook`
   (key `webhook`) read-only and sets `VYREON_CORE_WEBHOOK_FILE`; absent, the posts wait unsent. The
   watch runs either way. The channel starts clean by itself: every notice written before 0018 is
@@ -2070,3 +2077,84 @@ fixed. Migrations 0039–0041.
   `a_retirement_names_only_the_jobs_it_cancelled`, `a_withdrawal_is_stamped_when_it_ends_its_leases`.
 - **The engine side of 10** (the worker's fallback day) is being fixed separately; core no longer
   depends on it.
+
+## C-065 The watch takes over the operator's health checks; the claim no longer loses its race; a progress channel (owner, 2026-11-22; MILESTONES "Before the full build" items 1 and 3)
+The test block's tapes needed an operator watching `deploy/k8s/ops/health.sh`. Three of its checks
+move into core; the fourth (spend) cannot. Migration 0042.
+- **The claim race (item 1).** With 24 tape pods claiming at once about half got "no job to claim"
+  while 195 were claimable. The claim was `UPDATE … WHERE job_id = (SELECT … LIMIT 1 FOR UPDATE SKIP
+  LOCKED) AND state = 'QUEUED'`. Under READ COMMITTED a row another claim leased and committed after
+  this statement's snapshot is locked at its newest version and re-checked against the locking scan's
+  own conditions (PostgreSQL's EvalPlanQual, "UPDATE, DELETE, SELECT FOR UPDATE … the second updater
+  … re-evaluate its WHERE clause using the updated version of the row", docs §13.2.1, as known; not
+  re-read online). The inner scan's only conditions were the job id's membership in the view (read
+  from the snapshot) and the priority, so the leased row passed, and the outer `state = 'QUEUED'`
+  dropped it: the claim returned nothing. **Fix:** `j.state = 'QUEUED'` in the inner scan, so the
+  re-check fails and the scan goes on to the next claimable row. Then, if nothing was leased while the
+  view still shows work, the claim looks again with a fresh statement (`work::CLAIM_TRIES`, 3: a row
+  that became claimable after the snapshot, a claim rolled back); work still claimable after that is
+  kept as a miss (`core.claim_miss`: kind, build, worker, daily, how many claimable). **Measured:**
+  `claims_at_once_each_lease_a_job_while_any_is_claimable` (1,759 real calendar sessions, one tape job
+  each; 8 rounds of 32 claims at once, then 32 claims over the last 10): before the fix 3 of 3 runs
+  failed in round 0 or 1 (30 or 31 of 32 leased); after, 4 of 4 with the inner condition alone, every
+  claim leasing a distinct job, exactly 10 of the last 10, no job twice. The test needed the long
+  queue: over 147 jobs the statement was too quick for the race to show. Lock order unchanged (C-064).
+- **Watch problems (item 3, C-050's kinds; one alert, one "Resolved", never a ping):**
+  - `STALLED` (key `queue`): claimable work (`core.claimable_job`, so not while paused or with no
+    admitted build) and no live lease for **15 minutes** (the owner's number: a node's start and a
+    pod's claim take minutes, a Job out of completions or KEDA not starting pods never ends). The
+    clock is the later of when the watch first saw it (`core.stall_seen`, one row) and the last lease
+    granted or ended, so pods that claim and die keep restarting it (their failures are
+    `JOB_FAILED`'s). **30 minutes when every claimable job is a daily run's:** CronJob `daily` starts
+    at 07:45 New York, 15 minutes after the 07:30 queueing (C-051), and its node has to start; 15
+    would alert every morning until KEDA replaces the CronJob. Resolves when a lease is live.
+  - `CLAIMS_EMPTY` (key `claims`): **at least 3 misses in 10 minutes** while work of their kind and
+    build (and priority, for a daily worker) is **still claimable at the check**, open while any
+    recurs with the work still there. The race made about 12 a minute. A miss whose work others were
+    leasing at that instant (counted claimable by the claim, leased a moment later) is not claimable
+    at the check, so it opens nothing; after the fix a real one means pods leave while work waits.
+    Misses are kept 7 days.
+  - **Spend against the ceiling: not in core.** Core's own data (leases) cannot see a node that runs
+    without a worker, the costliest failure (8 idle nodes on 2026-11-22), nor the core node, the
+    volume or Spaces; DigitalOcean's month-to-date usage needs a token, which core does not hold
+    (owner's rule). It stays the operator's (`health.sh`) and item 4's hard caps.
+  - Not built here, as asked: idle worker nodes (the autoscaler's, item 2). Left in `health.sh`:
+    pod errors' last lines and day-worker memory (worker logs, which core does not hold; a failure
+    reaches core as `fail`/evidence, an OOM kill as an expired lease).
+- **The progress channel (owner, 2026-11-22).** `VYREON_CORE_PROGRESS_WEBHOOK_FILE` (optional;
+  Secret `vyreon-core-progress-webhook`, key `webhook`, mounted as the alerts webhook is); unset or
+  absent, nothing is composed or posted for it. Every **30 minutes** (`progress::WINDOW_MINUTES`) core
+  composes the window since the last from its own rows and queues the posts with the window
+  (`core.progress_window`), in one transaction: each day published (its day-local revision, which
+  completes a block's day): slots, with a value, withheld whole by reason (provider input, engine
+  fault: C-050's convention, `revision_tally`), its reference check if one has come (else "not in
+  yet"; checks arriving later get their own line), the minutes the day took in its block (from the
+  previous day's publication under the lease, or the lease's grant), the block and its worker; each
+  block started (lease granted) with its worker and attempt; **every line core logged** in the window
+  (blocks done, now with the block's minutes from its first lease; days set aside with cause; dates
+  omitted; builds admitted or withdrawn; retirements; pauses); the queue's counts by kind (done in the
+  window, done of all, running, waiting, failed; builds that run; tape verify jobs left out). A window
+  with nothing done posts nothing (recorded, so the cadence holds). **Cap:** each post at most 1,900
+  characters, at most 3 a window, the rest counted with `vyreon-core log 100`. `vyreon-core progress`
+  prints the last 30 minutes as the channel would. Not included: worker memory (worker logs), spend.
+- **Delivery.** `core.notice.channel` (`alerts` | `progress`); each channel has its own sender task,
+  webhook and order (`notice::next_on`, `send_unsent_on`): a progress post that fails stops only the
+  progress sender and never holds back or repeats an alert; the same silent payload (`flags: 4096`,
+  `allowed_mentions: {parse: []}`), `wait=true`, unknown-outcome window and retry as C-050's. Progress
+  posts not delivered within **6 hours** are marked not posted (a backlog after an outage is history
+  the log keeps). Composing runs in its own task, so counting a window's bodies never delays the watch.
+- **An ordinary day:** the claim leases the same job it did (the earliest claimable); with one pod,
+  nothing differs. Nothing new is posted to the alerts channel unless work stalls or pods leave while
+  it waits; the block-done log line gains " in N min". With the progress webhook set, about one post
+  each half hour while blocks run (a day block's two days, its start and finish, the counts), nothing
+  while idle. Measurements, bodies and the reader API are unchanged (core computes nothing).
+- **Not verified on the cluster:** the race fix on 24 real pods, KEDA's interaction with STALLED, the
+  progress channel's real posts (its webhook's silent test post answered 204, MILESTONES).
+- Tests: `core-db/tests/work.rs` `claims_at_once_each_lease_a_job_while_any_is_claimable`,
+  `a_claim_that_finds_only_locked_work_is_kept_as_a_miss`,
+  `the_progress_channel_says_what_moved_every_half_hour` (the real slice's 2025-12-10 published under a
+  block's lease); `core-db/tests/watch.rs` `claimable_work_with_no_worker_for_a_quarter_hour_is_a_stall`,
+  `workers_leaving_while_work_waits_are_a_problem`; `core-api/tests/notices.rs`
+  `progress_posts_go_their_own_way_and_never_hold_an_alert`; unit `progress::tests` (the day line on the
+  B0 census report's real counts, the split and cap). `a_last_failure_and_a_provider_burst_…` now has a
+  worker claim the retried blocks (else they would be a stall, correctly).

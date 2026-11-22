@@ -252,14 +252,17 @@ with 51 tapes left and 8 nodes idle), node sizing and idle deletion, spotting no
 fault judgement. The first three move into the system; judgement no longer blocks (C-061 sets a failed
 day aside; three standing failures pause and alert).
 1. **Claims:** core's claim race fixed (try the next claimable job while any remain) and the worker's
-   claim retried on a connection that never reached core (loose ends below).
+   claim retried on a connection that never reached core (loose ends below). *Core's half built on
+   branch `core-watch` (C-065, not merged or deployed); the worker's retry is the engine's.*
 2. **Workers and nodes follow the queue:** KEDA (designed 2026-11-10, `deploy/k8s/README.md` "After
    this run"; not installed) with one ScaledJob per kind (tape, day block, ordered pass) on the
    `postgresql` trigger counting `core.claimable_job`; pool `day` autoscaling min 0, max N, so nodes
    appear with pending pods and leave when idle. Proven on a real run before the full build.
 3. **Core's watch takes over `health.sh`:** stall (claimable, no live lease for 15 min), pods finding
    nothing while work waits, worker nodes up with no worker, spend against the ceiling: each an alert;
-   plus the progress channel (below).
+   plus the progress channel (below). *Built on `core-watch` (C-065): STALLED, CLAIMS_EMPTY and the
+   progress channel. Spend stays the operator's (no cloud token in core; leases miss idle nodes);
+   idle nodes are item 2's.*
 4. **Hard caps instead of judgement:** the autoscaler's max nodes and KEDA's max replicas set from one
    node's measured request draw (owner's rule 2026-11-19) so the system cannot pass 1,900 requests a
    minute or the spend ceiling.
@@ -305,13 +308,15 @@ token once the shape settles; the reader API stays inside the cluster; backups w
 restore; a read-only exposure check and an attack-surface audit. Phone recovery is the owner's.
 
 **Loose ends (each before the step it names):**
-- **Progress channel (owner, 2026-11-22; before the full build, with the claim fixes):** a second
+- **Progress channel (owner, 2026-11-22; before the full build, with the claim fixes; built on
+  `core-watch`, C-065: deploy with `20-core.yaml`, whose optional mount reads the secret):** a second
   Discord webhook (`progress-webhook.txt`, git-ignored; cluster secret `vyreon-core-progress-webhook`,
   key `webhook`; silent test post 204). Route core's logged notices there, batched: each day published
   (slots published/withheld by reason, refcheck, minutes, memory), block start/finish with its node,
   tape and pass progress every 30 min, spend at each node change, set-aside days with cause, builds
   admitted/withdrawn. The alerts channel is unchanged ("go look or running ok"). Silent, no mentions.
-- **Core claim race (before the full build):** with 24 tape pods claiming at once, about half got "no
+- **Core claim race (before the full build; fixed on `core-watch`, C-065, proved by a 32-claim
+  concurrent test that failed before the fix):** with 24 tape pods claiming at once, about half got "no
   tape job to claim" while 195 were claimable (2026-11-22 04:14 UTC: 82 pods done, 43 jobs done). The
   claim's `WHERE job_id = (SELECT … LIMIT 1 FOR UPDATE SKIP LOCKED) AND state = 'QUEUED'` re-checks a
   row another claim just leased and returns none (`core-db/src/work.rs:527`). No job lost or doubled;
