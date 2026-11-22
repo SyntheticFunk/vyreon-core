@@ -420,6 +420,19 @@ Run every step with `KUBECONFIG=~/claude-artifacts/cluster-scratch/kubeconfig` a
 7. **Then:** whole-store gate (history reference check; `tools/external/flags.py`, refresh Cboe files
    through 11-20 first), census, backups to Spaces with a restore drill, Reporter.
 
+## Now (2026-11-22 ~18:30 UTC)
+Merged and pushed: core main (C-061..C-067: claims, watch, progress, KEDA, volume, backups); engine
+`worker` 090d7aea = 48461197 + the owner's rulings (D-439 NVDA list retired, D-440 same-ex-date
+dividends summed, D-441 first-session EOD zero, D-442 engine-computed adjustment factor: 952 real
+ex-dates, median relative difference 4e-16 vs the provider's, largest outside BABA 6e-6). Full suite
+running on 090d7aea. Codex audits running (`~/claude-artifacts/audits/2026-11-22-prebuild/opsurface/`):
+the operational failure surface (owner) and the rulings diff. Backup bucket `vyreon-pg-backup` created
+(nyc3, private); its limited key in `pg-backup-key-id.txt`/`pg-backup-secret.txt` (git-ignored, 600;
+tested: its bucket 200, vyreon-data 403). Test block on 914ffed7: 7 of 10 days published.
+Next: the suite → image 090d7aea → after the block: the rollout (scaler role, core deploy, volume,
+KEDA, autoscaling, image admitted/914ffed7 withdrawn, backups + first backup) with the audits' fixes →
+the recompute as the build's first stage → the full build.
+
 ## Timeline (owner, 2026-11-22)
 Full build ~11-25..28; a week of derived-layer QC (census, gate d, history reference check, "general
 shenanigans", possibly a derived recompute) to ~12-05; a week of Reporter + web integration to ~12-12;
