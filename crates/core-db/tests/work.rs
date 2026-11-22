@@ -1380,6 +1380,40 @@ async fn a_retirement_takes_down_only_what_its_preview_showed() {
     scratch.drop().await;
 }
 
+/// Audit 2026-11-22 prebuild round 2 (core-r2.md) 5: the token named the retired days' revisions and
+/// jobs, not the later history revisions that fall with them, so a later day's pass that published
+/// after the preview was taken down unseen. Previewed with the 10th's pass done and the 11th's not
+/// yet run (nothing later falls), then the 11th's pass publishes: the retirement is refused.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_retirement_token_covers_the_later_history_it_takes_down() {
+    let (scratch, mut client, b, d) = ready("r2_retire_later").await;
+    admit(&client, &b).await;
+    admit(&client, &d).await;
+    let days = ["2025-12-10", "2025-12-11"];
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, days[0], days[1], 1).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[0], days[1], 30).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    for day in days {
+        publish_day(&mut client, &block, day).await;
+    }
+    work::finish(&mut client, &block.token).await.unwrap();
+    assert_eq!(run_pass(&mut client, &d).await.as_deref(), Some(days[0]));
+    let reason = "published by an earlier build";
+    let preview = publish::retire(&mut client, reason, &[days[0]], true, None).await.unwrap();
+    assert_eq!(preview.fallen, 0);
+    assert_eq!(run_pass(&mut client, &d).await.as_deref(), Some(days[1]));
+    let refused = publish::retire(&mut client, reason, &[days[0]], false, Some(&preview.token)).await.unwrap_err();
+    assert!(refused.contains("changed since the preview") && refused.contains("nothing was retired"), "{refused}");
+    let eleventh = "SELECT count(*) FROM vyreon.day_revision WHERE represented_date = '2025-12-11' AND state = 'PUBLISHED' AND base_revision IS NOT NULL AND NOT day_local";
+    assert_eq!(count(&client, eleventh).await, 1, "the 11th's history revision stands");
+    let again = publish::retire(&mut client, reason, &[days[0]], true, None).await.unwrap();
+    assert_eq!(again.fallen, 1);
+    publish::retire(&mut client, reason, &[days[0]], false, Some(&again.token)).await.unwrap();
+    assert_eq!(count(&client, eleventh).await, 0);
+    scratch.drop().await;
+}
+
 /// C-061: `omit` takes only a day whose job stands FAILED, never the engine's fault hold; it
 /// records the reason, cancels the day job and the session's queued pass and logs a notice; the
 /// digest names each day set aside and each date omitted with its cause code.
