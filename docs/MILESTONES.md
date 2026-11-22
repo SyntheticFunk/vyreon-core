@@ -344,10 +344,15 @@ Cboe: open interest is the prior close's open positions; a series listed today h
 15,798) — amends D-398, restores 2024-06-10's OI on 17 assets; (4) a young asset's SPY return stays over
 the asset's own two dates (D-080; excess return over the same period is the convention). Being built
 into the next image before the recompute.
-**After the block (run.sh runs its 10 passes on 914ffed7 and deletes the node):** deploy core 7c96453
-(C-065; progress webhook; stop run.sh's posts), withdraw 914ffed7, schedule a day block 2024-07-09..07-22
-on 48461197 (publishing supersedes the old days; C-037 re-derives; passes re-queue under the new build,
-C-062), judge gate a on it; then KEDA + caps, then the full build.
+**After the block (owner, 2026-11-22: KEDA, autoscaling and caps BEFORE the recompute, so the 10 days
+test everything):** (1) run.sh's 10 passes on 914ffed7, node deleted; (2) deploy core 7c96453 (C-065;
+progress webhook; stop run.sh's posts); (3) KEDA (release manifest, no Helm) with one ScaledJob per kind
+triggered by core's claimable count of its own build, pool `day` autoscaling min 0 max 12 (manifests
+being written on branch `core-keda`); (4) the rulings image admitted, 914ffed7 withdrawn; (5) recompute
+2024-07-09..07-22 as 2 blocks of 5 started by KEDA alone; gate a judges; (6) the full build.
+**Measured request draw, one node, test block 04:56-16:37 UTC:** 71,112 requests (~11,800 a day), 101 a
+minute over wall time, bursts averaging 658 with a peak of 1,900 (the ceiling) and p95 1,800. Cap for the
+full build: 12 nodes (two thirds of the ~18 the average allows), proven on 2 nodes in the recompute.
 
 5. **2024-07-10 published 09:50 UTC (~100 min after day 1)**; memory after it 1,617 MiB resident, 212
    MiB after the trim.
