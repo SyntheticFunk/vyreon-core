@@ -18,7 +18,11 @@
 //!
 //! Rules a reader can rely on:
 //!   * sessions come from the trading calendar, never from the data; a session without a
-//!     published day is listed as NOT_PUBLISHED, never left out and never filled;
+//!     published day is listed as NOT_PUBLISHED, never left out and never filled, with its cause
+//!     (C-061) `{code, detail}`: NOT_COMPUTED_YET (a day job is queued or running), OMITTED (the
+//!     operator's reason), PROVIDER_INPUT_MISSING (the engine held the day for missing provider
+//!     inputs, with its counts), ENGINE_FAULT (held for engine faults, with its counts), FAILED (the
+//!     stop's first line), NOT_SCHEDULED (no day job is pending or set aside for it);
 //!   * a member has measurements only on the sessions it is listed (C-036): in an asset's history,
 //!     a published session on which the asset was not listed (before its first listing, after a
 //!     delisting) has the state NOT_LISTED and no revisions. Who was listed is what core recorded
@@ -130,7 +134,8 @@ async fn contract(State(app): Shared, headers: HeaderMap) -> Reply {
     Ok(json_text(row.get(0)))
 }
 
-/// One session's entry: its state and published revisions (optionally each revision's slots).
+/// One session's entry: its state and published revisions (optionally each revision's slots); a
+/// session with nothing published carries its cause (C-061, `core.session_cause`).
 const SESSION_ENTRY: &str = "jsonb_build_object(
     'date', s.session,
     'state', CASE WHEN EXISTS (SELECT FROM vyreon.day_revision d WHERE d.represented_date = s.session AND d.state = 'PUBLISHED') THEN 'PUBLISHED' ELSE 'NOT_PUBLISHED' END,
@@ -151,7 +156,9 @@ const SESSION_ENTRY: &str = "jsonb_build_object(
                           WHERE m.revision_id = d.revision_id AND m.represented_date = d.represented_date))
                       ELSE '{}'::jsonb END
                ORDER BY d.base_revision NULLS FIRST, d.revision_id)
-        FROM vyreon.day_revision d WHERE d.represented_date = s.session AND d.state = 'PUBLISHED'), '[]'::jsonb))";
+        FROM vyreon.day_revision d WHERE d.represented_date = s.session AND d.state = 'PUBLISHED'), '[]'::jsonb))
+    || CASE WHEN EXISTS (SELECT FROM vyreon.day_revision d WHERE d.represented_date = s.session AND d.state = 'PUBLISHED') THEN '{}'::jsonb
+            ELSE jsonb_build_object('cause', core.session_cause(s.session, NULL)) END";
 
 #[derive(Deserialize)]
 struct Range {
@@ -241,6 +248,9 @@ struct Revision {
 struct Session {
     date: String,
     state: &'static str,
+    /// Why nothing is published (C-061): `{code, detail}`; only on a NOT_PUBLISHED session.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    cause: Option<Box<RawValue>>,
     revisions: Vec<Revision>,
 }
 
@@ -282,7 +292,10 @@ async fn read_history(client: &Client, headers: &HeaderMap, object: &str, q: His
     let rows = client
         .query(
             "WITH range AS (SELECT session, row_number() OVER (ORDER BY session) AS n FROM core.session
-                            WHERE session BETWEEN $1::text::date AND $2::text::date ORDER BY session LIMIT $3::bigint + 1)
+                            WHERE session BETWEEN $1::text::date AND $2::text::date ORDER BY session LIMIT $3::bigint + 1),
+                  caused AS (SELECT r.*, CASE WHEN NOT EXISTS (SELECT FROM vyreon.day_revision p WHERE p.represented_date = r.session AND p.state = 'PUBLISHED')
+                                              THEN core.session_cause(r.session, NULL)::text END AS cause
+                             FROM range r)
              SELECT s.session::text, s.n, d.revision_id, d.profile_revision, d.engine_build,
                     to_char(d.published_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'),
                     to_char(d.snapshot_cutoff AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'), d.base_revision,
@@ -292,8 +305,8 @@ async fn read_history(client: &Client, headers: &HeaderMap, object: &str, q: His
                     CASE WHEN $5 = 'headline' THEN (SELECT COALESCE(jsonb_object_agg(r.role_id, r.value), '{}'::jsonb)::text FROM vyreon.reader_scalar r
                                            WHERE r.revision_id = m.revision_id AND r.represented_date = m.represented_date
                                              AND r.object_id = m.object_id AND r.measurement_id = m.measurement_id) END,
-                    $4::text = $7::text OR $4::text = ANY(d.listed_members)
-             FROM range s
+                    $4::text = $7::text OR $4::text = ANY(d.listed_members), s.cause
+             FROM caused s
              LEFT JOIN vyreon.day_revision d ON d.represented_date = s.session AND d.state = 'PUBLISHED'
              LEFT JOIN vyreon.measurement m ON m.revision_id = d.revision_id AND m.represented_date = d.represented_date AND m.object_id = $4
                                            AND ($6::text IS NULL OR m.measurement_id = $6)
@@ -318,7 +331,12 @@ async fn read_history(client: &Client, headers: &HeaderMap, object: &str, q: His
             // every session listed is part of what the response says, published or not: a session
             // added to the calendar inside the range must change the ETag (RFC 9110 8.8.1)
             identity.push_str(&format!(" {date}"));
-            sessions.push(Session { date: date.clone(), state: "NOT_PUBLISHED", revisions: Vec::new() });
+            // a NOT_PUBLISHED session's cause is part of the answer: when it changes, so does the ETag
+            let cause: Option<String> = row.get(18);
+            if let Some(cause) = &cause {
+                identity.push_str(&format!(":{cause}"));
+            }
+            sessions.push(Session { date: date.clone(), state: "NOT_PUBLISHED", cause: raw(cause)?, revisions: Vec::new() });
         }
         let session = sessions.last_mut().expect("just pushed");
         let Some(revision_id) = row.get::<_, Option<i64>>(2) else { continue };

@@ -681,6 +681,13 @@ pub async fn retry_failed(db_client: &impl GenericClient) -> Result<u64, String>
 /// x, 2: a repair a republish queued, then cancelled). Returns how many jobs were cancelled.
 pub async fn cancel(client: &mut Client, jobs: &[i64]) -> Result<u64, String> {
     let tx = client.transaction().await.map_err(db)?;
+    let cancelled = cancel_in(&tx, jobs).await?;
+    tx.commit().await.map_err(db)?;
+    Ok(cancelled)
+}
+
+/// `cancel` inside the caller's transaction.
+async fn cancel_in(tx: &impl GenericClient, jobs: &[i64]) -> Result<u64, String> {
     let cancelled: Vec<i64> = tx
         .query(
             "UPDATE core.job SET state = 'CANCELLED', finished_at = now() WHERE job_id = ANY($1) AND state IN ('QUEUED', 'LEASED', 'FAILED') RETURNING job_id",
@@ -716,10 +723,109 @@ pub async fn cancel(client: &mut Client, jobs: &[i64]) -> Result<u64, String> {
         .collect();
     for profile in absent.iter().map(|(_, p, _)| p.clone()).collect::<std::collections::BTreeSet<String>>() {
         let days: Vec<(String, String, bool)> = absent.iter().filter(|(_, p, _)| *p == profile).cloned().collect();
-        crate::watch::not_derived(&tx, &days, "Cancelling their ordered pass left").await?;
+        crate::watch::not_derived(tx, &days, "Cancelling their ordered pass left").await?;
     }
-    tx.commit().await.map_err(db)?;
     Ok(cancelled.len() as u64)
+}
+
+/// What `omit` did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Omitted {
+    pub omission_id: i64,
+    /// The FAILED day job it cancelled.
+    pub day_job: i64,
+    /// The session's queued ordered passes it cancelled.
+    pub passes: Vec<i64>,
+    /// The day's cause when it was omitted (`core.job_failure_cause`): its code and detail.
+    pub cause: (String, String),
+}
+
+/// C-061: omits a date whose day failed for the provider. Allowed only while the session's day job
+/// of the profile stands FAILED with nothing of the day published, and never for the engine's fault
+/// hold (an engine fault is fixed and recomputed, never omitted). Records the session, profile,
+/// reason and time (`core.omitted_session`), cancels the FAILED day job and the session's queued
+/// ordered pass, and logs a notice, in one transaction. The date then reads OMITTED, with the
+/// reason, in the reader API; later passes never waited for it (`core.claimable_job`, 0031).
+pub async fn omit(client: &mut Client, profile: &str, session: &str, reason: &str) -> Result<Omitted, String> {
+    if !core_contract::is_date(session) {
+        return Err(format!("{session} is not a date written YYYY-MM-DD"));
+    }
+    let reason = scrubbed(reason.trim());
+    if reason.is_empty() {
+        return Err("an omitted date needs a reason".into());
+    }
+    let tx = client.transaction().await.map_err(db)?;
+    tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.map_err(db)?;
+    if tx.query_opt("SELECT FROM core.session WHERE session = $1::text::date", &[&session]).await.map_err(db)?.is_none() {
+        return Err(format!("{session} is not a trading session"));
+    }
+    let jobs: Vec<(i64, String)> = tx
+        .query(
+            "SELECT job_id, state FROM core.job WHERE kind = 'DAY_BLOCK' AND profile_id = $1 AND $2::text::date BETWEEN first_session AND last_session
+               AND state <> 'CANCELLED' ORDER BY job_id DESC FOR UPDATE",
+            &[&profile, &session],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+    let only = "only a day whose job stands FAILED may be omitted";
+    if let Some((job, state)) = jobs.iter().find(|(_, s)| s == "QUEUED" || s == "LEASED") {
+        return Err(format!("{session}'s day job {job} is {state}: {only}"));
+    }
+    let Some(day_job) = jobs.iter().find(|(_, s)| s == "FAILED").map(|(j, _)| *j) else {
+        return Err(match jobs.first() {
+            Some((job, state)) => format!("{session}'s day job {job} is {state}: {only}"),
+            None => format!("no day job of {profile} covers {session}: {only}"),
+        });
+    };
+    if tx
+        .query_opt(
+            "SELECT FROM vyreon.day_revision WHERE represented_date = $1::text::date AND profile_id = $2 AND state = 'PUBLISHED' AND base_revision IS NULL",
+            &[&session, &profile],
+        )
+        .await
+        .map_err(db)?
+        .is_some()
+    {
+        return Err(format!("{session} of {profile} has a published day: nothing to omit"));
+    }
+    let row = tx.query_one("SELECT c->>'code', c->>'detail' FROM core.job_failure_cause($1) c", &[&day_job]).await.map_err(db)?;
+    let cause: (String, String) = (row.get(0), row.get(1));
+    if cause.0 == "ENGINE_FAULT" {
+        return Err(format!("{session} was held for an engine fault ({}): an engine fault is fixed and recomputed, never omitted", cause.1));
+    }
+    let omission_id: i64 = tx
+        .query_one(
+            "INSERT INTO core.omitted_session (session, profile_id, reason, job_id) VALUES ($1::text::date, $2, $3, $4) RETURNING omission_id",
+            &[&session, &profile, &reason, &day_job],
+        )
+        .await
+        .map_err(db)?
+        .get(0);
+    let passes: Vec<i64> = tx
+        .query(
+            "SELECT job_id FROM core.job WHERE kind = 'ORDERED_PASS' AND profile_id = $1 AND first_session = $2::text::date AND state = 'QUEUED' ORDER BY job_id",
+            &[&profile, &session],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let mut cancelled = passes.clone();
+    cancelled.push(day_job);
+    cancel_in(&tx, &cancelled).await?;
+    let pass = match passes.len() {
+        0 => "it had no queued ordered pass".to_owned(),
+        1 => "its ordered pass is cancelled".to_owned(),
+        n => format!("its {n} ordered passes are cancelled"),
+    };
+    notice::log(&tx, &format!("Day {session} of {profile} omitted (job {day_job}, {}: {}): {reason}. {pass}; later passes read it as missing.", cause.0, cause.1))
+        .await?;
+    tx.commit().await.map_err(db)?;
+    Ok(Omitted { omission_id, day_job, passes, cause })
 }
 
 /// The queue at a glance: jobs by kind and state, what is claimable, and the pause.

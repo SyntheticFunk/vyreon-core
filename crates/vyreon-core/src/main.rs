@@ -16,6 +16,11 @@
 //!   vyreon-core tape checks                           the sample (C-059): one line, then each session's checks and
 //!                                                     every member not passed
 //!   vyreon-core queue [pause <reason> | resume | retry-failed | cancel <job>...]   the queue at a glance, or change it
+//!   vyreon-core omit <profile> <session> <reason...>  omit a date whose day failed for the provider (C-061): only while
+//!                                                     its day job stands FAILED, never for an engine fault (fixed and
+//!                                                     recomputed instead). Records the reason, cancels the failed day job
+//!                                                     and the session's queued ordered pass; the reader API then states
+//!                                                     the session NOT_PUBLISHED with the cause OMITTED and the reason
 //!   vyreon-core months <first> <last>                 create the store's monthly partitions for a date range
 //!   vyreon-core publish [--vouch] <bundle>...         check, write, read back and publish day bundles, in order.
 //!                                                     A revision computed from a base must name the base revision
@@ -200,6 +205,17 @@ async fn queue(change: &[&str]) -> Result<(), String> {
     }
     work::sweep(&mut client).await?;
     println!("{}", serde_json::to_string_pretty(&work::status(&client).await?).map_err(|e| e.to_string())?);
+    Ok(())
+}
+
+/// C-061: `omit <profile> <session> <reason...>`.
+async fn omit(profile: &str, session: &str, reason: &[&str]) -> Result<(), String> {
+    let done = work::omit(&mut connect().await?, profile, session, &reason.join(" ")).await?;
+    let passes = match done.passes.as_slice() {
+        [] => "no queued ordered pass".to_owned(),
+        jobs => format!("ordered pass {} cancelled", jobs.iter().map(i64::to_string).collect::<Vec<_>>().join(" ")),
+    };
+    println!("{session} omitted (omission {}): day job {} cancelled ({}: {}); {passes}", done.omission_id, done.day_job, done.cause.0, done.cause.1);
     Ok(())
 }
 
@@ -767,6 +783,7 @@ async fn main() -> ExitCode {
         ["tape", "verify", profile, engine_build, ref sessions @ ..] => tape_verify(profile, engine_build, sessions).await,
         ["tape", "checks"] => tape_checks().await,
         ["queue", ref change @ ..] => queue(change).await,
+        ["omit", profile, session, ref reason @ ..] if !reason.is_empty() => omit(profile, session, reason).await,
         ["api-key", "create", holder, scopes] => match connect().await {
             Ok(client) => core_db::api_key::create(&client, holder, &scopes.split(',').map(str::to_owned).collect::<Vec<_>>()).await.map(|key| println!("{key}")),
             Err(e) => Err(e),

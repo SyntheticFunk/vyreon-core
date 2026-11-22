@@ -48,6 +48,8 @@ pub const TYPICAL_SESSIONS: i64 = 20;
 /// the cluster measured 5 h 50 min from an empty disk, so 20:00 MT (13 h 30 min or more later)
 /// leaves room for the tape job and two attempts before a late session is alerted.
 pub const DEADLINE_HOUR: i32 = 20;
+/// The digest names at most this many days set aside or omitted, one line each (C-061).
+pub const MISSING_LINES: usize = 10;
 /// Sunday's report is at risk this many hours after Friday's deadline (Saturday).
 pub const AT_RISK_AFTER_HOURS: i32 = 2;
 
@@ -923,6 +925,38 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
     if retried > 0 {
         lines.push(format!("Attempts retried in the last 24 hours: {retried}"));
     }
+    // C-061: each day set aside (its day job FAILED, nothing published) and each date omitted in the
+    // last 24 hours, with its cause code, so a provider day reads at a glance
+    let missing = c
+        .query(
+            &format!(
+                "SELECT s.session, {d}, 'Set aside', c->>'code', c->>'detail'
+                 FROM core.job j JOIN core.session s ON s.session BETWEEN j.first_session AND j.last_session
+                 CROSS JOIN LATERAL core.job_failure_cause(j.job_id) AS c
+                 WHERE j.kind = 'DAY_BLOCK' AND j.profile_id = $2 AND j.state = 'FAILED'
+                   AND NOT EXISTS (SELECT FROM vyreon.day_revision r WHERE r.represented_date = s.session AND r.profile_id = j.profile_id
+                                     AND r.state = 'PUBLISHED' AND r.base_revision IS NULL)
+                 UNION ALL
+                 SELECT o.session, {o}, 'Omitted', 'OMITTED (' || (core.job_failure_cause(o.job_id)->>'code') || ')', o.reason
+                 FROM core.omitted_session o
+                 WHERE o.profile_id = $2 AND o.omitted_at > $1::text::timestamptz - interval '24 hours' AND o.omitted_at <= $1::text::timestamptz
+                 ORDER BY 1, 3 DESC",
+                d = day_of("s.session"),
+                o = day_of("o.session")
+            ),
+            &[&now, &s.profile],
+        )
+        .await
+        .map_err(db)?;
+    for (i, r) in missing.iter().enumerate() {
+        if i == MISSING_LINES {
+            lines.push(format!("… and {} more days set aside or omitted (GET /v1/sessions states each one's cause)", missing.len() - i));
+            break;
+        }
+        let (words, what, code, detail): (String, String, String, String) = (r.get(1), r.get(2), r.get(3), r.get(4));
+        lines.push(format!("{what}: {words} · {code} · {}", one_line(&detail, 160)));
+    }
+    let omitted = missing.iter().filter(|r| r.get::<_, String>(2) == "Omitted").count();
 
     // the queue, and a backfill's progress
     let kinds = c
@@ -1041,6 +1075,9 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
     }
     if retried > 0 {
         handled.push(format!("{retried} retried {}", if retried == 1 { "attempt" } else { "attempts" }));
+    }
+    if omitted > 0 {
+        handled.push(format!("{omitted} {} omitted", if omitted == 1 { "date" } else { "dates" }));
     }
     Ok(compose(&format!("{} · {today}", verdict(open, &handled, &unjudged)), &lines, open))
 }
