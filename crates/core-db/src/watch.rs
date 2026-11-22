@@ -507,33 +507,56 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
 /// C-065 (health.sh's stall): claimable work and no live lease, continuously for `STALL_MINUTES`
 /// (`DAILY_STALL_MINUTES` when every claimable job is a daily run's): no worker is running, so
 /// nothing moves (a Job out of completions, KEDA or the node pool not starting pods). The clock is
-/// the later of when the watch first saw the condition (`core.stall_seen`, written here) and the
-/// last lease granted or ended, so a pod that claims and stops within a minute restarts it. A
-/// paused queue or a build not admitted makes nothing claimable: those are their own problems.
+/// the later of when the watch first saw the condition (`core.stall_seen`, written here), the
+/// last lease granted or ended, so a pod that claims and stops within a minute restarts it, and
+/// when the work became claimable (the queue's resume, the oldest claimable job's queueing, its
+/// build's admission), which the watch may not have seen. A paused queue or a build not admitted
+/// makes nothing claimable: those are their own problems.
 async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> Result<(), String> {
-    let r = c
-        .query_one(
-            "SELECT (SELECT count(*) FROM core.claimable_job), (SELECT count(*) FROM core.claimable_job WHERE priority <> 1),
-                    EXISTS (SELECT FROM core.lease WHERE ended_at IS NULL AND expires_at >= $1::text::timestamptz),
-                    (SELECT string_agg(n || ' ' || CASE kind WHEN 'DAY_BLOCK' THEN 'day blocks' WHEN 'TAPE' THEN 'tape jobs' ELSE 'ordered passes' END, ', ' ORDER BY kind)
-                     FROM (SELECT kind, count(*) AS n FROM core.claimable_job GROUP BY kind) k)",
-            &[&now],
-        )
+    // a live lease rules a stall out: the claimability view (the queue's longest query) is read
+    // only when none is live, so the check is short while workers run (audit round 2 of
+    // core-watch, the suspicion: it holds the problem lock a publish may wait for)
+    let live: bool = c
+        .query_one("SELECT EXISTS (SELECT FROM core.lease WHERE ended_at IS NULL AND expires_at >= $1::text::timestamptz)", &[&now])
         .await
-        .map_err(db)?;
-    let (claimable, backfill, live, kinds): (i64, i64, bool, Option<String>) = (r.get(0), r.get(1), r.get(2), r.get(3));
-    if claimable == 0 || live {
+        .map_err(db)?
+        .get(0);
+    if live {
         c.execute("DELETE FROM core.stall_seen", &[]).await.map_err(db)?;
         return Ok(());
     }
+    let r = c
+        .query_one(
+            "WITH k AS (SELECT kind, priority, created_at, engine_build FROM core.claimable_job)
+             SELECT (SELECT count(*) FROM k), (SELECT count(*) FROM k WHERE priority <> 1),
+                    (SELECT string_agg(n || ' ' || CASE kind WHEN 'DAY_BLOCK' THEN 'day blocks' WHEN 'TAPE' THEN 'tape jobs' ELSE 'ordered passes' END, ', ' ORDER BY kind)
+                     FROM (SELECT kind, count(*) AS n FROM k GROUP BY kind) g),
+                    (SELECT min(created_at) FROM k)::text,
+                    (SELECT min(b.admitted_at) FROM core.engine_build b WHERE b.engine_build IN (SELECT engine_build FROM k))::text",
+            &[],
+        )
+        .await
+        .map_err(db)?;
+    let (claimable, backfill, kinds): (i64, i64, Option<String>) = (r.get(0), r.get(1), r.get(2));
+    if claimable == 0 {
+        c.execute("DELETE FROM core.stall_seen", &[]).await.map_err(db)?;
+        return Ok(());
+    }
+    let (queued, admitted): (Option<String>, Option<String>) = (r.get(3), r.get(4));
     c.execute("INSERT INTO core.stall_seen (since) VALUES ($1::text::timestamptz) ON CONFLICT (one) DO NOTHING", &[&now]).await.map_err(db)?;
     let limit = if backfill == 0 { DAILY_STALL_MINUTES } else { STALL_MINUTES };
+    // audit round 2 of core-watch, 7: the clock never starts before the work could be claimed,
+    // whatever the watch did not see (a restart over an overnight pause): the queue's last resume
+    // (`changed_at`: claimable work means it is not paused), the oldest claimable job's queueing,
+    // the earliest admission of a build with claimable work
     let r = c
         .query_one(
             "WITH s AS (SELECT GREATEST((SELECT since FROM core.stall_seen),
-                                        (SELECT max(GREATEST(granted_at, COALESCE(ended_at, granted_at))) FROM core.lease WHERE granted_at <= $1::text::timestamptz)) AS t)
+                                        (SELECT max(GREATEST(granted_at, COALESCE(ended_at, granted_at))) FROM core.lease WHERE granted_at <= $1::text::timestamptz),
+                                        (SELECT changed_at FROM core.queue_control),
+                                        $3::text::timestamptz, $4::text::timestamptz) AS t)
              SELECT extract(epoch FROM $1::text::timestamptz - t)::float8 / 60, to_char(t AT TIME ZONE $2, 'Dy HH24:MI') FROM s",
-            &[&now, &ZONE],
+            &[&now, &ZONE, &queued, &admitted],
         )
         .await
         .map_err(db)?;

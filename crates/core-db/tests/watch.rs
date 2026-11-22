@@ -557,6 +557,34 @@ async fn claimable_work_with_no_worker_for_a_quarter_hour_is_a_stall() {
     scratch.drop().await;
 }
 
+/// Audit round 2 of core-watch, 7: the stall's clock survived a pause and resume the watch did not
+/// see (a restart over an overnight pause), so the resumed queue read as stalled at once. The
+/// clock now starts no earlier than the resume (the queue's `changed_at`, set here to when the
+/// resume happens on the test's clock, as `resume` stamps it).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_stall_counts_from_when_the_queue_was_resumed() {
+    let (scratch, mut client, b) = ready("stall_resume").await;
+    build::admit(&client, &b, &json!({"checklist": "watch test"})).await.unwrap();
+    let s = settings(None);
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-09", "2025-12-10", 1).await.unwrap();
+    let t0 = watch::now(&client).await.unwrap();
+    assert_eq!(check(&mut client, &s, &t0).await, opened(&[]));
+    // the watch away: the queue paused, then resumed 20 minutes on
+    work::pause(&client, "watch test").await.unwrap();
+    work::resume(&client).await.unwrap();
+    let resumed = minutes_after(&client, &t0, 20).await;
+    client.execute("UPDATE core.queue_control SET changed_at = $1::text::timestamptz", &[&resumed]).await.unwrap();
+    assert_eq!(check_after(&mut client, &s, &t0, 30).await, opened(&[]), "10 minutes since the resume, not 30");
+    let since: String = client.query_one("SELECT to_char(changed_at AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.queue_control", &[]).await.unwrap().get(0);
+    let stalled = format!("Work stalled since {since} MT: 2 claimable (2 tape jobs) and no worker holds a lease, so no worker pod is running");
+    assert_eq!(check_after(&mut client, &s, &t0, 35).await, opened(&[&stalled]));
+    // a live lease: resolved, the claimability view not read
+    work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();
+    assert_eq!(check_after(&mut client, &s, &t0, 36).await.resolved, [stalled]);
+    scratch.drop().await;
+}
+
 /// C-065 (health.sh's "pods that found nothing to claim"): three claims in ten minutes that found
 /// nothing while a job no other claim held stayed claimable are one problem; it resolves when no
 /// such claim recurs. Audit round 2 of core-watch: claims that found only work other claims were
