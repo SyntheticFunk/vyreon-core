@@ -251,16 +251,22 @@ async fn a_refused_key_is_cleared_only_by_work_that_calls_the_provider() {
     history_published(&client, "2025-12-10", &later_text(&client, 0).await).await;
     let in_a_minute = later_text(&client, 0).await;
     assert_eq!(check(&mut client, &s, &in_a_minute).await.resolved, Vec::<String>::new(), "a pass proves nothing of the key");
-    // a tape started after the refusal finishes: cleared
-    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-12", "2025-12-12", 1).await.unwrap();
-    let tape = work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();
-    let tx = client.transaction().await.unwrap();
-    let held = work::held(&tx, &tape.token).await.unwrap();
-    work::session_done(&tx, &held, "2025-12-12").await.unwrap();
-    tx.commit().await.unwrap();
-    work::finish(&mut client, &tape.token).await.unwrap();
-    let after = later_text(&client, 0).await;
-    assert_eq!(check(&mut client, &s, &after).await.resolved.len(), 1);
+    // round 2, 15: a tape started after the refusal that finds every cache held already finishes
+    // without a request: not cleared; one that stores a cache (the real AAPL cache) clears it
+    for (session, stores) in [("2025-12-12", false), ("2025-12-15", true)] {
+        work::schedule(&mut client, Kind::Tape, PROFILE, &b, session, session, 1).await.unwrap();
+        let tape = work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();
+        if stores {
+            assert!(core_db::tape::put(&client, "AAPL", session, "engine-v1", &core_db::tape::Cache::Body(test_support::TAPE_AAPL.to_vec())).await.unwrap());
+        }
+        let tx = client.transaction().await.unwrap();
+        let held = work::held(&tx, &tape.token).await.unwrap();
+        work::session_done(&tx, &held, session).await.unwrap();
+        tx.commit().await.unwrap();
+        work::finish(&mut client, &tape.token).await.unwrap();
+        let after = later_text(&client, 0).await;
+        assert_eq!(check(&mut client, &s, &after).await.resolved.len(), usize::from(stores), "{session}");
+    }
     scratch.drop().await;
 }
 

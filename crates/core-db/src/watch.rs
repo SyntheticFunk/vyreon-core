@@ -580,7 +580,8 @@ async fn failed_jobs(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(
 /// provider, or provider errors on more than `PROVIDER_ERROR_ATTEMPTS` attempts in
 /// `PROVIDER_WINDOW_MINUTES`. C-068 (audit opsurface ops.md 9): the success is a tape or day-block
 /// lease granted after the refusal (so its worker read the key after it: a worker reads its key file
-/// when it starts) that finished, or published a day's base; an ordered pass calls no provider, and
+/// when it starts) that stored a tape cache before it finished (round 2, 15: a tape whose caches were
+/// all held already finishes without a request), or published a day's base; an ordered pass calls no provider, and
 /// a revision or a job of a lease granted before the refusal proves nothing of the key now.
 async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut Vec<Found>) -> Result<(), String> {
     let rows = c
@@ -589,7 +590,9 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
                     to_char(e.stored_at AT TIME ZONE $2, 'Dy HH24:MI'),
                     EXISTS (SELECT FROM core.lease l JOIN core.job j USING (job_id)
                             WHERE j.kind IN ('TAPE', 'DAY_BLOCK') AND l.granted_at > e.stored_at AND l.granted_at <= $1::text::timestamptz
-                              AND ((l.outcome = 'DONE' AND l.ended_at <= $1::text::timestamptz)
+                              AND ((j.kind = 'TAPE' AND l.outcome = 'DONE' AND l.ended_at <= $1::text::timestamptz
+                                    AND EXISTS (SELECT FROM core.tape_cache t WHERE t.session BETWEEN j.first_session AND j.last_session
+                                                  AND t.stored_at >= l.granted_at AND t.stored_at <= l.ended_at))
                                    OR EXISTS (SELECT FROM core.lease_revision r JOIN vyreon.day_revision d USING (revision_id)
                                               WHERE r.lease_id = l.lease_id AND d.base_revision IS NULL AND d.published_at <= $1::text::timestamptz)))
              FROM core.job_evidence e

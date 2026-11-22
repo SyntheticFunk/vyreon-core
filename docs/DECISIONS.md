@@ -2567,4 +2567,8 @@ owner from the runbooks. Every real finding fixed; finding 14 is the engine's. M
   pass of a running build drops the passes from the count (they are `JOB_FAILED`'s) but no longer
   hides a day block or tape stuck behind a withdrawn build's tape. Test
   `a_stall_is_per_kind_and_a_waiting_chain_is_one` (both cases, and the daily group).
+- **15: a tape clears the key alarm only if it stored a cache.** A replacement tape worker whose
+  session's caches were all held already finishes without a request; its `DONE` lease no longer
+  counts. A tape lease must have stored a tape cache (a body or the provider's absence) between its
+  grant and its end. Test `a_refused_key_is_cleared_only_by_work_that_calls_the_provider`.
 
