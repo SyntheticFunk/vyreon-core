@@ -955,6 +955,31 @@ async fn a_failed_day_holds_no_later_pass_and_a_retried_one_holds_them_again() {
     scratch.drop().await;
 }
 
+/// Audit 2026-11-22 prebuild round 2 (core-r2.md) 6: an upload that ends before its scalars is refused
+/// before its lease is checked; from a withdrawn build's worker it was a refused bundle, and the
+/// service paused the queue on it. A refusal from a lease that has ended is now the lease gone; the
+/// same upload under a live lease is still refused.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_refused_upload_from_an_ended_lease_is_the_lease_gone() {
+    let (scratch, mut client, b, _) = ready("r2_ended_upload").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-10", 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    let (mut h, s, f) = parts(BASE);
+    h.represented_date = "2025-12-10".into();
+    let path = bundle(&unique("r2-truncated"), &h, &s, &f);
+    let bytes = std::fs::read(&path).unwrap();
+    std::fs::write(&path, &bytes[..bytes.len() / 8]).unwrap();
+    let live = publish_for_lease(&mut client, &path, &block.token).await.unwrap_err();
+    assert!(matches!(&live, LeaseError::Refused(_)), "{live}");
+    build::withdraw(&mut client, &b, "its image is replaced").await.unwrap();
+    let ended = publish_for_lease(&mut client, &path, &block.token).await.unwrap_err();
+    assert_eq!(ended, LeaseError::Gone);
+    std::fs::remove_file(&path).unwrap();
+    scratch.drop().await;
+}
+
 /// Audit 2026-11-22 prebuild (changes-core.md) 2: a block whose last attempt published the day's
 /// base and failed before its day-local revision (C-031) left a day the engine's ordered pass refuses
 /// ("no published day-local derived revision on base revision N"); its pass was claimable, failed
