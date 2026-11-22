@@ -246,6 +246,16 @@ before scheduling.
 - To measure, not change: each ordered pass loads the whole published store (est. ~1 GB peak at full
   range); measure the last passes' memory and time.
 
+## Test block in progress (2026-11-22 04:48 UTC, unattended)
+Retired the 24 old days (retirement 2); scheduled 597 ordered passes 2024-07-09..2026-11-20, 262 tapes
+2023-07-07..2024-07-22 and one block 2024-07-09..07-22 on build 914ffed7+7d4e45c05f63. Tapes ran on 8
+AMD nodes from 04:06 UTC (240 done by 04:48; every cache with its verdict); two Jobs ran out of
+completions early (claim race). `~/claude-artifacts/cluster-scratch/testblock/run.sh` (detached; log
+`run.log` there) finishes the tapes, starts the block on one node, deletes idle nodes, posts each
+published day to #vyreon-progress, runs the block's 10 ordered passes, then deletes the last node.
+Judge in the morning: gates a–c per day, holds, memory per day, one node's request draw (Intrinio
+usage vs core's ledger), wall times; then fix what it shows.
+
 ## Before the full build: the system runs without a watcher (owner, 2026-11-22: "do all 4")
 Tonight's test-block tapes needed an operator for four things: Job completion counts (the Job ran out
 with 51 tapes left and 8 nodes idle), node sizing and idle deletion, spotting non-failure oddities, and
