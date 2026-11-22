@@ -14,3 +14,5 @@ tiingo.txt
 __pycache__/
 progress-webhook.txt
 *webhook*.txt
+pg-backup-key-id.txt
+pg-backup-secret.txt
