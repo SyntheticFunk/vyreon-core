@@ -207,6 +207,23 @@ before scheduling.
   (access codes), core's request budget, the key in the cluster secret and `api.txt` (never
   printed), one real day rerun. At hand-offs, remind the owner of the time sheet and engineering log.
 
+## Now: pre-build changes and audit (2026-11-22)
+- Done: flag-agreement code (650539c); C-061 on core branch `core-c061` (27c83b6..6f120ed; 35 unit +
+  88 database tests); engine D-413 on branch `eng-gap` (cc6c4b96..9490a8d5: a missing day judged from
+  the walks that crossed it, not a contract-basis restart; 462 tests).
+- Audits (`~/claude-artifacts/audits/2026-11-22-prebuild/`, triage under `triage/`): depth (11: 9
+  real, 2 by decision, none above the cut line; 7 are in the engine's `/v1/review`, for the Reporter
+  port) and surface (16: 14 real, 1 not real, 1 by decision; above the cut line #6, a re-derived pass
+  stranded under an old build, which stalls every later pass, and #5, fixed on `core-c061`).
+- Fixing now: engine batch on `eng-gap` (D-414..D-425: surface #3, #4, #7, #9, #10, #11, #12, #14;
+  depth #7, #10; #13 if clean); core batch on `core-c061` (#6; a pass held only by a day published or
+  pending; `days retire` with preview, not run). Then the "changes" audit of all of it, a new engine
+  image, merge and deploy, then the test block.
+- Owner decision asked: retire (SUPERSEDED, rows kept) the 24 PUBLISHED days of 8 earlier builds
+  (2022-06-06..15 and 16 in phase 1's range) before the test block.
+- To measure, not change: each ordered pass loads the whole published store (est. ~1 GB peak at full
+  range); measure the last passes' memory and time.
+
 ## Work during phase 1
 **Reporter gap scan** (`~/claude-artifacts/audits/2026-11-21-reporter-gap/reporter-gap.md`): port
 the renderers; the new design is the evidence they consume. 14 confirmed findings in today's Reporter
