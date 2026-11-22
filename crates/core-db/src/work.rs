@@ -122,7 +122,7 @@ pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &st
     if kind == Kind::OrderedPass {
         // a publish queues ordered passes too (`publish::rederive`, under the publish lock): one at
         // a time, so neither reads "no unfinished pass" while the other inserts one (audit
-        // 2026-11-22 changes-core 1); the locks in the order a publish, `omit` and `retire` take them
+        // 2026-11-22 changes-core 1); the two locks in the order `omit` and `retire` take them
         tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
     }
     tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.map_err(db)?;
@@ -851,6 +851,10 @@ pub async fn omit(client: &mut Client, profile: &str, session: &str, reason: &st
         return Err("an omitted date needs a reason".into());
     }
     let tx = client.transaction().await.map_err(db)?;
+    // one publish at a time, then the scheduler's lock (as `retire`): a base published by hand
+    // between the check below and the commit would leave a published day omitted (audit
+    // 2026-11-22 changes-core 12)
+    tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
     tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.map_err(db)?;
     if tx.query_opt("SELECT FROM core.session WHERE session = $1::text::date", &[&session]).await.map_err(db)?.is_none() {
         return Err(format!("{session} is not a trading session"));

@@ -957,7 +957,7 @@ pub async fn retire(client: &mut Client, reason: &str, dates: &[&str], preview: 
     dates.dedup();
     let tx = client.transaction().await.map_err(|e| fail(db(e)))?;
     // it changes what is published and cancels jobs: one publish at a time, then the scheduler's lock
-    // (the order a publish and `omit` take them in)
+    // (the order `omit` and a schedule of ordered passes take them in; a publish takes the first only)
     tx.execute(work::PUBLISH_LOCK, &[]).await.map_err(|e| fail(db(e)))?;
     tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.map_err(|e| fail(db(e)))?;
     let q = |e: tokio_postgres::Error| fail(db(e));
