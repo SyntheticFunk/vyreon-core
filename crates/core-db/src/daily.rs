@@ -89,6 +89,13 @@ pub async fn queue_due(client: &mut Client, d: &Daily, now: &str) -> Result<Vec<
     client.query_one("SELECT vyreon.ensure_months($1::text::date, $2::text::date)", &[first, last]).await.map_err(db)?;
     let tx = client.transaction().await.map_err(db)?;
     tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.map_err(db)?;
+    // audit 2026-11-22 opsurface round 2 (round2-core.md) 7, C-068: read again under the scheduler's
+    // lock, which a hand-over holds while it withdraws the build and moves its work: a tick that read
+    // the build admitted before the hand-over queued its sessions under the withdrawn build after it
+    // (and marked them handled, so the successor never queued them)
+    if let Some(why) = build_stopped(&tx, d).await? {
+        return Err(format!("daily runs: build {} {why}; {} due sessions are not queued", d.build, sessions.len()));
+    }
     let mut out = Vec::new();
     for session in &sessions {
         let mine = tx

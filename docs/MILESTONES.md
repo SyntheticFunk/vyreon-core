@@ -352,8 +352,9 @@ into the next image before the recompute.
 test everything):** (1) run.sh's 10 passes on 914ffed7, node deleted; (2) deploy core 7c96453 (C-065;
 progress webhook; stop run.sh's posts); (3) KEDA (release manifest, no Helm) with one ScaledJob per kind
 triggered by core's claimable count of its own build, pool `day` autoscaling min 0 max 12 (manifests
-being written on branch `core-keda`); (4) the rulings image admitted, 914ffed7 withdrawn and its unfinished
-work (the 587 queued passes, any queued tape or block) handed to it once (`build hand-over`, C-068); (5) recompute
+being written on branch `core-keda`); (4) the rulings image registered, 914ffed7's unfinished work (the 587
+queued passes, any queued tape or block) handed to it once, withdrawing 914ffed7 (`build hand-over`,
+C-068), then the rulings image admitted (README "Workers from the queue" 4: this order); (5) recompute
 2024-07-09..07-22 as 2 blocks of 5 started by KEDA alone; gate a judges; (6) the full build.
 **Added (owner, 2026-11-22: "schedule this all along with the KEDA implementation"):** the database
 volume grows 120 → 250 GB with the next core restart (measured 2024-07 days ~134 MB each, 2026-11 ~200
@@ -410,9 +411,10 @@ Run every step with `KUBECONFIG=~/claude-artifacts/cluster-scratch/kubeconfig` a
    `vyreon-core-progress-webhook` (manifest done), then stop run.sh's own posts. Registry login: DO API
    docker-credentials, both parts by stdin.
 4. **Engine:** the claim retry (loose end) plus the test block's fixes → full suite → new image
-   (`deploy/worker/build.sh`), `build register/admit` with evidence, withdraw the replaced build, then
-   `vyreon-core build hand-over --preview <old> <new> "<reason>"` and, on its token, `--expect <token>`
-   (C-068): the old build's queued passes, tapes and blocks become the new build's, once.
+   (`deploy/worker/build.sh`), `build register` (NOT admit yet), then `vyreon-core build hand-over --preview
+   <old> <new> "<reason>"` and, on its token, `--expect <token>` (C-068: withdraws the old build and
+   makes its queued passes, tapes and blocks the new build's, once), then `build admit` the new build
+   with evidence, then the ScaledJobs on the new image (README "Workers from the queue" 4, the order).
 5. **Items 2 and 4 (KEDA, autoscaling, caps):** written on branch `core-keda` (C-066); merge, then
    `deploy/k8s/README.md` "Workers from the queue" steps 1-4 (KEDA 2.21.1 by its release manifest,
    no Helm; the `vyreon_scaler` role before the core image with 0046), proven by step 10 (the test

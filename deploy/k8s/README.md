@@ -408,13 +408,25 @@ sed -e "s#VYREON_WORKER_IMAGE#$IMG#" -e "s#VYREON_ENGINE_BUILD#$BUILD#" deploy/k
 kubectl -n vyreon get scaledjob      # READY True for all four; ACTIVE True where work is claimable
 ```
 
-A new image (C-068): register and admit the new build, withdraw the old one (`build withdraw`), then
-hand the old build's unfinished work to the new one, once: `vyreon-core build hand-over --preview
-<old> <new> "<reason>"` lists every queued or failed tape, day block and ordered pass it moves, with
-a token; `vyreon-core build hand-over --expect <token> <old> <new> "<reason>"` moves exactly that
-(refused if anything changed since the preview). Without it the old build's queued tapes and blocks
-hold the new build's blocks and passes for ever and its passes are claimed by no pod (core's
-`STALLED` chain says so). Then apply again with the new image and build. `rollout.strategy: gradual` keeps running Jobs (KEDA's default would delete them).
+A new image (C-068), **in this order** (the order is what keeps history in date order):
+1. `vyreon-core build register <inventory>` for the new build. **Do not admit it yet.** An admitted
+   successor's pod could claim a later day's pass while an earlier day's pass still belongs to the
+   old build, and publish that day's history one reading short; the hand-over refuses an admitted
+   successor.
+2. If the new build reads other profile revisions than the old one, schedule its day blocks over the
+   days the old build published (the hand-over names them and refuses until they are covered: C-064,
+   such days are recomputed).
+3. `vyreon-core build hand-over --preview <old> <new> "<reason>"`: it withdraws the old build if it
+   still runs (its live leases end) and lists every queued or failed tape, day block and ordered pass
+   it moves, and the old tape verify jobs it cancels, with a token. A running old build changes its
+   jobs as it goes: preview with the queue paused (`queue pause`) or expect to preview again.
+   `vyreon-core build hand-over --expect <token> <old> <new> "<reason>"` does exactly that, in one
+   transaction (refused if anything changed since the preview).
+4. `vyreon-core build admit <new> <evidence>`; set `VYREON_CORE_DAILY_BUILD` to it if the daily runs
+   are on; `queue resume` if paused.
+5. Apply the ScaledJobs again with the new image and build.
+Without the hand-over the old build's queued tapes and blocks hold the new build's blocks and passes
+for ever and its passes are claimed by no pod (core's `STALLED` chain says so). `rollout.strategy: gradual` keeps running Jobs (KEDA's default would delete them).
 **Never `kubectl delete scaledjob` while a worker runs:** its Jobs are owned by it and deleted with
 it (`--cascade=orphan` keeps them); deleting KEDA's manifest deletes its CRDs and with them every
 ScaledJob and Job.

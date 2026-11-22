@@ -847,9 +847,15 @@ async fn a_pass_under_a_build_that_does_not_run_holds_nothing_and_is_replaced() 
 /// A build with the slice's every profile (base, day-local and derived), registered under `name` and
 /// admitted: one image that runs tapes, day blocks and ordered passes, as 914ffed7 and its successor.
 async fn whole_build_named(client: &mut Client, name: &str) -> String {
+    let name = registered_whole_build(client, name).await;
+    admit(client, &name).await;
+    name
+}
+
+/// `whole_build_named`, registered and not admitted (a successor before its hand-over).
+async fn registered_whole_build(client: &mut Client, name: &str) -> String {
     let slots: Vec<Value> = inventories().iter().flat_map(|i| i["slots"].as_array().unwrap().clone()).collect();
     build::register(client, &with_day_local(json!({"engine_build": name, "slots": slots}))).await.unwrap();
-    admit(client, name).await;
     name.to_owned()
 }
 
@@ -882,10 +888,12 @@ async fn a_withdrawn_builds_unfinished_work_is_handed_to_its_successor_once() {
     assert!(!work::fail(&mut client, &t11.token, "tape", "HttpStatus(502)", "log").await.unwrap());
     work::resume(&client).await.unwrap();
 
-    // the image changes: the hand-over is refused while the old build runs, and without its preview
+    // the image changes. Round 2, 1: the successor is admitted only after the hand-over, so none of its
+    // workers runs a later pass before the moved ones; an admitted one is refused
     let new = whole_build_named(&mut client, "slice-new-image").await;
     let refused = build::hand_over(&mut client, &old, &new, "the rulings image", true, None).await.unwrap_err();
-    assert!(refused.contains("still runs: withdraw it first"), "{refused}");
+    assert!(refused.contains(&format!("build {new} is admitted: hand over before admitting it")), "{refused}");
+    build::withdraw(&mut client, &new, "admitted too early").await.unwrap();
     build::withdraw(&mut client, &old, "the rulings image").await.unwrap();
     assert!(build::hand_over(&mut client, &old, &new, "the rulings image", false, None).await.unwrap_err().contains("--preview first"));
     // what the withdrawn work does to the successor without it
@@ -914,8 +922,10 @@ async fn a_withdrawn_builds_unfinished_work_is_handed_to_its_successor_once() {
         (r.get(0), r.get(1), r.get(2))
     };
     assert_eq!(kept, (days[0].to_owned(), days[0].to_owned(), "DONE".to_owned()), "the day the old block did stays its");
-    assert!(notices(&client).await.last().unwrap().contains(&format!("is build {new}'s, the old jobs cancelled: the rulings image")));
+    assert!(notices(&client).await.iter().any(|n| n.contains(&format!("is build {new}'s, the old jobs cancelled: the rulings image. Admit build {new} now."))));
     assert!(build::hand_over(&mut client, &old, &new, "again", true, None).await.unwrap_err().contains("no unfinished work"), "once");
+    // then the successor is admitted (the hand-over's notice says so)
+    admit(&client, &new).await;
 
     // the successor runs it all: the tape, the blocks, then the passes in date order
     let tape = work::claim(&mut client, Kind::Tape, &new, "t3", HOUR).await.unwrap().unwrap();
@@ -933,6 +943,48 @@ async fn a_withdrawn_builds_unfinished_work_is_handed_to_its_successor_once() {
         ran.push(day);
     }
     assert_eq!(ran, days);
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-22 opsurface round 2 (round2-core.md) 6, 11 and 1, C-068: (6) the successor reads
+/// other profile revisions than the old build (here it registers no day-local profile), so a day the
+/// old build published is one its pass cannot read; with no day block to compute it again its pass
+/// would hold every later one: refused, naming the day, until a block of the successor covers it.
+/// (11) the old build's tape verify job is cancelled, not carried, so the successor's tapes can be
+/// scheduled over its session. (1) the old build, still running, is withdrawn by the hand-over itself.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_hand_over_carries_no_pass_its_successor_cannot_run() {
+    let (scratch, mut client, _, _) = ready("c068_hand_over_unreadable").await;
+    let old = whole_build_named(&mut client, "slice-old-image").await;
+    let day = "2025-12-10";
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &old, day, day, 1).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &old, day, day, 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &old, "w1", HOUR).await.unwrap().unwrap();
+    publish_base_as(&mut client, &old, &block, day).await;
+    work::finish(&mut client, &block.token).await.unwrap();
+    // a verify sample of the old build, as C-059 schedules one, over a stored cache
+    assert!(core_db::tape::put(&client, "AAPL", day, "engine-v1", &core_db::tape::Cache::Body(test_support::TAPE_AAPL.to_vec())).await.unwrap());
+    let verify = work::schedule_verify(&mut client, PROFILE, &old, &[day]).await.unwrap();
+    // the successor reads the base but no day-local profile
+    let mut base_only = inventories()[0].clone();
+    base_only["engine_build"] = json!("slice-new-base-only");
+    let new = build::register(&mut client, &base_only).await.unwrap().engine_build;
+    let refused = build::hand_over(&mut client, &old, &new, "a new image", true, None).await.unwrap_err();
+    assert!(refused.contains(&format!("1 days are published in profile revisions build {new} does not read, and no day block computes them again: {day}")), "{refused}");
+    // its block scheduled over the day: carried; the old build still ran and is withdrawn by it
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &new, day, day, 1).await.unwrap();
+    let preview = build::hand_over(&mut client, &old, &new, "a new image", true, None).await.unwrap();
+    assert!(preview.withdrew);
+    assert_eq!((preview.carried.len(), preview.verify_cancelled.clone()), (1, verify.clone()));
+    assert_eq!(job_state(&client, verify[0]).await, "QUEUED", "a preview changes nothing");
+    let handed = build::hand_over(&mut client, &old, &new, "a new image", false, Some(&preview.token)).await.unwrap();
+    assert!(handed.withdrew);
+    assert_eq!(job_state(&client, verify[0]).await, "CANCELLED");
+    let withdrawn: bool = client.query_one("SELECT withdrawn_at IS NOT NULL FROM core.engine_build WHERE engine_build = $1", &[&old]).await.unwrap().get(0);
+    assert!(withdrawn);
+    // the successor's tapes are scheduled over the verified session
+    work::schedule(&mut client, Kind::Tape, PROFILE, &new, day, day, 1).await.unwrap();
     scratch.drop().await;
 }
 

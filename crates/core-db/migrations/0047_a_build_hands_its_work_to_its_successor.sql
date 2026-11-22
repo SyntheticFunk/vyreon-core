@@ -12,6 +12,7 @@ CREATE TABLE core.hand_over (
 CREATE TABLE core.hand_over_job (
     hand_over_id bigint NOT NULL REFERENCES core.hand_over,
     old_job      bigint NOT NULL REFERENCES core.job,
-    new_job      bigint NOT NULL REFERENCES core.job,
+    -- NULL: a tape verify job of the old build, cancelled and not carried (a sample, round 2, 11)
+    new_job      bigint REFERENCES core.job,
     PRIMARY KEY (hand_over_id, old_job)
 );

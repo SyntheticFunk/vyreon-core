@@ -2530,3 +2530,25 @@ owner from the runbooks. Every real finding fixed; finding 14 is the engine's. M
   going on if the peak passes 4 GiB or a pass 30 minutes. Five lost leases on one session leave it
   FAILED (C-035 amended), and later passes wait.
 
+**Amended 2026-11-22 (audit round 2 of C-068, `opsurface/round2-core.md`).**
+- **1: the successor is admitted after the hand-over, never before.** Between a withdrawal and a
+  hand-over, an admitted successor's pod could claim a later day's pass (its own, under the claim's
+  rule a withdrawn build's earlier pass holds nothing) and publish that day's history one prior
+  reading short (`eligible_63 = 62`), visible to readers until the earlier day's pass republished
+  it. Structurally safe order: `build hand-over` refuses a successor that is admitted or holds a
+  live lease, and withdraws the old build itself, in its own transaction, when it still runs; the
+  successor is admitted after it. No worker of either build runs between the withdrawal and the
+  moment every moved job is the successor's. Runbook "Workers from the queue" 4 states the order.
+- **6: a pass is carried only where the successor can run it** (C-064). A day published (by any
+  build) in profile revisions the successor does not read is a day its pass cannot claim and that
+  holds every later pass; the hand-over refuses while such a day has no day block (the old build's
+  carried, or the successor's) to compute it again, naming the days. Test
+  `a_hand_over_carries_no_pass_its_successor_cannot_run`.
+- **11: the old build's tape verify jobs are cancelled, not carried** (recorded with no new job): a
+  sample of the old build's caches, which held a schedule of the successor's tapes refused as an
+  overlap.
+- **7: the daily runs read their build again under the scheduler's lock**, which a hand-over holds:
+  a tick that read the build admitted before a hand-over no longer queues its sessions under the
+  withdrawn build (and marks them handled). Test
+  `a_tick_waiting_on_a_hand_over_queues_nothing_under_the_withdrawn_build`.
+

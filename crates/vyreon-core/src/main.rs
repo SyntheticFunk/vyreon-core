@@ -8,9 +8,10 @@
 //!   vyreon-core build admit <build> <evidence.json>   let the build's workers claim work (the checks it passed)
 //!   vyreon-core build withdraw <build> <reason>       stop them claiming, and stop its running jobs (their
 //!                                                     leases end; the jobs are queued again under it)
-//!   vyreon-core build hand-over (--preview | --expect <token>) <from> <to> <reason...>   C-068: hand a withdrawn
-//!                                                     build's unfinished tapes, day blocks and ordered passes to an
-//!                                                     admitted successor, once: each is cancelled and the same work
+//!   vyreon-core build hand-over (--preview | --expect <token>) <from> <to> <reason...>   C-068: hand a build's
+//!                                                     unfinished tapes, day blocks and ordered passes to its successor,
+//!                                                     registered and NOT yet admitted (admit it after), once; <from> is
+//!                                                     withdrawn by it if it still runs: each job is cancelled and the same work
 //!                                                     queued under <to> (a block from its next session; its done days
 //!                                                     a DONE job of <from>). --preview does it in a transaction rolled
 //!                                                     back and prints each job with a token; the hand-over itself
@@ -319,12 +320,18 @@ fn hand_over_args<'a>(rest: &[&'a str]) -> Result<(&'a str, &'a str, String, boo
 async fn build_hand_over(rest: &[&str]) -> Result<(), String> {
     let (from, to, reason, preview, expect) = hand_over_args(rest)?;
     let h = build::hand_over(&mut connect().await?, from, to, &reason, preview, expect).await?;
+    if h.withdrew {
+        println!("build {from} still runs: it is withdrawn by this hand-over (its live leases end, their jobs carried)");
+    }
     for c in &h.carried {
         let new = c.new_job.map_or_else(|| "a new job".to_owned(), |j| format!("job {j}"));
         println!("{} job {} ({}) {} to {}: cancelled; {new} of build {to}", c.kind, c.old_job, c.state, c.first, c.last);
     }
+    for j in &h.verify_cancelled {
+        println!("TAPE verify job {j}: cancelled, not carried (a sample of build {from}'s caches)");
+    }
     match h.hand_over_id {
-        Some(id) => println!("hand-over {id}: {} jobs of build {from} are build {to}'s", h.carried.len()),
+        Some(id) => println!("hand-over {id}: {} jobs of build {from} are build {to}'s; now admit build {to} (`vyreon-core build admit`)", h.carried.len()),
         None => println!(
             "preview: nothing was changed; to hand over exactly this: vyreon-core build hand-over --expect {} {from} {to} {reason:?}",
             h.token
