@@ -1755,3 +1755,41 @@ problem is on the provider side it should be clear to us so we can just omit tha
   ENGINE_FAULT (the fault hold), FAILED (the stop's first line), NOT_COMPUTED_YET (queued or running),
   OMITTED (with the operator's reason); omitting a date is one command with a reason; the digest lists
   each set-aside day with its cause. An engine fault is fixed and recomputed, never omitted.
+- **Built (2026-11-21, migration 0031):** `core.claimable_job`: a FAILED day block no longer holds
+  later passes, and an earlier pass whose day has no published base while its block is FAILED (or
+  the day omitted), with no day job pending for it, no longer holds the passes after it; a day
+  queued again holds them again; DAY_BLOCK and TAPE claims unchanged. `vyreon-core omit <profile>
+  <session> <reason...>` (`work::omit`) is refused unless the session's day job stands FAILED with
+  nothing of the day published, and refused for the engine-fault hold; it records
+  `core.omitted_session` (session, profile, reason, job, time), cancels the day job and the
+  session's queued pass, and logs a notice. The cause (`core.session_cause`, from the last
+  attempt's evidence message, else its lease's failure; the engine's held text is found after
+  `held: `, since the worker sends `stop: <date> not published: held: ...`) is on every
+  NOT_PUBLISHED session of `GET /v1/sessions`, `/v1/sessions/{date}` and an asset's history (in its
+  ETag too), `{code, detail}` in this order: NOT_COMPUTED_YET (a queued or running day job), OMITTED,
+  PROVIDER_INPUT_MISSING / ENGINE_FAULT (the hold's counts, without its slot list), FAILED (the first
+  line), NOT_SCHEDULED. The digest has a line per day set aside and per date omitted in the last 24
+  hours, with its code (at most 10), and counts an omission as handled. Tests:
+  `core-db/tests/work.rs` `a_failed_day_holds_no_later_pass_and_a_retried_one_holds_them_again`,
+  `a_date_is_omitted_only_when_its_day_failed_for_the_provider` (the digest lines),
+  `core-api/tests/reader_api.rs` `each_unpublished_session_states_its_cause`.
+- **Engine side, read (worker branch, 2026-11-21; not changed):** the ordered pass computes a day
+  whose window holds a session with no published day without error: the level and history windows
+  read it as `Position::Absent` (NOT_PUBLISHED; `h5-derived/src/lib.rs:141-156`, `:659-671`,
+  `:896`), DLM-OI-CHANGE on the next day withholds PRIOR_SESSION_NOT_PUBLISHED (`:422-499`),
+  DLM-IV-TERM `change_5` NO_PRIOR_SESSION_VALUE (`:950-966`), DLM-IV-CRUSH IV30_UNAVAILABLE_PRE/POST
+  (`:1123-1155`); `inputs_digest` lists only what is published (`vyreon-cli/src/derive/ordered.rs:77-95`);
+  only T's own base and day-local revision are required (`ordered.rs:54`, `:63`, which the claim
+  guarantees). **Not one fewer for readings in option contracts or over the strike partition:** a
+  session with no published day has no VS-O04/VS-OIJ01 evidence, so its OCC adjustment status is
+  Unknown (`ordered.rs:220`), and D-170 restarts the contract and partition basis at it for every
+  object for the next 252 sessions (`h5-derived/src/basis.rs:64-100`): DLM-OPTIONS-VOLUME's windows
+  count every earlier session BEFORE_SERIES (`lib.rs:507-521`; its 252-session percentile needs 189
+  sessions after the gap, D-404), and DLM-UNUSUALNESS withholds contract-unit and partition readings
+  INSUFFICIENT_HISTORY until 48 sessions after it (`unusual.rs:217-260`). D-404 part 2's walk
+  evidence rescues a session whose own bodies are withheld for PROVIDER_INPUT_MISSING
+  (`vyreon-cli/src/derive/mod.rs:242-308`) but not one with no published day, though T's own walk
+  crossed it from the provider's bars. For the engine (owner's call): treat a session absent from
+  the store like an undelivered one there. Also: a gap at the first published session moves
+  `first_published` (`lib.rs:142`, `:511`, `:660`, `:896`), so it reads BEFORE_SERIES, not
+  NOT_PUBLISHED (the same count against the floor).
