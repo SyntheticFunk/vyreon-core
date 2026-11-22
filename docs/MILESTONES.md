@@ -246,6 +246,24 @@ before scheduling.
 - To measure, not change: each ordered pass loads the whole published store (est. ~1 GB peak at full
   range); measure the last passes' memory and time.
 
+## Before the full build: the system runs without a watcher (owner, 2026-11-22: "do all 4")
+Tonight's test-block tapes needed an operator for four things: Job completion counts (the Job ran out
+with 51 tapes left and 8 nodes idle), node sizing and idle deletion, spotting non-failure oddities, and
+fault judgement. The first three move into the system; judgement no longer blocks (C-061 sets a failed
+day aside; three standing failures pause and alert).
+1. **Claims:** core's claim race fixed (try the next claimable job while any remain) and the worker's
+   claim retried on a connection that never reached core (loose ends below).
+2. **Workers and nodes follow the queue:** KEDA (designed 2026-11-10, `deploy/k8s/README.md` "After
+   this run"; not installed) with one ScaledJob per kind (tape, day block, ordered pass) on the
+   `postgresql` trigger counting `core.claimable_job`; pool `day` autoscaling min 0, max N, so nodes
+   appear with pending pods and leave when idle. Proven on a real run before the full build.
+3. **Core's watch takes over `health.sh`:** stall (claimable, no live lease for 15 min), pods finding
+   nothing while work waits, worker nodes up with no worker, spend against the ceiling: each an alert;
+   plus the progress channel (below).
+4. **Hard caps instead of judgement:** the autoscaler's max nodes and KEDA's max replicas set from one
+   node's measured request draw (owner's rule 2026-11-19) so the system cannot pass 1,900 requests a
+   minute or the spend ceiling.
+
 ## Work during phase 1
 **Reporter gap scan** (`~/claude-artifacts/audits/2026-11-21-reporter-gap/reporter-gap.md`): port
 the renderers; the new design is the evidence they consume. 14 confirmed findings in today's Reporter
