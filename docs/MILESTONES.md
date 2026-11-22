@@ -256,6 +256,14 @@ published day to #vyreon-progress, runs the block's 10 ordered passes, then dele
 Judge in the morning: gates a–c per day, holds, memory per day, one node's request draw (Intrinio
 usage vs core's ledger), wall times; then fix what it shows.
 
+## Owner questions for the morning (2026-11-22)
+1. Spend stays with the operator (`health.sh`) and item 4's hard caps rather than a billing token in
+   core (recommended: yes, least privilege; idle nodes are item 2's autoscaler's job).
+2. Watch thresholds: STALLED 15 min (owner's), 30 min when only daily-run work waits (the CronJob's
+   morning gap until KEDA replaces it), CLAIMS_EMPTY 3 misses in 10 min.
+3. Once core-watch is deployed with the progress webhook, `run.sh`'s own posts duplicate it: stop
+   run.sh's posting at that deploy (not before the block finishes).
+
 ## Resume here if the session is lost (written 2026-11-22 04:55 UTC)
 Run every step with `KUBECONFIG=~/claude-artifacts/cluster-scratch/kubeconfig` and
 `VYREON_DOKS_CLUSTER=5f56e6e0-1c74-4dc9-bfdb-962ee55ebff3` (refresh the kubeconfig from DO before
@@ -270,9 +278,11 @@ Run every step with `KUBECONFIG=~/claude-artifacts/cluster-scratch/kubeconfig` a
    Intrinio usage (Intrinio MCP `get_account_usage`) against core's request ledger for one node's
    draw; wall time per day. Report to the owner with numbers; fix what it shows (worktree per fix,
    audit, merge, image) before anything else.
-3. **Core branch `core-watch`** (`/home/diggz/wt/core-watch`; may be unfinished): item 1 claim race,
-   item 3 watch checks, progress-channel routing. Finish, test (unit + `--ignored`), Codex audit,
-   merge, deploy (`docker build -f deploy/core/Dockerfile`, push, `kubectl set image ... core= migrate=`),
+3. **Core branch `core-watch`** (`/home/diggz/wt/core-watch`, tip a486c53, built 2026-11-22: C-065,
+   migration 0042; 40 unit + 115 database tests; claim race reproduced 3/3 before, never after): item 1
+   claim race, item 3 STALLED (15 min; 30 for daily-only work) and CLAIMS_EMPTY (3 misses in 10 min),
+   progress channel (`VYREON_CORE_PROGRESS_WEBHOOK_FILE`, 30-min batches). Codex audit started
+   2026-11-22 05:0x UTC (`audits/2026-11-22-prebuild/round2/core-watch.md`): triage, fix, merge, deploy (`docker build -f deploy/core/Dockerfile`, push, `kubectl set image ... core= migrate=`),
    mount secret `vyreon-core-progress-webhook`. Registry login: DO API docker-credentials (pass both
    parts by stdin, never on a command line).
 4. **Engine:** the claim retry (loose end) plus the test block's fixes → full suite → new image
