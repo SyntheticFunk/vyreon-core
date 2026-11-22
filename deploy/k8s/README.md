@@ -388,8 +388,16 @@ ScaledJob and Job.
   while the request budget has headroom): one node averaged 101 requests a minute over its wall
   time with bursts of 500-760 while a day downloads (2026-11-22); core grants at most 1,900 a minute
   (`VYREON_CORE_INTRINIO_PER_MINUTE`), so more nodes than the budget holds only wait in it, at node
-  cost. Check: `SELECT date_trunc('minute', minute) m, sum(requests), count(DISTINCT worker) FROM
-  core.request_usage WHERE minute > now() - interval '6 hours' GROUP BY 1 ORDER BY 2 DESC LIMIT 10`.
+  cost. Check: `vyreon-core budget [hours]` (C-068): what is committed now, the busiest minutes with
+  the requests workers reported and the grants never released, and how many leases ended
+  unreleased. **The ledger's limits:** a worker's usage is booked in the minute its lease was
+  *released*, not when its requests were made (a lease spans 30 s and its answer's way, so a burst
+  can fall across two minutes); a worker that dies after drawing, or whose release never reaches
+  core (the worker logs the failure and goes on), reports nothing, so `core.request_usage` alone
+  shows headroom that was not there. Core's budget itself is not fooled: an unreleased lease is held
+  at its full size until a minute after its validity. Judge a raise on the reported **plus**
+  unreleased column (an upper bound) and on Intrinio's own account usage for the same hours
+  (Intrinio MCP `get_account_usage`), never on `request_usage` alone.
 - **The node cap** (the hard cost cap): pool `day` `max_nodes` (step 3's PUT with a new value).
   Keep it at least `day-block` + `day-block-daily`, else a block pod waits Pending (it holds no
   job, so nothing stalls, but it is not computing).

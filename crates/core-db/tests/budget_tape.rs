@@ -141,3 +141,24 @@ async fn a_tape_cache_is_written_once_and_a_tape_job_needs_every_listed_member()
     assert!(tape::of_session(&client, "2025-12-10", "another-method").await.unwrap().is_empty());
     scratch.drop().await;
 }
+
+/// C-068 (audit opsurface ops.md 12): a worker that dies after drawing, or whose release never
+/// reaches core, leaves nothing in `request_usage`, so the minute totals the runbook judged
+/// concurrency by showed headroom that was not there. The ledger states such grants beside the
+/// reported requests (the counts of the test block's one node: a lease of 600 and one of 150 used).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn the_ledger_shows_the_grants_never_released() {
+    let (scratch, mut client) = migrated("budget_ledger").await;
+    let budget = Budget::default();
+    let (first, _) = granted(budget::draw(&mut client, budget, "day-a", 600).await.unwrap());
+    let (lost, _) = granted(budget::draw(&mut client, budget, "day-b", 600).await.unwrap());
+    budget::release(&mut client, first, "day-a", &json!({"options": 150})).await.unwrap();
+    // day-b's pod is killed: its lease is never released; once past its validity it is unreleased
+    client.execute("UPDATE core.budget_lease SET valid_until = now() - interval '1 second' WHERE budget_lease_id = $1", &[&lost]).await.unwrap();
+    assert_eq!(budget::unreleased(&client, 6.0).await.unwrap(), (1, 600));
+    let minutes = budget::ledger(&client, 6.0, 10).await.unwrap();
+    assert_eq!(minutes.len(), 1, "{minutes:?}");
+    assert_eq!((minutes[0].released, minutes[0].unreleased, minutes[0].workers), (150, 600, 2));
+    scratch.drop().await;
+}

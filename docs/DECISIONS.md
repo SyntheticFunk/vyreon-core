@@ -2455,4 +2455,10 @@ owner from the runbooks. Every real finding fixed; finding 14 is the engine's. M
   volume) and `the_watch_reads_the_wal_the_archiver_and_the_base_backups` (the readings on a real
   server). Not verified: the plugin's backup history file and the archiver's statistics under the
   plugin (both at B7/B8).
+- **12: the request ledger states its limits and the grants never released.** `vyreon-core budget
+  [hours]` (`budget::ledger`, `budget::unreleased`): the busiest minutes with the requests reported
+  (booked at release) and the requests of leases granted then and never released (a dead worker, a
+  lost release), and the count of such leases. The runbook's scaling criterion (README "The caps")
+  now reads the two together as an upper bound, beside Intrinio's own usage. The budget's rule is
+  unchanged (an unreleased lease is held at its full size). Test `the_ledger_shows_the_grants_never_released`.
 

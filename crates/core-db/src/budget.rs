@@ -118,3 +118,52 @@ pub async fn release(client: &mut Client, budget_lease_id: i64, worker: &str, us
 pub async fn committed(client: &Client) -> Result<i32, String> {
     Ok(client.query_one(COMMITTED, &[]).await.map_err(db)?.get(0))
 }
+
+/// One minute of the request ledger (C-068, audit opsurface ops.md 12): the requests workers
+/// reported, booked in the minute their lease was released (`release`), and the requests of leases
+/// granted in that minute and never released (a worker that died, or whose release never reached
+/// core: the worker logs a failed release and goes on). Neither is when the requests were made: a
+/// lease spans up to `lease_seconds` (30) plus its answer's way, so a burst can straddle two minutes.
+/// `released + unreleased` is an upper bound on a minute's requests through core's budget; the
+/// provider's own usage (Intrinio's account usage) is the measure of what was spent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LedgerMinute {
+    pub minute: String,
+    pub released: i64,
+    pub unreleased: i64,
+    pub workers: i64,
+}
+
+/// The busiest `top` minutes of the last `hours` hours by `released + unreleased`, busiest first.
+pub async fn ledger(client: &Client, hours: f64, top: i64) -> Result<Vec<LedgerMinute>, String> {
+    let rows = client
+        .query(
+            "WITH u AS (SELECT minute, sum(requests)::bigint AS n, array_agg(DISTINCT worker) AS w FROM core.request_usage
+                        WHERE minute > now() - make_interval(secs => $1::float8 * 3600) GROUP BY minute),
+                  g AS (SELECT date_trunc('minute', granted_at) AS minute, sum(granted)::bigint AS n, array_agg(DISTINCT worker) AS w FROM core.budget_lease
+                        WHERE released_at IS NULL AND valid_until < now() AND granted_at > now() - make_interval(secs => $1::float8 * 3600) GROUP BY 1)
+             SELECT to_char(minute AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI'), COALESCE(u.n, 0), COALESCE(g.n, 0),
+                    (SELECT count(DISTINCT x) FROM unnest(COALESCE(u.w, '{}') || COALESCE(g.w, '{}')) x)
+             FROM u FULL JOIN g USING (minute)
+             ORDER BY COALESCE(u.n, 0) + COALESCE(g.n, 0) DESC, minute LIMIT $2",
+            &[&hours, &top],
+        )
+        .await
+        .map_err(db)?;
+    Ok(rows.iter().map(|r| LedgerMinute { minute: r.get(0), released: r.get(1), unreleased: r.get(2), workers: r.get(3) }).collect())
+}
+
+/// The leases granted in the last `hours` hours that ended unreleased, and their requests (each
+/// was held against the ceiling at its full size for its validity and a minute after, so the budget
+/// never under-counted it; only the ledger misses what it used).
+pub async fn unreleased(client: &Client, hours: f64) -> Result<(i64, i64), String> {
+    let r = client
+        .query_one(
+            "SELECT count(*), COALESCE(sum(granted), 0)::bigint FROM core.budget_lease
+             WHERE released_at IS NULL AND valid_until < now() AND granted_at > now() - make_interval(secs => $1::float8 * 3600)",
+            &[&hours],
+        )
+        .await
+        .map_err(db)?;
+    Ok((r.get(0), r.get(1)))
+}

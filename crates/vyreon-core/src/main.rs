@@ -63,6 +63,9 @@
 //!                                                     failed with its endpoint, bucket and key (the newest sessions, or
 //!                                                     one session), each category a worker could not pack, and what is missing
 //!   vyreon-core problems                              the open problems (C-050), oldest first, and the last resolved
+//!   vyreon-core budget [hours]                        the request ledger (C-068): what is committed against the ceiling
+//!                                                     now, the busiest minutes of the last hours (6) with the requests
+//!                                                     reported and the grants never released, and how many were not
 //!   vyreon-core digest [weekly]                       print the 09:00 digest (or the Saturday check) as it would be posted now
 //!   vyreon-core log [n]                               the newest n (20) logged events, which are not posted
 //!   vyreon-core progress                              the last 30 minutes as the progress channel (C-065) would post them
@@ -89,7 +92,8 @@
 //!                                                     (the first session with a publishing deadline; unset: the daily
 //!                                                     runs' first session, else none), VYREON_CORE_DEADLINE_HOUR (20:
 //!                                                     the deadline's hour, MT, the next calendar day), VYREON_CORE_VOLUME_GIB
-//!                                                     (the database volume's size; unset: not checked).
+//!                                                     (the database volume's size; unset: not checked), VYREON_CORE_BACKUP_MAX_DAYS
+//!                                                     (C-068: the newest base backup's largest age in days; unset: not checked).
 //!                                                     Daily runs (C-051), both or neither: VYREON_CORE_DAILY_FROM (the first
 //!                                                     session core queues by itself; unset: none) and VYREON_CORE_DAILY_BUILD
 //!                                                     (the admitted engine build they are queued for).
@@ -632,6 +636,25 @@ async fn progress_preview() -> Result<(), String> {
     Ok(())
 }
 
+/// C-068 (audit opsurface ops.md 12): the request ledger with its limits stated.
+async fn budget_ledger(hours: &str) -> Result<(), String> {
+    let hours: f64 = hours.parse().ok().filter(|h: &f64| *h > 0.0).ok_or_else(|| format!("hours: {hours}"))?;
+    let client = connect().await?;
+    let ceiling: i32 = setting("VYREON_CORE_INTRINIO_PER_MINUTE", core_db::budget::Budget::default().per_minute)?;
+    println!("committed now: {} of {ceiling} a minute", core_db::budget::committed(&client).await?);
+    let (n, requests) = core_db::budget::unreleased(&client, hours).await?;
+    println!("leases never released in the last {hours} h: {n} ({requests} requests granted; what they used is unknown)");
+    println!("busiest minutes (UTC): reported at release + granted and never released, workers");
+    for m in core_db::budget::ledger(&client, hours, 10).await? {
+        println!("{} {:>5} + {:>4}  {} workers", m.minute, m.released, m.unreleased, m.workers);
+    }
+    println!(
+        "reported requests are booked in the minute their lease was released, not made: an upper bound per minute is the two together; \
+         Intrinio's own account usage is the measure of what was spent"
+    );
+    Ok(())
+}
+
 async fn log(n: &str) -> Result<(), String> {
     let n: i64 = n.parse().map_err(|_| format!("how many: {n}"))?;
     for (at, message) in notice::recent_log(&connect().await?, n).await?.iter().rev() {
@@ -977,6 +1000,8 @@ async fn main() -> ExitCode {
         ["archive", "list"] => archive_list(None).await,
         ["archive", "list", date] => archive_list(Some(date)).await,
         ["problems"] => problems().await,
+        ["budget"] => budget_ledger("6").await,
+        ["budget", hours] => budget_ledger(hours).await,
         ["digest"] => digest(false).await,
         ["digest", "weekly"] => digest(true).await,
         ["progress"] => progress_preview().await,
