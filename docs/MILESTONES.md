@@ -110,7 +110,10 @@ Next:
    reply (sent 2026-11-18); check Tiingo's and OCC's naming terms first. Design inputs (pre-pivot):
    `vyreon-reporter/docs/publication-design/`, `market-research/VYREON_PAID_CROSS_ASSET_PRODUCT_CONCEPT.md`,
    `~/claude-artifacts/website-plan-2026-10-12.md`, `~/claude-artifacts/literature/SYNTHESIS-*.md`.
-5. **Launch decision:** Intrinio's Startup tier (display/redistribution rights; covers free and paid),
+5. **Launch decision:** proven unattended operation first (owner, 2026-11-22: explicit go-live
+   criterion; the owner may be mobilized to field work for weeks): two weeks of daily runs, history
+   passes and the Sunday issue with nobody touching the system, judged afterwards from the digest and
+   the log. Then Intrinio's Startup tier (display/redistribution rights; covers free and paid),
    security before launch, Reporter's output live on the web; then the ads (owner's plan below).
    After it, or when wanted: deeper history (old snapshot layouts readable since D-251..D-254; the
    2023-01-18..03-07 gap needs a ruling), the FIELD campaign, social posting, CI.
