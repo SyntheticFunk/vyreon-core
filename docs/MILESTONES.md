@@ -456,7 +456,8 @@ census; ask Intrinio support at the Startup purchase about a backfill and the by
 reference lags the engine's split rules D-162/D-163 (D-161 part already fixed in acbf297c); published
 values verified by hand; no wrong number (`checks/2026-11-22-testblock/refcheck-0716-jump.md`). Would
 recur ~140/day for ex+1..ex+4 at every clean split (MSTR 2024-08-08; 5 sector ETFs 2025-12-05).
-Reference-only fix running on branch `eng-ref`; its image replaces acbf297c before the hand-over.
+Reference fix merged (engine `worker` f7b08efe, reference pytest 187); image `f7b08efe+effde96f9a1e`
+registered 2026-11-22 15:25 MT: **the build for the hand-over** (acbf297c registered, never admitted, unused).
 
 **Owner, 2026-11-22: Intel fallback authorized** — new pool `day-intel` (Basic Intel `s-8vcpu-16gb-intel`,
 $0.167/h, same as `day`), autoscale 0..13; delete the empty `day-std` (its `s-8vcpu-16gb` is no longer
