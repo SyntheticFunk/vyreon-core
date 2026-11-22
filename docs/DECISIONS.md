@@ -1975,3 +1975,98 @@ fixed on main, #4 and #16 are by decision, #20 is not real.
   2025-12-10 (its DLM-MAX-PAIN slot as the day-local profile, under a profile name made for the test)
   and the engine's messages as its source writes them; no held day's real message is kept where core
   can read it.
+- **Amended 2026-11-22 (C-064):** a block that ends for good on a base without its day-local revision
+  supersedes that base; a pass counts a day published only in its own build's profile revisions; a
+  refund needs a day its own lease did; the retirement token covers the later history; `build
+  withdraw` takes the publish lock.
+
+## C-064 Prebuild audit round 2 of C-061 to C-063: a missing day is missing everywhere (2026-11-22)
+Audit 2026-11-22 prebuild round 2 (`round2/core-r2.md`, bf808f3...4e784e1), 11 findings, each
+re-verified against the code before it was fixed (no separate triage this round); all 11 are real and
+fixed. Migrations 0039–0041.
+- **A base left without its day-local revision is superseded when its block ends (1, above the cut
+  line: a wrong number).** C-063 made such a day missing for the claim, but the engine's ordered pass
+  reads every PUBLISHED base directly (`vyreon-cli/src/derive/mod.rs` `load_with`), so the day still fed
+  later days' history (DLM-OI-CHANGE `raw_change_1` from its VS-O02 and VS-O04). Now when a day block is
+  set aside FAILED (`work::requeue`) or cancelled (`work::cancel_in`) on a day whose base is PUBLISHED
+  with no PUBLISHED day-local revision on it, core supersedes the base in the same transaction
+  (`publish::drop_base_without_day_local`; the row is kept and named in `core.dropped_base`) and C-037's
+  rederive takes down what read it (normally nothing: the block held every later pass while it ran).
+  The notice says so ("its base revision N was published but no day-local derived revision on it: the
+  base is superseded, so no later day's history reads D"), and so does the session's cause: a FAILED
+  day's detail opens "base revision N superseded, no day-local revision was published on it; " (also on
+  the digest's set-aside line), a cancelled one reads NOT_SCHEDULED "its day job J was cancelled; base
+  revision N superseded, …". A later attempt (`queue retry-failed`) publishes a new base and its
+  day-local revision as any day; the passes after it are derived again (C-037). Why here and not "a base
+  counts only once its day-local revision is published": the day-local revision binds to a published
+  base (`bind_base`, FOR SHARE) and the engine's day-local derive reads it, so the base must be
+  published first, and what counts for the engine's pass is a revision's state, which only core sets;
+  while the block runs it holds every later pass (`core.claimable_job`), so the only exposure is a block
+  that stops for good, which is where core now acts. `fail`, a lease's expiry and `cancel` take the
+  publish lock first (they may now supersede and re-derive).
+- **A pass counts a day published only in its build's profile revisions (2, above the cut line: a
+  stall).** `core.day_published(day, profile, build)` (0040) requires the base and the day-local
+  revision to be of profile revisions in the pass's build's registered inventory (the profiles it
+  publishes; the engine's pass reads exactly its own `BASE_PROFILE` and `DAY_DERIVED_PROFILE`), for the
+  pass's own day and, for an earlier pass, with that pass's build. A mixed-revision day is missing for
+  that pass, never a FAILED pass that holds the later ones. On the cluster (one build for every profile)
+  nothing changes; the tests' derived build now registers the profiles its pass reads
+  (`test_support::slice::reading`). Not changed: a base whose day-local revision is of another profile
+  revision is still PUBLISHED and read by the engine's later passes (a coherent published day; only a
+  change of the day-local profile revision makes one, and then the days are recomputed).
+- **The claim reads an omission only while it is current (3),** the reader's rule (0037), through one
+  function, `core.omission_current` (0040).
+- **A refund needs a day the same lease did (4, 10).** C-063 #10 took the progress on trust: a worker
+  naming a stale day on each new lease was refunded without end, and the supplied worker names its
+  claim's first day for any stop without a date (`vyreon-worker` `stopped_on`), so a disk guard on the
+  day after a done day refunded a real failure. Now a lease records the session its attempt began at
+  (`core.lease.start_session`, set by the database when the lease is granted, 0041), the day is read from
+  the evidence's message as the engine writes it (`stop: <date> ...`, or `stop: prune after <date>:`,
+  `days.rs`), never from its session field alone, and an attempt is refunded only when that day lies from
+  the lease's start to before the block's next session: each refund moved the block on by a day of its
+  own lease, so refunds are bounded by the block's length. A message naming no day is counted. Leases
+  granted before 0041 have no start: counted.
+- **The retirement token covers the later history it takes down (5):** the later days' PUBLISHED
+  history revisions that fall with the retirement are locked and part of the token.
+- **A refused upload from an ended lease is the lease gone (6).** Some refusals come before the lease is
+  checked (a bundle that ends before its scalars, or cannot be read to its end); `publish_for_lease`
+  checks the lease again before answering a refusal: a withdrawn, cancelled or expired lease's upload is
+  a 410 (no pause), a live one's still a 422 that pauses the queue.
+- **One lock order (7, 8).** `build withdraw` takes the publish lock first. Every holder of the publish
+  lock takes it before any row lock (publish, the claim of an ordered pass, `schedule ordered-pass`,
+  `omit`, `retire`, `cancel`, `fail`, a lease's expiry, `withdraw`), then the schedule lock where it
+  takes one, then rows, leases before their jobs (`cancel_in` and `withdraw` now end the leases first, in
+  their own statement; `rederive` already did). So no two of them interleave (the race of 7: a
+  withdrawal between two statements of a publish's re-derive), and a cycle needs a transaction without
+  the publish lock: a worker's lease call (`held`: its lease, then its job, in one statement), a claim
+  of a day block or tape (the build's row shared, then a job SKIP LOCKED), evidence (its job), `admit`
+  (the build's row). None of these waits for a row a holder of the publish lock takes before a row it
+  holds: holders lock a job only after its lease, and the worker locks the lease first; a claim skips
+  locked jobs and only shares the build row, which only `withdraw` updates, after the publish lock and
+  before any lease. The cycle of 8 (retire: job then lease; withdraw: lease then job) is gone both ways:
+  they serialize on the publish lock, and both lock leases first. `admit` takes no lock: it only makes a
+  build run, which no statement of a re-derive can be caught out by.
+- **`retire` records only the jobs it cancelled (9):** `cancel_in` returns them; a job whose worker
+  finished in between is neither cancelled nor named.
+- **A withdrawal is stamped with the clock (11):** `withdrawn_at`, its leases' `ended_at` and its jobs'
+  `finished_at` use `clock_timestamp()`, taken after the locks it waited for, as a publish and a claim
+  stamp theirs.
+- **An ordinary day changes nothing in the measurements:** core computes nothing; no base is left
+  without its day-local revision, so nothing is superseded; on the cluster every pass's build registers
+  the profiles it reads, so every pass is claimed when it was; a lease records where it began; a
+  `fail`, an expiry, a `cancel` and a withdrawal may wait for a publish under way (seconds to a minute)
+  before they run. Notices, the digest and the reader's causes change only in the cases above.
+- **Not verified on real data:** none of this has run on the cluster. The tests use the real slice of
+  2025-12-10 and the engine's messages as its source writes them (`stop: prune after <date>: …`,
+  `diskguard: stop, … GB free (minimum … GB)`); the day-local profile revision of an earlier build in
+  test 2 is a name made for the test. Tests (`core-db/tests/work.rs`):
+  `a_day_whose_block_failed_after_its_base_is_missing_for_the_passes` (amended),
+  `a_day_block_cancelled_after_its_base_leaves_no_base_to_read`,
+  `a_day_local_revision_the_pass_does_not_read_makes_a_missing_day`,
+  `an_omission_no_longer_current_leaves_a_day_still_to_come`, `a_stop_that_names_no_day_is_counted`,
+  `a_refund_needs_a_day_done_under_the_same_lease`, `a_retirement_token_covers_the_later_history_it_takes_down`,
+  `a_refused_upload_from_an_ended_lease_is_the_lease_gone`,
+  `a_withdrawal_waits_for_the_publish_lock_and_a_retirement_beside_it_ends`,
+  `a_retirement_names_only_the_jobs_it_cancelled`, `a_withdrawal_is_stamped_when_it_ends_its_leases`.
+- **The engine side of 10** (the worker's fallback day) is being fixed separately; core no longer
+  depends on it.
