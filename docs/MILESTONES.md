@@ -439,7 +439,8 @@ the operational failure surface (owner) and the rulings diff. Backup bucket `vyr
 tested: its bucket 200, vyreon-data 403). Test block on 914ffed7: 7 of 10 days published.
 Next: the suite → image 090d7aea → after the block: the rollout (scaler role, core deploy, volume,
 KEDA, autoscaling incl. `day-std` as the fallback, image admitted/914ffed7 withdrawn and handed over,
-`GRANT pg_monitor TO vyreon`, backups + first backup) with the audits' fixes →
+`GRANT pg_monitor TO vyreon`, core's ServiceAccount reading the backup plugin's record (20-core.yaml),
+backups + first backup, BACKUP_STALE resolved from that record) with the audits' fixes →
 the recompute as the build's first stage → the full build.
 
 ## Timeline (owner, 2026-11-22)
