@@ -174,6 +174,18 @@ pub fn with_day_local(mut inventory: Value) -> Value {
     inventory
 }
 
+/// `inventory` (the build that runs the ordered pass: the slice's derived build) with the profiles its
+/// pass reads registered as well: the base build's real rows and the day-local rows (`with_day_local`).
+/// The engine's pass reads exactly its own build's base and day-local profile revisions, and the
+/// cluster's image is one build for every profile; core counts a day as published for a pass only in
+/// profile revisions of the pass's build (audit 2026-11-22 round 2, core-r2 2). Only the rows' build
+/// is made here.
+pub fn reading(mut inventory: Value) -> Value {
+    let base = inventories().remove(0);
+    inventory["slots"].as_array_mut().unwrap().extend(base["slots"].as_array().unwrap().iter().cloned());
+    with_day_local(inventory)
+}
+
 /// The day-local revision of `day` computed on base revision `base`, sent as build `build`: the
 /// slice's DLM-MAX-PAIN slot, its body, receipt and reader scalars (core's checks never read a
 /// body's date or build), under the day-local profile revision.

@@ -35,7 +35,7 @@ async fn service(test: &str) -> Service {
     let mut builds = Vec::new();
     for (i, inventory) in inventories().into_iter().enumerate() {
         // the base build publishes each day's day-local revision as well (C-031)
-        let inventory = if i == 0 { test_support::slice::with_day_local(inventory) } else { inventory };
+        let inventory = if i == 0 { test_support::slice::with_day_local(inventory) } else { test_support::slice::reading(inventory) };
         let b = build::register(&mut client, &inventory).await.unwrap().engine_build;
         build::admit(&client, &b, &json!({"checklist": "worker API test"})).await.unwrap();
         builds.push(b);

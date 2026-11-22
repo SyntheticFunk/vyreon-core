@@ -2,7 +2,7 @@
 //! the real builds of the droplet's 2025-12-10 and, for the ordered pass, that day's slice
 //! published. Run with `cargo test -- --ignored`.
 use test_support::Scratch;
-use test_support::slice::{BASE, DERIVED, bundle, day_local_parts, inventories, parts, with_day_local};
+use test_support::slice::{BASE, DERIVED, bundle, day_local_parts, inventories, parts, reading, with_day_local};
 use core_db::publish::{self, Retired, publish_file, publish_for_lease};
 use core_db::work::{self, Claim, Kind, LeaseError};
 use core_db::{build, migrate, universe, watch};
@@ -13,7 +13,8 @@ const PROFILE: &str = "FREE_REPORT_64";
 const HOUR: f64 = 3600.0;
 
 /// A migrated database with the calendar and the slice's two builds; returns their ids (base, derived).
-/// The base build publishes each day's day-local revision as well (C-031), as a day block does.
+/// The base build publishes each day's day-local revision as well (C-031), as a day block does; the
+/// derived build registers the profiles its pass reads (`reading`).
 async fn ready(test: &str) -> (Scratch, Client, String, String) {
     let scratch = Scratch::new(test).await;
     let mut client = scratch.client().await;
@@ -26,7 +27,7 @@ async fn ready(test: &str) -> (Scratch, Client, String, String) {
     universe::store(&mut client, &doc).await.unwrap();
     let mut builds = Vec::new();
     for (i, inventory) in inventories().into_iter().enumerate() {
-        let inventory = if i == 0 { with_day_local(inventory) } else { inventory };
+        let inventory = if i == 0 { with_day_local(inventory) } else { reading(inventory) };
         builds.push(build::register(&mut client, &inventory).await.unwrap().engine_build);
     }
     let derived = builds.pop().unwrap();
@@ -1155,6 +1156,102 @@ async fn an_earlier_builds_ended_block_leaves_a_day_still_to_come() {
     assert_eq!(run_pass_as(&mut client, &w).await.as_deref(), Some(days[2]));
     let runs = count(&client, "SELECT count(*) FROM core.lease JOIN core.job USING (job_id) WHERE kind = 'ORDERED_PASS' AND first_session = '2025-12-12'").await;
     assert_eq!(runs, 1, "the 12th's pass ran once");
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-22 prebuild round 2 (core-r2.md) 2: a day whose day-local revision is of a profile
+/// revision the pass's build does not read (an earlier build's, named `<day-local>-EARLIER` here; only
+/// the name is made) was published for the claim, so its pass was handed out, refused by the engine
+/// three times, and then held every later pass. It is now a missing day for that pass: the 10th,
+/// published by the earlier build, base and day-local revision; the whole build's passes run the 9th
+/// and then the 11th, and the 10th's pass is never handed out.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_day_local_revision_the_pass_does_not_read_makes_a_missing_day() {
+    let (scratch, mut client, _, _) = ready("r2_other_day_local").await;
+    let w = whole_build(&mut client).await;
+    let mut earlier = with_day_local(inventories().remove(0));
+    let other = format!("{}-EARLIER", test_support::slice::day_local_profile());
+    earlier["engine_build"] = json!("slice-earlier-day-local");
+    for row in earlier["slots"].as_array_mut().unwrap() {
+        if row["profile_revision"] == json!(test_support::slice::day_local_profile()) {
+            row["profile_revision"] = json!(other);
+        }
+    }
+    let e = build::register(&mut client, &earlier).await.unwrap().engine_build;
+    admit(&client, &e).await;
+    let days = ["2025-12-09", "2025-12-10", "2025-12-11"];
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &w, days[0], days[2], 1).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &e, days[1], days[1], 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &e, "w1", HOUR).await.unwrap().unwrap();
+    let (mut h, s, f) = parts(BASE);
+    (h.represented_date, h.engine_build) = (days[1].into(), e.clone());
+    let path = bundle(&unique("r2-earlier-base"), &h, &s, &f);
+    let base = publish_for_lease(&mut client, &path, &block.token).await.unwrap().revision_id;
+    std::fs::remove_file(&path).unwrap();
+    let (mut h, s, f) = day_local_parts(&e, days[1], base);
+    h.profile_revision = other.clone();
+    let path = bundle(&unique("r2-earlier-day-local"), &h, &s, &f);
+    publish_for_lease(&mut client, &path, &block.token).await.unwrap();
+    std::fs::remove_file(&path).unwrap();
+    work::day_done(&mut client, &block.token, days[1]).await.unwrap();
+    work::finish(&mut client, &block.token).await.unwrap();
+    for day in [days[0], days[2]] {
+        work::schedule(&mut client, Kind::DayBlock, PROFILE, &w, day, day, 1).await.unwrap();
+        let claim = work::claim(&mut client, Kind::DayBlock, &w, "w2", HOUR).await.unwrap().unwrap();
+        publish_base_as(&mut client, &w, &claim, day).await;
+        work::finish(&mut client, &claim.token).await.unwrap();
+    }
+    assert_eq!(run_pass_as(&mut client, &w).await.as_deref(), Some(days[0]));
+    assert_eq!(claimable_passes(&client).await, "2025-12-11", "the 10th's day-local revision is not the pass's: a missing day, never a pass handed out");
+    assert_eq!(run_pass_as(&mut client, &w).await.as_deref(), Some(days[2]));
+    assert_eq!(claimable_passes(&client).await, "");
+    let tenth = count(&client, "SELECT count(*) FROM core.lease JOIN core.job USING (job_id) WHERE kind = 'ORDERED_PASS' AND first_session = '2025-12-10'").await;
+    assert_eq!(tenth, 0, "the 10th's pass was never handed out");
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-22 prebuild round 2 (core-r2.md) 3: the claim counted any omission of a day as an
+/// attempt, the reader only a current one. The 10th omitted (the earlier build's block failed on the
+/// provider), published by hand, then retired: it reads RETIRED, and under the new build, with its
+/// passes scheduled whole and its block for the 10th still to come, the 10th now holds the 11th's pass
+/// as a day still to come does; once its block publishes, the passes run in date order, each once.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn an_omission_no_longer_current_leaves_a_day_still_to_come() {
+    let (scratch, mut client, b, _) = ready("r2_old_omission").await;
+    admit(&client, &b).await;
+    let days = ["2025-12-09", "2025-12-10", "2025-12-11"];
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[1], days[1], 1).await.unwrap();
+    client.execute("UPDATE core.job SET max_attempts = 1 WHERE kind = 'DAY_BLOCK'", &[]).await.unwrap();
+    let claim = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    assert!(!work::fail(&mut client, &claim.token, &format!("day {}", days[1]), &test_support::provider_input_hold(days[1]), "log").await.unwrap());
+    work::omit(&mut client, PROFILE, days[1], "Intrinio delivered no option prices").await.unwrap();
+    base_by_hand(&mut client, days[1]).await;
+    let preview = publish::retire(&mut client, "published by hand before phase 1", &[days[1]], true, None).await.unwrap();
+    publish::retire(&mut client, "published by hand before phase 1", &[days[1]], false, Some(&preview.token)).await.unwrap();
+    assert_eq!(cause(&client, days[1]).await.0, "RETIRED");
+    build::withdraw(&mut client, &b, "its image is replaced").await.unwrap();
+
+    let w = whole_build(&mut client).await;
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &w, days[0], days[2], 1).await.unwrap();
+    for day in [days[0], days[2]] {
+        work::schedule(&mut client, Kind::DayBlock, PROFILE, &w, day, day, 1).await.unwrap();
+        let claim = work::claim(&mut client, Kind::DayBlock, &w, "w2", HOUR).await.unwrap().unwrap();
+        publish_base_as(&mut client, &w, &claim, day).await;
+        work::finish(&mut client, &claim.token).await.unwrap();
+    }
+    assert_eq!(run_pass_as(&mut client, &w).await.as_deref(), Some(days[0]));
+    assert_eq!(claimable_passes(&client).await, "", "an omission retired since is no attempt of the day: the 10th is still to come");
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &w, days[1], days[1], 1).await.unwrap();
+    let claim = work::claim(&mut client, Kind::DayBlock, &w, "w3", HOUR).await.unwrap().unwrap();
+    publish_base_as(&mut client, &w, &claim, days[1]).await;
+    work::finish(&mut client, &claim.token).await.unwrap();
+    let mut ran = Vec::new();
+    while let Some(day) = run_pass_as(&mut client, &w).await {
+        ran.push(day);
+    }
+    assert_eq!(ran, [days[1], days[2]], "the 11th's pass ran once, after the 10th");
     scratch.drop().await;
 }
 
