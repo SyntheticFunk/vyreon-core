@@ -1353,6 +1353,37 @@ async fn a_date_is_omitted_only_when_its_day_failed_for_the_provider() {
     scratch.drop().await;
 }
 
+/// Audit 2026-11-22 prebuild (changes-core.md) 10: on a block's last attempt, a stop after its day
+/// was said done (the engine prunes the day's inputs after `day_done`; `stop: prune after <day>: ...`,
+/// vyreon-cli `days.rs` `prune_after`, its evidence naming the block's first day as `stopped_on` does)
+/// set the NEXT day aside, untried, with that stop as its cause. The attempt is now not counted: the
+/// block is queued again from the day it never tried.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_block_that_stops_after_a_done_day_is_queued_again_uncounted() {
+    let (scratch, mut client, b, _) = ready("c063_prune").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-11", 30).await.unwrap();
+    client.execute("UPDATE core.job SET max_attempts = 1 WHERE kind = 'DAY_BLOCK'", &[]).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &block, "2025-12-10").await;
+    let stop = "stop: prune after 2025-12-10: No space left on device (os error 28)";
+    let account = json!({"schema": core_db::evidence::SCHEMA, "stage": "day 2025-12-10", "message": stop, "session": "2025-12-10"});
+    let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+    std::io::Write::write_all(&mut gz, format!("{account}\n").as_bytes()).unwrap();
+    let checked = core_db::evidence::check(gz.finish().unwrap()).unwrap();
+    assert!(core_db::evidence::put(&mut client, &block.token, &checked).await.unwrap());
+    assert!(work::fail(&mut client, &block.token, "day 2025-12-10", stop, "log").await.unwrap(), "queued again");
+    let row = client.query_one("SELECT state, attempts, next_session::text FROM core.job WHERE job_id = $1", &[&block.job_id]).await.unwrap();
+    assert_eq!((row.get::<_, String>(0), row.get::<_, i32>(1), row.get::<_, String>(2)), ("QUEUED".to_owned(), 0, "2025-12-11".to_owned()));
+    assert_eq!(cause(&client, "2025-12-11").await.0, "NOT_COMPUTED_YET");
+    let said = notices(&client).await;
+    assert!(said.last().unwrap().contains("stopped on 2025-12-10, a day it had done") && said.last().unwrap().contains("2025-12-11 was not tried"), "{said:?}");
+    let again = work::claim(&mut client, Kind::DayBlock, &b, "w2", HOUR).await.unwrap().unwrap();
+    assert_eq!((again.job_id, again.sessions.clone(), again.attempt), (block.job_id, vec!["2025-12-11".to_owned()], 1));
+    scratch.drop().await;
+}
+
 async fn job_state(client: &Client, job: i64) -> String {
     client.query_one("SELECT state FROM core.job WHERE job_id = $1", &[&job]).await.unwrap().get(0)
 }
