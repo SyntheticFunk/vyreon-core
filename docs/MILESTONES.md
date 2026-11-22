@@ -287,6 +287,12 @@ token once the shape settles; the reader API stays inside the cluster; backups w
 restore; a read-only exposure check and an attack-surface audit. Phone recovery is the owner's.
 
 **Loose ends (each before the step it names):**
+- **Progress channel (owner, 2026-11-22; before the full build, with the claim fixes):** a second
+  Discord webhook (`progress-webhook.txt`, git-ignored; cluster secret `vyreon-core-progress-webhook`,
+  key `webhook`; silent test post 204). Route core's logged notices there, batched: each day published
+  (slots published/withheld by reason, refcheck, minutes, memory), block start/finish with its node,
+  tape and pass progress every 30 min, spend at each node change, set-aside days with cause, builds
+  admitted/withdrawn. The alerts channel is unchanged ("go look or running ok"). Silent, no mentions.
 - **Core claim race (before the full build):** with 24 tape pods claiming at once, about half got "no
   tape job to claim" while 195 were claimable (2026-11-22 04:14 UTC: 82 pods done, 43 jobs done). The
   claim's `WHERE job_id = (SELECT … LIMIT 1 FOR UPDATE SKIP LOCKED) AND state = 'QUEUED'` re-checks a
