@@ -92,7 +92,10 @@ Next:
    on their events by nature. **Origin (owner, 2026-11-21):** every rule was written on ~40 sparse
    dates (the B0/B1 censuses) because a full build cost too much; the build is the first population.
    "We are building a measurement system, we don't want one-off handling, we want generalizable
-   sensors." Base layer censused once its days are in, derived after the ordered passes; the criteria
+   sensors." **The target (owner, 2026-11-22): patches fitted to a case** (a date list, an asset-specific
+   branch, a rule written for one observed day: NVDA's challenge list was one, retired by D-439), **not
+   standards applied to rare market events** (OCC adjustments, early closes, specials fire rarely by
+   nature and stay). Base layer censused once its days are in, derived after the ordered passes; the criteria
    (fired only on its origin case, never fired, over-fires against the 80% goal, fires at a code-change
    date) are written down before the census is read.
 3. **Reporter on the phase-1 database:** the gap scan's work list (below); a proper paid report
