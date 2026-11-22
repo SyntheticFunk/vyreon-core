@@ -491,6 +491,185 @@ async fn a_newest_first_build_runs_each_ordered_pass_once() {
     }
 }
 
+/// One build registered with both of the slice's real inventories, base and derived, as the
+/// cluster's image is one build for every profile. The slice's bodies are sent under its name: core's
+/// checks never read which build computed a body.
+async fn whole_build(client: &mut Client) -> String {
+    let slots: Vec<Value> = inventories().iter().flat_map(|i| i["slots"].as_array().unwrap().clone()).collect();
+    let name = "slice-base-and-derived";
+    build::register(client, &json!({"engine_build": name, "slots": slots})).await.unwrap();
+    admit(client, name).await;
+    name.to_owned()
+}
+
+/// `day`'s base, by `build`, under the block's lease; the day is then done.
+async fn publish_base_as(client: &mut Client, build: &str, claim: &Claim, day: &str) {
+    let (mut h, s, f) = parts(BASE);
+    (h.represented_date, h.engine_build) = (day.into(), build.into());
+    let path = bundle(&format!("c062-{day}-{}", claim.job_id), &h, &s, &f);
+    publish_for_lease(client, &path, &claim.token).await.unwrap();
+    std::fs::remove_file(&path).unwrap();
+    work::day_done(client, &claim.token, day).await.unwrap();
+}
+
+/// `day`'s base published again by hand (the base build's, as the slice has it).
+async fn base_by_hand(client: &mut Client, day: &str) {
+    let (mut h, s, f) = parts(BASE);
+    h.represented_date = day.into();
+    let path = bundle(&format!("c062-hand-{day}"), &h, &s, &f);
+    publish_file(client, &path).await.unwrap();
+    std::fs::remove_file(&path).unwrap();
+}
+
+/// Runs `build`'s claimable ordered pass, if any, on its day's published base; returns its day.
+async fn run_pass_as(client: &mut Client, build: &str) -> Option<String> {
+    let pass = ordered(client, build).await?;
+    let day = pass.sessions[0].clone();
+    let base = base_of(client, &day).await;
+    let (mut h, s, f) = parts(DERIVED);
+    (h.represented_date, h.base_revision, h.engine_build) = (day.clone(), Some(base), build.into());
+    let path = bundle(&format!("c062-derive-{day}-{}", pass.job_id), &h, &s, &f);
+    publish_for_lease(client, &path, &pass.token).await.unwrap();
+    std::fs::remove_file(&path).unwrap();
+    work::finish(client, &pass.token).await.unwrap();
+    Some(day)
+}
+
+/// Each ordered pass job: (day, build, state), by day and job.
+async fn passes_by_build(client: &Client) -> Vec<(String, String, String)> {
+    client
+        .query("SELECT first_session::text, engine_build, state FROM core.job WHERE kind = 'ORDERED_PASS' ORDER BY first_session, job_id", &[])
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| (r.get(0), r.get(1), r.get(2)))
+        .collect()
+}
+
+/// Audit 2026-11-22 (prebuild surface.md) 6: a publish that supersedes later history revisions used to
+/// queue their finished passes again under the builds that ran them, which the new build's workers
+/// never claim, and then refused the new build's whole-range schedule for overlap. Now (C-062) the
+/// pass goes to the publishing build when it runs and publishes the fallen revision's profile (the
+/// earlier build's finished pass stays DONE), the new build's schedule keeps it, and the database
+/// refuses a second unfinished pass of a session. As in phase 1: earlier builds' days (2025-12-10
+/// and 11), then the new build's first day before its passes are scheduled (2025-12-09).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_superseded_pass_is_queued_under_the_publishing_build_and_its_schedule_keeps_it() {
+    let (scratch, mut client, b, d) = ready("c062_publisher").await;
+    admit(&client, &b).await;
+    admit(&client, &d).await;
+    let days = ["2025-12-10", "2025-12-11"];
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[0], days[1], 30).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, days[0], days[1], 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    for day in days {
+        publish_base_as(&mut client, &b, &block, day).await;
+    }
+    work::finish(&mut client, &block.token).await.unwrap();
+    assert_eq!((run_pass(&mut client, &d).await.as_deref(), run_pass(&mut client, &d).await.as_deref()), (Some(days[0]), Some(days[1])));
+
+    // the new build publishes an earlier day: both later history revisions fall, and their passes
+    // are queued under it, not under the earlier build, which still runs but whose image is gone
+    let w = whole_build(&mut client).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &w, "2025-12-09", "2025-12-09", 1).await.unwrap();
+    let first = work::claim(&mut client, Kind::DayBlock, &w, "w2", HOUR).await.unwrap().unwrap();
+    publish_base_as(&mut client, &w, &first, "2025-12-09").await;
+    work::finish(&mut client, &first.token).await.unwrap();
+    let row = |day: &str, build: &str, state: &str| (day.to_owned(), build.to_owned(), state.to_owned());
+    assert_eq!(passes_by_build(&client).await, [row(days[0], &d, "DONE"), row(days[0], &w, "QUEUED"), row(days[1], &d, "DONE"), row(days[1], &w, "QUEUED")]);
+    assert_eq!(ordered(&mut client, &d).await, None);
+    let said = notices(&client).await;
+    assert!(said.iter().any(|n| n.contains("the ordered pass derives 2 days again, 2025-12-10 to 2025-12-11")), "{said:?}");
+
+    // its whole range scheduled now keeps them (it used to be refused for overlap), and the database
+    // refuses a second unfinished pass of one session
+    let made = work::schedule(&mut client, Kind::OrderedPass, PROFILE, &w, "2025-12-09", days[1], 1).await.unwrap();
+    assert_eq!((made.jobs, made.sessions, made.kept, made.replaced), (1, 3, 2, vec![]));
+    let twice = client
+        .execute(
+            "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session) VALUES ('ORDERED_PASS', $1, $2, '2025-12-10', '2025-12-10', '2025-12-10')",
+            &[&PROFILE, &d],
+        )
+        .await
+        .unwrap_err();
+    assert!(twice.to_string().contains("job_one_unfinished_pass") || twice.as_db_error().is_some_and(|e| e.constraint() == Some("job_one_unfinished_pass")), "{twice}");
+    let mut ran = Vec::new();
+    while let Some(day) = run_pass_as(&mut client, &w).await {
+        ran.push(day);
+    }
+    assert_eq!(ran, ["2025-12-09", days[0], days[1]], "each pass once, in date order");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.job WHERE kind = 'ORDERED_PASS' AND state <> 'DONE'").await, 0);
+    scratch.drop().await;
+}
+
+/// C-062: a pass under a build that does not run (withdrawn) holds no later pass, and the next
+/// schedule over its session replaces it; one under another build that runs refuses the schedule.
+/// When neither the publishing build (here the base-only build, which does not publish the derived
+/// profile) nor the fallen revision's build runs, no pass is queued: the days are named in a notice
+/// and a NOT_DERIVED problem, never queued under a build no worker claims.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_pass_under_a_build_that_does_not_run_holds_nothing_and_is_replaced() {
+    let (scratch, mut client, b, d) = ready("c062_stranded").await;
+    admit(&client, &b).await;
+    admit(&client, &d).await;
+    let days = ["2025-12-10", "2025-12-11"];
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[0], days[1], 30).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, days[0], days[1], 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    for day in days {
+        publish_base_as(&mut client, &b, &block, day).await;
+    }
+    work::finish(&mut client, &block.token).await.unwrap();
+    while run_pass(&mut client, &d).await.is_some() {}
+    let done: Vec<i64> = client.query("SELECT job_id FROM core.job WHERE kind = 'ORDERED_PASS' ORDER BY first_session", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
+
+    // the base build publishes the 10th again: it does not publish the derived profile, so the
+    // finished passes of the build that does (and runs) are queued again, the same jobs
+    base_by_hand(&mut client, days[0]).await;
+    let row = |day: &str, build: &str, state: &str| (day.to_owned(), build.to_owned(), state.to_owned());
+    assert_eq!(passes_by_build(&client).await, [row(days[0], &d, "QUEUED"), row(days[1], &d, "QUEUED")]);
+    let again: Vec<i64> = client.query("SELECT job_id FROM core.job WHERE kind = 'ORDERED_PASS' ORDER BY first_session", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
+    assert_eq!(again, done);
+
+    // then that build is withdrawn (its image replaced): its queued pass of the 10th holds nothing,
+    // so the new build's pass of the 11th may run past it
+    build::withdraw(&client, &d, "replaced by the whole image").await.unwrap();
+    let w = whole_build(&mut client).await;
+    work::cancel(&mut client, &done[1..]).await.unwrap();
+    let made = work::schedule(&mut client, Kind::OrderedPass, PROFILE, &w, days[1], days[1], 1).await.unwrap();
+    assert_eq!((made.jobs, made.kept), (1, 0));
+    assert_eq!(claimable_passes(&client).await, days[1], "the withdrawn build's pass of the 10th holds nothing");
+    // scheduled over the 10th, the new build replaces it and keeps its own of the 11th
+    let made = work::schedule(&mut client, Kind::OrderedPass, PROFILE, &w, days[0], days[1], 1).await.unwrap();
+    assert_eq!((made.jobs, made.kept, made.replaced.clone()), (1, 1, vec![done[0]]));
+    assert_eq!(job_state(&client, done[0]).await, "CANCELLED");
+    assert!(notices(&client).await.last().unwrap().contains(&format!("jobs {} cancelled", done[0])));
+    assert_eq!(claimable_passes(&client).await, days[0], "the new pass of the 10th holds the 11th's");
+    // a pass of another build that runs is not replaced: the schedule is refused
+    admit(&client, &d).await;
+    let refused = work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, days[0], days[1], 1).await.unwrap_err();
+    assert!(refused.contains(&format!("of build {w}, a build that runs")), "{refused}");
+    let mut ran = Vec::new();
+    while let Some(day) = run_pass_as(&mut client, &w).await {
+        ran.push(day);
+    }
+    assert_eq!(ran, days);
+
+    // neither the publisher (no derived profile) nor the fallen revisions' build runs: nothing is
+    // queued, the days are named and a problem is open
+    build::withdraw(&client, &w, "a later image").await.unwrap();
+    base_by_hand(&mut client, days[0]).await;
+    assert_eq!(count(&client, "SELECT count(*) FROM core.job WHERE kind = 'ORDERED_PASS' AND state IN ('QUEUED', 'LEASED', 'FAILED')").await, 0);
+    let said = notices(&client).await;
+    assert!(said.last().unwrap().contains("no job derives these again, schedule them: 2025-12-10, 2025-12-11"), "{said:?}");
+    let open: Vec<String> =
+        client.query("SELECT summary FROM core.problem WHERE kind = 'NOT_DERIVED' AND resolved_at IS NULL", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
+    assert!(open.iter().any(|p| p == "A republish left 2 days that no job derives again: 2025-12-10, 2025-12-11"), "{open:?}");
+    scratch.drop().await;
+}
+
 /// Publishes `day`'s base (the slice's real bodies under that date: core's checks never read a
 /// body's date) under the block's lease and says the day is done.
 async fn publish_day(client: &mut Client, claim: &Claim, day: &str) {

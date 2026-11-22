@@ -737,14 +737,15 @@ async fn promote(tx: &Transaction<'_>, revision: i64, header: &Header, base: Opt
                 "UPDATE vyreon.day_revision SET state = 'SUPERSEDED'
                  WHERE state = 'PUBLISHED' AND base_revision IS NOT NULL AND revision_id <> $2
                    AND ((represented_date > $1::text::date AND NOT day_local) OR (represented_date = $1::text::date AND {same_day}))
-                 RETURNING represented_date::text, profile_id, engine_build, day_local"
+                 RETURNING represented_date::text, profile_id, engine_build, day_local, profile_revision"
             ),
             &[&date, &revision],
         )
         .await
         .map_err(db)?;
     superseded += fallen.len() as u64;
-    let fallen: Vec<Fallen> = fallen.iter().map(|r| Fallen { day: r.get(0), profile_id: r.get(1), engine_build: r.get(2), day_local: r.get(3) }).collect();
+    let fallen: Vec<Fallen> =
+        fallen.iter().map(|r| Fallen { day: r.get(0), profile_id: r.get(1), engine_build: r.get(2), day_local: r.get(3), profile_revision: r.get(4) }).collect();
     rederive(tx, header, same_day != "false", &fallen, lease).await?;
     // the clock, not the transaction's start: an ordered pass compares it with when its lease was
     // granted, and both are taken under the publish lock
@@ -760,13 +761,19 @@ struct Fallen {
     profile_id: String,
     engine_build: String,
     day_local: bool,
+    profile_revision: String,
 }
 
 /// The ordered pass derives again what fell (ARCHITECTURE 5.2): a pass running on an affected day
-/// is stopped (its lease ends and the worker is told the lease is gone) and queued again; the
-/// finished pass of each day whose history revision fell is queued again with fresh attempts.
-/// A day-local revision that fell with its day's base is the day block's to publish again on the
-/// new base. What no job will derive again is said in a notice, never left silent.
+/// is stopped (its lease ends and the worker is told the lease is gone) and queued again; each day
+/// whose history revision fell and that has a finished pass but no unfinished one gets a pass
+/// queued with fresh attempts, under a build that runs (C-062): the publishing build when it runs
+/// and publishes the fallen revision's profile, else the fallen revision's own build when it runs
+/// (the finished pass of that build is queued again; a pass under another build is a new job, the
+/// finished one stays DONE). With neither, no job is queued: a pass under a build no worker claims
+/// would never run. A day-local revision that fell with its day's base is the day block's to
+/// publish again on the new base. What no job will derive again is said in a notice, never left
+/// silent.
 async fn rederive(tx: &Transaction<'_>, header: &Header, same_day: bool, fallen: &[Fallen], lease: Option<&work::Held>) -> Result<(), Error> {
     let date = header.represented_date.as_str();
     let stopped: Vec<String> = tx
@@ -791,23 +798,47 @@ async fn rederive(tx: &Transaction<'_>, header: &Header, same_day: bool, fallen:
     let days: Vec<&str> = history.iter().map(|f| f.day.as_str()).collect();
     let profiles: Vec<&str> = history.iter().map(|f| f.profile_id.as_str()).collect();
     let builds: Vec<&str> = history.iter().map(|f| f.engine_build.as_str()).collect();
-    const FALLEN: &str = "fallen AS (SELECT * FROM unnest($1::text[]::date[], $2::text[], $3::text[]) AS f(day, profile_id, engine_build))";
+    let revisions: Vec<&str> = history.iter().map(|f| f.profile_revision.as_str()).collect();
+    const FALLEN: &str =
+        "fallen AS (SELECT * FROM unnest($1::text[]::date[], $2::text[], $3::text[], $4::text[]) AS f(day, profile_id, engine_build, profile_revision))";
     const UNFINISHED: &str = "SELECT FROM core.job u WHERE u.kind = 'ORDERED_PASS' AND u.profile_id = f.profile_id AND u.first_session = f.day
                                   AND u.state IN ('QUEUED', 'LEASED', 'FAILED')";
+    // one pass per day and profile (a unique index holds it): when two history revisions of one day
+    // fell, the pass goes to the publishing build if either names it
     let requeued: Vec<String> = tx
         .query(
             &format!(
                 "WITH {FALLEN},
-                 redo AS (SELECT DISTINCT ON (f.day, f.profile_id, f.engine_build) j.job_id
-                          FROM fallen f JOIN core.job j ON j.kind = 'ORDERED_PASS' AND j.state = 'DONE' AND j.profile_id = f.profile_id
-                                                       AND j.engine_build = f.engine_build AND j.first_session = f.day
-                          WHERE NOT EXISTS ({UNFINISHED})
-                          ORDER BY f.day, f.profile_id, f.engine_build, j.job_id DESC)
-                 UPDATE core.job SET state = 'QUEUED', next_session = first_session, attempts = 0, finished_at = NULL
-                 WHERE job_id IN (SELECT job_id FROM redo)
-                 RETURNING first_session::text"
+                 target AS (SELECT DISTINCT ON (t.day, t.profile_id) t.day, t.profile_id, t.build
+                            FROM (SELECT f.day, f.profile_id,
+                                         CASE WHEN core.build_runs($5)
+                                                   AND EXISTS (SELECT FROM core.expected_slot e WHERE e.engine_build = $5 AND e.profile_revision = f.profile_revision)
+                                              THEN $5
+                                              WHEN core.build_runs(f.engine_build) THEN f.engine_build END AS build
+                                  FROM fallen f
+                                  WHERE NOT EXISTS ({UNFINISHED})
+                                    AND EXISTS (SELECT FROM core.job d WHERE d.kind = 'ORDERED_PASS' AND d.state = 'DONE'
+                                                  AND d.profile_id = f.profile_id AND d.first_session = f.day)) t
+                            WHERE t.build IS NOT NULL
+                            ORDER BY t.day, t.profile_id, t.build = $5 DESC, t.build),
+                 again AS (UPDATE core.job SET state = 'QUEUED', next_session = first_session, attempts = 0, finished_at = NULL
+                           WHERE job_id IN (SELECT (SELECT d.job_id FROM core.job d
+                                                    WHERE d.kind = 'ORDERED_PASS' AND d.state = 'DONE' AND d.profile_id = t.profile_id
+                                                      AND d.first_session = t.day AND d.engine_build = t.build
+                                                    ORDER BY d.job_id DESC LIMIT 1)
+                                            FROM target t)
+                           RETURNING first_session),
+                 made AS (INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, priority)
+                          SELECT 'ORDERED_PASS', t.profile_id, t.build, t.day, t.day, t.day,
+                                 (SELECT d.priority FROM core.job d WHERE d.kind = 'ORDERED_PASS' AND d.state = 'DONE' AND d.profile_id = t.profile_id
+                                    AND d.first_session = t.day ORDER BY d.job_id DESC LIMIT 1)
+                          FROM target t
+                          WHERE NOT EXISTS (SELECT FROM core.job d WHERE d.kind = 'ORDERED_PASS' AND d.state = 'DONE' AND d.profile_id = t.profile_id
+                                              AND d.first_session = t.day AND d.engine_build = t.build)
+                          RETURNING first_session)
+                 SELECT first_session::text FROM again UNION ALL SELECT first_session::text FROM made"
             ),
-            &[&days, &profiles, &builds],
+            &[&days, &profiles, &builds, &revisions, &header.engine_build],
         )
         .await
         .map_err(db)?
@@ -816,7 +847,10 @@ async fn rederive(tx: &Transaction<'_>, header: &Header, same_day: bool, fallen:
         .collect();
     // (day, profile, day-local): what no job derives again
     let mut unowned: Vec<(String, String, bool)> = tx
-        .query(&format!("WITH {FALLEN} SELECT DISTINCT f.day::text, f.profile_id FROM fallen f WHERE NOT EXISTS ({UNFINISHED}) ORDER BY 1, 2"), &[&days, &profiles, &builds])
+        .query(
+            &format!("WITH {FALLEN} SELECT DISTINCT f.day::text, f.profile_id FROM fallen f WHERE NOT EXISTS ({UNFINISHED}) ORDER BY 1, 2"),
+            &[&days, &profiles, &builds, &revisions],
+        )
         .await
         .map_err(db)?
         .iter()

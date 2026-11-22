@@ -9,6 +9,9 @@
 //!   vyreon-core build withdraw <build> <reason>       stop them claiming
 //!   vyreon-core calendar load <sessions.json>         store the engine's trading sessions
 //!   vyreon-core schedule <tape|day-block|ordered-pass> <profile> <build> <first> <last> [block sessions]
+//!                                                     ordered passes (C-062): a session keeps its unfinished pass of
+//!                                                     this build; one of a build that does not run is cancelled and
+//!                                                     replaced; one of another build that runs refuses the range
 //!   vyreon-core tape verify <profile> <build> <session>...  schedule a verify job per session (C-059): a tape worker
 //!                                                     downloads the session's replay files again, recomputes each member's
 //!                                                     cache and runs the tape reader on it; core keeps the verdict beside
@@ -128,6 +131,12 @@ async fn schedule(kind: &str, profile: &str, engine_build: &str, first: &str, la
     let block: i32 = block.parse().map_err(|_| format!("block sessions: {block}"))?;
     let made = work::schedule(&mut connect().await?, work::Kind::parse(kind)?, profile, engine_build, first, last, block).await?;
     println!("{} jobs over {} sessions; {} partitions created", made.jobs, made.sessions, made.partitions);
+    if made.kept > 0 || !made.replaced.is_empty() {
+        // C-062: an ordered pass already unfinished under this build is kept; one under a build that
+        // does not run is replaced
+        let replaced: Vec<String> = made.replaced.iter().map(i64::to_string).collect();
+        println!("{} sessions kept their unfinished pass of {engine_build}; {} passes of builds that do not run replaced ({})", made.kept, replaced.len(), replaced.join(" "));
+    }
     Ok(())
 }
 

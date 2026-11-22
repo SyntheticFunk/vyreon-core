@@ -80,12 +80,20 @@ pub struct Scheduled {
     pub jobs: u64,
     pub sessions: i64,
     pub partitions: i32,
+    /// Ordered passes: sessions whose unfinished pass of this build was kept (C-062).
+    pub kept: u64,
+    /// Ordered passes: unfinished passes of a build that does not run, cancelled and replaced.
+    pub replaced: Vec<i64>,
 }
 
 /// Turns "these sessions, with this build" into jobs: one per session for tapes and the ordered
 /// pass, blocks of `block` consecutive sessions for day blocks. The store's partitions for the
 /// range are created first, in their own transaction (C-021). A range that touches an unfinished
-/// job of the same kind and profile is refused.
+/// tape job or day block of the profile is refused. Ordered passes (C-062): one unfinished pass
+/// per session and profile; a session whose unfinished pass is of this build keeps it, one of a
+/// build that does not run (not admitted, or withdrawn) has it cancelled and replaced, and one of
+/// another build that runs refuses the range (withdraw that build or cancel its pass first). DONE
+/// and CANCELLED passes of any build are left as they are.
 pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &str, first: &str, last: &str, block: i32) -> Result<Scheduled, String> {
     if kind == Kind::DayBlock && block < 1 {
         return Err("a day block holds at least one session".into());
@@ -112,6 +120,25 @@ pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &st
     };
     let tx = client.transaction().await.map_err(db)?;
     tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.map_err(db)?;
+    if kind == Kind::OrderedPass {
+        let (kept, replaced) = passes_in_range(&tx, profile, build, first, last).await?;
+        let jobs = tx
+            .execute(
+                "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, priority)
+                 SELECT 'ORDERED_PASS', $1, $2, s.session, s.session, s.session,
+                        COALESCE((SELECT max(r.priority) FROM core.job r WHERE r.job_id = ANY($5) AND r.first_session = s.session), 0)
+                 FROM core.session s
+                 WHERE s.session BETWEEN $3::text::date AND $4::text::date
+                   AND NOT EXISTS (SELECT FROM core.job u WHERE u.kind = 'ORDERED_PASS' AND u.profile_id = $1 AND u.first_session = s.session
+                                     AND u.state IN ('QUEUED', 'LEASED', 'FAILED'))
+                 ORDER BY s.session",
+                &[&profile, &build, &first, &last, &replaced],
+            )
+            .await
+            .map_err(db)?;
+        tx.commit().await.map_err(db)?;
+        return Ok(Scheduled { jobs, sessions, partitions, kept, replaced });
+    }
     let overlap: Option<i64> = tx
         .query_opt(
             "SELECT job_id FROM core.job
@@ -137,7 +164,47 @@ pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &st
         .await
         .map_err(db)?;
     tx.commit().await.map_err(db)?;
-    Ok(Scheduled { jobs, sessions, partitions })
+    Ok(Scheduled { jobs, sessions, partitions, kept: 0, replaced: Vec::new() })
+}
+
+/// C-062: the unfinished ordered passes of the profile in `first..=last` before passes of `build`
+/// are scheduled there. One of another build that runs refuses the range; one of a build that does
+/// not run is cancelled (it would never be claimed, and a later pass could not run in its place);
+/// one of `build` stays. Returns (kept, cancelled), with a logged notice when any was cancelled.
+async fn passes_in_range(tx: &impl GenericClient, profile: &str, build: &str, first: &str, last: &str) -> Result<(u64, Vec<i64>), String> {
+    let rows = tx
+        .query(
+            "SELECT job_id, engine_build, state, first_session::text, core.build_runs(engine_build) FROM core.job
+             WHERE kind = 'ORDERED_PASS' AND profile_id = $1 AND state IN ('QUEUED', 'LEASED', 'FAILED')
+               AND first_session BETWEEN $2::text::date AND $3::text::date
+             ORDER BY first_session FOR UPDATE",
+            &[&profile, &first, &last],
+        )
+        .await
+        .map_err(db)?;
+    let (mut kept, mut replaced) = (0, Vec::new());
+    for r in &rows {
+        let (job, of, state, day, runs): (i64, String, String, String, bool) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4));
+        if of == build {
+            kept += 1;
+        } else if runs || state == "LEASED" {
+            let why = if runs { "a build that runs: withdraw it or cancel the job first" } else { "under a live lease: let it end or cancel the job first" };
+            return Err(format!("{first} to {last}: {day} has unfinished ORDERED_PASS job {job} ({state}) of build {of}, {why}"));
+        } else {
+            replaced.push(job);
+        }
+    }
+    if !replaced.is_empty() {
+        tx.execute("UPDATE core.job SET state = 'CANCELLED', finished_at = now() WHERE job_id = ANY($1)", &[&replaced]).await.map_err(db)?;
+        let shown: Vec<String> = replaced.iter().take(10).map(i64::to_string).collect();
+        let more = if replaced.len() > 10 { format!(" and {} more", replaced.len() - 10) } else { String::new() };
+        notice::log(
+            tx,
+            &format!("{} ordered passes of {profile} under builds that do not run are replaced by build {build}'s: jobs {}{more} cancelled.", replaced.len(), shown.join(" ")),
+        )
+        .await?;
+    }
+    Ok((kept, replaced))
 }
 
 /// C-059: one verify job per chosen session (a TAPE job of scope `tape::VERIFY_SCOPE`): its worker
