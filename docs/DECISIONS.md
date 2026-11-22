@@ -2143,6 +2143,17 @@ move into core; the fourth (spend) cannot. Migration 0042.
     `JOB_FAILED`'s). **30 minutes when every claimable job is a daily run's:** CronJob `daily` starts
     at 07:45 New York, 15 minutes after the 07:30 queueing (C-051), and its node has to start; 15
     would alert every morning until KEDA replaces the CronJob. Resolves when a lease is live.
+    **Amended 2026-11-22 (C-068; audit opsurface ops.md 8 and 5): per kind, and the chain.** One
+    live lease of any kind cleared the clock, so a day block renewing its lease for a day hid tapes
+    or passes with no pod (Pending for a node, or failing before they claim: a Secret key missing, a
+    login refused), and work all waiting on something nothing would do was no stall. Now one problem
+    per kind (key `TAPE`, `DAY_BLOCK`, `ORDERED_PASS`): claimable work of the kind and no live lease
+    of the kind, the clock per kind (`core.stall_seen` keyed by kind, migration 0049). And the chain
+    (key `chain`): nothing claimable, no live lease, the queue not paused and jobs of a running build
+    queued, for 15 minutes; not while a pass of a running build stands FAILED (it holds the later
+    passes and is `JOB_FAILED`, one alert for one cause). The claimability view is now read every
+    minute unless every kind holds a lease (it was skipped whenever any did); KEDA reads it four
+    times every 30 s already.
   - `CLAIMS_EMPTY` (key `claims`): **at least 3 misses in 10 minutes** while work of their kind and
     build (and priority, for a daily worker) is **still claimable at the check**, open while any
     recurs with the work still there. The race made about 12 a minute. A miss whose work others were
@@ -2403,4 +2414,7 @@ owner from the runbooks. Every real finding fixed; finding 14 is the engine's. M
   explicitly instead. Test `a_withdrawn_builds_unfinished_work_is_handed_to_its_successor_once`;
   the command line `the_hand_over_command_line_is_read_whole_before_anything_moves`.
 - **13:** C-035 amended (above): a lost lease is free twice per session.
+- **8, and 5's third part:** C-065 amended (`STALLED` per kind, and the chain). A pod that fails
+  before it claims never charges an attempt, so its kind's stall is how the channel sees it. Test
+  `a_stall_is_per_kind_and_a_waiting_chain_is_one`.
 

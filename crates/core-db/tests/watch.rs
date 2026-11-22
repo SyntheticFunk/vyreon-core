@@ -531,8 +531,8 @@ async fn claimable_work_with_no_worker_for_a_quarter_hour_is_a_stall() {
     let t0 = watch::now(&client).await.unwrap();
     assert_eq!(check(&mut client, &s, &t0).await, opened(&[]));
     assert_eq!(check_after(&mut client, &s, &t0, 14).await, opened(&[]));
-    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.stall_seen", &[]).await.unwrap().get(0);
-    let stalled = format!("Work stalled since {since} MT: 3 claimable (3 tape jobs) and no worker holds a lease, so no worker pod is running");
+    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'TAPE'", &[]).await.unwrap().get(0);
+    let stalled = format!("Tape jobs stalled since {since} MT: 3 claimable and none leased, so no `tape` pod is running");
     assert_eq!(check_after(&mut client, &s, &t0, 15).await, opened(&[&stalled]));
     assert_eq!(posts(&client).await, [format!("🔴 {stalled}\nTo see more: `vyreon-core queue`")]);
     // a worker claims: resolved, and the clock is gone
@@ -548,12 +548,57 @@ async fn claimable_work_with_no_worker_for_a_quarter_hour_is_a_stall() {
     assert_eq!(check_after(&mut client, &s, &t1, 29).await, opened(&[]), "a daily run's start takes up to 30 minutes");
     let opened_now = check_after(&mut client, &s, &t1, 30).await.opened;
     assert_eq!(opened_now.len(), 1);
-    assert!(opened_now[0].contains(": 2 claimable (2 tape jobs) and no worker holds a lease"), "{opened_now:?}");
+    assert!(opened_now[0].contains(": 2 claimable and none leased, so no `tape` pod"), "{opened_now:?}");
     // a paused queue hands nothing out: that is its own problem, not a stall
     work::pause(&client, "watch test").await.unwrap();
     let paused = check_after(&mut client, &s, &t1, 31).await;
     assert_eq!(paused.resolved.len(), 1);
     assert!(paused.opened[0].starts_with("Work queue paused"), "{paused:?}");
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-22 opsurface (ops.md) 8 and 5, C-068: one live lease cleared the stall's clock for
+/// every kind, so a day block renewing its lease for a day hid tapes with no pod (their pods Pending
+/// for a node, or failing before they claim), and work all waiting on something nothing would do was
+/// no stall at all. A stall is now per kind, and the chain is one too: nothing claimable, nothing
+/// leased, queued work of a running build left.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_stall_is_per_kind_and_a_waiting_chain_is_one() {
+    let (scratch, mut client, b) = ready("stall_kind").await;
+    build::admit(&client, &b, &json!({"checklist": "watch test"})).await.unwrap();
+    let s = settings(None);
+    // a block of the 8th runs; the tapes of the 10th and 11th wait with no pod
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-08", "2025-12-08", 1).await.unwrap();
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-10", "2025-12-11", 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "day-1", 4.0 * 3600.0).await.unwrap().unwrap();
+    let t0 = watch::now(&client).await.unwrap();
+    assert_eq!(check(&mut client, &s, &t0).await, opened(&[]));
+    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'TAPE'", &[]).await.unwrap().get(0);
+    let tapes = format!("Tape jobs stalled since {since} MT: 2 claimable and none leased, so no `tape` pod is running");
+    assert_eq!(check_after(&mut client, &s, &t0, 15).await, opened(&[&tapes]), "the block's lease hides no tape stall");
+    // a tape pod claims: that kind resolves
+    let tape = work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();
+    assert_eq!(check_after(&mut client, &s, &t0, 16).await.resolved, [tapes]);
+    let rest: Vec<i64> = client.query("SELECT job_id FROM core.job WHERE state IN ('QUEUED', 'LEASED')", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
+    work::cancel(&mut client, &rest).await.unwrap();
+
+    // the chain: passes queued for days no block computes; nothing claimable, nothing leased
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &b, "2025-12-10", "2025-12-11", 1).await.unwrap();
+    let t1 = watch::now(&client).await.unwrap();
+    assert_eq!(check(&mut client, &s, &t1).await, opened(&[]));
+    assert_eq!(check_after(&mut client, &s, &t1, 14).await, opened(&[]));
+    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'CHAIN'", &[]).await.unwrap().get(0);
+    let chain = format!("Work stalled since {since} MT: 2 jobs queued (2 ordered passes), none claimable and none leased: they wait for work that is not scheduled or not running");
+    assert_eq!(check_after(&mut client, &s, &t1, 15).await, opened(&[&chain]));
+    // the days' block scheduled: claimable again, the chain resolves (and that kind's clock starts)
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-11", 2).await.unwrap();
+    let moved = check_after(&mut client, &s, &t1, 16).await;
+    assert_eq!((moved.resolved, moved.opened), (vec![chain], vec![]));
+    // a paused queue is its own problem, never a chain
+    work::pause(&client, "watch test").await.unwrap();
+    let paused = check_after(&mut client, &s, &t1, 60).await;
+    assert!(paused.opened.len() == 1 && paused.opened[0].starts_with("Work queue paused"), "{paused:?}");
     scratch.drop().await;
 }
 
@@ -577,7 +622,7 @@ async fn a_stall_counts_from_when_the_queue_was_resumed() {
     client.execute("UPDATE core.queue_control SET changed_at = $1::text::timestamptz", &[&resumed]).await.unwrap();
     assert_eq!(check_after(&mut client, &s, &t0, 30).await, opened(&[]), "10 minutes since the resume, not 30");
     let since: String = client.query_one("SELECT to_char(changed_at AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.queue_control", &[]).await.unwrap().get(0);
-    let stalled = format!("Work stalled since {since} MT: 2 claimable (2 tape jobs) and no worker holds a lease, so no worker pod is running");
+    let stalled = format!("Tape jobs stalled since {since} MT: 2 claimable and none leased, so no `tape` pod is running");
     assert_eq!(check_after(&mut client, &s, &t0, 35).await, opened(&[&stalled]));
     // a live lease: resolved, the claimability view not read
     work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();

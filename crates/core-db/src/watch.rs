@@ -504,70 +504,128 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
     Ok(())
 }
 
-/// C-065 (health.sh's stall): claimable work and no live lease, continuously for `STALL_MINUTES`
-/// (`DAILY_STALL_MINUTES` when every claimable job is a daily run's): no worker is running, so
-/// nothing moves (a Job out of completions, KEDA or the node pool not starting pods). The clock is
-/// the later of when the watch first saw the condition (`core.stall_seen`, written here), the
-/// last lease granted or ended, so a pod that claims and stops within a minute restarts it, and
-/// when the work became claimable (the queue's resume, the oldest claimable job's queueing, its
-/// build's admission), which the watch may not have seen. A paused queue or a build not admitted
-/// makes nothing claimable: those are their own problems.
+/// The kinds of work, in the order the watch states them, with the ScaledJob that starts their pods.
+const KINDS: [(&str, &str); 3] = [("TAPE", "tape"), ("DAY_BLOCK", "day-block"), ("ORDERED_PASS", "ordered-pass")];
+
+/// C-065 (health.sh's stall), per kind (C-068, audit opsurface ops.md 8 and 5): claimable work of a
+/// kind and no live lease of that kind, continuously for `STALL_MINUTES` (`DAILY_STALL_MINUTES` when
+/// every claimable job of the kind is a daily run's): no pod of that kind runs (its ScaledJob not
+/// starting pods, its pods Pending for want of a node or failing before they claim, a Job out of
+/// completions). A lease of another kind no longer masks it: a day block renewing its lease for a
+/// day said nothing of tapes waiting with no pod. One problem per kind (key: the kind). The clock is
+/// the later of when the watch first saw the condition for the kind (`core.stall_seen`, written
+/// here), the last lease of the kind granted or ended, so a pod that claims and stops within a minute
+/// restarts it, and when the kind's work became claimable (the queue's resume, its oldest claimable
+/// job's queueing, the earliest admission of a build with such work), which the watch may not have
+/// seen.
+///
+/// And the chain (key `chain`): nothing claimable of any kind, no live lease, the queue not paused,
+/// and jobs of a running build still queued, for `STALL_MINUTES`: the queued work waits for something
+/// nothing will do (a day not scheduled, a block of a withdrawn build: `build hand-over`). Not while a
+/// pass of a running build stands FAILED: it holds the later passes by the claim's rule and is its own
+/// problem (`JOB_FAILED`), one alert for one cause. A paused queue or a build not admitted makes
+/// nothing claimable: those are their own problems.
 async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> Result<(), String> {
-    // a live lease rules a stall out: the claimability view (the queue's longest query) is read
-    // only when none is live, so the check is short while workers run (audit round 2 of
-    // core-watch, the suspicion: it holds the problem lock a publish may wait for)
-    let live: bool = c
-        .query_one("SELECT EXISTS (SELECT FROM core.lease WHERE ended_at IS NULL AND expires_at >= $1::text::timestamptz)", &[&now])
+    let leased: Vec<String> = c
+        .query(
+            "SELECT DISTINCT j.kind FROM core.lease l JOIN core.job j USING (job_id) WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz",
+            &[&now],
+        )
         .await
         .map_err(db)?
-        .get(0);
-    if live {
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    // every kind leased: no stall, and the claimability view (the queue's longest query) is not
+    // read (audit round 2 of core-watch, the suspicion: the check holds the problem lock a publish
+    // may wait for)
+    if KINDS.iter().all(|(k, _)| leased.iter().any(|l| l == k)) {
         c.execute("DELETE FROM core.stall_seen", &[]).await.map_err(db)?;
         return Ok(());
     }
-    let r = c
-        .query_one(
+    // (kind, claimable, not daily, oldest queued, earliest admission of a build with such work)
+    let rows = c
+        .query(
             "WITH k AS (SELECT kind, priority, created_at, engine_build FROM core.claimable_job)
-             SELECT (SELECT count(*) FROM k), (SELECT count(*) FROM k WHERE priority <> 1),
-                    (SELECT string_agg(n || ' ' || CASE kind WHEN 'DAY_BLOCK' THEN 'day blocks' WHEN 'TAPE' THEN 'tape jobs' ELSE 'ordered passes' END, ', ' ORDER BY kind)
-                     FROM (SELECT kind, count(*) AS n FROM k GROUP BY kind) g),
-                    (SELECT min(created_at) FROM k)::text,
-                    (SELECT min(b.admitted_at) FROM core.engine_build b WHERE b.engine_build IN (SELECT engine_build FROM k))::text",
+             SELECT kind, count(*), count(*) FILTER (WHERE priority <> 1), min(created_at)::text,
+                    (SELECT min(b.admitted_at) FROM core.engine_build b WHERE b.engine_build IN (SELECT engine_build FROM k x WHERE x.kind = k.kind))::text
+             FROM k GROUP BY kind",
             &[],
         )
         .await
         .map_err(db)?;
-    let (claimable, backfill, kinds): (i64, i64, Option<String>) = (r.get(0), r.get(1), r.get(2));
-    if claimable == 0 {
-        c.execute("DELETE FROM core.stall_seen", &[]).await.map_err(db)?;
-        return Ok(());
+    let mut any_claimable = false;
+    for (kind, pod) in KINDS {
+        let row = rows.iter().find(|r| r.get::<_, String>(0) == kind);
+        let claimable: i64 = row.map_or(0, |r| r.get(1));
+        any_claimable |= claimable > 0;
+        if claimable == 0 || leased.iter().any(|l| l == kind) {
+            c.execute("DELETE FROM core.stall_seen WHERE kind = $1", &[&kind]).await.map_err(db)?;
+            continue;
+        }
+        let row = row.expect("a kind with claimable work has its row");
+        let (backfill, queued, admitted): (i64, Option<String>, Option<String>) = (row.get(2), row.get(3), row.get(4));
+        c.execute("INSERT INTO core.stall_seen (kind, since) VALUES ($1, $2::text::timestamptz) ON CONFLICT (kind) DO NOTHING", &[&kind, &now]).await.map_err(db)?;
+        let limit = if backfill == 0 { DAILY_STALL_MINUTES } else { STALL_MINUTES };
+        // audit round 2 of core-watch, 7: the clock never starts before the work could be claimed,
+        // whatever the watch did not see (a restart over an overnight pause)
+        let (minutes, since) = stall_clock(
+            c,
+            now,
+            kind,
+            "(SELECT max(GREATEST(l.granted_at, COALESCE(l.ended_at, l.granted_at))) FROM core.lease l JOIN core.job j USING (job_id)
+              WHERE j.kind = $5 AND l.granted_at <= $1::text::timestamptz)",
+            &queued,
+            &admitted,
+        )
+        .await?;
+        if minutes >= limit {
+            let words = kind_words(kind);
+            let mut title = words.to_owned();
+            title[..1].make_ascii_uppercase();
+            found.push(Found {
+                kind: "STALLED",
+                key: kind.into(),
+                summary: format!("{title} stalled since {since} MT: {claimable} claimable and none leased, so no `{pod}` pod is running"),
+                command: "vyreon-core queue".into(),
+                detail: None,
+            });
+        }
     }
-    let (queued, admitted): (Option<String>, Option<String>) = (r.get(3), r.get(4));
-    c.execute("INSERT INTO core.stall_seen (since) VALUES ($1::text::timestamptz) ON CONFLICT (one) DO NOTHING", &[&now]).await.map_err(db)?;
-    let limit = if backfill == 0 { DAILY_STALL_MINUTES } else { STALL_MINUTES };
-    // audit round 2 of core-watch, 7: the clock never starts before the work could be claimed,
-    // whatever the watch did not see (a restart over an overnight pause): the queue's last resume
-    // (`changed_at`: claimable work means it is not paused), the oldest claimable job's queueing,
-    // the earliest admission of a build with claimable work
+    // the chain: nothing claimable, nothing leased, queued work of a running build left
     let r = c
         .query_one(
-            "WITH s AS (SELECT GREATEST((SELECT since FROM core.stall_seen),
-                                        (SELECT max(GREATEST(granted_at, COALESCE(ended_at, granted_at))) FROM core.lease WHERE granted_at <= $1::text::timestamptz),
-                                        (SELECT changed_at FROM core.queue_control),
-                                        $3::text::timestamptz, $4::text::timestamptz) AS t)
-             SELECT extract(epoch FROM $1::text::timestamptz - t)::float8 / 60, to_char(t AT TIME ZONE $2, 'Dy HH24:MI') FROM s",
-            &[&now, &ZONE, &queued, &admitted],
+            "SELECT (SELECT count(*) FROM core.job j WHERE j.state = 'QUEUED' AND j.next_session IS NOT NULL AND core.build_runs(j.engine_build)),
+                    (SELECT string_agg(n || ' ' || CASE kind WHEN 'DAY_BLOCK' THEN 'day blocks' WHEN 'TAPE' THEN 'tape jobs' ELSE 'ordered passes' END, ', ' ORDER BY kind)
+                     FROM (SELECT kind, count(*) AS n FROM core.job j WHERE j.state = 'QUEUED' AND j.next_session IS NOT NULL AND core.build_runs(j.engine_build)
+                           GROUP BY kind) g),
+                    (SELECT paused FROM core.queue_control),
+                    EXISTS (SELECT FROM core.job j WHERE j.kind = 'ORDERED_PASS' AND j.state = 'FAILED' AND core.build_runs(j.engine_build))",
+            &[],
         )
         .await
         .map_err(db)?;
-    let (minutes, since): (f64, String) = (r.get(0), r.get(1));
-    if minutes >= limit {
+    let (queued, kinds, paused, failed_pass): (i64, Option<String>, bool, bool) = (r.get(0), r.get(1), r.get(2), r.get(3));
+    if any_claimable || !leased.is_empty() || paused || failed_pass || queued == 0 {
+        c.execute("DELETE FROM core.stall_seen WHERE kind = 'CHAIN'", &[]).await.map_err(db)?;
+        return Ok(());
+    }
+    c.execute("INSERT INTO core.stall_seen (kind, since) VALUES ('CHAIN', $1::text::timestamptz) ON CONFLICT (kind) DO NOTHING", &[&now]).await.map_err(db)?;
+    let (minutes, since) = stall_clock(
+        c,
+        now,
+        "CHAIN",
+        "(SELECT max(GREATEST(l.granted_at, COALESCE(l.ended_at, l.granted_at))) FROM core.lease l WHERE l.granted_at <= $1::text::timestamptz AND $5::text IS NOT NULL)",
+        &None,
+        &None,
+    )
+    .await?;
+    if minutes >= STALL_MINUTES {
         found.push(Found {
             kind: "STALLED",
-            key: "queue".into(),
+            key: "chain".into(),
             summary: format!(
-                "Work stalled since {since} MT: {} claimable ({}) and no worker holds a lease, so no worker pod is running",
-                claimable,
+                "Work stalled since {since} MT: {queued} jobs queued ({}), none claimable and none leased: they wait for work that is not scheduled or not running",
                 kinds.unwrap_or_default()
             ),
             command: "vyreon-core queue".into(),
@@ -575,6 +633,26 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
         });
     }
     Ok(())
+}
+
+/// The stall clock of `kind` at `now`: minutes since the later of when the watch first saw it
+/// (`core.stall_seen`), `last` (an expression of the last lease that moved, over `$1` now and `$5`
+/// the kind), the queue's last change, and `queued` and `admitted`; and that moment in the owner's
+/// zone.
+async fn stall_clock(c: &impl GenericClient, now: &str, kind: &str, last: &str, queued: &Option<String>, admitted: &Option<String>) -> Result<(f64, String), String> {
+    let r = c
+        .query_one(
+            &format!(
+                "WITH s AS (SELECT GREATEST((SELECT since FROM core.stall_seen WHERE kind = $5), {last},
+                                            (SELECT changed_at FROM core.queue_control),
+                                            $3::text::timestamptz, $4::text::timestamptz) AS t)
+                 SELECT extract(epoch FROM $1::text::timestamptz - t)::float8 / 60, to_char(t AT TIME ZONE $2, 'Dy HH24:MI') FROM s"
+            ),
+            &[&now, &ZONE, queued, admitted, &kind],
+        )
+        .await
+        .map_err(db)?;
+    Ok((r.get(0), r.get(1)))
 }
 
 /// C-065 (health.sh's "pods that found nothing to claim"): claims that found nothing while a job
