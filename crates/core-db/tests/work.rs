@@ -2342,3 +2342,90 @@ async fn a_failure_message_with_a_credential_is_never_kept() {
     assert_eq!(count(&client, "SELECT count(*) FROM core.queue_control WHERE paused").await, 1, "the tape job out of attempts paused the queue");
     scratch.drop().await;
 }
+
+/// C-066: KEDA's trigger counts, as its own login in `vyreon_scaler`, exactly what a worker of the
+/// build can claim, by kind, and the daily runs' apart; the login reads nothing else.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn the_scaler_counts_what_a_worker_of_the_build_can_claim_and_reads_nothing_else() {
+    let (scratch, mut client, b, d) = ready("scaler").await;
+    let login = format!("scaler_test_{}", std::process::id());
+    client.batch_execute(&format!("DROP ROLE IF EXISTS {login}; CREATE ROLE {login} LOGIN PASSWORD 'scaler-test' IN ROLE vyreon_scaler")).await.unwrap();
+    let mut config = scratch.config.clone();
+    config.user(&login).password("scaler-test");
+    let scaler = test_support::connect(&config).await;
+    // what the trigger of each ScaledJob asks (deploy/k8s/50-keda.yaml)
+    async fn counted(scaler: &Client, kind: &str, build: &str, daily: Option<bool>) -> i64 {
+        scaler.query_one("SELECT core.claimable_count($1, $2, $3)", &[&kind, &build, &daily]).await.unwrap().get(0)
+    }
+    async fn claimable(client: &Client) -> Value {
+        work::status(client).await.unwrap()["claimable"].clone()
+    }
+
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-10", "2025-12-12", 1).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-09", "2025-12-11", 30).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, "2025-12-10", "2025-12-11", 1).await.unwrap();
+    // not admitted: nothing to start a pod for
+    assert_eq!(counted(&scaler, "TAPE", &b, None).await, 0);
+    admit(&client, &b).await;
+    admit(&client, &d).await;
+    // the block waits for the tapes up to its last session, the passes for their days
+    assert_eq!(claimable(&client).await, json!({"TAPE": 3}));
+    assert_eq!(counted(&scaler, "TAPE", &b, None).await, 3);
+    assert_eq!(counted(&scaler, "DAY_BLOCK", &b, None).await, 0);
+    assert_eq!(counted(&scaler, "ORDERED_PASS", &d, None).await, 0);
+    // another build's ScaledJob starts nothing for this build's work
+    assert_eq!(counted(&scaler, "TAPE", &d, None).await, 0);
+    assert_eq!(counted(&scaler, "TAPE", "another-build", None).await, 0);
+    // a daily tape (priority 1, as `daily::queue` sets it) is counted apart
+    let tape12: i64 = client.query_one("SELECT job_id FROM core.job WHERE kind = 'TAPE' AND first_session = '2025-12-12'", &[]).await.unwrap().get(0);
+    client.execute("UPDATE core.job SET priority = 1 WHERE job_id = $1", &[&tape12]).await.unwrap();
+    assert_eq!((counted(&scaler, "TAPE", &b, Some(true)).await, counted(&scaler, "TAPE", &b, Some(false)).await), (1, 2));
+    // a claimed job is no longer counted: the pod that holds it is KEDA's running Job
+    let mut tapes = Vec::new();
+    for worker in ["t1", "t2"] {
+        tapes.push(work::claim(&mut client, Kind::Tape, &b, worker, HOUR).await.unwrap().unwrap());
+    }
+    assert_eq!(tapes[0].job_id, tape12, "the daily tape first");
+    assert_eq!(counted(&scaler, "TAPE", &b, None).await, 1);
+    for tape in &tapes {
+        done(&mut client, tape, &tape.sessions[0]).await.unwrap();
+        work::finish(&mut client, &tape.token).await.unwrap();
+    }
+    let last = work::claim(&mut client, Kind::Tape, &b, "t3", HOUR).await.unwrap().unwrap();
+    done(&mut client, &last, &last.sessions[0]).await.unwrap();
+    work::finish(&mut client, &last.token).await.unwrap();
+    assert_eq!(claimable(&client).await, json!({"DAY_BLOCK": 1}));
+    assert_eq!((counted(&scaler, "TAPE", &b, None).await, counted(&scaler, "DAY_BLOCK", &b, None).await), (0, 1));
+    assert_eq!(counted(&scaler, "DAY_BLOCK", &b, Some(true)).await, 0, "the block is the backfill's, not a daily run's");
+
+    // the block publishes the 10th (the real slice): its pass is claimable, counted through the
+    // view's functions under the definer's rights and fixed search_path
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    assert_eq!(counted(&scaler, "DAY_BLOCK", &b, None).await, 0);
+    done(&mut client, &block, "2025-12-09").await.unwrap();
+    let (header, scalars, files) = parts(BASE);
+    let path = bundle(&unique("scaler-base"), &header, &scalars, &files);
+    let base = publish_for_lease(&mut client, &path, &block.token).await.unwrap();
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(counted(&scaler, "ORDERED_PASS", &d, None).await, 0, "its block is still on the 10th");
+    day_local(&mut client, &b, "2025-12-10", base.revision_id, Some(&block.token)).await;
+    work::day_done(&mut client, &block.token, "2025-12-10").await.unwrap();
+    assert_eq!(claimable(&client).await, json!({"ORDERED_PASS": 1}));
+    assert_eq!(counted(&scaler, "ORDERED_PASS", &d, None).await, 1);
+    assert_eq!(counted(&scaler, "ORDERED_PASS", &b, None).await, 0, "the pass is the derived build's");
+    // a paused queue starts nothing
+    work::pause(&client, "scaler test").await.unwrap();
+    assert_eq!(counted(&scaler, "ORDERED_PASS", &d, None).await, 0);
+
+    // the login can run the count and read nothing else
+    for sql in ["SELECT count(*) FROM core.claimable_job", "SELECT count(*) FROM core.job", "SELECT count(*) FROM vyreon.day_revision", "SELECT core.build_runs('x')"] {
+        let refused = scaler.query_one(sql, &[]).await.unwrap_err();
+        assert!(refused.as_db_error().is_some_and(|e| e.message().contains("permission denied")), "{sql}: {refused}");
+    }
+    assert!(scaler.execute("UPDATE core.queue_control SET paused = false", &[]).await.is_err());
+    drop(scaler);
+    scratch.drop().await;
+    let admin = test_support::connect(&std::env::var("VYREON_CORE_TEST_PG").unwrap().parse().unwrap()).await;
+    admin.batch_execute(&format!("DROP ROLE {login}")).await.unwrap();
+}
