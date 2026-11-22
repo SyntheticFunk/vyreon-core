@@ -62,7 +62,7 @@ spec:
             - name: VYREON_CORE_PROGRESS_WEBHOOK_FILE
               value: /etc/vyreon-core/progress-webhook/webhook
             - name: VYREON_CORE_VOLUME_GIB      # 10-postgres.yaml's storage size
-              value: "120"
+              value: "250"
             # Intrinio requests a minute shared through core's leases (C-025): 2,000 is the
             # provider's limit for the whole account, every node shares it; 1,900 (owner, 2026-11-21)
             - name: VYREON_CORE_INTRINIO_PER_MINUTE

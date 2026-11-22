@@ -1,0 +1,29 @@
+# The restore drill (C-067; README "Backups and the volume", "The restore drill"): a separate,
+# temporary cluster restored from the latest base backup and every archived WAL file of vyreon-pg,
+# compared with it, then deleted. It has no `plugins` section, so it archives nothing: it never
+# writes to the bucket (plugin docs, "Usage": recovery alone does not enable WAL archiving).
+#
+# Size the volume above the source's database size (`pg_database_size` plus room for replayed
+# WAL): 30Gi for today's ~8 GB; ~200Gi at ~150 GB, when a `day` node is the better place than the
+# core node (under `spec.affinity`: `nodeSelector: {vyreon: worker, doks.digitalocean.com/node-pool:
+# day}` and `tolerations: [{key: vyreon, operator: Equal, value: worker, effect: NoSchedule}]`).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: vyreon-pg-drill
+  namespace: vyreon
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  storage:
+    size: 30Gi
+  bootstrap:
+    recovery:
+      source: vyreon-pg-backup
+  externalClusters:
+    - name: vyreon-pg-backup
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: vyreon-backup
+          serverName: vyreon-pg

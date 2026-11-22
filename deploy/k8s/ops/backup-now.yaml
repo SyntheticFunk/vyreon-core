@@ -1,0 +1,13 @@
+# An on-demand base backup of vyreon-pg (README "Backups and the volume"). `kubectl create -f`
+# (not apply): each run gets its own name.
+apiVersion: postgresql.cnpg.io/v1
+kind: Backup
+metadata:
+  generateName: vyreon-pg-ondemand-
+  namespace: vyreon
+spec:
+  cluster:
+    name: vyreon-pg
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io

@@ -1,0 +1,68 @@
+# Backups of the database (C-013, C-067): CloudNativePG's Barman Cloud plugin (v0.16.0, for
+# CloudNativePG >= 1.30; the cluster runs 1.30.1) to DigitalOcean Spaces. Continuous WAL archiving
+# (`10-postgres.yaml`, `plugins`) plus a weekly full base backup, about 30 days recoverable, in a
+# bucket used only for backups with a key limited to that bucket. README "Backups and the volume"
+# gives the order; nothing here is applied without the owner's word.
+#
+# Objects land under s3://vyreon-pg-backup/vyreon-pg/{base,wals}/ (the server name defaults to the
+# cluster's name). Spaces is S3-compatible: the endpoint is the region's, the bucket goes in the
+# path (path-style, as core's perishable archive signs its URLs, C-052).
+#
+# The Secret `vyreon-backup-spaces` (keys ACCESS_KEY_ID, ACCESS_SECRET_KEY, the plugin's names) is
+# made by hand from files (README); no key is in this repository.
+apiVersion: barmancloud.cnpg.io/v1
+kind: ObjectStore
+metadata:
+  name: vyreon-backup
+  namespace: vyreon
+spec:
+  # A recovery window: every base backup and WAL file needed to restore to any moment of the last
+  # 30 days is kept; older ones are deleted after the next base backup completes (plugin docs,
+  # "Retention policies"). Weekly fulls: about six are held at once.
+  retentionPolicy: "30d"
+  configuration:
+    destinationPath: s3://vyreon-pg-backup/
+    endpointURL: https://nyc3.digitaloceanspaces.com
+    s3AddressingStyle: path
+    s3Credentials:
+      accessKeyId:
+        name: vyreon-backup-spaces
+        key: ACCESS_KEY_ID
+      secretAccessKey:
+        name: vyreon-backup-spaces
+        key: ACCESS_SECRET_KEY
+    wal:
+      # archive_timeout is 5 min (CloudNativePG's default): an idle database still closes a 16 MB
+      # segment every 5 minutes, mostly zeros, which gzip shrinks to little
+      compression: gzip
+      maxParallel: 2
+    data:
+      compression: gzip
+      jobs: 2
+  instanceSidecarConfiguration:
+    # boto3's newer default checksums are refused by some S3-compatible stores (the
+    # `x-amz-content-sha256` error); the plugin's documented workaround ("Object stores")
+    env:
+      - name: AWS_REQUEST_CHECKSUM_CALCULATION
+        value: when_required
+      - name: AWS_RESPONSE_CHECKSUM_VALIDATION
+        value: when_required
+---
+# The weekly full: Sunday 09:00 UTC (02:00 MT; no daily session is queued on a Sunday, C-051). Six
+# fields, seconds first (robfig/cron, as the CRD says), not a CronJob's five. Online: Postgres keeps
+# serving while it runs. `backupOwnerReference: self`: the Backup records belong to this schedule
+# (deleting it deletes the records, never the objects in the bucket).
+apiVersion: postgresql.cnpg.io/v1
+kind: ScheduledBackup
+metadata:
+  name: vyreon-pg-weekly
+  namespace: vyreon
+spec:
+  cluster:
+    name: vyreon-pg
+  schedule: "0 0 9 * * 0"
+  immediate: false
+  backupOwnerReference: self
+  method: plugin
+  pluginConfiguration:
+    name: barman-cloud.cloudnative-pg.io
