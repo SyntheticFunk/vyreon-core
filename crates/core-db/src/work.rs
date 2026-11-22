@@ -354,6 +354,38 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         finished(db_client, &done, "its worker, whose finish never arrived").await?;
         return Ok(false);
     }
+    // audit 2026-11-22 changes-core 10: a day block whose attempt stopped on a day it had already
+    // said was done (its evidence names that day, C-049: a prune after `day_done`, say) never tried
+    // the day it moved on to. That attempt is not counted against the block: queued again, never
+    // FAILED on a day it did not try, nor that day given the earlier day's cause. Each such attempt
+    // has moved the block on by at least a day, so this cannot repeat without end.
+    if let Some(day) = db_client
+        .query_opt(
+            "SELECT e.session::text FROM core.job j
+             JOIN LATERAL (SELECT l.lease_id FROM core.lease l WHERE l.job_id = j.job_id ORDER BY l.lease_id DESC LIMIT 1) l ON true
+             JOIN core.job_evidence e ON e.lease_id = l.lease_id
+             WHERE j.job_id = $1 AND j.state = 'LEASED' AND j.kind = 'DAY_BLOCK' AND e.session < j.next_session",
+            &[&job],
+        )
+        .await
+        .map_err(db)?
+        .map(|r| r.get::<_, String>(0))
+    {
+        let next: String = db_client
+            .query_one(
+                "UPDATE core.job SET state = 'QUEUED', attempts = GREATEST(attempts - 1, 0), finished_at = NULL WHERE job_id = $1 RETURNING next_session::text",
+                &[&job],
+            )
+            .await
+            .map_err(db)?
+            .get(0);
+        notice::log(
+            db_client,
+            &format!("Day block job {job} stopped on {day}, a day it had done ({why}); {next} was not tried: queued again, the attempt not counted."),
+        )
+        .await?;
+        return Ok(true);
+    }
     let Some(again) = db_client
         .query_opt(
             "UPDATE core.job SET state = CASE WHEN attempts < max_attempts THEN 'QUEUED' ELSE 'FAILED' END,
