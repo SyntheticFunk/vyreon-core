@@ -427,8 +427,9 @@ then the two-week unattended run; free and paid live in December; pilot issue 1 
 **Intrinio Startup tier bought ~Wednesday 11-25 (Black Friday sale)**, possibly while the build runs:
 the key goes into the cluster secret (`vyreon-worker` `intrinio-key`) and `api.txt`, never printed; new
 pods pick it up (KEDA starts a pod per job); read the new entitlements and rate limit with Intrinio's
-access-code call, then set `VYREON_CORE_INTRINIO_PER_MINUTE` from it (owner's rule: just under the
-limit); one real day re-run on the new key.
+access-code call to confirm (owner: per Intrinio's documentation Startup equals the current plan except
+display rights, so the same 2,000 a minute: no speed-up, core's 1,900 unchanged); one real day re-run on
+the new key.
 
 ## Before the full build: the system runs without a watcher (owner, 2026-11-22: "do all 4")
 Tonight's test-block tapes needed an operator for four things: Job completion counts (the Job ran out
