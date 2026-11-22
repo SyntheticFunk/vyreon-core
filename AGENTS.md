@@ -12,6 +12,8 @@ Context is lost over time; the files are the memory. Sessions run for days on th
   commit), so a summarised session or a new one reads the truth. Trust the files and the code over any
   summary, including your own earlier messages.
 - **A `/loop` pointed at MILESTONES and these rules** drives long work; each wake re-reads the files.
+  The prompt stays short (`/loop follow docs/MILESTONES.md under the rules in AGENTS.md`): rules belong
+  in the files or in code, not in the prompt.
 - **A fresh session starts with an alignment discussion** with the owner (play back your understanding,
   propose a numbered plan), before acting. A term the files do not define gets defined there.
 - **A step done by hand a second time** is flagged as missing automation, not repeated silently: the
