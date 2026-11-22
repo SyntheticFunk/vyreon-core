@@ -687,7 +687,11 @@ async fn serve() -> Result<(), String> {
         return Err("another vyreon-core serve holds the database's single-instance lock (C-053): this one does not serve".into());
     }
     let manager = deadpool_postgres::Manager::new(pg, NoTls);
-    let pool = deadpool_postgres::Pool::builder(manager).max_size(16).build().map_err(|e| e.to_string())?;
+    // C-068: up to 24 tape pods, 13 day blocks and a pass at once (C-066's caps) each heartbeat and
+    // draw from the budget on a connection held for one statement or two; an upload holds none
+    // while it spools or waits for the bundle before it. PostgreSQL allows 100 (CloudNativePG's
+    // default); the watch, the scaler's four counts and the pass's login are beside these
+    let pool = deadpool_postgres::Pool::builder(manager).max_size(32).build().map_err(|e| e.to_string())?;
     let app = core_api::App::new(pool, config);
     let listen: String = setting("VYREON_CORE_LISTEN", "0.0.0.0:8080".to_string())?;
     let listener = tokio::net::TcpListener::bind(&listen).await.map_err(|e| format!("{listen}: {e}"))?;

@@ -2461,4 +2461,14 @@ owner from the runbooks. Every real finding fixed; finding 14 is the engine's. M
   lost release), and the count of such leases. The runbook's scaling criterion (README "The caps")
   now reads the two together as an upper bound, beside Intrinio's own usage. The budget's rule is
   unchanged (an unreleased lease is held at its full size). Test `the_ledger_shows_the_grants_never_released`.
+- **Suspicion (the core node under 12 publishers): an upload holds no connection while it spools.**
+  `POST /worker/v1/days` took a pool connection before its body arrived and kept it through the
+  upload (minutes for ~200 MB) and the wait for the bundle before it: twelve publishing nodes held
+  twelve of the pool's sixteen. It now takes one to name its caller, returns it, and takes one again
+  only to publish (one at a time, under the publish mutex) or to pause on a refused bundle. The pool
+  is 32 (PostgreSQL's limit is CloudNativePG's default 100): 24 tape pods, 13 blocks and a pass
+  heartbeat and draw from the budget, each a statement or two. Test
+  `an_upload_holds_no_connection_while_its_body_arrives` (a pool of one; fails on the old handler).
+  Not measured: the core node's memory with Postgres, KEDA and core under twelve publishers (the
+  recompute on two nodes, then the full build, are the measurement).
 

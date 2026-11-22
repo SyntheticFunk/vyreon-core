@@ -237,8 +237,11 @@ async fn fail(State(app): Shared, headers: HeaderMap, Json(failure): Json<Failur
 
 async fn publish_day(State(app): Shared, headers: HeaderMap, body: Body) -> Reply {
     let token = bearer(&headers)?.to_owned();
-    let mut client = app.db().await?;
-    let lease = caller(&client, &headers).await?;
+    // C-068 (audit opsurface ops.md, the core node's suspicion): a database connection is held only
+    // to name the caller, then to publish; never while the bundle uploads (minutes for ~200 MB) nor
+    // while it waits for the bundle before it, so twelve publishing nodes hold one connection, not
+    // twelve of the pool's
+    let lease = caller(&*app.db().await?, &headers).await?;
     // spool the upload, then check and publish it; one bundle at a time
     let path = app.config.spool.join(format!("bundle-{}-{}.tar.gz", std::process::id(), app.spooled.fetch_add(1, Ordering::Relaxed)));
     let spooled = spool(body, &path, app.config.max_bundle_bytes).await;
@@ -246,7 +249,10 @@ async fn publish_day(State(app): Shared, headers: HeaderMap, body: Body) -> Repl
         Err(e) => Err(e),
         Ok(()) => {
             let _one = app.publishing.lock().await;
-            publish::publish_for_lease(&mut client, &path, &token).await.map_err(ApiError::from)
+            match app.db().await {
+                Ok(mut client) => publish::publish_for_lease(&mut client, &path, &token).await.map_err(ApiError::from),
+                Err(e) => Err(e),
+            }
         }
     };
     let _ = tokio::fs::remove_file(&path).await;
@@ -260,6 +266,7 @@ async fn publish_day(State(app): Shared, headers: HeaderMap, body: Body) -> Repl
             if e.0 == StatusCode::UNPROCESSABLE_ENTITY {
                 // a failed check: nothing more is claimed until someone has looked; the pause and
                 // its notice are one transaction (C-027's outbox)
+                let mut client = app.db().await?;
                 let client: &mut Client = &mut client;
                 let tx = client.transaction().await.map_err(|e| failed(e.to_string()))?;
                 work::pause(&tx, &format!("job {} ({}): bundle refused: {}", lease.job_id, lease.worker, e.1)).await.map_err(failed)?;
