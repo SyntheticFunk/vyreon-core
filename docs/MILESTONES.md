@@ -445,6 +445,12 @@ first-session now also needs the prior snapshot to lack the contract; D-440 need
 **Owner decision (census): EEM 2023-12-20 $0.748 omitted by the provider's bar AND listing (P-22) — a
 wrong return no factor rule can catch (single provider); possible rule: total-return windows before an
 asset's dividend coverage start are unknown basis.** Fix agents: engine `eng-r2`, core `core-ops`.
+**Owner, 2026-11-22: stay on Intrinio.** Checked every entitled Intrinio route: dividend records (only
+2024-06-11 and 2024-12-17), the 2023-12-20 bar (dividend 0, factor 1; its adjusted close omits it too);
+exchange dividends/adjustments by day are not entitled. Enterprise ($1,250/mo) unlocks the rest, only
+once profitable on Startup, and may carry the same gap. For now: accept and state (P-22: EEM 1-year
+values 2024-07-09..2024-12-20, warm-up, outside the report window); the coverage-start rule goes to the
+census; ask Intrinio support at the Startup purchase about a backfill and the by-day feeds.
 
 **Owner, 2026-11-22: Intel fallback authorized** — new pool `day-intel` (Basic Intel `s-8vcpu-16gb-intel`,
 $0.167/h, same as `day`), autoscale 0..13; delete the empty `day-std` (its `s-8vcpu-16gb` is no longer
