@@ -18,6 +18,7 @@ only by that Job).
 |---|---|
 | `do.sh METHOD /v2/path [json]` | one DigitalOcean API call |
 | `scale-pool.sh POOL_ID NAME COUNT` | set a worker pool's node count (costs money: the spend ceiling in docs/MILESTONES.md applies) |
+| `health.sh` | one read-only screen of a run's health; oddities flagged with !!; run at every check |
 | `delete-idle.sh` | delete every `day*` node with no running, pending or starting worker pod; run after every run ends |
 | `job-day-block.yaml` | day-block worker Job on the phase-1 image; set `metadata.name`, `completions`, `parallelism`, and the node pool |
 | `job-tape.yaml` | tape worker Job on the phase-1 image; same fields |
