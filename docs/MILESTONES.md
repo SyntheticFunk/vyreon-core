@@ -325,7 +325,15 @@ the comparative's filing, a look-ahead closed; D-433 date-only insider acceptanc
 D-434 daily claim keeps sent/unsent; D-435 FIELD-SYNC01 all-64 eligibility; D-436 reference OI and
 empty-delivery rules; LLY FY2022 Q2 capex $371.0m). Real-data re-check not finished (pod load ~30):
 the proof is step 6, the new image recomputing the test-block days with gate a judging them. Round-2
-audit (narrow) running.
+audit (narrow) running. **Round 2 audit (16) and round 3 fixes done (aaaf998d, D-437/D-438; every
+FND01 change tightens toward withholding); audits on this branch stopped there (real data judges next).
+`eng-tb` merged into `worker` 48461197 (pushed): suite 1,629 passed, 0 failed; reference pytest 174.
+Image `vyreon-worker:48461197`, build 48461197+7361a31e2fda (4,679 slots, same profiles), registered
+and admitted 2026-11-22 ~16:50 UTC; 914ffed7 stays admitted until its block ends.**
+**After the block (run.sh runs its 10 passes on 914ffed7 and deletes the node):** deploy core 7c96453
+(C-065; progress webhook; stop run.sh's posts), withdraw 914ffed7, schedule a day block 2024-07-09..07-22
+on 48461197 (publishing supersedes the old days; C-037 re-derives; passes re-queue under the new build,
+C-062), judge gate a on it; then KEDA + caps, then the full build.
 
 5. **2024-07-10 published 09:50 UTC (~100 min after day 1)**; memory after it 1,617 MiB resident, 212
    MiB after the trim.
