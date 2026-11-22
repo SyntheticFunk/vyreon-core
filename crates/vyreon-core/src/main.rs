@@ -8,6 +8,13 @@
 //!   vyreon-core build admit <build> <evidence.json>   let the build's workers claim work (the checks it passed)
 //!   vyreon-core build withdraw <build> <reason>       stop them claiming, and stop its running jobs (their
 //!                                                     leases end; the jobs are queued again under it)
+//!   vyreon-core build hand-over (--preview | --expect <token>) <from> <to> <reason...>   C-068: hand a withdrawn
+//!                                                     build's unfinished tapes, day blocks and ordered passes to an
+//!                                                     admitted successor, once: each is cancelled and the same work
+//!                                                     queued under <to> (a block from its next session; its done days
+//!                                                     a DONE job of <from>). --preview does it in a transaction rolled
+//!                                                     back and prints each job with a token; the hand-over itself
+//!                                                     takes --expect <that token>
 //!   vyreon-core calendar load <sessions.json>         store the engine's trading sessions
 //!   vyreon-core schedule <tape|day-block|ordered-pass> <profile> <build> <first> <last> [block sessions]
 //!                                                     ordered passes (C-062): a session keeps its unfinished pass of
@@ -277,6 +284,49 @@ fn retire_args<'a>(rest: &[&'a str]) -> Result<(&'a str, Vec<&'a str>, bool, Opt
         Some((reason, dates)) if !dates.is_empty() => Ok((reason, dates.to_vec(), preview, expect)),
         _ => Err(format!("days retire: a reason and at least one date; nothing was retired ({usage})")),
     }
+}
+
+/// C-068: `build hand-over (--preview | --expect <token>) <from> <to> <reason...>`; the flags may
+/// stand anywhere, exactly one of them, as `days retire`'s.
+fn hand_over_args<'a>(rest: &[&'a str]) -> Result<(&'a str, &'a str, String, bool, Option<&'a str>), String> {
+    let usage = "build hand-over (--preview | --expect <token>) <from> <to> <reason...>";
+    let (mut words, mut preview, mut expect) = (Vec::new(), false, None);
+    let mut args = rest.iter().copied();
+    while let Some(a) = args.next() {
+        match a {
+            "--preview" => preview = true,
+            "--expect" => match args.next() {
+                Some(token) if !token.starts_with("--") && expect.is_none() => expect = Some(token),
+                _ => return Err(format!("build hand-over: --expect takes one token; nothing was moved ({usage})")),
+            },
+            flag if flag.starts_with("--") => return Err(format!("build hand-over: unknown option {flag}; nothing was moved ({usage})")),
+            word => words.push(word),
+        }
+    }
+    if preview == expect.is_some() {
+        return Err(format!("build hand-over: either --preview, or --expect with the token the preview printed; nothing was moved ({usage})"));
+    }
+    match words.as_slice() {
+        [from, to, reason @ ..] if !reason.is_empty() => Ok((from, to, reason.join(" "), preview, expect)),
+        _ => Err(format!("build hand-over: the two builds and a reason; nothing was moved ({usage})")),
+    }
+}
+
+async fn build_hand_over(rest: &[&str]) -> Result<(), String> {
+    let (from, to, reason, preview, expect) = hand_over_args(rest)?;
+    let h = build::hand_over(&mut connect().await?, from, to, &reason, preview, expect).await?;
+    for c in &h.carried {
+        let new = c.new_job.map_or_else(|| "a new job".to_owned(), |j| format!("job {j}"));
+        println!("{} job {} ({}) {} to {}: cancelled; {new} of build {to}", c.kind, c.old_job, c.state, c.first, c.last);
+    }
+    match h.hand_over_id {
+        Some(id) => println!("hand-over {id}: {} jobs of build {from} are build {to}'s", h.carried.len()),
+        None => println!(
+            "preview: nothing was changed; to hand over exactly this: vyreon-core build hand-over --expect {} {from} {to} {reason:?}",
+            h.token
+        ),
+    }
+    Ok(())
 }
 
 async fn days_retire(rest: &[&str]) -> Result<(), String> {
@@ -890,6 +940,7 @@ async fn main() -> ExitCode {
             }),
             Err(e) => Err(e),
         },
+        ["build", "hand-over", ref rest @ ..] => build_hand_over(rest).await,
         ["calendar", "load", file] => match (connect().await, json_file(file)) {
             (Ok(mut client), Ok(calendar)) => work::load_calendar(&mut client, &calendar).await.map(|n| println!("{n} sessions")),
             (Err(e), _) | (_, Err(e)) => Err(e),
@@ -952,7 +1003,7 @@ async fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::{archive_line, publish_args, retire_args};
+    use super::{archive_line, hand_over_args, publish_args, retire_args};
 
     /// Audit 2026-11-22 prebuild round 2 (core-watch.md) 4: the webhook URL put in the setting
     /// itself (instead of the file that holds it) printed the whole URL, token and all, when the
@@ -1046,6 +1097,27 @@ mod tests {
         ] {
             let refused = retire_args(bad).unwrap_err();
             assert!(refused.contains("nothing was retired"), "{refused}");
+        }
+    }
+
+    /// C-068: `build hand-over` reads its whole line first, as `days retire` does: the two builds
+    /// (the real ones of the rollout), a reason of several words, and exactly one of the flags.
+    #[test]
+    fn the_hand_over_command_line_is_read_whole_before_anything_moves() {
+        let (old, new) = ("914ffed7+7d4e45c05f63", "48461197+7361a31e2fda");
+        let words = [old, new, "the", "rulings", "image"];
+        assert_eq!(hand_over_args(&[&["--preview"][..], &words].concat()), Ok((old, new, "the rulings image".to_owned(), true, None)));
+        assert_eq!(hand_over_args(&[&words[..], &["--expect", "9f86d081884c7d65"]].concat()), Ok((old, new, "the rulings image".to_owned(), false, Some("9f86d081884c7d65"))));
+        for bad in [
+            &[][..],
+            &["--preview", old, new],
+            &[old, new, "image"],
+            &["--preview", "--expect", "9f86d081884c7d65", old, new, "image"],
+            &[old, new, "image", "--expect"],
+            &["--force", old, new, "image"],
+        ] {
+            let refused = hand_over_args(bad).unwrap_err();
+            assert!(refused.contains("nothing was moved"), "{refused}");
         }
     }
 }

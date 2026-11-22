@@ -154,16 +154,20 @@ async fn a_lost_workers_block_resumes_and_a_failed_day_is_set_aside() {
     expire(&client, &first).await;
     assert_eq!(work::heartbeat(&mut client, &first.token, HOUR).await, Err(LeaseError::Gone));
     assert!(matches!(done(&mut client, &first, "2025-12-11").await, Err(LeaseError::Gone)));
+    // C-068 (C-035 amended): a lost lease with no stop is not an attempt, the first two on a day
     let second = work::claim(&mut client, Kind::DayBlock, &b, "w2", HOUR).await.unwrap().unwrap();
-    assert_eq!((second.job_id, second.sessions.clone(), second.attempt), (first.job_id, vec!["2025-12-11".to_owned(), "2025-12-12".to_owned()], 2));
+    assert_eq!((second.job_id, second.sessions.clone(), second.attempt), (first.job_id, vec!["2025-12-11".to_owned(), "2025-12-12".to_owned()], 1));
 
-    // a worker that fails says where and sends its log; the job is tried a third time
+    // a worker that fails says where and sends its log; the job is tried again, three times in all
     assert!(work::fail(&mut client, &second.token, "surfaces", "surface fit did not converge for XLB", "…the day's log…").await.unwrap());
     let third = work::claim(&mut client, Kind::DayBlock, &b, "w3", HOUR).await.unwrap().unwrap();
-    assert_eq!((third.job_id, third.attempt), (first.job_id, 3));
+    assert_eq!((third.job_id, third.attempt), (first.job_id, 2));
+    assert!(work::fail(&mut client, &third.token, "intent B", "worker ran out of disk", "log").await.unwrap());
+    let fourth = work::claim(&mut client, Kind::DayBlock, &b, "w3", HOUR).await.unwrap().unwrap();
+    assert_eq!((fourth.job_id, fourth.attempt), (first.job_id, 3));
     // the third failure is the last: the 11th is set aside, the 10th's job is done, the 12th is
     // queued as a block of its own, and the queue goes on (C-035)
-    assert!(!work::fail(&mut client, &third.token, "intent B", "worker ran out of disk", "log").await.unwrap());
+    assert!(!work::fail(&mut client, &fourth.token, "intent B", "worker ran out of disk", "log").await.unwrap());
     assert_eq!(work::status(&client).await.unwrap()["paused"], false);
     type Job = (String, String, String, i64);
     let jobs: Vec<Job> = client
@@ -190,11 +194,20 @@ async fn a_lost_workers_block_resumes_and_a_failed_day_is_set_aside() {
     let rest = work::claim(&mut client, Kind::DayBlock, &b, "w4", HOUR).await.unwrap().unwrap();
     assert_eq!((rest.sessions.clone(), rest.attempt), (vec!["2025-12-12".to_owned()], 1));
 
-    // a lease that expires on the last attempt sets its day aside too; the third failed day
-    // stops the queue
+    // a lease that expires on the last attempt sets its day aside too, once the day has lost two
+    // leases free of charge; the third failed day stops the queue
     client.execute("UPDATE core.job SET max_attempts = 1 WHERE state <> 'FAILED'", &[]).await.unwrap();
+    let mut rest = rest;
+    for free in 1..=work::LOST_LEASES_FREE {
+        expire(&client, &rest).await;
+        assert_eq!(work::sweep(&mut client).await.unwrap(), 1);
+        assert_eq!(job_state(&client, rest.job_id).await, "QUEUED", "lost lease {free} on the 12th is free");
+        rest = work::claim(&mut client, Kind::DayBlock, &b, "w4", HOUR).await.unwrap().unwrap();
+        assert_eq!((rest.sessions.clone(), rest.attempt), (vec!["2025-12-12".to_owned()], 1));
+    }
     expire(&client, &rest).await;
     assert_eq!(work::sweep(&mut client).await.unwrap(), 1);
+    assert_eq!(job_state(&client, rest.job_id).await, "FAILED", "the third lost lease on the 12th is charged");
     assert_eq!(work::status(&client).await.unwrap()["paused"], false);
     let other = work::claim(&mut client, Kind::DayBlock, &b, "w5", HOUR).await.unwrap().unwrap();
     assert_eq!(other.sessions, ["2025-12-15", "2025-12-16"]);
@@ -214,6 +227,67 @@ async fn a_lost_workers_block_resumes_and_a_failed_day_is_set_aside() {
     work::resume(&client).await.unwrap();
     build::withdraw(&mut client, &b, "a wrong number on 2025-12-10").await.unwrap();
     assert_eq!(work::claim(&mut client, Kind::DayBlock, &b, "w5", HOUR).await.unwrap(), None);
+    scratch.drop().await;
+}
+
+/// The first day block's state and attempts.
+async fn block_state(client: &Client) -> (String, i32) {
+    let r = client.query_one("SELECT state, attempts FROM core.job WHERE kind = 'DAY_BLOCK' ORDER BY job_id LIMIT 1", &[]).await.unwrap();
+    (r.get(0), r.get(1))
+}
+
+/// Audit 2026-11-22 opsurface (ops.md) 13, C-035 amended: two leases lost on the 10th, then a third
+/// that finishes the 10th and is lost on the 11th, used to set the 11th aside on its first try (the
+/// block's three attempts were spent). A lease lost without a stop is now free twice per day: the
+/// 11th is queued again with no attempt counted. A day that keeps killing its node still stands
+/// FAILED, after `LOST_LEASES_FREE` + `max_attempts` lost leases; a lease that left its evidence
+/// before it was lost is a stop, charged.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_lost_node_never_sets_a_day_aside_on_its_first_loss() {
+    let (scratch, mut client, b, _) = ready("c068_lost").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-12", 30).await.unwrap();
+    for _ in 0..2 {
+        let lost = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+        assert_eq!((lost.sessions[0].as_str(), lost.attempt), ("2025-12-10", 1));
+        expire(&client, &lost).await;
+        work::sweep(&mut client).await.unwrap();
+        assert_eq!(block_state(&client).await, ("QUEUED".to_owned(), 0));
+    }
+    let third = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &third, "2025-12-10").await;
+    expire(&client, &third).await;
+    work::sweep(&mut client).await.unwrap();
+    assert_eq!(block_state(&client).await, ("QUEUED".to_owned(), 0), "the 11th's first lost node sets nothing aside");
+    let stopped: Vec<Option<String>> =
+        client.query("SELECT stopped_on::text FROM core.lease ORDER BY lease_id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
+    assert_eq!(stopped, [Some("2025-12-10".to_owned()), Some("2025-12-10".to_owned()), Some("2025-12-11".to_owned())]);
+    assert!(notices(&client).await.last().unwrap().contains("lost its lease on 2025-12-11 without a stop (1 of 2 such losses free on that day)"));
+
+    // the 11th kills every node: its second loss is free, then each is charged until it stands FAILED
+    let mut losses = 1;
+    let failed = "SELECT count(*) FROM core.job WHERE kind = 'DAY_BLOCK' AND state = 'FAILED' AND first_session = '2025-12-11'";
+    while count(&client, failed).await == 0 {
+        let lease = work::claim(&mut client, Kind::DayBlock, &b, "w2", HOUR).await.unwrap().unwrap();
+        assert_eq!(lease.sessions[0], "2025-12-11");
+        expire(&client, &lease).await;
+        work::sweep(&mut client).await.unwrap();
+        losses += 1;
+        assert!(losses <= 10, "a day that kills every node is set aside in the end");
+    }
+    assert_eq!(losses, work::LOST_LEASES_FREE + 3, "two free, then the block's three attempts");
+
+    // a lease that left its evidence and was then lost is a stop: charged at once
+    let r = client.query_one("SELECT job_id FROM core.job WHERE kind = 'DAY_BLOCK' AND state = 'QUEUED'", &[]).await.unwrap();
+    let twelfth: i64 = r.get(0);
+    let lease = work::claim(&mut client, Kind::DayBlock, &b, "w3", HOUR).await.unwrap().unwrap();
+    assert_eq!((lease.job_id, lease.sessions[0].as_str()), (twelfth, "2025-12-12"));
+    evidence(&mut client, &lease.token, "day 2025-12-12", "stop: 2025-12-12 not published: worker ran out of disk", "2025-12-12").await;
+    expire(&client, &lease).await;
+    work::sweep(&mut client).await.unwrap();
+    let r = client.query_one("SELECT attempts FROM core.job WHERE job_id = $1", &[&twelfth]).await.unwrap();
+    assert_eq!(r.get::<_, i32>(0), 1, "explained by its evidence: counted");
     scratch.drop().await;
 }
 
@@ -767,6 +841,98 @@ async fn a_pass_under_a_build_that_does_not_run_holds_nothing_and_is_replaced() 
     let open: Vec<String> =
         client.query("SELECT summary FROM core.problem WHERE kind = 'NOT_DERIVED' AND resolved_at IS NULL", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
     assert!(open.iter().any(|p| p == "A republish left 3 days that no job derives again: 2025-12-10, 2025-12-10 (day-local), 2025-12-11"), "{open:?}");
+    scratch.drop().await;
+}
+
+/// A build with the slice's every profile (base, day-local and derived), registered under `name` and
+/// admitted: one image that runs tapes, day blocks and ordered passes, as 914ffed7 and its successor.
+async fn whole_build_named(client: &mut Client, name: &str) -> String {
+    let slots: Vec<Value> = inventories().iter().flat_map(|i| i["slots"].as_array().unwrap().clone()).collect();
+    build::register(client, &with_day_local(json!({"engine_build": name, "slots": slots}))).await.unwrap();
+    admit(client, name).await;
+    name.to_owned()
+}
+
+/// Audit 2026-11-22 opsurface (ops.md) 1 and 4, C-068: the rollout withdraws the build that holds the
+/// whole range's ordered passes, its queued tapes and blocks. Withdrawn, they held the successor for
+/// ever (its blocks wait for every earlier unfinished tape, its passes for the day blocks before
+/// them, a schedule over them is refused) and its passes were claimed by no worker. `build hand-over`
+/// moves them, once, after a preview whose token it must be given: a failed tape, a block withdrawn
+/// mid-way (its done day kept as a DONE job of the old build) and five passes; the successor then
+/// runs everything in order.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_withdrawn_builds_unfinished_work_is_handed_to_its_successor_once() {
+    let (scratch, mut client, _, _) = ready("c068_hand_over").await;
+    let old = whole_build_named(&mut client, "slice-old-image").await;
+    let days = ["2025-12-08", "2025-12-09", "2025-12-10", "2025-12-11", "2025-12-12"];
+    work::schedule(&mut client, Kind::Tape, PROFILE, &old, days[2], days[3], 1).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &old, days[0], days[4], 2).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &old, days[0], days[4], 1).await.unwrap();
+    // the old image publishes the 8th of its first block; the 11th's tape fails for good (the queue
+    // pauses on it; the operator resumes)
+    let block = work::claim(&mut client, Kind::DayBlock, &old, "w1", HOUR).await.unwrap().unwrap();
+    publish_base_as(&mut client, &old, &block, days[0]).await;
+    client.execute("UPDATE core.job SET max_attempts = 1 WHERE kind = 'TAPE' AND first_session = '2025-12-11'", &[]).await.unwrap();
+    let t10 = work::claim(&mut client, Kind::Tape, &old, "t1", HOUR).await.unwrap().unwrap();
+    let t11 = work::claim(&mut client, Kind::Tape, &old, "t2", HOUR).await.unwrap().unwrap();
+    assert_eq!((t10.sessions[0].as_str(), t11.sessions[0].as_str()), (days[2], days[3]));
+    done(&mut client, &t10, days[2]).await.unwrap();
+    work::finish(&mut client, &t10.token).await.unwrap();
+    assert!(!work::fail(&mut client, &t11.token, "tape", "HttpStatus(502)", "log").await.unwrap());
+    work::resume(&client).await.unwrap();
+
+    // the image changes: the hand-over is refused while the old build runs, and without its preview
+    let new = whole_build_named(&mut client, "slice-new-image").await;
+    let refused = build::hand_over(&mut client, &old, &new, "the rulings image", true, None).await.unwrap_err();
+    assert!(refused.contains("still runs: withdraw it first"), "{refused}");
+    build::withdraw(&mut client, &old, "the rulings image").await.unwrap();
+    assert!(build::hand_over(&mut client, &old, &new, "the rulings image", false, None).await.unwrap_err().contains("--preview first"));
+    // what the withdrawn work does to the successor without it
+    assert_eq!(count(&client, &format!("SELECT count(*) FROM core.claimable_job WHERE engine_build = '{new}'")).await, 0);
+    let refused = work::schedule(&mut client, Kind::DayBlock, PROFILE, &new, days[4], days[4], 1).await.unwrap_err();
+    assert!(refused.contains("overlaps unfinished DAY_BLOCK"), "{refused}");
+
+    let unfinished = format!("SELECT count(*) FROM core.job WHERE engine_build = '{old}' AND state IN ('QUEUED', 'FAILED')");
+    let preview = build::hand_over(&mut client, &old, &new, "the rulings image", true, None).await.unwrap();
+    let shown: Vec<(String, String, String, String)> = preview.carried.iter().map(|c| (c.kind.clone(), c.state.clone(), c.first.clone(), c.last.clone())).collect();
+    let job = |k: &str, s: &str, a: &str, z: &str| (k.to_owned(), s.to_owned(), a.to_owned(), z.to_owned());
+    let mut expected = vec![job("TAPE", "FAILED", days[3], days[3]), job("DAY_BLOCK", "QUEUED", days[1], days[1]), job("DAY_BLOCK", "QUEUED", days[2], days[3]), job("DAY_BLOCK", "QUEUED", days[4], days[4])];
+    expected.extend(days.iter().map(|d| job("ORDERED_PASS", "QUEUED", d, d)));
+    assert_eq!(shown, expected);
+    assert_eq!((preview.hand_over_id, count(&client, &unfinished).await), (None, 9), "a preview changes nothing");
+    let refused = build::hand_over(&mut client, &old, &new, "the rulings image", false, Some("0000000000000000")).await.unwrap_err();
+    assert!(refused.contains("changed since the preview"), "{refused}");
+
+    let handed = build::hand_over(&mut client, &old, &new, "the rulings image", false, Some(&preview.token)).await.unwrap();
+    assert!(handed.hand_over_id.is_some() && handed.carried.iter().all(|c| c.new_job.is_some()));
+    assert_eq!(count(&client, &unfinished).await, 0);
+    let moved = format!("SELECT count(*) FROM core.job WHERE engine_build = '{new}' AND state = 'QUEUED' AND attempts = 0");
+    assert_eq!(count(&client, &moved).await, 9);
+    let kept: (String, String, String) = {
+        let r = client.query_one(&format!("SELECT first_session::text, last_session::text, state FROM core.job WHERE engine_build = '{old}' AND kind = 'DAY_BLOCK' AND state = 'DONE'"), &[]).await.unwrap();
+        (r.get(0), r.get(1), r.get(2))
+    };
+    assert_eq!(kept, (days[0].to_owned(), days[0].to_owned(), "DONE".to_owned()), "the day the old block did stays its");
+    assert!(notices(&client).await.last().unwrap().contains(&format!("is build {new}'s, the old jobs cancelled: the rulings image")));
+    assert!(build::hand_over(&mut client, &old, &new, "again", true, None).await.unwrap_err().contains("no unfinished work"), "once");
+
+    // the successor runs it all: the tape, the blocks, then the passes in date order
+    let tape = work::claim(&mut client, Kind::Tape, &new, "t3", HOUR).await.unwrap().unwrap();
+    assert_eq!(tape.sessions, [days[3]]);
+    done(&mut client, &tape, days[3]).await.unwrap();
+    work::finish(&mut client, &tape.token).await.unwrap();
+    while let Some(block) = work::claim(&mut client, Kind::DayBlock, &new, "w2", HOUR).await.unwrap() {
+        for day in block.sessions.clone() {
+            publish_base_as(&mut client, &new, &block, &day).await;
+        }
+        work::finish(&mut client, &block.token).await.unwrap();
+    }
+    let mut ran = Vec::new();
+    while let Some(day) = run_pass_as(&mut client, &new).await {
+        ran.push(day);
+    }
+    assert_eq!(ran, days);
     scratch.drop().await;
 }
 
@@ -1897,7 +2063,8 @@ async fn a_done_job_whose_finish_is_lost_is_done_and_one_bad_lease_stops_no_clai
         .await
         .unwrap();
     let again = work::claim(&mut client, Kind::Tape, &b, "t3", HOUR).await.unwrap().unwrap();
-    assert_eq!((again.job_id, again.attempt), (t2.job_id, 2));
+    // (its lost lease was not charged: C-035 amended, C-068)
+    assert_eq!((again.job_id, again.attempt), (t2.job_id, 1));
     let error = work::sweep(&mut client).await.unwrap_err();
     assert!(error.contains("stuck"), "{error}");
     client.batch_execute("DROP TRIGGER stuck ON core.job").await.unwrap();

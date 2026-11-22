@@ -477,6 +477,18 @@ passes wait for it by the claim rule, the day blocks do not read it, and a pass 
 run again once its cause is fixed. `queue retry-failed` puts the set-aside days back.
 Reason: the owner's rule that a stopped day never holds up other dates (2026-11-12), with the
 engine's sensor-level withholding as the first line (a fault withholds its sensors, not the day).
+- **Amended 2026-11-22 (C-068; audit opsurface ops.md 13): a lost node is not an attempt, twice a
+  day.** The basis above ("each failed day has already cost three attempts") did not hold: the
+  attempts are the job's, so a block that lost two leases on Monday, finished Monday on its third and
+  lost its node on Tuesday set Tuesday aside on its first try. A lease that ends by expiring (its node
+  lost, its pod killed or out of memory, its Job's `activeDeadlineSeconds`) and left no evidence (no
+  stop the worker could explain, C-049) is not charged while the session it stopped on (recorded,
+  `core.lease.stopped_on`) has lost at most `work::LOST_LEASES_FREE` (2) leases; from the third such
+  loss on that session it is charged. So a session that kills every node still ends FAILED, after
+  at most 2 + `max_attempts` (5) lost leases, and a stop with evidence is charged at once as before.
+  Two is a plain declared default (one lost node is ordinary on a 13-node autoscaled pool, a second
+  on the same day is not yet a pattern), not tuned. Applies to every kind (a tape or a pass whose
+  pod is killed is the same case). Test `a_lost_node_never_sets_a_day_aside_on_its_first_loss`.
 
 ## C-036 A member has slots only on the sessions it is listed (owner, 2026-11-14)
 Nothing stored may depend on which assets are in the universe. An asset not listed on a session
@@ -2359,3 +2371,36 @@ build, and the volume grown 120 -> 250 GB (11-22). Written, not applied: `10-pos
   sizes above. **Open:** a failing archive keeps WAL in `pg_wal`, which `DATABASE_FULL`
   (`pg_database_size`) does not count; until the watch reads `pg_stat_archiver`, the runbook's
   check is manual.
+
+## C-068 The operational failure-surface audit (2026-11-22; audit `opsurface/ops.md`, core 550e76e, engine 090d7aea)
+The owner's audit of the build's operation before the recompute (MILESTONES "Before the recompute"):
+scale, KEDA and the autoscaler, external dependencies, ordering over the full range, recovery by the
+owner from the runbooks. Every real finding fixed; finding 14 is the engine's. Migration 0047.
+- **1 and 4: a build's unfinished work is handed to its successor, once (`build hand-over`).** The
+  rollout withdraws 914ffed7, which holds the 597 ordered passes of the whole range and, after the
+  test block, any queued tape or block. Withdrawn, its queued passes were claimed by no worker (KEDA
+  counts the successor's jobs only, C-066), and its queued tapes and blocks held the successor for
+  ever: a block claims only when no earlier tape is unfinished, a pass only when no day block before
+  it is unfinished, and a schedule over them is refused as an overlap. `vyreon-core build hand-over
+  (--preview | --expect <token>) <from> <to> <reason>`: with `from` withdrawn (or never admitted) and
+  `to` admitted, every unfinished job of `from` (QUEUED or FAILED, not a tape verify job, which
+  holds nothing back) is cancelled and the same work queued under `to` with fresh attempts and the
+  old priority and scope: a tape and a pass for their session, a block from its next session (the
+  days it did become a DONE job of `from`, as `requeue` keeps them when a day is set aside). A
+  FAILED job is carried too: 0038 makes a withdrawn build's ended block a day still to come, so a
+  set-aside day left under the old build would hold the successor's passes; the new image is its
+  next attempt. One transaction under the publish and scheduler locks; `--preview` rolls it back and
+  prints every job with a token over the old jobs, their states and sessions; the hand-over takes
+  `--expect <token>` and is refused if anything moved since (C-063's rule for `days retire`). Once:
+  afterwards `from` holds nothing unfinished and a second hand-over is refused. Recorded in
+  `core.hand_over` and `core.hand_over_job` (old job, new job) and the log. C-062's replacement of a
+  not-running build's pass on schedule is unchanged and agrees with it (an ordered pass is one per
+  session, 0032). **The claim's gates are not relaxed for withdrawn builds:** a block must not run
+  before every tape it reads (an old build's unfinished tape is a tape cache not yet stored), and a
+  pass must not run before the block that computes an earlier day; ignoring the old jobs would
+  publish history that skipped days still to come (C-037 would derive it again, at the cost of
+  every later pass) or withhold for a missing tape. The hand-over makes the successor own the work
+  explicitly instead. Test `a_withdrawn_builds_unfinished_work_is_handed_to_its_successor_once`;
+  the command line `the_hand_over_command_line_is_read_whole_before_anything_moves`.
+- **13:** C-035 amended (above): a lost lease is free twice per session.
+
