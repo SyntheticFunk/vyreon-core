@@ -12,3 +12,5 @@ spaces-only-key.txt
 spaces-storage-access-key.txt
 tiingo.txt
 __pycache__/
+progress-webhook.txt
+*webhook*.txt
