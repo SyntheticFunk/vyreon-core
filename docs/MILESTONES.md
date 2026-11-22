@@ -452,6 +452,12 @@ once profitable on Startup, and may carry the same gap. For now: accept and stat
 values 2024-07-09..2024-12-20, warm-up, outside the report window); the coverage-start rule goes to the
 census; ask Intrinio support at the Startup purchase about a backfill and the by-day feeds.
 
+**Reference-check jump 07-16..07-18 (~396 → ~560) explained:** all AVGO's 10:1 (ex 2024-07-15); the
+reference lags the engine's split rules D-162/D-163 (D-161 part already fixed in acbf297c); published
+values verified by hand; no wrong number (`checks/2026-11-22-testblock/refcheck-0716-jump.md`). Would
+recur ~140/day for ex+1..ex+4 at every clean split (MSTR 2024-08-08; 5 sector ETFs 2025-12-05).
+Reference-only fix running on branch `eng-ref`; its image replaces acbf297c before the hand-over.
+
 **Owner, 2026-11-22: Intel fallback authorized** — new pool `day-intel` (Basic Intel `s-8vcpu-16gb-intel`,
 $0.167/h, same as `day`), autoscale 0..13; delete the empty `day-std` (its `s-8vcpu-16gb` is no longer
 offered in nyc1: it could create no node). On branch `core-ops` (de64136). Done in the rollout.
