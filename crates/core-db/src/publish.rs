@@ -1006,17 +1006,24 @@ pub struct Retired {
     pub rederived: Vec<String>,
     /// The days no job derives again (named in a notice and a NOT_DERIVED problem).
     pub unowned: Vec<String>,
-    /// What the retirement takes down, as a token: the revisions and the jobs it cancels. A preview
+    /// What the retirement takes down, as a token: the revisions, the jobs it cancels and the later
+    /// history revisions that fall with it. A preview
     /// prints it; the retirement itself is refused unless it is given the same (audit 2026-11-22
     /// changes-core 13).
     pub token: String,
 }
 
-/// The token of a retirement: the first 16 hex digits of the SHA-256 of its revisions and the jobs
-/// it cancels, in order.
-fn retirement_token(revisions: &[RetiredRevision], cancelled: &[i64]) -> String {
+/// The token of a retirement: the first 16 hex digits of the SHA-256 of its revisions, the jobs it
+/// cancels and the later history revisions that fall with it (audit 2026-11-22 round 2, core-r2 5),
+/// each in order.
+fn retirement_token(revisions: &[RetiredRevision], cancelled: &[i64], later: &[i64]) -> String {
     let ids = |v: &mut dyn Iterator<Item = i64>| v.map(|i| i.to_string()).collect::<Vec<_>>().join(",");
-    let text = format!("revisions {}; jobs {}", ids(&mut revisions.iter().map(|r| r.revision_id)), ids(&mut cancelled.iter().copied()));
+    let text = format!(
+        "revisions {}; jobs {}; later {}",
+        ids(&mut revisions.iter().map(|r| r.revision_id)),
+        ids(&mut cancelled.iter().copied()),
+        ids(&mut later.iter().copied())
+    );
     sha256_hex(text.as_bytes())[..16].to_owned()
 }
 
@@ -1032,10 +1039,10 @@ fn retirement_token(revisions: &[RetiredRevision], cancelled: &[i64]) -> String 
 /// `core.retirement` and a logged notice; the reader then states each date NOT_PUBLISHED with the
 /// cause RETIRED (unless a day job is pending or failed for it). With `preview`, everything is done
 /// and reported inside a transaction that is rolled back: the report is exactly what it would do, and
-/// its `token` names it. Without `preview`, `expect` must be that token: a retirement whose revisions
-/// or cancelled jobs are not the ones previewed (a build published one of the dates since, or a job
-/// was scheduled) is refused whole, so nothing the operator did not see is taken down (audit
-/// 2026-11-22 changes-core 13).
+/// its `token` names it. Without `preview`, `expect` must be that token: a retirement whose revisions,
+/// cancelled jobs or falling later history revisions are not the ones previewed (a build published one
+/// of the dates since, a job was scheduled, a later day's pass published) is refused whole, so nothing
+/// the operator did not see is taken down (audit 2026-11-22 changes-core 13, round 2 core-r2 5).
 pub async fn retire(client: &mut Client, reason: &str, dates: &[&str], preview: bool, expect: Option<&str>) -> Result<Retired, String> {
     let fail = |e: Error| e.to_string();
     let reason = work::scrubbed(reason.trim());
@@ -1102,11 +1109,26 @@ pub async fn retire(client: &mut Client, reason: &str, dates: &[&str], preview: 
         return Err(format!("day block {job} ({first} to {last}) also covers dates not named: cancel or finish it first; nothing was retired"));
     }
     let cancelled: Vec<i64> = jobs.iter().map(|r| r.get(0)).collect();
-    let token = retirement_token(&revisions, &cancelled);
+    // the later days' history revisions that read a retired day and fall with it (below): in the token,
+    // so a pass that published one after the preview is never taken down unseen (core-r2 5)
+    let later: Vec<i64> = tx
+        .query(
+            "SELECT revision_id FROM vyreon.day_revision
+             WHERE state = 'PUBLISHED' AND base_revision IS NOT NULL AND NOT day_local AND represented_date > $1::text::date
+               AND NOT represented_date = ANY($2::text[]::date[])
+             ORDER BY revision_id FOR UPDATE",
+            &[&dates[0], &dates],
+        )
+        .await
+        .map_err(q)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let token = retirement_token(&revisions, &cancelled, &later);
     if let Some(expected) = expect.filter(|e| !preview && *e != token) {
         return Err(format!(
             "what these dates hold changed since the preview (its token {expected}, now {token}): a revision was published or superseded, \
-             or a job scheduled or ended; preview again; nothing was retired"
+             a later day's history revision published or superseded, or a job scheduled or ended; preview again; nothing was retired"
         ));
     }
     let retirement_id: i64 = tx
