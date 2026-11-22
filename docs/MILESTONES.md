@@ -219,8 +219,10 @@ before scheduling.
   depth #7, #10; #13 if clean); core batch on `core-c061` (#6; a pass held only by a day published or
   pending; `days retire` with preview, not run). Then the "changes" audit of all of it, a new engine
   image, merge and deploy, then the test block.
-- Owner decision asked: retire (SUPERSEDED, rows kept) the 24 PUBLISHED days of 8 earlier builds
-  (2022-06-06..15 and 16 in phase 1's range) before the test block.
+- **Owner decision (2026-11-22):** the 24 PUBLISHED days of 8 earlier builds (2022-06-06..15 and 16 in
+  phase 1's range) are retired (SUPERSEDED) with `days retire` before the test block, preview shown
+  first; after phase 1, every superseded old-build revision is deleted in one cleanup (preview first;
+  owner: "i would literally overwrite them or delete them").
 - To measure, not change: each ordered pass loads the whole published store (est. ~1 GB peak at full
   range); measure the last passes' memory and time.
 
@@ -310,8 +312,6 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   remaining values): an option, not done. (No tenor is ever missing in 2022-05-27..2026-11-19.)
 - Whether an absent dividend currency on a US listing may be read as USD (2026-11-16; today the
   asset's stated lack; if old eras omit it, every payer of that era is withheld).
-- The 2022-06 sample days still PUBLISHED from pre-D-397 builds (phase 1 does not supersede them;
-  Reporter refuses them): republish or withdraw before Reporter reads core (preview and ask).
 - At daily-runs deploy: pool `day` scaling to 0 (DO's pages disagree) or min 1 (~$120 a month).
 - The production droplet's 2025-12-10 store (177 withheld activity slots): rebind and republish on
   the owner's word; the droplet's retirement once the cluster's daily runs keep the perishable
