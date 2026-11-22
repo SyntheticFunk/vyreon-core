@@ -211,7 +211,7 @@ async fn a_lost_workers_block_resumes_and_a_failed_day_is_set_aside() {
     assert_eq!((again.job_id, again.attempt, again.sessions.clone()), (first.job_id, 1, vec!["2025-12-11".to_owned()]));
     // a withdrawn build's jobs are not claimable either
     work::resume(&client).await.unwrap();
-    build::withdraw(&client, &b, "a wrong number on 2025-12-10").await.unwrap();
+    build::withdraw(&mut client, &b, "a wrong number on 2025-12-10").await.unwrap();
     assert_eq!(work::claim(&mut client, Kind::DayBlock, &b, "w5", HOUR).await.unwrap(), None);
     scratch.drop().await;
 }
@@ -732,7 +732,7 @@ async fn a_pass_under_a_build_that_does_not_run_holds_nothing_and_is_replaced() 
 
     // then that build is withdrawn (its image replaced): its queued pass of the 10th holds nothing,
     // so the new build's pass of the 11th may run past it
-    build::withdraw(&client, &d, "replaced by the whole image").await.unwrap();
+    build::withdraw(&mut client, &d, "replaced by the whole image").await.unwrap();
     let w = whole_build(&mut client).await;
     work::cancel(&mut client, &done[1..]).await.unwrap();
     let made = work::schedule(&mut client, Kind::OrderedPass, PROFILE, &w, days[1], days[1], 1).await.unwrap();
@@ -756,7 +756,7 @@ async fn a_pass_under_a_build_that_does_not_run_holds_nothing_and_is_replaced() 
 
     // neither the publisher (no derived profile) nor the fallen revisions' build runs: nothing is
     // queued, the days are named and a problem is open
-    build::withdraw(&client, &w, "a later image").await.unwrap();
+    build::withdraw(&mut client, &w, "a later image").await.unwrap();
     base_by_hand(&mut client, days[0]).await;
     assert_eq!(count(&client, "SELECT count(*) FROM core.job WHERE kind = 'ORDERED_PASS' AND state IN ('QUEUED', 'LEASED', 'FAILED')").await, 0);
     let said = notices(&client).await;
@@ -766,6 +766,53 @@ async fn a_pass_under_a_build_that_does_not_run_holds_nothing_and_is_replaced() 
     let open: Vec<String> =
         client.query("SELECT summary FROM core.problem WHERE kind = 'NOT_DERIVED' AND resolved_at IS NULL", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
     assert!(open.iter().any(|p| p == "A republish left 3 days that no job derives again: 2025-12-10, 2025-12-10 (day-local), 2025-12-11"), "{open:?}");
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-22 prebuild (changes-core.md) 8 and the triage's note: a withdrawn build's live lease
+/// could still publish, while the passes after it no longer waited for it (C-062), so a later day's
+/// history could publish before an earlier one. Withdrawal now ends the build's live leases: the
+/// running pass of the 10th is refused at its publish, its job is queued again (the attempt not
+/// counted), and the new build's schedule replaces it and runs the days in order.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn withdrawing_a_build_stops_its_running_jobs() {
+    let (scratch, mut client, b, d) = ready("c063_withdraw").await;
+    admit(&client, &b).await;
+    admit(&client, &d).await;
+    let days = ["2025-12-10", "2025-12-11"];
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[0], days[1], 30).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, days[0], days[1], 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    for day in days {
+        publish_day(&mut client, &block, day).await;
+    }
+    work::finish(&mut client, &block.token).await.unwrap();
+    let tenth = ordered(&mut client, &d).await.unwrap();
+    assert_eq!(tenth.sessions, [days[0]]);
+
+    // withdrawn while the 10th's pass runs: its lease ends, and what it computed is not taken
+    let stopped = build::withdraw(&mut client, &d, "its image is replaced").await.unwrap();
+    assert_eq!(stopped, [tenth.job_id]);
+    let base = base_of(&client, days[0]).await;
+    assert_eq!(derive(&mut client, days[0], base, &tenth.token).await, Err(LeaseError::Gone));
+    assert_eq!(work::heartbeat(&mut client, &tenth.token, HOUR).await, Err(LeaseError::Gone));
+    let row = client.query_one("SELECT state, attempts FROM core.job WHERE job_id = $1", &[&tenth.job_id]).await.unwrap();
+    assert_eq!((row.get::<_, String>(0), row.get::<_, i32>(1)), ("QUEUED".to_owned(), 0), "queued again, the attempt not counted");
+    let lease = client.query_one("SELECT outcome, failure FROM core.lease WHERE job_id = $1", &[&tenth.job_id]).await.unwrap();
+    assert_eq!((lease.get::<_, String>(0), lease.get::<_, String>(1)), ("CANCELLED".to_owned(), "its engine build was withdrawn".to_owned()));
+    assert!(notices(&client).await.last().unwrap().ends_with(&format!("its image is replaced. 1 running jobs stopped, their leases ended: {}.", tenth.job_id)));
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE state = 'PUBLISHED' AND base_revision IS NOT NULL AND NOT day_local").await, 0);
+
+    // the new build replaces both passes and runs them in date order
+    let w = whole_build(&mut client).await;
+    let made = work::schedule(&mut client, Kind::OrderedPass, PROFILE, &w, days[0], days[1], 1).await.unwrap();
+    assert_eq!((made.jobs, made.replaced.len()), (2, 2));
+    let mut ran = Vec::new();
+    while let Some(day) = run_pass_as(&mut client, &w).await {
+        ran.push(day);
+    }
+    assert_eq!(ran, days);
     scratch.drop().await;
 }
 
