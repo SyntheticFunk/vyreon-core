@@ -643,7 +643,13 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
 }
 
 /// The kinds of work, in the order the watch states them, with the ScaledJob that starts their pods.
-const KINDS: [(&str, &str); 3] = [("TAPE", "tape"), ("DAY_BLOCK", "day-block"), ("ORDERED_PASS", "ordered-pass")];
+/// C-068 round 2 (`round2-core.md` 13): the daily session's blocks (DAY_BLOCK of priority 1) are a
+/// group of their own, as they have a ScaledJob of their own (`day-block-daily`): a backfill block's
+/// lease says nothing of the daily pod.
+const KINDS: [(&str, &str); 4] = [("TAPE", "tape"), ("DAY_BLOCK", "day-block"), ("DAILY_BLOCK", "day-block-daily"), ("ORDERED_PASS", "ordered-pass")];
+
+/// A job's stall group: its kind, or `DAILY_BLOCK` for a daily session's day block (`KINDS`).
+const GROUP: &str = "CASE WHEN j.kind = 'DAY_BLOCK' AND j.priority = 1 THEN 'DAILY_BLOCK' ELSE j.kind END";
 
 /// C-065 (health.sh's stall), per kind (C-068, audit opsurface ops.md 8 and 5): claimable work of a
 /// kind and no live lease of that kind, continuously for `STALL_MINUTES` (`DAILY_STALL_MINUTES` when
@@ -666,7 +672,7 @@ const KINDS: [(&str, &str); 3] = [("TAPE", "tape"), ("DAY_BLOCK", "day-block"), 
 async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> Result<(), String> {
     let leased: Vec<String> = c
         .query(
-            "SELECT DISTINCT j.kind FROM core.lease l JOIN core.job j USING (job_id) WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz",
+            &format!("SELECT DISTINCT {GROUP} FROM core.lease l JOIN core.job j USING (job_id) WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz"),
             &[&now],
         )
         .await
@@ -684,10 +690,12 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
     // (kind, claimable, not daily, oldest queued, earliest admission of a build with such work)
     let rows = c
         .query(
-            "WITH k AS (SELECT kind, priority, created_at, engine_build FROM core.claimable_job)
-             SELECT kind, count(*), count(*) FILTER (WHERE priority <> 1), min(created_at)::text,
-                    (SELECT min(b.admitted_at) FROM core.engine_build b WHERE b.engine_build IN (SELECT engine_build FROM k x WHERE x.kind = k.kind))::text
-             FROM k GROUP BY kind",
+            &format!(
+                "WITH k AS (SELECT {GROUP} AS kind, j.priority, j.created_at, j.engine_build FROM core.claimable_job j)
+                 SELECT kind, count(*), count(*) FILTER (WHERE priority <> 1), min(created_at)::text,
+                        (SELECT min(b.admitted_at) FROM core.engine_build b WHERE b.engine_build IN (SELECT engine_build FROM k x WHERE x.kind = k.kind))::text
+                 FROM k GROUP BY kind"
+            ),
             &[],
         )
         .await
@@ -711,14 +719,16 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
             c,
             now,
             kind,
-            "(SELECT max(GREATEST(l.granted_at, COALESCE(l.ended_at, l.granted_at))) FROM core.lease l JOIN core.job j USING (job_id)
-              WHERE j.kind = $5 AND l.granted_at <= $1::text::timestamptz)",
+            &format!(
+                "(SELECT max(GREATEST(l.granted_at, COALESCE(l.ended_at, l.granted_at))) FROM core.lease l JOIN core.job j USING (job_id)
+                  WHERE {GROUP} = $5 AND l.granted_at <= $1::text::timestamptz)"
+            ),
             &queued,
             &admitted,
         )
         .await?;
         if minutes >= limit {
-            let words = kind_words(kind);
+            let words = if kind == "DAILY_BLOCK" { "daily day blocks" } else { kind_words(kind) };
             let mut title = words.to_owned();
             title[..1].make_ascii_uppercase();
             found.push(Found {
@@ -730,21 +740,30 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
             });
         }
     }
-    // the chain: nothing claimable, nothing leased, queued work of a running build left
+    // the chain: nothing claimable, nothing leased, queued work of a running build left that waits on
+    // something (C-068 round 2, `round2-core.md` 14). Not a pass whose day is neither published for it
+    // nor being computed (a missing day, its block cancelled: it holds nothing, C-062; or a day not
+    // scheduled yet); and while a pass of a running build stands FAILED, no pass at all (it holds the
+    // later ones and is `JOB_FAILED`), but the tapes and blocks still count
     let r = c
         .query_one(
-            "SELECT (SELECT count(*) FROM core.job j WHERE j.state = 'QUEUED' AND j.next_session IS NOT NULL AND core.build_runs(j.engine_build)),
+            "WITH q AS (SELECT j.kind FROM core.job j
+                        WHERE j.state = 'QUEUED' AND j.next_session IS NOT NULL AND core.build_runs(j.engine_build)
+                          AND (j.kind <> 'ORDERED_PASS'
+                               OR (NOT EXISTS (SELECT FROM core.job f WHERE f.kind = 'ORDERED_PASS' AND f.state = 'FAILED' AND core.build_runs(f.engine_build))
+                                   AND (core.day_published(j.first_session, j.profile_id, j.engine_build)
+                                        OR EXISTS (SELECT FROM core.job d WHERE d.kind = 'DAY_BLOCK' AND d.profile_id = j.profile_id
+                                                     AND d.state IN ('QUEUED', 'LEASED') AND j.first_session BETWEEN d.next_session AND d.last_session)))))
+             SELECT (SELECT count(*) FROM q),
                     (SELECT string_agg(n || ' ' || CASE kind WHEN 'DAY_BLOCK' THEN 'day blocks' WHEN 'TAPE' THEN 'tape jobs' ELSE 'ordered passes' END, ', ' ORDER BY kind)
-                     FROM (SELECT kind, count(*) AS n FROM core.job j WHERE j.state = 'QUEUED' AND j.next_session IS NOT NULL AND core.build_runs(j.engine_build)
-                           GROUP BY kind) g),
-                    (SELECT paused FROM core.queue_control),
-                    EXISTS (SELECT FROM core.job j WHERE j.kind = 'ORDERED_PASS' AND j.state = 'FAILED' AND core.build_runs(j.engine_build))",
+                     FROM (SELECT kind, count(*) AS n FROM q GROUP BY kind) g),
+                    (SELECT paused FROM core.queue_control)",
             &[],
         )
         .await
         .map_err(db)?;
-    let (queued, kinds, paused, failed_pass): (i64, Option<String>, bool, bool) = (r.get(0), r.get(1), r.get(2), r.get(3));
-    if any_claimable || !leased.is_empty() || paused || failed_pass || queued == 0 {
+    let (queued, kinds, paused): (i64, Option<String>, bool) = (r.get(0), r.get(1), r.get(2));
+    if any_claimable || !leased.is_empty() || paused || queued == 0 {
         c.execute("DELETE FROM core.stall_seen WHERE kind = 'CHAIN'", &[]).await.map_err(db)?;
         return Ok(());
     }
@@ -763,7 +782,7 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
             kind: "STALLED",
             key: "chain".into(),
             summary: format!(
-                "Work stalled since {since} MT: {queued} jobs queued ({}), none claimable and none leased: they wait for work that is not scheduled or not running",
+                "Work stalled since {since} MT: {queued} jobs queued ({}), none claimable and none leased: they wait for work that is not running (a withdrawn build's? `build hand-over`)",
                 kinds.unwrap_or_default()
             ),
             command: "vyreon-core queue".into(),

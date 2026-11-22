@@ -617,8 +617,8 @@ async fn claimable_work_with_no_worker_for_a_quarter_hour_is_a_stall() {
     scratch.drop().await;
 }
 
-/// Audit 2026-11-22 opsurface (ops.md) 8 and 5, C-068: one live lease cleared the stall's clock for
-/// every kind, so a day block renewing its lease for a day hid tapes with no pod (their pods Pending
+/// Audit 2026-11-22 opsurface (ops.md) 8 and 5, C-068, and its round 2 (13, 14): one live lease
+/// cleared the stall's clock for every kind, so a day block renewing its lease for a day hid tapes with no pod (their pods Pending
 /// for a node, or failing before they claim), and work all waiting on something nothing would do was
 /// no stall at all. A stall is now per kind, and the chain is one too: nothing claimable, nothing
 /// leased, queued work of a running build left.
@@ -643,22 +643,50 @@ async fn a_stall_is_per_kind_and_a_waiting_chain_is_one() {
     let rest: Vec<i64> = client.query("SELECT job_id FROM core.job WHERE state IN ('QUEUED', 'LEASED')", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
     work::cancel(&mut client, &rest).await.unwrap();
 
-    // the chain: passes queued for days no block computes; nothing claimable, nothing leased
+    // round 2, 14: a pass whose day no block computes (a missing day, or one not scheduled) holds
+    // nothing: no chain
     work::schedule(&mut client, Kind::OrderedPass, PROFILE, &b, "2025-12-10", "2025-12-11", 1).await.unwrap();
     let t1 = watch::now(&client).await.unwrap();
     assert_eq!(check(&mut client, &s, &t1).await, opened(&[]));
-    assert_eq!(check_after(&mut client, &s, &t1, 14).await, opened(&[]));
-    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'CHAIN'", &[]).await.unwrap().get(0);
-    let chain = format!("Work stalled since {since} MT: 2 jobs queued (2 ordered passes), none claimable and none leased: they wait for work that is not scheduled or not running");
-    assert_eq!(check_after(&mut client, &s, &t1, 15).await, opened(&[&chain]));
-    // the days' block scheduled: claimable again, the chain resolves (and that kind's clock starts)
+    assert_eq!(check_after(&mut client, &s, &t1, 20).await, opened(&[]), "nothing waits on a missing day's pass");
+    // the chain: the days' block waits for a tape of a build since withdrawn (the claim's gate counts
+    // it), a pass of a running build stands FAILED beside it (its own problem: the passes are not
+    // counted, the block is)
+    let w: String = client.query_one("SELECT engine_build FROM core.engine_build WHERE engine_build <> $1", &[&b]).await.unwrap().get(0);
+    build::admit(&client, &w, &json!({"checklist": "watch test"})).await.unwrap();
+    work::schedule(&mut client, Kind::Tape, PROFILE, &w, "2025-12-09", "2025-12-09", 1).await.unwrap();
+    build::withdraw(&mut client, &w, "an image replaced, its tape left behind").await.unwrap();
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-11", 2).await.unwrap();
-    let moved = check_after(&mut client, &s, &t1, 16).await;
-    assert_eq!((moved.resolved, moved.opened), (vec![chain], vec![]));
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &b, "2025-12-08", "2025-12-08", 1).await.unwrap();
+    client.execute("UPDATE core.job SET state = 'FAILED' WHERE kind = 'ORDERED_PASS' AND first_session = '2025-12-08'", &[]).await.unwrap();
+    let t2 = watch::now(&client).await.unwrap();
+    let failed = check(&mut client, &s, &t2).await.opened;
+    assert!(failed.len() == 1 && failed[0].starts_with("Ordered pass for 2025-12-08 failed for the last time"), "{failed:?}");
+    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'CHAIN'", &[]).await.unwrap().get(0);
+    let chain = format!(
+        "Work stalled since {since} MT: 1 jobs queued (1 day blocks), none claimable and none leased: they wait for work that is not running (a withdrawn build's? `build hand-over`)"
+    );
+    assert_eq!(check_after(&mut client, &s, &t2, 15).await, opened(&[&chain]));
     // a paused queue is its own problem, never a chain
     work::pause(&client, "watch test").await.unwrap();
-    let paused = check_after(&mut client, &s, &t1, 60).await;
+    let paused = check_after(&mut client, &s, &t2, 60).await;
+    assert_eq!(paused.resolved, [chain]);
     assert!(paused.opened.len() == 1 && paused.opened[0].starts_with("Work queue paused"), "{paused:?}");
+    work::resume(&client).await.unwrap();
+
+    // round 2, 13: twelve healthy backfill blocks hid a daily block with no pod (its own ScaledJob
+    // broken): a daily session's blocks are their own group, 30 minutes as before
+    let rest: Vec<i64> = client.query("SELECT job_id FROM core.job WHERE state IN ('QUEUED', 'LEASED', 'FAILED')", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
+    work::cancel(&mut client, &rest).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-05", "2025-12-05", 1).await.unwrap();
+    work::claim(&mut client, Kind::DayBlock, &b, "day-backfill", 4.0 * 3600.0).await.unwrap().unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-08", "2025-12-08", 1).await.unwrap();
+    client.execute("UPDATE core.job SET priority = 1 WHERE kind = 'DAY_BLOCK' AND state = 'QUEUED'", &[]).await.unwrap();
+    let t3 = watch::now(&client).await.unwrap();
+    assert_eq!(check(&mut client, &s, &t3).await.opened, Vec::<String>::new(), "(the cancelled pass and the pause resolve)");
+    assert_eq!(check_after(&mut client, &s, &t3, 29).await, opened(&[]));
+    let daily = check_after(&mut client, &s, &t3, 30).await.opened;
+    assert!(daily.len() == 1 && daily[0].starts_with("Daily day blocks stalled since ") && daily[0].ends_with("1 claimable and none leased, so no `day-block-daily` pod is running"), "{daily:?}");
     scratch.drop().await;
 }
 

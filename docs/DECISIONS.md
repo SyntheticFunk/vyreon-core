@@ -2558,4 +2558,13 @@ owner from the runbooks. Every real finding fixed; finding 14 is the engine's. M
   a tick that read the build admitted before a hand-over no longer queues its sessions under the
   withdrawn build (and marks them handled). Test
   `a_tick_waiting_on_a_hand_over_queues_nothing_under_the_withdrawn_build`.
+- **13: a daily session's blocks are a stall group of their own** (`DAILY_BLOCK`, 30 minutes as
+  before): they have their own ScaledJob, and twelve healthy backfill blocks' leases hid a broken
+  `day-block-daily` for hours. Migration 0049's clock admits the group.
+- **14: the chain counts only work that waits on something.** An ordered pass whose day is neither
+  published for its build nor covered by an unfinished day block (a missing day whose block was
+  cancelled, which holds nothing under C-062, or a day not scheduled yet) is not counted; a failed
+  pass of a running build drops the passes from the count (they are `JOB_FAILED`'s) but no longer
+  hides a day block or tape stuck behind a withdrawn build's tape. Test
+  `a_stall_is_per_kind_and_a_waiting_chain_is_one` (both cases, and the daily group).
 
