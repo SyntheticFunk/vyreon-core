@@ -926,6 +926,18 @@ pub struct Retired {
     pub rederived: Vec<String>,
     /// The days no job derives again (named in a notice and a NOT_DERIVED problem).
     pub unowned: Vec<String>,
+    /// What the retirement takes down, as a token: the revisions and the jobs it cancels. A preview
+    /// prints it; the retirement itself is refused unless it is given the same (audit 2026-11-22
+    /// changes-core 13).
+    pub token: String,
+}
+
+/// The token of a retirement: the first 16 hex digits of the SHA-256 of its revisions and the jobs
+/// it cancels, in order.
+fn retirement_token(revisions: &[RetiredRevision], cancelled: &[i64]) -> String {
+    let ids = |v: &mut dyn Iterator<Item = i64>| v.map(|i| i.to_string()).collect::<Vec<_>>().join(",");
+    let text = format!("revisions {}; jobs {}", ids(&mut revisions.iter().map(|r| r.revision_id)), ids(&mut cancelled.iter().copied()));
+    sha256_hex(text.as_bytes())[..16].to_owned()
 }
 
 /// C-062: retires the published days of `dates` with the operator's reason. Every PUBLISHED revision
@@ -939,8 +951,12 @@ pub struct Retired {
 /// day is named. The retirement, its reason, the sessions and the jobs cancelled are one row of
 /// `core.retirement` and a logged notice; the reader then states each date NOT_PUBLISHED with the
 /// cause RETIRED (unless a day job is pending or failed for it). With `preview`, everything is done
-/// and reported inside a transaction that is rolled back: the report is exactly what it would do.
-pub async fn retire(client: &mut Client, reason: &str, dates: &[&str], preview: bool) -> Result<Retired, String> {
+/// and reported inside a transaction that is rolled back: the report is exactly what it would do, and
+/// its `token` names it. Without `preview`, `expect` must be that token: a retirement whose revisions
+/// or cancelled jobs are not the ones previewed (a build published one of the dates since, or a job
+/// was scheduled) is refused whole, so nothing the operator did not see is taken down (audit
+/// 2026-11-22 changes-core 13).
+pub async fn retire(client: &mut Client, reason: &str, dates: &[&str], preview: bool, expect: Option<&str>) -> Result<Retired, String> {
     let fail = |e: Error| e.to_string();
     let reason = work::scrubbed(reason.trim());
     if reason.is_empty() {
@@ -951,6 +967,9 @@ pub async fn retire(client: &mut Client, reason: &str, dates: &[&str], preview: 
     }
     if let Some(bad) = dates.iter().find(|d| !core_contract::is_date(d)) {
         return Err(format!("{bad} is not a date written YYYY-MM-DD"));
+    }
+    if !preview && expect.is_none() {
+        return Err("a retirement takes down only what its preview showed: run it with --preview first and give the token it prints (--expect); nothing was retired".into());
     }
     let mut dates: Vec<&str> = dates.to_vec();
     dates.sort_unstable();
@@ -1003,6 +1022,13 @@ pub async fn retire(client: &mut Client, reason: &str, dates: &[&str], preview: 
         return Err(format!("day block {job} ({first} to {last}) also covers dates not named: cancel or finish it first; nothing was retired"));
     }
     let cancelled: Vec<i64> = jobs.iter().map(|r| r.get(0)).collect();
+    let token = retirement_token(&revisions, &cancelled);
+    if let Some(expected) = expect.filter(|e| !preview && *e != token) {
+        return Err(format!(
+            "what these dates hold changed since the preview (its token {expected}, now {token}): a revision was published or superseded, \
+             or a job scheduled or ended; preview again; nothing was retired"
+        ));
+    }
     let retirement_id: i64 = tx
         .query_one(
             "INSERT INTO core.retirement (reason, sessions, cancelled) VALUES ($1, $2::text[]::date[], $3) RETURNING retirement_id",
@@ -1041,7 +1067,7 @@ pub async fn retire(client: &mut Client, reason: &str, dates: &[&str], preview: 
     let (rederived, unowned) = rederive(&tx, &by, true, &fallen, None).await.map_err(fail)?;
     let jobs_text = if cancelled.is_empty() { "no unfinished job".to_owned() } else { format!("jobs {} cancelled", cancelled.iter().map(i64::to_string).collect::<Vec<_>>().join(" ")) };
     crate::notice::log(&tx, &format!("Retirement {retirement_id}: {} published revisions of {named} superseded (kept), {jobs_text}: {reason}.", revisions.len())).await?;
-    let report = Retired { retirement_id: Some(retirement_id), revisions, cancelled, fallen: fallen.len() as u64, rederived, unowned };
+    let report = Retired { retirement_id: Some(retirement_id), revisions, cancelled, fallen: fallen.len() as u64, rederived, unowned, token };
     if preview {
         tx.rollback().await.map_err(q)?;
         return Ok(Retired { retirement_id: None, ..report });

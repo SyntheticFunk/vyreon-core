@@ -24,7 +24,7 @@
 //!                                                     recomputed instead). Records the reason, cancels the failed day job
 //!                                                     and the session's queued ordered pass; the reader API then states
 //!                                                     the session NOT_PUBLISHED with the cause OMITTED and the reason
-//!   vyreon-core days retire [--preview] <reason> <date>...   retire published days of earlier builds (C-062): every
+//!   vyreon-core days retire (--preview | --expect <token>) <reason> <date>...   retire published days of earlier builds (C-062): every
 //!                                                     PUBLISHED revision of each date (base, day-local, history) becomes
 //!                                                     SUPERSEDED, kept, never deleted; the unfinished jobs of the builds
 //!                                                     that published those days are cancelled; later days' history
@@ -32,7 +32,9 @@
 //!                                                     (C-037). The reason is recorded (`core.retirement`, the log), and
 //!                                                     the reader states each date NOT_PUBLISHED with the cause RETIRED.
 //!                                                     --preview does it all in a transaction rolled back and prints
-//!                                                     what it would do
+//!                                                     what it would do, with a token; the retirement itself takes
+//!                                                     --expect <that token> and is refused when what the dates hold
+//!                                                     has changed since (C-063)
 //!   vyreon-core months <first> <last>                 create the store's monthly partitions for a date range
 //!   vyreon-core publish [--vouch] <bundle>...         check, write, read back and publish day bundles, in order.
 //!                                                     A revision computed from a base must name the base revision
@@ -237,23 +239,36 @@ async fn omit(profile: &str, session: &str, reason: &[&str]) -> Result<(), Strin
     Ok(())
 }
 
-/// C-062: `days retire [--preview] <reason> <date>...`; the flag may stand anywhere, any other
-/// `--` word is refused before anything is done.
-fn retire_args<'a>(rest: &[&'a str]) -> Result<(&'a str, Vec<&'a str>, bool), String> {
-    let usage = "days retire [--preview] <reason> <date>...";
-    if let Some(flag) = rest.iter().find(|a| a.starts_with("--") && **a != "--preview") {
-        return Err(format!("days retire: unknown option {flag}; nothing was retired ({usage})"));
+/// C-062: `days retire (--preview | --expect <token>) <reason> <date>...`; the flags may stand
+/// anywhere, exactly one of them (C-063: a retirement takes the token its preview printed), and any
+/// other `--` word is refused before anything is done.
+fn retire_args<'a>(rest: &[&'a str]) -> Result<(&'a str, Vec<&'a str>, bool, Option<&'a str>), String> {
+    let usage = "days retire (--preview | --expect <token>) <reason> <date>...";
+    let (mut words, mut preview, mut expect) = (Vec::new(), false, None);
+    let mut args = rest.iter().copied();
+    while let Some(a) = args.next() {
+        match a {
+            "--preview" => preview = true,
+            "--expect" => match args.next() {
+                Some(token) if !token.starts_with("--") && expect.is_none() => expect = Some(token),
+                _ => return Err(format!("days retire: --expect takes one token; nothing was retired ({usage})")),
+            },
+            flag if flag.starts_with("--") => return Err(format!("days retire: unknown option {flag}; nothing was retired ({usage})")),
+            word => words.push(word),
+        }
     }
-    let words: Vec<&str> = rest.iter().copied().filter(|a| *a != "--preview").collect();
+    if preview == expect.is_some() {
+        return Err(format!("days retire: either --preview, or --expect with the token the preview printed; nothing was retired ({usage})"));
+    }
     match words.split_first() {
-        Some((reason, dates)) if !dates.is_empty() => Ok((reason, dates.to_vec(), words.len() != rest.len())),
+        Some((reason, dates)) if !dates.is_empty() => Ok((reason, dates.to_vec(), preview, expect)),
         _ => Err(format!("days retire: a reason and at least one date; nothing was retired ({usage})")),
     }
 }
 
 async fn days_retire(rest: &[&str]) -> Result<(), String> {
-    let (reason, dates, preview) = retire_args(rest)?;
-    let r = publish::retire(&mut connect().await?, reason, &dates, preview).await?;
+    let (reason, dates, preview, expect) = retire_args(rest)?;
+    let r = publish::retire(&mut connect().await?, reason, &dates, preview, expect).await?;
     for v in &r.revisions {
         println!("{} revision {} {} {} of build {} ({})", v.date, v.revision_id, v.profile_id, v.profile_revision, v.engine_build, v.kind);
     }
@@ -265,7 +280,7 @@ async fn days_retire(rest: &[&str]) -> Result<(), String> {
     println!("days no job derives again: {}", list(&r.unowned));
     match r.retirement_id {
         Some(id) => println!("retirement {id}: {} revisions superseded (kept)", r.revisions.len()),
-        None => println!("preview: nothing was changed"),
+        None => println!("preview: nothing was changed; to retire exactly this: vyreon-core days retire --expect {} {reason:?} {}", r.token, dates.join(" ")),
     }
     Ok(())
 }
@@ -944,15 +959,25 @@ mod tests {
         }
     }
 
-    /// C-062: `days retire` reads its whole line first: `--preview` wherever it stands, the reason
-    /// first, at least one date, and no other option.
+    /// C-062: `days retire` reads its whole line first: `--preview` or `--expect <token>` (C-063: one
+    /// of them) wherever it stands, the reason first, at least one date, and no other option.
     #[test]
     fn the_retire_command_line_is_read_whole_before_anything_is_retired() {
         let reason = "pre-D-397 build";
-        assert_eq!(retire_args(&[reason, "2022-06-06", "2022-06-07"]), Ok((reason, vec!["2022-06-06", "2022-06-07"], false)));
-        assert_eq!(retire_args(&["--preview", reason, "2022-06-06"]), Ok((reason, vec!["2022-06-06"], true)));
-        assert_eq!(retire_args(&[reason, "2022-06-06", "--preview"]), Ok((reason, vec!["2022-06-06"], true)));
-        for bad in [&[][..], &[reason], &["--preview", reason], &[reason, "--force", "2022-06-06"]] {
+        assert_eq!(retire_args(&["--expect", "9f86d081884c7d65", reason, "2022-06-06", "2022-06-07"]), Ok((reason, vec!["2022-06-06", "2022-06-07"], false, Some("9f86d081884c7d65"))));
+        assert_eq!(retire_args(&[reason, "2022-06-06", "--expect", "9f86d081884c7d65"]), Ok((reason, vec!["2022-06-06"], false, Some("9f86d081884c7d65"))));
+        assert_eq!(retire_args(&["--preview", reason, "2022-06-06"]), Ok((reason, vec!["2022-06-06"], true, None)));
+        assert_eq!(retire_args(&[reason, "2022-06-06", "--preview"]), Ok((reason, vec!["2022-06-06"], true, None)));
+        for bad in [
+            &[][..],
+            &[reason],
+            &["--preview", reason],
+            &[reason, "--force", "2022-06-06"],
+            &[reason, "2022-06-06"],
+            &["--preview", "--expect", "9f86d081884c7d65", reason, "2022-06-06"],
+            &[reason, "2022-06-06", "--expect"],
+            &["--expect", "a", "--expect", "b", reason, "2022-06-06"],
+        ] {
             let refused = retire_args(bad).unwrap_err();
             assert!(refused.contains("nothing was retired"), "{refused}");
         }
