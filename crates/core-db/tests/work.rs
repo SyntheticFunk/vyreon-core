@@ -1016,16 +1016,16 @@ async fn published_days_of_an_earlier_build_are_retired_kept_and_stated() {
 
     // refused: no reason, a date that is not a session, a day block of the days' build that also
     // covers a date not named
-    assert!(publish::retire(&mut client, " ", &[days[1]], true).await.unwrap_err().contains("needs a reason"));
-    assert!(publish::retire(&mut client, reason, &["2025-12-13"], true).await.unwrap_err().contains("2025-12-13 is not a trading session"));
+    assert!(publish::retire(&mut client, " ", &[days[1]], true, None).await.unwrap_err().contains("needs a reason"));
+    assert!(publish::retire(&mut client, reason, &["2025-12-13"], true, None).await.unwrap_err().contains("2025-12-13 is not a trading session"));
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[3], "2025-12-16", 2).await.unwrap();
     let wide = count(&client, "SELECT job_id FROM core.job WHERE kind = 'DAY_BLOCK' AND last_session = '2025-12-16'").await;
-    let refused = publish::retire(&mut client, reason, &[days[3]], false).await.unwrap_err();
+    let refused = publish::retire(&mut client, reason, &[days[3]], true, None).await.unwrap_err();
     assert!(refused.contains(&format!("day block {wide} (2025-12-15 to 2025-12-16) also covers dates not named")), "{refused}");
     work::cancel(&mut client, &[wide]).await.unwrap();
 
     // previewed: the report, and nothing changed
-    let preview = publish::retire(&mut client, reason, &[days[1], days[0]], true).await.unwrap();
+    let preview = publish::retire(&mut client, reason, &[days[1], days[0]], true, None).await.unwrap();
     let kinds: Vec<(String, String, String)> = preview.revisions.iter().map(|r| (r.date.clone(), r.engine_build.clone(), r.kind.clone())).collect();
     let row = |day: &str, build: &str, kind: &str| (day.to_owned(), build.to_owned(), kind.to_owned());
     assert_eq!(
@@ -1039,7 +1039,12 @@ async fn published_days_of_an_earlier_build_are_retired_kept_and_stated() {
     assert_eq!(notices(&client).await.len(), notices_before, "nothing logged");
 
     // done: the same, kept and recorded
-    let done = publish::retire(&mut client, reason, &[days[1], days[0]], false).await.unwrap();
+    // C-063: done only with the preview's token; without one, or with another, nothing is done
+    assert!(publish::retire(&mut client, reason, &[days[1], days[0]], false, None).await.unwrap_err().contains("run it with --preview first"));
+    let other = publish::retire(&mut client, reason, &[days[1], days[0]], false, Some("0000000000000000")).await.unwrap_err();
+    assert!(other.contains(&format!("its token 0000000000000000, now {}", preview.token)), "{other}");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.retirement").await, 0);
+    let done = publish::retire(&mut client, reason, &[days[1], days[0]], false, Some(&preview.token)).await.unwrap();
     assert_eq!(Retired { retirement_id: None, ..done.clone() }, preview);
     let id = done.retirement_id.unwrap();
     assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision").await, revisions_before, "no row is deleted");
@@ -1053,7 +1058,7 @@ async fn published_days_of_an_earlier_build_are_retired_kept_and_stated() {
     assert_eq!(said.last().unwrap(), &format!("Retirement {id}: 6 published revisions of 2 dates, 2025-12-10 to 2025-12-11 superseded (kept), jobs {pass11} cancelled: {reason}."));
     assert_eq!(cause(&client, days[1]).await, ("RETIRED".into(), reason.into()));
     assert_eq!(cause(&client, days[0]).await.0, "NOT_COMPUTED_YET", "the new build's block will compute it");
-    assert!(publish::retire(&mut client, reason, &[days[1]], true).await.unwrap_err().contains("nothing is published on 2025-12-11"));
+    assert!(publish::retire(&mut client, reason, &[days[1]], true, None).await.unwrap_err().contains("nothing is published on 2025-12-11"));
 
     // the later passes wait for the new build's pending day, then run past the two missing dates
     assert_eq!(claimable_passes(&client).await, "");
@@ -1063,6 +1068,41 @@ async fn published_days_of_an_earlier_build_are_retired_kept_and_stated() {
         ran.push(day);
     }
     assert_eq!(ran, [days[2], days[3]]);
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-22 prebuild (changes-core.md) 13: a retirement chose its revisions when it ran, so a
+/// day a new build published between the preview and the retirement was taken down unseen, and its
+/// job cancelled. Now the retirement takes the preview's token and is refused when the dates hold
+/// anything else: the earlier build's 10th previewed, the new build's block then publishes the 10th.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_retirement_takes_down_only_what_its_preview_showed() {
+    let (scratch, mut client, b, _) = ready("c063_retire_token").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-10", 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &block, "2025-12-10").await;
+    work::finish(&mut client, &block.token).await.unwrap();
+    let reason = "published by an earlier build";
+    let preview = publish::retire(&mut client, reason, &["2025-12-10"], true, None).await.unwrap();
+    assert_eq!(preview.revisions.len(), 2);
+
+    // the new build publishes the 10th afresh before the retirement runs
+    let w = whole_build(&mut client).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &w, "2025-12-10", "2025-12-10", 1).await.unwrap();
+    let fresh = work::claim(&mut client, Kind::DayBlock, &w, "w2", HOUR).await.unwrap().unwrap();
+    publish_base_as(&mut client, &w, &fresh, "2025-12-10").await;
+    work::finish(&mut client, &fresh.token).await.unwrap();
+    let refused = publish::retire(&mut client, reason, &["2025-12-10"], false, Some(&preview.token)).await.unwrap_err();
+    assert!(refused.contains("changed since the preview") && refused.contains("nothing was retired"), "{refused}");
+    let fresh_published = format!("SELECT count(*) FROM vyreon.day_revision WHERE state = 'PUBLISHED' AND engine_build = '{w}'");
+    assert_eq!(count(&client, &fresh_published).await, 2, "the new build's base and day-local revision stand");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.retirement").await, 0);
+    // previewed again, the report shows the new build's revisions and has another token
+    let again = publish::retire(&mut client, reason, &["2025-12-10"], true, None).await.unwrap();
+    assert_ne!(again.token, preview.token);
+    assert!(again.revisions.iter().all(|r| r.engine_build == w), "{:?}", again.revisions);
     scratch.drop().await;
 }
 
