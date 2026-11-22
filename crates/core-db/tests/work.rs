@@ -2248,6 +2248,45 @@ async fn a_pass_done_then_queued_again_counts_as_done_in_its_window() {
     scratch.drop().await;
 }
 
+/// Audit round 2 of core-watch, 9 and the retention note: a pause whose transaction began before a
+/// window ended and committed after it was composed was stamped inside that window (its
+/// transaction's start), so the next window left it out by its time and the channel never said
+/// it. Each window now records what it stated and the next takes what is not stated yet; windows
+/// and posts done with are kept a week.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn an_event_committed_after_its_window_is_in_the_next_and_windows_are_kept_a_week() {
+    use core_db::notice::{self, Channel};
+    use core_db::progress;
+    let (scratch, mut client, _, _) = ready("r2w_progress_late").await;
+    let mut pauser = scratch.client().await;
+    let pausing = pauser.transaction().await.unwrap();
+    work::pause(&pausing, "a check failed").await.unwrap();
+    let t0 = watch::now(&client).await.unwrap();
+    let first = progress::tick(&mut client, PROFILE, &t0).await.unwrap().unwrap();
+    assert_eq!(first.posts, 0, "the pause is not committed when the window is composed");
+    pausing.commit().await.unwrap();
+    let t1 = later(&client, &t0, 30).await;
+    assert_eq!(progress::tick(&mut client, PROFILE, &t1).await.unwrap().unwrap().posts, 1);
+    let post: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'progress'", &[]).await.unwrap().get(0);
+    assert!(post.lines().any(|l| l.ends_with(" Queue paused: a check failed. No work is handed out until `vyreon-core queue resume`.")), "{post}");
+    let t2 = later(&client, &t1, 30).await;
+    assert_eq!(progress::tick(&mut client, PROFILE, &t2).await.unwrap().unwrap().posts, 0, "stated once");
+
+    // a week on: the windows before are gone with what they stated, the newest kept; the post
+    // delivered is gone, one still to send is kept
+    let post_id = notice::next_on(&client, 120, Channel::Progress).await.unwrap().unwrap().id;
+    notice::sent(&client, post_id).await.unwrap();
+    notice::progress(&client, "progress test unsent", "Progress · unsent").await.unwrap();
+    let week: String = client.query_one("SELECT (now() + interval '7 days 2 hours')::text", &[]).await.unwrap().get(0);
+    assert_eq!(count(&client, "SELECT count(*) FROM core.progress_window").await, 3);
+    progress::tick(&mut client, PROFILE, &week).await.unwrap().unwrap();
+    assert_eq!(count(&client, "SELECT count(*) FROM core.progress_window").await, 1, "only the newest window is kept");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.progress_shown").await, 0);
+    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'progress'").await, 1, "the post not sent yet stays");
+    scratch.drop().await;
+}
+
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn cancelling_a_job_ends_its_lease_and_takes_it_out_of_the_queue() {

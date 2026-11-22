@@ -26,8 +26,11 @@ pub const WINDOW_MINUTES: f64 = 30.0;
 pub const MAX_POSTS: usize = 3;
 /// A logged line is cut to this many characters.
 pub const LINE_MAX: usize = 400;
-/// Progress posts not delivered within this many hours are not sent (`notice::drop_stale_progress`).
+/// Progress posts not delivered within this many hours are not sent (`notice::drop_stale_progress`);
+/// an event committed this long after its own time is still stated by the next window (`compose`).
 pub const STALE_HOURS: f64 = 6.0;
+/// Windows, what they stated, and progress posts done with are kept this many days.
+pub const KEEP_DAYS: f64 = 7.0;
 
 fn db(e: tokio_postgres::Error) -> String {
     e.as_db_error().map_or_else(|| e.to_string(), |d| d.message().to_owned())
@@ -110,8 +113,33 @@ fn flat(text: &str) -> String {
 /// The window's lines, in sections: days published, reference checks come in, blocks started, the
 /// log, the queue's counts. Empty when nothing happened in it (the counts alone are not news).
 pub async fn lines(c: &impl GenericClient, profile: &str, start: &str, end: &str) -> Result<Vec<String>, String> {
+    Ok(compose(c, profile, start, end).await?.0)
+}
+
+/// What a window states, as `progress_shown` records it: (source, id).
+type Shown = Vec<(&'static str, i64)>;
+
+/// `lines`, and what they state. Each event (a day published, a report, a lease granted, a line
+/// logged) is stamped inside the transaction that writes it, which may commit after a window that
+/// covers its time was composed; the next window would then leave it out by its time (audit round
+/// 2 of core-watch, 9). So a window states each event once (`core.progress_shown`), and takes
+/// every one not stated yet from `STALE_HOURS` before its start (never before the first window's
+/// start, nor after its own) to its end.
+async fn compose(c: &impl GenericClient, profile: &str, start: &str, end: &str) -> Result<(Vec<String>, Shown), String> {
     let mut lines = Vec::new();
+    let mut shown: Shown = Vec::new();
     let mut happened = false;
+    let from: String = c
+        .query_one(
+            "SELECT LEAST($1::text::timestamptz,
+                          GREATEST($1::text::timestamptz - make_interval(secs => $2::float8 * 3600),
+                                   COALESCE((SELECT min(window_start) FROM core.progress_window), $1::text::timestamptz)))::text",
+            &[&start, &STALE_HOURS],
+        )
+        .await
+        .map_err(db)?
+        .get(0);
+    let not_shown = |source: &str, id: &str| format!("NOT EXISTS (SELECT FROM core.progress_shown s WHERE s.source = '{source}' AND s.id = {id})");
     // the year only when it is not the window's
     let day = |e: &str| {
         format!(
@@ -129,7 +157,8 @@ pub async fn lines(c: &impl GenericClient, profile: &str, start: &str, end: &str
             &format!(
                 "WITH d AS (SELECT b.represented_date AS day, b.revision_id AS base, l.revision_id AS local, l.published_at, b.engine_build, b.profile_id
                             FROM vyreon.day_revision l JOIN vyreon.day_revision b ON b.revision_id = l.base_revision AND b.represented_date = l.represented_date
-                            WHERE l.day_local AND l.profile_id = $3 AND l.published_at > $1::text::timestamptz AND l.published_at <= $2::text::timestamptz)
+                            WHERE l.day_local AND l.profile_id = $3 AND l.published_at > $1::text::timestamptz AND l.published_at <= $2::text::timestamptz
+                              AND {fresh})
                  SELECT {words}, d.base, d.local, x.job_id, x.worker, x.first_session::text, x.last_session::text,
                         extract(epoch FROM d.published_at - GREATEST(x.granted_at,
                             (SELECT max(p.published_at) FROM core.lease_revision pr JOIN vyreon.day_revision p USING (revision_id)
@@ -145,9 +174,10 @@ pub async fn lines(c: &impl GenericClient, profile: &str, start: &str, end: &str
                      FROM core.lease_revision lr JOIN core.lease l USING (lease_id) JOIN core.job j USING (job_id)
                      WHERE lr.revision_id = d.local AND j.kind = 'DAY_BLOCK') x ON true
                  ORDER BY d.published_at, d.day",
-                words = day("d.day")
+                words = day("d.day"),
+                fresh = not_shown("revision", "l.revision_id")
             ),
-            &[&start, &end, &profile],
+            &[&from, &end, &profile],
         )
         .await
         .map_err(db)?;
@@ -177,6 +207,7 @@ pub async fn lines(c: &impl GenericClient, profile: &str, start: &str, end: &str
                 _ => None,
             };
             stated.extend(check.as_ref().and_then(|c| c["id"].as_i64()));
+            shown.push(("revision", local));
             lines.push(day_line(&words, tally, check.as_ref(), minutes, block));
         }
         happened = true;
@@ -191,13 +222,15 @@ pub async fn lines(c: &impl GenericClient, profile: &str, start: &str, end: &str
                                                    'reference_errors', r.reference_errors, 'why', r.why)::text,
                         b.state = 'PUBLISHED' AND (r.day_local_revision IS NULL
                             OR EXISTS (SELECT FROM vyreon.day_revision x WHERE x.revision_id = r.day_local_revision AND x.state = 'PUBLISHED')),
-                        r.base_revision, r.day_local_revision
+                        r.base_revision, r.day_local_revision, r.refcheck_report_id
                  FROM core.refcheck_report r JOIN vyreon.day_revision b ON b.revision_id = r.base_revision
                  WHERE b.profile_id = $3 AND r.stored_at > $1::text::timestamptz AND r.stored_at <= $2::text::timestamptz AND NOT r.refcheck_report_id = ANY($4)
+                   AND {fresh}
                  ORDER BY r.stored_at, r.refcheck_report_id",
-                words = day("r.session")
+                words = day("r.session"),
+                fresh = not_shown("refcheck", "r.refcheck_report_id")
             ),
-            &[&start, &end, &profile, &stated],
+            &[&from, &end, &profile, &stated],
         )
         .await
         .map_err(db)?;
@@ -210,18 +243,25 @@ pub async fn lines(c: &impl GenericClient, profile: &str, start: &str, end: &str
             (false, None) => format!(" (revision {base}, since replaced)"),
         };
         lines.push(format!("Reference check of {words}{of}: {}", refcheck_words(&check).trim_start_matches("reference check ")));
+        shown.push(("refcheck", r.get(5)));
         happened = true;
     }
+
+    shown.extend(stated.iter().map(|id| ("refcheck", *id)));
 
     // day blocks started: a lease granted, with its worker
     let started = c
         .query(
-            "SELECT j.first_session::text, j.last_session::text, l.worker, l.job_id, l.start_session::text,
-                    (SELECT count(*) FROM core.lease p WHERE p.job_id = l.job_id AND p.lease_id <= l.lease_id)
-             FROM core.lease l JOIN core.job j USING (job_id)
-             WHERE j.kind = 'DAY_BLOCK' AND j.profile_id = $3 AND l.granted_at > $1::text::timestamptz AND l.granted_at <= $2::text::timestamptz
-             ORDER BY l.granted_at, l.lease_id",
-            &[&start, &end, &profile],
+            &format!(
+                "SELECT j.first_session::text, j.last_session::text, l.worker, l.job_id, l.start_session::text,
+                        (SELECT count(*) FROM core.lease p WHERE p.job_id = l.job_id AND p.lease_id <= l.lease_id), l.lease_id
+                 FROM core.lease l JOIN core.job j USING (job_id)
+                 WHERE j.kind = 'DAY_BLOCK' AND j.profile_id = $3 AND l.granted_at > $1::text::timestamptz AND l.granted_at <= $2::text::timestamptz
+                   AND {fresh}
+                 ORDER BY l.granted_at, l.lease_id",
+                fresh = not_shown("lease", "l.lease_id")
+            ),
+            &[&from, &end, &profile],
         )
         .await
         .map_err(db)?;
@@ -230,21 +270,26 @@ pub async fn lines(c: &impl GenericClient, profile: &str, start: &str, end: &str
         let span = if first == last { first.clone() } else { format!("{first} to {last}") };
         let from = from.filter(|f| *f != first).map_or(String::new(), |f| format!(", from {f}"));
         lines.push(format!("Started block {span} on {worker} (job {job}, attempt {attempt}{from})"));
+        shown.push(("lease", r.get(6)));
         happened = true;
     }
 
     // everything core logged in the window, as it logged it
     let logged = c
         .query(
-            "SELECT to_char(created_at AT TIME ZONE $3, 'HH24:MI'), message FROM core.notice
-             WHERE NOT post AND created_at > $1::text::timestamptz AND created_at <= $2::text::timestamptz ORDER BY notice_id",
-            &[&start, &end, &ZONE],
+            &format!(
+                "SELECT to_char(n.created_at AT TIME ZONE $3, 'HH24:MI'), n.message, n.notice_id FROM core.notice n
+                 WHERE NOT n.post AND n.created_at > $1::text::timestamptz AND n.created_at <= $2::text::timestamptz AND {fresh} ORDER BY n.notice_id",
+                fresh = not_shown("notice", "n.notice_id")
+            ),
+            &[&from, &end, &ZONE],
         )
         .await
         .map_err(db)?;
     for r in &logged {
         let (at, message): (String, String) = (r.get(0), r.get(1));
         lines.push(format!("{at} {}", flat(&message)));
+        shown.push(("notice", r.get(2)));
         happened = true;
     }
 
@@ -282,7 +327,7 @@ pub async fn lines(c: &impl GenericClient, profile: &str, start: &str, end: &str
         name[..1].make_ascii_uppercase();
         lines.push(format!("{name}: {}", parts.join(" · ")));
     }
-    Ok(if happened { lines } else { Vec::new() })
+    Ok(if happened { (lines, shown) } else { (Vec::new(), Vec::new()) })
 }
 
 /// The window's posts: the header, then the lines, each post at most `LIMIT` characters, at most
@@ -347,7 +392,7 @@ pub async fn tick(client: &mut Client, profile: &str, now: &str) -> Result<Optio
     if !due {
         return Ok(None);
     }
-    let lines = lines(&*client, profile, &start, now).await?;
+    let (lines, shown) = compose(&*client, profile, &start, now).await?;
     let posts = if lines.is_empty() { Vec::new() } else { split(&format!("Progress · {span}"), &lines) };
     let tx = client.transaction().await.map_err(db)?;
     let n = tx
@@ -361,9 +406,33 @@ pub async fn tick(client: &mut Client, profile: &str, now: &str) -> Result<Optio
     if n == 0 {
         return Ok(None);
     }
+    let (sources, ids): (Vec<&str>, Vec<i64>) = shown.into_iter().unzip();
+    tx.execute(
+        "INSERT INTO core.progress_shown (window_end, source, id) SELECT $1::text::timestamptz, s, i FROM unnest($2::text[], $3::bigint[]) AS u(s, i)
+         ON CONFLICT DO NOTHING",
+        &[&now, &sources, &ids],
+    )
+    .await
+    .map_err(db)?;
     for (i, p) in posts.iter().enumerate() {
         notice::progress(&tx, &format!("progress {now} {}", i + 1), p).await?;
     }
+    // retention: windows (and what they stated) and the progress posts done with (delivered or
+    // given up) are kept `KEEP_DAYS`; the newest window stays, whatever its age (the next starts
+    // at its end)
+    tx.execute(
+        "DELETE FROM core.progress_window WHERE window_end < $1::text::timestamptz - make_interval(secs => $2::float8 * 86400)
+           AND window_end < (SELECT max(window_end) FROM core.progress_window)",
+        &[&now, &KEEP_DAYS],
+    )
+    .await
+    .map_err(db)?;
+    tx.execute(
+        "DELETE FROM core.notice WHERE channel = 'progress' AND sent_at IS NOT NULL AND sent_at < $1::text::timestamptz - make_interval(secs => $2::float8 * 86400)",
+        &[&now, &KEEP_DAYS],
+    )
+    .await
+    .map_err(db)?;
     tx.commit().await.map_err(db)?;
     Ok(Some(Window { start, end: now.to_owned(), lines: lines.len(), posts: posts.len() }))
 }
