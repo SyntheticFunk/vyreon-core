@@ -56,6 +56,14 @@ spec:
               value: /etc/vyreon-core/webhook/webhook
             - name: VYREON_CORE_VOLUME_GIB      # 10-postgres.yaml's storage size
               value: "120"
+            # Intrinio requests a minute shared through core's leases (C-025): 2,000 is the
+            # provider's limit for the whole account, every node shares it; 1,900 (owner, 2026-11-21)
+            - name: VYREON_CORE_INTRINIO_PER_MINUTE
+              value: "1900"
+            # The reference check (C-054): from this session a published day with no report is a
+            # problem; phase 1's first session
+            - name: VYREON_CORE_REFCHECK_FROM
+              value: "2024-07-09"
             # Daily runs (C-051): core queues each session from VYREON_CORE_DAILY_FROM by itself, at
             # 07:30 New York the next calendar day, for the admitted build VYREON_CORE_DAILY_BUILD
             # (both or neither; unset, nothing is queued and the backfill is scheduled by hand).
