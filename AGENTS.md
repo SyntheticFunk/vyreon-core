@@ -5,6 +5,19 @@ that Reporter and plain Python read, the job queue that hands date blocks to eng
 Intrinio request budget, the point-in-time security universe, and the cluster that runs the workers.
 The engine computes; core schedules, stores and serves. The measurements are the product.
 
+## Priorities (owner, 2026-11-22; full authority: docs/PRODUCT_INTENT.md)
+1. **No wrong numbers.** Withhold with an honest reason rather than fill, default or guess; this outranks
+   coverage, speed and cost.
+2. **Decision order: established standards > product intent > the owner's judgement.** Match the
+   published standard or market convention and cite it; intent decides what the standards leave open;
+   the owner decides the rest, brought with a recommendation and its reason.
+3. **The product:** correct, explained, continuous measurements across the 64 for a weekly Sunday
+   report; the paid layer rests on rare, real flags. Measurements, not forecasts.
+4. **Generalizable sensors,** not one-off handling; prefer retiring a rule to adding one.
+5. **Deterministic software:** no agent in the production path; agents build, audit and diagnose.
+6. **The owner is told of every decision made autonomously** (in the next status update: what was
+   decided, by which standard or rule, and what it changed).
+
 ## Working memory (owner, 2026-11-22)
 Context is lost over time; the files are the memory. Sessions run for days on this method:
 - **State lives in `docs/MILESTONES.md`**, not in a session's context or a handoff summary: its Terms,
