@@ -38,6 +38,11 @@ pub const PROVIDER_QUIET_HOURS: f64 = 2.0;
 /// The database is too full above this share of its volume, and clears below the second.
 pub const DATABASE_FULL: f64 = 0.80;
 pub const DATABASE_CLEAR: f64 = 0.78;
+/// C-068 (audit opsurface ops.md 2): WAL archiving is failing when its last attempt failed and
+/// nothing has been archived for this long, or stuck when a finished WAL file has waited twice this
+/// long to be archived. CloudNativePG closes a segment every 5 minutes (`archive_timeout`), and the
+/// plugin archives two at a time, so a quarter hour is three missed segments.
+pub const ARCHIVE_STALE_MINUTES: f64 = 15.0;
 /// The trading calendar must reach this many days ahead (C-014f).
 pub const CALENDAR_DAYS: i32 = 45;
 /// The digest's typical coverage is the median over this many earlier published sessions.
@@ -95,6 +100,9 @@ pub struct Settings {
     /// C-054: from this session every published day is expected to have a reference-check report
     /// (`VYREON_CORE_REFCHECK_FROM`); None: only the reports workers send are judged.
     pub refcheck_from: Option<String>,
+    /// C-068: the newest base backup must be at most this many days old (`VYREON_CORE_BACKUP_MAX_DAYS`;
+    /// the weekly schedule plus a day); None: the base backups are not watched.
+    pub backup_days: Option<i32>,
 }
 
 /// What the watch checks of the perishable archive (C-052).
@@ -284,19 +292,11 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open])
     if let Some(summary) = checks.not_run_summary() {
         found.push(Found { kind: "REFCHECK_NOT_RUN", key: "refcheck".into(), summary, command: "vyreon-core refcheck list".into(), detail: None });
     }
+    // C-068 (audit opsurface ops.md 2): the volume holds the data and the WAL, and the WAL grows while
+    // archiving fails; both, and the base backups, are watched where a volume is set (production)
     if let Some(volume) = s.volume_bytes.filter(|v| *v > 0) {
-        let size: i64 = c.query_one("SELECT pg_database_size(current_database())", &[]).await.map_err(db)?.get(0);
-        let share = size as f64 / volume as f64;
-        let line = if is_open(open, "DATABASE_FULL", "volume") { share > DATABASE_CLEAR } else { share > DATABASE_FULL };
-        if line {
-            found.push(Found {
-                kind: "DATABASE_FULL",
-                key: "volume".into(),
-                summary: format!("Database is {:.0}% of its volume: {} of {}", share * 100.0, gigabytes(size), gigabytes(volume)),
-                command: "vyreon-core digest".into(),
-                detail: None,
-            });
-        }
+        let st = storage(c, now).await?;
+        found.extend(storage_found(&st, volume, s.backup_days, is_open(open, "DATABASE_FULL", "volume")));
     }
     let row = c
         .query_one(
@@ -338,6 +338,132 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open])
         }
     }
     Ok(found)
+}
+
+/// What the server says of its volume, its WAL and its backups (C-068).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Storage {
+    /// The core login may read the WAL directory (`pg_monitor`): without it only `data` is read.
+    pub readable: bool,
+    /// Every database's size (only this database's when not `readable`).
+    pub data: i64,
+    /// `pg_wal`'s files (segments, history and backup files).
+    pub wal: Option<i64>,
+    /// Minutes since the archiver's last success and last failure (`pg_stat_archiver`).
+    pub archived_ago: Option<f64>,
+    pub failed_ago: Option<f64>,
+    /// WAL files finished and not yet archived (`.ready`), and minutes the oldest has waited.
+    pub waiting: i64,
+    pub oldest_waiting: Option<f64>,
+    /// Days since the newest base backup finished: its backup history file (`*.backup`), which
+    /// `pg_backup_stop` writes into `pg_wal` and keeps there until the next base backup; None: none.
+    pub backup_age: Option<f64>,
+}
+
+/// Reads `Storage` at `now`. Never fails for want of a privilege: the functions that need
+/// `pg_monitor` are called only when the login holds it (a failed statement would abort the check's
+/// transaction).
+pub async fn storage(c: &impl GenericClient, now: &str) -> Result<Storage, String> {
+    let readable: bool = c
+        .query_one(
+            "SELECT has_function_privilege('pg_catalog.pg_ls_waldir()', 'EXECUTE')
+                AND has_function_privilege('pg_catalog.pg_ls_archive_statusdir()', 'EXECUTE')
+                AND pg_has_role('pg_read_all_stats', 'USAGE')",
+            &[],
+        )
+        .await
+        .map_err(db)?
+        .get(0);
+    let r = c
+        .query_one(
+            "SELECT extract(epoch FROM $1::text::timestamptz - last_archived_time)::float8 / 60,
+                    extract(epoch FROM $1::text::timestamptz - last_failed_time)::float8 / 60
+             FROM pg_stat_archiver",
+            &[&now],
+        )
+        .await
+        .map_err(db)?;
+    let mut st = Storage { readable, archived_ago: r.get(0), failed_ago: r.get(1), ..Storage::default() };
+    if !readable {
+        st.data = c.query_one("SELECT pg_database_size(current_database())", &[]).await.map_err(db)?.get(0);
+        return Ok(st);
+    }
+    let r = c
+        .query_one(
+            "SELECT (SELECT sum(pg_database_size(oid))::bigint FROM pg_database),
+                    (SELECT COALESCE(sum(size), 0)::bigint FROM pg_ls_waldir()),
+                    (SELECT extract(epoch FROM $1::text::timestamptz - max(modification))::float8 / 86400 FROM pg_ls_waldir() WHERE name LIKE '%.backup'),
+                    (SELECT count(*) FROM pg_ls_archive_statusdir() WHERE name LIKE '%.ready'),
+                    (SELECT extract(epoch FROM $1::text::timestamptz - min(modification))::float8 / 60 FROM pg_ls_archive_statusdir() WHERE name LIKE '%.ready')",
+            &[&now],
+        )
+        .await
+        .map_err(db)?;
+    st.data = r.get(0);
+    st.wal = Some(r.get(1));
+    st.backup_age = r.get(2);
+    st.waiting = r.get(3);
+    st.oldest_waiting = r.get(4);
+    Ok(st)
+}
+
+/// The problems `st` makes against a volume of `volume` bytes (C-068, audit opsurface ops.md 2):
+/// `DATABASE_FULL` on the data and the WAL together (a failing archive grows `pg_wal`, which
+/// `pg_database_size` never counted), `WAL_ARCHIVING` when archiving fails or is stuck (or the WAL
+/// cannot be read), `BACKUP_STALE` when the newest base backup is older than `backup_days`.
+pub fn storage_found(st: &Storage, volume: i64, backup_days: Option<i32>, full_open: bool) -> Vec<Found> {
+    let mut found = Vec::new();
+    let used = st.data + st.wal.unwrap_or(0);
+    let share = used as f64 / volume as f64;
+    if if full_open { share > DATABASE_CLEAR } else { share > DATABASE_FULL } {
+        let wal = st.wal.map_or_else(|| " (WAL not read)".to_owned(), |w| format!(", {} of it WAL", gigabytes(w)));
+        found.push(Found {
+            kind: "DATABASE_FULL",
+            key: "volume".into(),
+            summary: format!("Database volume {:.0}% full: {} of {}{wal}", share * 100.0, gigabytes(used), gigabytes(volume)),
+            command: "vyreon-core digest".into(),
+            detail: None,
+        });
+    }
+    if !st.readable {
+        found.push(Found {
+            kind: "WAL_ARCHIVING",
+            key: "unreadable".into(),
+            summary: "The watch cannot read the WAL or the base backups: the core login lacks pg_monitor (deploy/k8s/README.md, Backups B0)".into(),
+            command: "vyreon-core digest".into(),
+            detail: None,
+        });
+    }
+    let failing = st.failed_ago.is_some_and(|f| st.archived_ago.is_none_or(|a| f < a)) && st.archived_ago.is_none_or(|a| a >= ARCHIVE_STALE_MINUTES);
+    let stuck = st.oldest_waiting.is_some_and(|w| w >= 2.0 * ARCHIVE_STALE_MINUTES);
+    if failing || stuck {
+        let minutes = |m: Option<f64>| m.map_or_else(|| "never".to_owned(), |m| format!("{} ago", age((m * 60.0) as i64)));
+        let wal = st.wal.map_or_else(String::new, |w| format!(", {} in pg_wal", gigabytes(w)));
+        found.push(Found {
+            kind: "WAL_ARCHIVING",
+            key: "archiver".into(),
+            summary: format!(
+                "WAL archiving to the backup bucket is {}: last success {}, last failure {}; {} WAL files waiting{wal}, kept on the database volume until archived",
+                if failing { "failing" } else { "stuck" },
+                minutes(st.archived_ago),
+                minutes(st.failed_ago),
+                st.waiting
+            ),
+            command: "kubectl -n vyreon logs vyreon-pg-1 --all-containers --since=1h".into(),
+            detail: None,
+        });
+    }
+    if let Some(days) = backup_days.filter(|_| st.readable) {
+        let summary = match st.backup_age {
+            None => Some("No base backup is recorded on the database server (no backup history file in pg_wal)".to_owned()),
+            Some(a) if a > f64::from(days) => Some(format!("The newest base backup finished {} ago, more than {days} days", age((a * 86400.0) as i64))),
+            Some(_) => None,
+        };
+        if let Some(summary) = summary {
+            found.push(Found { kind: "BACKUP_STALE", key: "base backup".into(), summary, command: "kubectl -n vyreon get scheduledbackup,backup".into(), detail: None });
+        }
+    }
+    found
 }
 
 /// In GiB, the unit the volume is sized in (`120Gi`).
@@ -1275,10 +1401,24 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
         lines.push(format!("Backfill progress: {done} of {total} sessions done · {eta}"));
     }
 
-    let size: i64 = c.query_one("SELECT pg_database_size(current_database())", &[]).await.map_err(db)?.get(0);
     lines.push(match s.volume_bytes.filter(|v| *v > 0) {
-        Some(v) => format!("Database size: {} of {} ({:.0}%)", gigabytes(size), gigabytes(v), 100.0 * size as f64 / v as f64),
-        None => format!("Database size: {} (its volume's size is not set, so it is not checked)", gigabytes(size)),
+        Some(v) => {
+            // C-068: the volume's use with the WAL, the archiver and the newest base backup
+            let st = storage(c, now).await?;
+            let used = st.data + st.wal.unwrap_or(0);
+            let wal = st.wal.map_or_else(|| "WAL not read".to_owned(), |w| format!("WAL {}", gigabytes(w)));
+            let archived = st.archived_ago.map_or_else(|| "nothing archived yet".to_owned(), |m| format!("last WAL archived {} ago", age((m * 60.0) as i64)));
+            let backup = match (st.readable, st.backup_age) {
+                (false, _) => String::new(),
+                (true, None) => " · no base backup recorded".to_owned(),
+                (true, Some(d)) => format!(" · newest base backup {} ago", age((d * 86400.0) as i64)),
+            };
+            format!("Database size: {} of {} ({:.0}%) · {wal} · {archived}{backup}", gigabytes(used), gigabytes(v), 100.0 * used as f64 / v as f64)
+        }
+        None => {
+            let size: i64 = c.query_one("SELECT pg_database_size(current_database())", &[]).await.map_err(db)?.get(0);
+            format!("Database size: {} (its volume's size is not set, so it is not checked)", gigabytes(size))
+        }
     });
     if let Some(a) = &s.archive {
         let missing = archive::missing(c, &s.profile, a.expected_from.as_deref(), now).await?;
@@ -1564,6 +1704,46 @@ mod tests {
     /// as the digest cuts a cause (160 characters).
     fn watch_cause() -> String {
         one_line(&test_support::provider_502_stop(), 160)
+    }
+
+    /// C-068 (audit opsurface ops.md 2): the volume of C-067 (250 GiB). A failing archive grows
+    /// `pg_wal` while the data stays put: the volume fills with the data alone at 150 GiB (60%, no
+    /// alert before) and 60 GiB of WAL (84%); archiving failing for 15 minutes or a WAL file waiting
+    /// 30 is a problem, a single failure followed by a success is not; a base backup older than the
+    /// week and a day is; a login without `pg_monitor` is told, never read as healthy.
+    #[test]
+    fn a_failing_archive_and_a_stale_backup_are_problems_before_the_volume_fills() {
+        const GIB: i64 = 1 << 30;
+        let volume = 250 * GIB;
+        let healthy = Storage { readable: true, data: 150 * GIB, wal: Some(GIB), archived_ago: Some(2.0), failed_ago: None, waiting: 0, oldest_waiting: None, backup_age: Some(3.0) };
+        assert_eq!(storage_found(&healthy, volume, Some(8), false), []);
+        let kinds = |st: &Storage| storage_found(st, volume, Some(8), false).iter().map(|f| (f.kind, f.key.clone())).collect::<Vec<_>>();
+        let k = |a: &'static str, b: &str| (a, b.to_owned());
+        // archiving fails: the last failure after the last success, nothing archived for 15 minutes
+        let failing = Storage { archived_ago: Some(20.0), failed_ago: Some(1.0), waiting: 4, oldest_waiting: Some(19.0), wal: Some(60 * GIB), ..healthy.clone() };
+        assert_eq!(kinds(&failing), [k("DATABASE_FULL", "volume"), k("WAL_ARCHIVING", "archiver")]);
+        let said = &storage_found(&failing, volume, Some(8), false)[0].summary;
+        assert_eq!(said, "Database volume 84% full: 210.0 GiB of 250.0 GiB, 60.0 GiB of it WAL");
+        // one failure, then archived again: not a problem; failing for under 15 minutes: not yet
+        assert_eq!(kinds(&Storage { archived_ago: Some(1.0), failed_ago: Some(3.0), ..healthy.clone() }), []);
+        assert_eq!(kinds(&Storage { archived_ago: Some(10.0), failed_ago: Some(1.0), ..healthy.clone() }), []);
+        // never archived and failing (the bucket's key wrong from the start)
+        assert_eq!(kinds(&Storage { archived_ago: None, failed_ago: Some(1.0), ..healthy.clone() }), [k("WAL_ARCHIVING", "archiver")]);
+        // stuck: no failure recorded, a finished WAL file waiting 30 minutes
+        let stuck = Storage { waiting: 7, oldest_waiting: Some(30.0), ..healthy.clone() };
+        assert_eq!(kinds(&stuck), [k("WAL_ARCHIVING", "archiver")]);
+        assert!(storage_found(&stuck, volume, None, false)[0].summary.starts_with("WAL archiving to the backup bucket is stuck: last success 2 min ago, last failure never; 7 WAL files waiting"));
+        // the newest base backup nine days old, or none
+        assert_eq!(kinds(&Storage { backup_age: Some(9.0), ..healthy.clone() }), [k("BACKUP_STALE", "base backup")]);
+        assert_eq!(kinds(&Storage { backup_age: None, ..healthy.clone() }), [k("BACKUP_STALE", "base backup")]);
+        assert_eq!(storage_found(&Storage { backup_age: None, ..healthy.clone() }, volume, None, false), [], "not watched unless asked");
+        // without pg_monitor: told, and the backups not judged
+        let blind = Storage { readable: false, wal: None, backup_age: None, ..healthy.clone() };
+        assert_eq!(kinds(&blind), [k("WAL_ARCHIVING", "unreadable")]);
+        // the full volume clears below 78% once open
+        let nearly = Storage { data: 196 * GIB, wal: Some(0), ..healthy.clone() };
+        assert_eq!(storage_found(&nearly, volume, None, false), [], "78.4%: not yet full");
+        assert_eq!(storage_found(&nearly, volume, None, true).len(), 1, "78.4%: still full once open");
     }
 
     #[test]

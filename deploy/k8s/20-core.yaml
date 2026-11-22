@@ -63,6 +63,11 @@ spec:
               value: /etc/vyreon-core/progress-webhook/webhook
             - name: VYREON_CORE_VOLUME_GIB      # 10-postgres.yaml's storage size
               value: "250"
+            # C-068: the newest base backup older than this many days is a problem (the weekly
+            # schedule plus a day); the WAL archiving and the volume's WAL are watched with the
+            # volume. Needs `GRANT pg_monitor TO vyreon` (README, Backups B0)
+            - name: VYREON_CORE_BACKUP_MAX_DAYS
+              value: "8"
             # Intrinio requests a minute shared through core's leases (C-025): 2,000 is the
             # provider's limit for the whole account, every node shares it; 1,900 (owner, 2026-11-21)
             - name: VYREON_CORE_INTRINIO_PER_MINUTE

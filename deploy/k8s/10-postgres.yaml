@@ -34,6 +34,9 @@ spec:
         - CREATE ROLE vyreon_ordered_pass NOLOGIN
         # KEDA's trigger: core.claimable_count only (migration 0046, C-066)
         - CREATE ROLE vyreon_scaler NOLOGIN
+        # core's watch reads the WAL directory, the archiver's queue and the base backups' history
+        # files (C-068): pg_ls_waldir, pg_ls_archive_statusdir and every database's size need it
+        - GRANT pg_monitor TO vyreon
   storage:
     size: 250Gi
   plugins:

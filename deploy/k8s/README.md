@@ -602,6 +602,16 @@ once: 60 → 120 GiB on 2026-11-16 while `vyreon-pg-1` ran on (started 2026-11-1
 
 ### B. Backups
 
+0. **The watch's view of the WAL** (free; once; before the core image with migration 0050, C-068).
+   Core's watch reads `pg_stat_archiver`, the WAL directory (`pg_ls_waldir`: its size and the newest
+   base backup's history file) and the archiver's queue (`pg_ls_archive_statusdir`); the last two
+   need `pg_monitor`, which only a superuser grants (a fresh cluster gets it from `10-postgres.yaml`'s
+   `postInitSQL`; a restored one keeps it, role memberships being in the backup):
+   ```sh
+   kubectl -n vyreon exec vyreon-pg-1 -c postgres -- psql -d vyreon -c "GRANT pg_monitor TO vyreon"
+   ```
+   Without it the channel says so (`WAL_ARCHIVING`, "the core login lacks pg_monitor") and the
+   volume is judged on the data alone.
 1. **cert-manager** (free; once), v1.21.3 (2026-10-23; supports Kubernetes 1.33-1.36,
    https://cert-manager.io/docs/releases/), pinned by its SHA-256:
    ```sh
@@ -682,10 +692,22 @@ once: 60 → 120 GiB on 2026-11-16 while `vyreon-pg-1` ran on (started 2026-11-1
 9. **Each week:** `kubectl -n vyreon get scheduledbackup,backup` (the last schedule time and a
    completed Backup each Sunday); the bucket's size in the panel.
 
-**Watch:** if archiving fails, Postgres keeps every unarchived WAL file in `pg_wal` on the
-database volume until it succeeds. Core's `DATABASE_FULL` reads `pg_database_size`, which does
-not count `pg_wal`, so a failing archive can fill the volume unseen by the channel: check
-`pg_stat_archiver` (step 7) with every health check until the watch reads it.
+**Watch (C-068):** if archiving fails, Postgres keeps every unarchived WAL file in `pg_wal` on the
+database volume until it succeeds. Core's watch alerts on the channel, each one problem:
+- `WAL_ARCHIVING` (key `archiver`): the archiver's last attempt failed and nothing was archived for
+  15 minutes, or a finished WAL file has waited 30 minutes (stuck without failing). Look at the
+  plugin's log: `kubectl -n vyreon logs vyreon-pg-1 --all-containers --since=1h`.
+- `DATABASE_FULL`: every database **and the WAL** above 80% of `VYREON_CORE_VOLUME_GIB` (clears
+  below 78%). The filesystem itself is a little smaller than the volume (`df` shows ~246G of 250);
+  the 20% margin covers it.
+- `BACKUP_STALE`: the newest base backup finished more than `VYREON_CORE_BACKUP_MAX_DAYS` (8) days
+  ago, or none is recorded (read from the backup history file `pg_backup_stop` leaves in `pg_wal`
+  until the next base backup). Until B8's first backup this is open, and true.
+The 09:00 digest's "Database size" line adds the WAL, the last archived WAL and the newest base
+backup. **Verify once after B8:** `kubectl -n vyreon exec vyreon-pg-1 -c postgres -- psql -d vyreon
+-Atc "SELECT name, modification FROM pg_ls_waldir() WHERE name LIKE '%.backup'"` shows the backup's
+file (if the plugin's backup leaves none, `BACKUP_STALE` stays open: report it, do not unset the
+setting).
 
 **Off:** remove the `plugins` section from `10-postgres.yaml` and apply (RESTART: Postgres restarts), and
 `kubectl delete scheduledbackup -n vyreon vyreon-pg-weekly`. The bucket keeps what it holds;

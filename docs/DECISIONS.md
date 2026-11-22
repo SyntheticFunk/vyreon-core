@@ -2382,6 +2382,10 @@ build, and the volume grown 120 -> 250 GB (11-22). Written, not applied: `10-pos
   sizes above. **Open:** a failing archive keeps WAL in `pg_wal`, which `DATABASE_FULL`
   (`pg_database_size`) does not count; until the watch reads `pg_stat_archiver`, the runbook's
   check is manual.
+- **Amended 2026-11-22 (C-068; audit opsurface ops.md 2): the watch reads the WAL and the backups.**
+  The open item above is closed: `DATABASE_FULL` counts every database and `pg_wal`; `WAL_ARCHIVING`
+  and `BACKUP_STALE` are new problems; core's login holds `pg_monitor` (granted once by a
+  superuser, README B0). See C-068.
 
 ## C-068 The operational failure-surface audit (2026-11-22; audit `opsurface/ops.md`, core 550e76e, engine 090d7aea)
 The owner's audit of the build's operation before the recompute (MILESTONES "Before the recompute"):
@@ -2427,4 +2431,28 @@ owner from the runbooks. Every real finding fixed; finding 14 is the engine's. M
   reader does (`core.job_failure_cause`): the newest evidence of any attempt named an earlier
   attempt's provider error when the final worker stopped without evidence. Test
   `a_final_failure_is_named_by_its_final_lease`.
+- **2: WAL archiving, the WAL's size and the base backups are watched** (C-067 amended; migration
+  0050; `watch::storage`, `watch::storage_found`). With the volume set (production): `DATABASE_FULL`
+  is every database plus `pg_wal` against the volume (a failing archive grows `pg_wal`, which
+  `pg_database_size` never counted). `WAL_ARCHIVING` (key `archiver`) when `pg_stat_archiver`'s last
+  failure is after its last success and nothing was archived for `ARCHIVE_STALE_MINUTES` (15), or a
+  finished WAL file (`.ready` in `pg_ls_archive_statusdir`) has waited 30 minutes; "no success for N
+  minutes" alone would alert on an idle database, which closes a segment only when it writes. The
+  15: CloudNativePG's `archive_timeout` is 5 minutes, so three segments missed; a plain default.
+  `BACKUP_STALE` when the newest base backup is older than `VYREON_CORE_BACKUP_MAX_DAYS` (8: the
+  weekly schedule plus a day) or none is recorded. Read from the server itself, no cloud credential
+  in core: `pg_backup_stop` writes a backup history file (`<segment>.<offset>.backup`) into `pg_wal`
+  and removes the older ones once archived (PostgreSQL 16 `do_pg_backup_stop`, `CleanupBackupHistory`,
+  as known; not re-read online), so the newest one's time is the newest base backup's end; that the
+  plugin's backups (barman-cloud-backup over the backup API) leave one is to be seen on the first
+  backup (README B8). The volume's free space as the filesystem says is not readable from SQL
+  without a superuser program; the sum of every database and the WAL is what the volume holds, less
+  the filesystem's own overhead, which the 20% margin covers. `pg_ls_waldir` and
+  `pg_ls_archive_statusdir` need `pg_monitor`: granted to `vyreon` by the bootstrap
+  (`10-postgres.yaml`) and once by hand on this cluster (README B0); without it the watch says so
+  (`WAL_ARCHIVING` key `unreadable`) and judges the volume on the data alone, never silently. Tests
+  `a_failing_archive_and_a_stale_backup_are_problems_before_the_volume_fills` (the logic on the 250 GiB
+  volume) and `the_watch_reads_the_wal_the_archiver_and_the_base_backups` (the readings on a real
+  server). Not verified: the plugin's backup history file and the archiver's statistics under the
+  plugin (both at B7/B8).
 

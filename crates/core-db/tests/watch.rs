@@ -36,7 +36,7 @@ async fn ready(test: &str) -> (Scratch, Client, String) {
 
 fn settings(from: Option<&str>) -> Settings {
     // the deadline hour of C-050 (10:00 MT): the mechanism is the same at any hour
-    Settings { profile: PROFILE.into(), deadlines_from: from.map(str::to_owned), volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None }
+    Settings { profile: PROFILE.into(), deadlines_from: from.map(str::to_owned), volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None }
 }
 
 /// The slice's base revision header (2025-12-10) as the published revision of `day`, written as
@@ -631,14 +631,14 @@ async fn a_stall_is_per_kind_and_a_waiting_chain_is_one() {
     // a block of the 8th runs; the tapes of the 10th and 11th wait with no pod
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-08", "2025-12-08", 1).await.unwrap();
     work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-10", "2025-12-11", 1).await.unwrap();
-    let block = work::claim(&mut client, Kind::DayBlock, &b, "day-1", 4.0 * 3600.0).await.unwrap().unwrap();
+    work::claim(&mut client, Kind::DayBlock, &b, "day-1", 4.0 * 3600.0).await.unwrap().unwrap();
     let t0 = watch::now(&client).await.unwrap();
     assert_eq!(check(&mut client, &s, &t0).await, opened(&[]));
     let since: String = client.query_one("SELECT to_char(since AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'TAPE'", &[]).await.unwrap().get(0);
     let tapes = format!("Tape jobs stalled since {since} MT: 2 claimable and none leased, so no `tape` pod is running");
     assert_eq!(check_after(&mut client, &s, &t0, 15).await, opened(&[&tapes]), "the block's lease hides no tape stall");
     // a tape pod claims: that kind resolves
-    let tape = work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();
+    work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();
     assert_eq!(check_after(&mut client, &s, &t0, 16).await.resolved, [tapes]);
     let rest: Vec<i64> = client.query("SELECT job_id FROM core.job WHERE state IN ('QUEUED', 'LEASED')", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
     work::cancel(&mut client, &rest).await.unwrap();
@@ -659,6 +659,32 @@ async fn a_stall_is_per_kind_and_a_waiting_chain_is_one() {
     work::pause(&client, "watch test").await.unwrap();
     let paused = check_after(&mut client, &s, &t1, 60).await;
     assert!(paused.opened.len() == 1 && paused.opened[0].starts_with("Work queue paused"), "{paused:?}");
+    scratch.drop().await;
+}
+
+/// C-068 (audit opsurface ops.md 2): the watch reads the server's WAL, archiver and backups. On the
+/// test server (a superuser, so `pg_monitor`'s functions are open to it; archiving off, so nothing
+/// archived, nothing failed, no base backup): the volume's use counts every database and the WAL,
+/// and a check with a volume set raises nothing but what the settings ask (no base backup is
+/// recorded here, so a backup age asked for is a problem).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn the_watch_reads_the_wal_the_archiver_and_the_base_backups() {
+    let (scratch, mut client, _) = ready("storage").await;
+    let now = watch::now(&client).await.unwrap();
+    let st = watch::storage(&client, &now).await.unwrap();
+    let this: i64 = client.query_one("SELECT pg_database_size(current_database())", &[]).await.unwrap().get(0);
+    assert!(st.readable && st.data > this && st.wal.is_some_and(|w| w >= 16 << 20), "{st:?}");
+    let mut s = settings(None);
+    s.volume_bytes = Some(250 << 30);
+    assert_eq!(check(&mut client, &s, &now).await, opened(&[]), "{st:?}");
+    s.backup_days = Some(8);
+    assert_eq!(
+        check(&mut client, &s, &now).await,
+        opened(&["No base backup is recorded on the database server (no backup history file in pg_wal)"])
+    );
+    let digest = watch::digest(&client, &s, &now).await.unwrap();
+    assert!(digest.contains(" of 250.0 GiB (") && digest.contains(" · WAL ") && digest.contains("no base backup recorded"), "{digest}");
     scratch.drop().await;
 }
 

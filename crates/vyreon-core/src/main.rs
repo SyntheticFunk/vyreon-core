@@ -444,7 +444,12 @@ fn watch_settings() -> Result<watch::Settings, String> {
     };
     // C-054: every published day from this session is expected to have its reference check
     let refcheck_from = date_setting("VYREON_CORE_REFCHECK_FROM")?;
-    Ok(watch::Settings { profile, deadlines_from, volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64), deadline_hour, daily, archive, refcheck_from })
+    // C-068: the newest base backup's age is watched when this is set (with the volume's size)
+    let backup_days = match set("VYREON_CORE_BACKUP_MAX_DAYS") {
+        None => None,
+        Some(v) => Some(v.parse::<i32>().ok().filter(|d| *d >= 1).ok_or_else(|| "VYREON_CORE_BACKUP_MAX_DAYS is not a whole number of days from 1".to_string())?),
+    };
+    Ok(watch::Settings { profile, deadlines_from, volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64), deadline_hour, daily, archive, refcheck_from, backup_days })
 }
 
 /// A Discord webhook's URL from the file a setting names; None (said, never the URL, nor the
