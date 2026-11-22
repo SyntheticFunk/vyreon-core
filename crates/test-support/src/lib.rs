@@ -117,3 +117,30 @@ pub const ENGINE_FAULT_BODY_XLB: &str = include_str!("../fixtures/engine-fault-b
 /// checked, 3,958 failed (on B0's build, before the decisions since), 384
 /// failure classes over 108 measurements.
 pub const REFCHECK_REPORT_2025_12_16: &[u8] = include_bytes!("../fixtures/refcheck-report-2025-12-16-b0-slim.json.gz");
+
+/// The engine's two day holds as its worker reports a held day to core (`fail`'s message): `stop:
+/// <date> not published: ` and the hold (vyreon-cli `days.rs` `why`, `exports.rs` `hold_final`, at
+/// engine-v1 and the worker branch of 2026-11-21). No held day's real message is kept anywhere core
+/// can read, so the counts are chosen for the test (the thresholds are the engine's defaults, a
+/// tenth); core reads only the text's shape. The slots named are real: the slice's AAPL slots, and
+/// XLB's SAI-EXQ01, the engine's real faulted slot of 2025-12-10 (`ENGINE_FAULT_BODY_XLB`).
+pub fn provider_input_hold(day: &str) -> String {
+    format!("stop: {day} not published: held: 412 of 3904 final slots lack a provider input (more than 0.1): AAPL--VS-Q01 AAPL--VS-IVS01 ...")
+}
+
+pub fn engine_fault_hold(day: &str) -> String {
+    format!("stop: {day} not published: held: 400 of 3904 final slots are withheld for an engine fault (more than 0.1): XLB--SAI-EXQ01 ...")
+}
+
+/// Two real lines of the refused day's fill log (`WORKER_LOG_REFUSED_DAY`, GLD's and PLTR's
+/// option captures stopped by the provider's HTTP 502), as a two-line stop message: a stop that is
+/// not one of the engine's holds.
+pub fn provider_502_stop() -> String {
+    WORKER_LOG_REFUSED_DAY
+        .lines()
+        .filter(|l| l.contains("HttpStatus(502)"))
+        .take(2)
+        .map(|l| l.split_once(':').expect("a numbered line").1.trim())
+        .collect::<Vec<_>>()
+        .join("\n")
+}

@@ -5,7 +5,7 @@ use test_support::Scratch;
 use test_support::slice::{BASE, DERIVED, bundle, inventories, parts};
 use core_db::publish::{publish_file, publish_for_lease};
 use core_db::work::{self, Claim, Kind, LeaseError};
-use core_db::{build, migrate, universe};
+use core_db::{build, migrate, universe, watch};
 use serde_json::{Value, json};
 use tokio_postgres::Client;
 
@@ -489,6 +489,166 @@ async fn a_newest_first_build_runs_each_ordered_pass_once() {
         assert_eq!(newest_first_build(&mut client, &b, &d, &sessions, 3, nodes, passes).await, runs, "{passes:?} on {nodes} nodes");
         scratch.drop().await;
     }
+}
+
+/// Publishes `day`'s base (the slice's real bodies under that date: core's checks never read a
+/// body's date) under the block's lease and says the day is done.
+async fn publish_day(client: &mut Client, claim: &Claim, day: &str) {
+    let (mut h, s, f) = parts(BASE);
+    h.represented_date = day.into();
+    let path = bundle(&format!("c061-{day}-{}", claim.job_id), &h, &s, &f);
+    publish_for_lease(client, &path, &claim.token).await.unwrap();
+    std::fs::remove_file(&path).unwrap();
+    work::day_done(client, &claim.token, day).await.unwrap();
+}
+
+/// Runs the claimable ordered pass, if any, on its day's published base; returns its day.
+async fn run_pass(client: &mut Client, d: &str) -> Option<String> {
+    let pass = ordered(client, d).await?;
+    let day = pass.sessions[0].clone();
+    let base = base_of(client, &day).await;
+    derive(client, &day, base, &pass.token).await.unwrap();
+    work::finish(client, &pass.token).await.unwrap();
+    Some(day)
+}
+
+/// The days whose ordered pass is claimable now.
+async fn claimable_passes(client: &Client) -> String {
+    client
+        .query_one("SELECT COALESCE(string_agg(first_session::text, ' ' ORDER BY first_session), '') FROM core.claimable_job WHERE kind = 'ORDERED_PASS'", &[])
+        .await
+        .unwrap()
+        .get(0)
+}
+
+async fn cause(client: &Client, day: &str) -> (String, String) {
+    let row = client.query_one("SELECT c->>'code', c->>'detail' FROM core.session_cause($1::text::date, $2) c", &[&day, &PROFILE]).await.unwrap();
+    (row.get(0), row.get(1))
+}
+
+/// C-061: a failed day is a missing date. Four real sessions, blocks of one day, each with its
+/// ordered pass scheduled whole (C-046); the 10th's block stops for the last time on the engine's
+/// provider-input hold. The later passes go on past it (the 11th's, then the 12th's), its own does
+/// not run (its base is unpublished); queued again (`retry-failed`), the 10th holds the passes
+/// again, and once it publishes, C-037 derives the 11th again and the passes run on in date order.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_failed_day_holds_no_later_pass_and_a_retried_one_holds_them_again() {
+    let (scratch, mut client, b, d) = ready("c061_failed_day").await;
+    admit(&client, &b).await;
+    admit(&client, &d).await;
+    let days = ["2025-12-09", "2025-12-10", "2025-12-11", "2025-12-12"];
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[0], days[3], 1).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, days[0], days[3], 1).await.unwrap();
+    client.execute("UPDATE core.job SET max_attempts = 1 WHERE kind = 'DAY_BLOCK'", &[]).await.unwrap();
+    let mut failed_job = 0;
+    for day in days {
+        let claim = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+        assert_eq!(claim.sessions, [day]);
+        if day == days[1] {
+            assert!(!work::fail(&mut client, &claim.token, &format!("day {day}"), &test_support::provider_input_hold(day), "log").await.unwrap());
+            failed_job = claim.job_id;
+        } else {
+            publish_day(&mut client, &claim, day).await;
+            work::finish(&mut client, &claim.token).await.unwrap();
+        }
+    }
+    assert_eq!(job_state(&client, failed_job).await, "FAILED");
+    assert_eq!(cause(&client, days[1]).await, ("PROVIDER_INPUT_MISSING".into(), "412 of 3904 final slots lack a provider input (more than 0.1)".into()));
+
+    // the 9th's pass, then the 11th's past the failed 10th; the 10th's own never runs, and the
+    // 12th's is next
+    assert_eq!(run_pass(&mut client, &d).await.as_deref(), Some(days[0]));
+    assert_eq!(run_pass(&mut client, &d).await.as_deref(), Some(days[2]), "the failed 10th holds no later pass");
+    assert_eq!(claimable_passes(&client).await, "2025-12-12", "the 10th's pass has no base to read; the 12th's is free");
+    let state = |s: &[&str]| days.iter().zip(s).map(|(d, s)| (d.to_string(), s.to_string())).collect::<Vec<_>>();
+    let passes = |p: Vec<(String, String, i32)>| p.into_iter().map(|(d, s, _)| (d, s)).collect::<Vec<_>>();
+    assert_eq!(passes(pass_jobs(&client).await), state(&["DONE", "QUEUED", "DONE", "QUEUED"]));
+
+    // queued again, the 10th holds the passes again, as any pending day does
+    assert_eq!(work::retry_failed(&client).await.unwrap(), 1);
+    assert_eq!(cause(&client, days[1]).await, ("NOT_COMPUTED_YET".into(), "its day is queued".into()));
+    assert_eq!(claimable_passes(&client).await, "", "a pending day holds every later pass");
+    assert_eq!(ordered(&mut client, &d).await, None);
+    // it publishes: the 11th's history revision read a window without it and falls (C-037), and the
+    // passes run in date order from the 10th
+    let claim = work::claim(&mut client, Kind::DayBlock, &b, "w2", HOUR).await.unwrap().unwrap();
+    assert_eq!((claim.job_id, claim.sessions.clone()), (failed_job, vec![days[1].to_owned()]));
+    publish_day(&mut client, &claim, days[1]).await;
+    work::finish(&mut client, &claim.token).await.unwrap();
+    let mut ran = Vec::new();
+    while let Some(day) = run_pass(&mut client, &d).await {
+        ran.push(day);
+    }
+    assert_eq!(ran, [days[1], days[2], days[3]]);
+    assert_eq!(passes(pass_jobs(&client).await), state(&["DONE", "DONE", "DONE", "DONE"]));
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE state = 'PUBLISHED' AND base_revision IS NOT NULL").await, 4);
+    scratch.drop().await;
+}
+
+/// C-061: `omit` takes only a day whose job stands FAILED, never the engine's fault hold; it
+/// records the reason, cancels the day job and the session's queued pass and logs a notice; the
+/// digest names each day set aside and each date omitted with its cause code.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_date_is_omitted_only_when_its_day_failed_for_the_provider() {
+    let (scratch, mut client, b, d) = ready("c061_omit").await;
+    admit(&client, &b).await;
+    let days = ["2025-12-10", "2025-12-11"];
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[0], days[1], 1).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, days[0], days[1], 1).await.unwrap();
+    client.execute("UPDATE core.job SET max_attempts = 1 WHERE kind = 'DAY_BLOCK'", &[]).await.unwrap();
+    let reason = "Intrinio delivered no option prices for 2025-12-10 on three attempts";
+    for (session, refused) in [
+        (days[0], "2025-12-10's day job 1 is QUEUED: only a day whose job stands FAILED may be omitted"),
+        ("2025-12-12", "no day job of FREE_REPORT_64 covers 2025-12-12"),
+        ("2025-12-13", "2025-12-13 is not a trading session"),
+    ] {
+        let e = work::omit(&mut client, PROFILE, session, reason).await.unwrap_err();
+        assert!(e.contains(refused), "{e}");
+    }
+    assert!(work::omit(&mut client, PROFILE, days[0], "  ").await.unwrap_err().contains("needs a reason"));
+
+    // held for an engine fault: fixed and recomputed, never omitted
+    let first = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    work::fail(&mut client, &first.token, "day 2025-12-10", &test_support::engine_fault_hold(days[0]), "log").await.unwrap();
+    let e = work::omit(&mut client, PROFILE, days[0], reason).await.unwrap_err();
+    assert!(e.contains("held for an engine fault (400 of 3904 final slots are withheld for an engine fault (more than 0.1)): an engine fault is fixed and recomputed, never omitted"), "{e}");
+
+    // tried again, it stops on the provider-input hold, and is omitted
+    work::retry_failed(&client).await.unwrap();
+    let again = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    assert_eq!(again.job_id, first.job_id);
+    work::fail(&mut client, &again.token, "day 2025-12-10", &test_support::provider_input_hold(days[0]), "log").await.unwrap();
+    let pass10 = count(&client, "SELECT job_id FROM core.job WHERE kind = 'ORDERED_PASS' AND first_session = '2025-12-10'").await;
+    let omitted = work::omit(&mut client, PROFILE, days[0], reason).await.unwrap();
+    assert_eq!((omitted.day_job, omitted.passes.clone()), (first.job_id, vec![pass10]));
+    assert_eq!(omitted.cause, ("PROVIDER_INPUT_MISSING".to_owned(), "412 of 3904 final slots lack a provider input (more than 0.1)".to_owned()));
+    assert_eq!((job_state(&client, first.job_id).await, job_state(&client, pass10).await), ("CANCELLED".into(), "CANCELLED".into()));
+    let row = client.query_one("SELECT session::text, profile_id, reason, job_id FROM core.omitted_session", &[]).await.unwrap();
+    assert_eq!((row.get::<_, String>(0), row.get::<_, String>(1), row.get::<_, String>(2), row.get::<_, i64>(3)), (days[0].into(), PROFILE.into(), reason.into(), first.job_id));
+    let said = notices(&client).await;
+    assert!(said.last().unwrap().starts_with(&format!("Day 2025-12-10 of FREE_REPORT_64 omitted (job {}, PROVIDER_INPUT_MISSING", first.job_id)), "{said:?}");
+    assert_eq!(cause(&client, days[0]).await, ("OMITTED".into(), reason.into()));
+    // once omitted, its job is no longer FAILED: nothing is left to omit
+    assert!(work::omit(&mut client, PROFILE, days[0], reason).await.unwrap_err().contains("no day job of FREE_REPORT_64 covers 2025-12-10"));
+
+    // the 11th stops on a stop that is not a hold: set aside, FAILED with its first line
+    let eleventh = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    let stop = test_support::provider_502_stop();
+    work::fail(&mut client, &eleventh.token, "day 2025-12-11", &stop, "log").await.unwrap();
+    let first_line = stop.lines().next().unwrap().to_owned();
+    assert_eq!(cause(&client, days[1]).await, ("FAILED".into(), first_line.clone()));
+
+    // the digest: one line per day set aside or omitted, with its cause code
+    let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None };
+    let now = watch::now(&client).await.unwrap();
+    let digest = watch::digest(&client, &s, &now).await.unwrap();
+    assert!(digest.starts_with("🟡 Running; handled: 1 date omitted · "), "{digest}");
+    let lines: Vec<&str> = digest.lines().filter(|l| l.starts_with("Set aside: ") || l.starts_with("Omitted: ")).collect();
+    let cut = watch::one_line(&first_line, 160);
+    assert_eq!(lines, [format!("Omitted: Wed Dec 10, 2025 · OMITTED (PROVIDER_INPUT_MISSING) · {reason}"), format!("Set aside: Thu Dec 11, 2025 · FAILED · {cut}")], "{digest}");
+    scratch.drop().await;
 }
 
 async fn job_state(client: &Client, job: i64) -> String {
