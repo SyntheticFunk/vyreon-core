@@ -420,6 +420,16 @@ Run every step with `KUBECONFIG=~/claude-artifacts/cluster-scratch/kubeconfig` a
 7. **Then:** whole-store gate (history reference check; `tools/external/flags.py`, refresh Cboe files
    through 11-20 first), census, backups to Spaces with a restore drill, Reporter.
 
+## Timeline (owner, 2026-11-22)
+Full build ~11-25..28; a week of derived-layer QC (census, gate d, history reference check, "general
+shenanigans", possibly a derived recompute) to ~12-05; a week of Reporter + web integration to ~12-12;
+then the two-week unattended run; free and paid live in December; pilot issue 1 on 2027-01-10.
+**Intrinio Startup tier bought ~Wednesday 11-25 (Black Friday sale)**, possibly while the build runs:
+the key goes into the cluster secret (`vyreon-worker` `intrinio-key`) and `api.txt`, never printed; new
+pods pick it up (KEDA starts a pod per job); read the new entitlements and rate limit with Intrinio's
+access-code call, then set `VYREON_CORE_INTRINIO_PER_MINUTE` from it (owner's rule: just under the
+limit); one real day re-run on the new key.
+
 ## Before the full build: the system runs without a watcher (owner, 2026-11-22: "do all 4")
 Tonight's test-block tapes needed an operator for four things: Job completion counts (the Job ran out
 with 51 tapes left and 8 nodes idle), node sizing and idle deletion, spotting non-failure oddities, and
