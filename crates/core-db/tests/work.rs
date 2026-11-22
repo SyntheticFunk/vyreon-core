@@ -990,9 +990,18 @@ async fn a_day_whose_block_failed_after_its_base_is_missing_for_the_passes() {
     let said = notices(&client).await;
     assert!(
         said.iter().any(|n| n.contains(&format!(
-            "its base revision {base10} is published but no day-local derived revision on it: the ordered passes read 2025-12-10 as missing"
+            "its base revision {base10} was published but no day-local derived revision on it: the base is superseded, so no later day's history reads 2025-12-10"
         ))),
         "{said:?}"
+    );
+    // round 2 core-r2 1: the engine's pass reads every published base, so the base is no longer
+    // published: the 10th is missing for the later days' windows too, and its row is kept
+    let state = |id: i64| format!("SELECT state FROM vyreon.day_revision WHERE revision_id = {id}");
+    assert_eq!(client.query_one(&state(base10), &[]).await.unwrap().get::<_, String>(0), "SUPERSEDED");
+    assert_eq!(count(&client, &format!("SELECT count(*) FROM core.dropped_base WHERE revision_id = {base10} AND represented_date = '2025-12-10'")).await, 1);
+    assert_eq!(
+        cause(&client, days[1]).await,
+        ("FAILED".into(), format!("base revision {base10} superseded, no day-local revision was published on it; day-local derived: core answered 503"))
     );
     // the 9th, then the 11th past the 10th, whose own pass is never handed out; the 12th's is next
     assert_eq!(run_pass(&mut client, &d).await.as_deref(), Some(days[0]));
@@ -1003,7 +1012,7 @@ async fn a_day_whose_block_failed_after_its_base_is_missing_for_the_passes() {
     let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None };
     let now = watch::now(&client).await.unwrap();
     let digest = watch::digest(&client, &s, &now).await.unwrap();
-    let line = format!("Set aside: Wed Dec 10, 2025 · FAILED · base revision {base10} published, no day-local revision on it; day-local derived: core answered 503");
+    let line = format!("Set aside: Wed Dec 10, 2025 · FAILED · base revision {base10} superseded, no day-local revision was published on it; day-local derived: core answered 503");
     assert!(digest.lines().any(|l| l == line), "{digest}");
 
     // queued again, it holds the later passes until it publishes whole; then they run in order
@@ -1017,6 +1026,37 @@ async fn a_day_whose_block_failed_after_its_base_is_missing_for_the_passes() {
         ran.push(day);
     }
     assert_eq!(ran, [days[1], days[2], days[3]]);
+    // the retry published the 10th afresh: a new base, its day-local revision on it
+    let published = count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE represented_date = '2025-12-10' AND state = 'PUBLISHED' AND base_revision IS NULL").await;
+    assert_eq!(published, 1);
+    assert_ne!(base_of(&client, days[1]).await, base10);
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-22 prebuild round 2 (core-r2.md) 1, by hand: a day block cancelled after it published
+/// its day's base and before the day-local revision leaves no base for the later passes to read either:
+/// the base is superseded, the notice names it and the session's cause states it.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_day_block_cancelled_after_its_base_leaves_no_base_to_read() {
+    let (scratch, mut client, b, _) = ready("r2_cancelled_base").await;
+    admit(&client, &b).await;
+    let day = "2025-12-10";
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, day, "2025-12-11", 2).await.unwrap();
+    let claim = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    let (mut h, s, f) = parts(BASE);
+    h.represented_date = day.into();
+    let path = bundle(&unique("r2-cancelled-base"), &h, &s, &f);
+    let base = publish_for_lease(&mut client, &path, &claim.token).await.unwrap().revision_id;
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(work::cancel(&mut client, &[claim.job_id]).await.unwrap(), 1);
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE state = 'PUBLISHED'").await, 0);
+    let said = notices(&client).await;
+    assert!(said.iter().any(|n| n.starts_with(&format!("Day block job {} cancelled on {day}; its base revision {base} was published", claim.job_id))), "{said:?}");
+    assert_eq!(
+        cause(&client, day).await,
+        ("NOT_SCHEDULED".into(), format!("its day job {} was cancelled; base revision {base} superseded, no day-local revision was published on it", claim.job_id))
+    );
     scratch.drop().await;
 }
 
