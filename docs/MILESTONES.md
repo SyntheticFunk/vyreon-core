@@ -287,6 +287,11 @@ token once the shape settles; the reader API stays inside the cluster; backups w
 restore; a read-only exposure check and an attack-surface audit. Phone recovery is the owner's.
 
 **Loose ends (each before the step it names):**
+- **Core claim race (before the full build):** with 24 tape pods claiming at once, about half got "no
+  tape job to claim" while 195 were claimable (2026-11-22 04:14 UTC: 82 pods done, 43 jobs done). The
+  claim's `WHERE job_id = (SELECT … LIMIT 1 FOR UPDATE SKIP LOCKED) AND state = 'QUEUED'` re-checks a
+  row another claim just leased and returns none (`core-db/src/work.rs:527`). No job lost or doubled;
+  pods and Job completions wasted. Fix: try the next claimable job while any remain.
 - **Worker claim retry (next image, with the test block's fixes):** a fresh tape pod died 10 s after
   start on `vyreon-core: error sending request` (2026-11-22 04:08 UTC, node networking not ready);
   the claim (`core_client.rs:165`, 60 s timeout) is the one core call with no retry (not idempotent).
