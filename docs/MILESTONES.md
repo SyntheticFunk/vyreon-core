@@ -266,6 +266,15 @@ usage vs core's ledger), wall times; then fix what it shows.
    option session (2024-11-19)**, while its VS-O01..O06/L01/Q01-Q05 publish their stated absence: the
    V02/V03 family does not read C-057's first option session. Mislabel (priority 3), no wrong number,
    no hold; ~275 asset-sessions in phase 1 (IBIT to 2024-11-19, ETHA to 2025-04-09).
+4. **Gate a FAILED on 2024-07-09** (report 14, 09:49 UTC): 91,977 checked, 2,940 failed, **398
+   unexplained** in 443 classes across 55 measurements (recent sample days: 3 of ~97,000). Core opened
+   REFCHECK_DISAGREES (alert sent). Spread thin (largest: ACT01-INTRADAY 33, ACT01 27, GREEK-EXPOSURE 19,
+   FIELD-SYNC01 16, UNUSUAL-CONTRACTS 14, SAI-G01 14, FIELD-DEP01 12/12, FND01 11): likely the 2024 era
+   or reference rules behind the newest engine decisions. Triage running overnight
+   (`~/claude-artifacts/checks/2026-11-22-testblock/refcheck-2024-07-09-triage.md`). The full build
+   does not start until it is diagnosed and fixed; the test block keeps running for more evidence.
+5. **2024-07-10 published 09:50 UTC (~100 min after day 1)**; memory after it 1,617 MiB resident, 212
+   MiB after the trim.
 3. **SAI-ACT01 / -INTRADAY withheld MISSING_REQUIRED_INPUT on 62 assets before the option
    trade-count feed's start (2024-11-26):** the absence is expected; the reason should be the
    provider's coverage start (PROVIDER_COVERAGE_START), not a missing input. Census item; check the
