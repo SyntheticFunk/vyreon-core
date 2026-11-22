@@ -113,7 +113,17 @@ extremes as Cboe's own index for the same market.
   our `VS-IVS01` role `iv30` against the index's daily close.
 - **What is compared:** the percentile condition of D-070 only, computed identically on both
   series: a session is *extreme* when its value is in the top or bottom tenth of that series' own
-  last 63 sessions (the session included). The robust-z condition is our own calibration across 64
+  last 63 sessions. **Wording corrected 2026-11-21, before any phase-1 value existed:** this line
+  first read "(the session included)"; the engine's D-070 ranks today against the *prior* 63
+  sessions of the calendar, today excluded, at least 48 present, ties counting half
+  (`h5-derived` `unusual::score`, `vyreon_coordinates::unusual_flag`), and "computed identically"
+  governs. The threshold and minimum below are unchanged. Code: `flags.py` (`flags.sql` reads the
+  store), tests `test_flags.py` on Cboe's real series.
+- **Withheld or missing:** a session where either series has no ranking (its value withheld or
+  missing, or fewer than 48 of the prior 63 present) is listed as not comparable and enters
+  neither share, as band 3 of the Cboe check treats a withheld iv30.
+- **Index closes through the build's last session:** the committed files end 2026-11-17 (read
+  2026-11-18), so the last sessions need a fresh read of Cboe's files before the whole-store gate. The robust-z condition is our own calibration across 64
   securities, so it is not judged here; the full flag's firings on those sessions are reported
   beside the verdict.
 - **Agreement:** per pair over the tranche, (1) of the sessions where the index is extreme, the share
