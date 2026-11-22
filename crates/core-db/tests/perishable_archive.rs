@@ -51,7 +51,9 @@ async fn a_published_days_perishables_are_requested_verified_kept_and_frozen() {
     let doc = universe::read_responses(&fixtures.join("engine-v1-PROFILE.json"), &fixtures.join("intrinio-universe")).unwrap();
     universe::store(&mut client, &doc).await.unwrap();
     let mut builds = Vec::new();
-    for inventory in inventories() {
+    for (i, inventory) in inventories().into_iter().enumerate() {
+        // the base build publishes the day's day-local revision as well (C-031)
+        let inventory = if i == 0 { test_support::slice::with_day_local(inventory) } else { inventory };
         let b = build::register(&mut client, &inventory).await.unwrap().engine_build;
         build::admit(&client, &b, &json!({"checklist": "archive test"})).await.unwrap();
         builds.push(b);
@@ -68,6 +70,10 @@ async fn a_published_days_perishables_are_requested_verified_kept_and_frozen() {
     refused(archive::request(&mut client, &s, &block.token, &request("act01-auto", "2025-12-10", TAPE_AAPL), early).await, "has published");
     let (header, scalars, files) = parts(BASE);
     let path = bundle("archive-base", &header, &scalars, &files);
+    let base = publish_for_lease(&mut client, &path, &block.token).await.unwrap().revision_id;
+    std::fs::remove_file(&path).unwrap();
+    let (h, s2, f) = test_support::slice::day_local_parts(&base_build, "2025-12-10", base);
+    let path = bundle("archive-day-local", &h, &s2, &f);
     publish_for_lease(&mut client, &path, &block.token).await.unwrap();
     std::fs::remove_file(&path).unwrap();
     // published, not yet done (audit round x, 9): the block's current day is not one it has
