@@ -131,17 +131,14 @@ Deleting the cluster deletes the database: export what is to be kept first.
 
 ## After this run
 
-- **KEDA** (`helm install keda kedacore/keda --namespace keda --create-namespace`, 2.21): one
-  ScaledJob per job kind with the `postgresql` trigger counting `core.claimable_job`, so workers
-  start when work is queued. To check when it is added: the trigger's Secret must sit in KEDA's
-  own namespace by default, and KEDA's page on the PostgreSQL scaler shows it only under a
-  ScaledObject. A ScaledJob starts one Kubernetes Job per unit of work; keep each of those Jobs at
-  one pod, or use the per-index retry limit of `30-workers.yaml`: never a Job-wide `backoffLimit`
-  over several pods, which terminates the healthy pods when one fails (C-040).
-- **Node autoscaling to zero:** see "Daily runs" below (the pool `day`, min 0).
+- **KEDA and node autoscaling:** written (C-066): "Workers from the queue" below.
 - Backups to Spaces (C-013) once a database is worth keeping.
 
 ## Daily runs (C-051)
+
+**Replaced by KEDA once it runs the daily build (C-066):** the ScaledJobs of `50-keda.yaml` start
+the daily session's tape, block and pass from the queue, so CronJob `daily` is suspended then
+("Workers from the queue", 9). What follows is the CronJob as it stands until that switch.
 
 From the session the owner names, each trading session is computed and published with nobody
 starting anything, and worker nodes exist only while there is work:
@@ -253,6 +250,247 @@ session at $0.167 an hour, about $24 a month; more for a retried day.
 
 **Off:** comment out the two daily settings and apply (core queues nothing more), and
 `kubectl -n vyreon patch cronjob daily -p '{"spec":{"suspend":true}}'`.
+
+## Workers from the queue (C-066)
+
+KEDA starts a worker Job for each job core can hand out, and the pool `day` autoscales, so work
+scheduled in core runs with nobody applying Jobs, counting completions or deleting idle nodes.
+Manifest `50-keda.yaml` (its header explains every choice); the database side is migration 0046.
+**Written, not applied. Nothing here is applied without the owner's word; $ marks what costs money.**
+
+How it works: every 30 seconds each ScaledJob asks core's database, as the read-only login
+`vyreon_keda`, `SELECT core.claimable_count('<KIND>', '<build>'[, daily])`: the jobs a worker of
+that build could claim now (`core.claimable_job`). A claimed job leaves the count. KEDA (strategy
+`accurate`) creates one Job per counted job, less the Jobs whose pod is not running yet, up to the
+ScaledJob's cap. A pod that does not fit waits Pending; the cluster autoscaler adds a `day` node for
+it (a few minutes) and removes a node that has had no worker pod for about 10 minutes. Each Job is
+one pod, no retry: a failed job goes back to core's queue and the next poll starts a new pod for it.
+
+| ScaledJob | Counts | Cap | Why |
+|---|---|---|---|
+| `tape` | TAPE, every priority | 24 | 3 a node (2 CPUs each), 8 nodes: the test block ran 24 tape pods on 8 nodes |
+| `day-block` | DAY_BLOCK, not daily | 12 | one a node; the request budget (below) |
+| `day-block-daily` | DAY_BLOCK, daily (priority 1) | 1 | the daily session never waits behind the backfill's 12 |
+| `ordered-pass` | ORDERED_PASS, every priority | 1 | date order (C-046) |
+
+### 1. Install KEDA (free; once)
+
+KEDA 2.21 is tested on Kubernetes 1.34 to 1.36 (https://keda.sh/docs/2.21/operate/cluster/,
+"Kubernetes Compatibility"; the cluster runs 1.36.5). The release manifest, pinned to 2.21.1
+(2026-11-15), applied as KEDA's YAML install says (https://keda.sh/docs/2.21/deploy/, "Deploying
+using the deployment YAML files"), no Helm:
+
+```sh
+curl -sSLO https://github.com/kedacore/keda/releases/download/v2.21.1/keda-2.21.1.yaml
+echo "a84d4e6a53df3ad88f6a69e3288b6cbbd699746f9deaea8c7237cbc345061d58  keda-2.21.1.yaml" | sha256sum -c
+kubectl apply --server-side -f keda-2.21.1.yaml
+kubectl -n keda rollout status deployment keda-operator
+kubectl -n keda get pods        # keda-operator, keda-metrics-apiserver, keda-admission: Running
+```
+
+It makes the namespace `keda` with three Deployments (operator, metrics API server, admission
+webhooks that check ScaledJobs on apply), each requesting 100m CPU and 100 MiB and limited to 1 CPU
+and 1000 MiB. The worker pools are tainted, so all three run on the core node
+(`s-4vcpu-8gb-amd`: 3.89 CPUs and 6.3 GiB allocatable, 1.21 CPUs and 1.8 GiB requested on
+2026-11-22, before KEDA; Postgres declares no request): +0.3 CPU and +300 MiB requested. Their real
+use was not measured (the cluster has no metrics API; the control panel's node graphs show memory).
+
+### 2. The trigger's login (free; once; nothing printed)
+
+Migration 0046 needs the group role `vyreon_scaler`, which only a superuser can create (the
+database's owner cannot; a fresh cluster gets it from `10-postgres.yaml`'s `postInitSQL`). On this
+cluster, **before** deploying a core image that carries 0046 (its migrate step stops otherwise,
+saying so):
+
+```sh
+kubectl -n vyreon exec vyreon-pg-1 -c postgres -- psql -d vyreon -c "CREATE ROLE vyreon_scaler NOLOGIN"
+```
+
+Then deploy core as usual (`sed ... 20-core.yaml | kubectl apply -f -`), and make the login and its
+Secret. The Secret lives in `vyreon`: a namespaced TriggerAuthentication reads its Secret from its
+own namespace (KEDA 2.21 `pkg/scaling/resolver`, `getTriggerAuthSpec`; only a
+ClusterTriggerAuthentication reads from `keda`).
+
+```sh
+openssl rand -hex 24 > keda-pg-password && chmod 600 keda-pg-password
+# the password goes through stdin (printf is a shell builtin): it is on no command line
+printf "CREATE ROLE vyreon_keda LOGIN IN ROLE vyreon_scaler PASSWORD '%s'" "$(tr -d '\n' < keda-pg-password)" \
+  | kubectl -n vyreon exec -i vyreon-pg-1 -c postgres -- psql -d vyreon -v ON_ERROR_STOP=1 -q
+kubectl -n vyreon create secret generic vyreon-scaler-pg --from-file=password=keda-pg-password
+```
+
+`vyreon_keda` can run `core.claimable_count` and nothing else: no table, view or other function
+(test `the_scaler_counts_what_a_worker_of_the_build_can_claim_and_reads_nothing_else`). The
+existing `vyreon_pass` (`ordered-pass-pg`) cannot read `core` at all and is not reused: it reads the
+published store, which the trigger has no need of.
+
+### 3. Pool `day` autoscaling ($ while nodes run; the owner)
+
+With no worker running, read the pool, then set it. `count` is the pool's current node count, so
+the call itself removes nothing; the labels and the taint are sent again because an update clears
+what it leaves out (doctl `node-pool update`: "Existing labels are removed from the node pool if
+they are not specified"; the same for taints). `max_nodes` 13 = the two day-block caps.
+
+```sh
+export VYREON_DOKS_CLUSTER=5f56e6e0-1c74-4dc9-bfdb-962ee55ebff3 P=5b683697-6614-4a62-9fb9-315a10a840a3
+deploy/k8s/ops/do.sh GET /v2/kubernetes/clusters/$VYREON_DOKS_CLUSTER/node_pools/$P
+deploy/k8s/ops/do.sh PUT /v2/kubernetes/clusters/$VYREON_DOKS_CLUSTER/node_pools/$P \
+  '{"name":"day","count":<current>,"auto_scale":true,"min_nodes":0,"max_nodes":13,
+    "labels":{"vyreon":"worker"},"taints":[{"key":"vyreon","value":"worker","effect":"NoSchedule"}]}'
+```
+
+The answer must show `"auto_scale": true, "min_nodes": 0, "max_nodes": 13`, the label and the taint.
+
+What DigitalOcean says about 0 (read 2026-11-22): the autoscaling page
+(https://docs.digitalocean.com/products/kubernetes/how-to/autoscale/, last updated 2026-10-29):
+"The Cluster Autoscaler supports scaling a given node pool down to zero", the minimum "must be
+greater than or equal to `0`", and for larger pools "enable autoscaling and set the minimum number
+of nodes to zero" beside "at least one fixed node pool of the smallest size with one node" (pool
+`core`). The doctl `node-pool create` reference still says of `--min-nodes` "Scale-to-zero is not
+supported" (https://docs.digitalocean.com/reference/doctl/reference/kubernetes/cluster/node-pool/create/);
+the `node-pool update` reference and the API's schema (`min_nodes`: "The value will be `0` if
+`auto_scale` is set to `false`", digitalocean/openapi `kubernetes/models/node_pool.yml`) say
+nothing either way. The newer page and the API's answer decide: the GET after the PUT, then the
+pool reaching 0 nodes after the first run. If the API refuses 0: min 1 (one idle node, about $120
+a month) or the pool created and deleted around each run as before.
+
+Scale-up from zero: the autoscaler builds an empty pool's node from DigitalOcean's pool template
+(`GET .../node_pools_template/day`, read 2026-11-22: labels `vyreon=worker` and
+`doks.digitalocean.com/node-pool=day`, taint `vyreon=worker:NoSchedule`, allocatable 7378m CPU and
+13577 MiB), so the pods' node selector and toleration match it. Scale-down: a node whose pods carry
+`cluster-autoscaler.kubernetes.io/safe-to-evict: "false"` (every worker pod) is never removed while
+they run; one with no such pod left is removed after 10 minutes unneeded (upstream default:
+https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md; DigitalOcean
+publishes no default; the cluster's `cluster_autoscaler_configuration.scale_down_unneeded_time` can
+set it, `PUT /v2/kubernetes/clusters/{id}`). Pool `day-std` (Intel, 0 nodes) is selected by
+nothing now (every pod names pool `day`); leave it at 0 or delete it.
+
+### 4. Apply the ScaledJobs (free until pods start)
+
+With the worker image and its build (`build register` printed it; the build must be admitted):
+
+```sh
+IMG=registry.digitalocean.com/vyreon/vyreon-worker:<tag> BUILD=<commit>+<inventory>
+sed -e "s#VYREON_WORKER_IMAGE#$IMG#" -e "s#VYREON_ENGINE_BUILD#$BUILD#" deploy/k8s/50-keda.yaml | kubectl apply -f -
+kubectl -n vyreon get scaledjob      # READY True for all four; ACTIVE True where work is claimable
+```
+
+A new image: withdraw the old build in core (`build withdraw`, C-062), then apply again with the new
+image and build. `rollout.strategy: gradual` keeps running Jobs (KEDA's default would delete them).
+**Never `kubectl delete scaledjob` while a worker runs:** its Jobs are owned by it and deleted with
+it (`--cascade=orphan` keeps them); deleting KEDA's manifest deletes its CRDs and with them every
+ScaledJob and Job.
+
+### 5. The caps, and where to change them
+
+- **KEDA's caps:** `maxReplicaCount` of each ScaledJob in `50-keda.yaml`; apply again (running Jobs
+  stay). Day blocks: raise from 12 only from core's request ledger, the owner's rule (nodes only
+  while the request budget has headroom): one node averaged 101 requests a minute over its wall
+  time with bursts of 500-760 while a day downloads (2026-11-22); core grants at most 1,900 a minute
+  (`VYREON_CORE_INTRINIO_PER_MINUTE`), so more nodes than the budget holds only wait in it, at node
+  cost. Check: `SELECT date_trunc('minute', minute) m, sum(requests), count(DISTINCT worker) FROM
+  core.request_usage WHERE minute > now() - interval '6 hours' GROUP BY 1 ORDER BY 2 DESC LIMIT 10`.
+- **The node cap** (the hard cost cap): pool `day` `max_nodes` (step 3's PUT with a new value).
+  Keep it at least `day-block` + `day-block-daily`, else a block pod waits Pending (it holds no
+  job, so nothing stalls, but it is not computing).
+
+### 6. Cost guard ($)
+
+At most `max_nodes` x $0.167 an hour: 13 nodes, $2.17 an hour, $52 a day if every slot is busy.
+Nodes exist only while worker pods run, plus about 10 minutes each. `ops/health.sh` shows spend
+against the ceiling (MILESTONES "Machines and money") and flags a worker node with no worker pod
+(`!! idle node`); the autoscaler should leave none for longer than about 10 minutes. The account's
+Droplet limit (30) is above 13 workers plus the other machines.
+
+### 7. Seeing what KEDA does
+
+```sh
+kubectl -n vyreon get scaledjob                                   # READY, ACTIVE, TRIGGERS
+kubectl -n vyreon describe scaledjob day-block                    # conditions and events
+kubectl -n vyreon get jobs -l scaledjob.keda.sh/name=day-block    # the Jobs it started
+kubectl -n keda logs deploy/keda-operator --since=10m | grep -E "Scaling Jobs|Creating jobs|error"
+kubectl -n vyreon get events --field-selector reason=TriggeredScaleUp   # the autoscaler adding a node
+kubectl get nodes -l doks.digitalocean.com/node-pool=day
+kubectl -n vyreon exec deploy/vyreon-core -- vyreon-core queue    # what core says is claimable
+deploy/k8s/ops/health.sh                                          # pods that found nothing, idle nodes
+```
+
+The operator logs "Number of running Jobs" and "Number of pending Jobs" every poll. A trigger that
+cannot reach the database shows READY False ("Triggers defined in ScaledJob are not working
+correctly") and starts nothing; core's watch then raises STALLED after 15 minutes (C-065).
+
+### 8. Stopping everything
+
+1. **No new work:** `vyreon-core queue pause "<reason>"`. Nothing is claimable, so KEDA starts
+   nothing; running workers finish the job they hold. `queue resume` undoes it.
+2. **No new pods, whatever core holds** (a ScaledJob cannot be set to 0 replicas; its pause is the
+   way): `kubectl -n vyreon annotate scaledjob --all autoscaling.keda.sh/paused=true`
+   (running Jobs keep running); `kubectl -n vyreon annotate scaledjob --all autoscaling.keda.sh/paused-`
+   undoes it.
+3. **Stop running workers too:** after 1 or 2,
+   `kubectl -n vyreon delete jobs -l scaledjob.keda.sh/name=<tape|day-block|day-block-daily|ordered-pass>`
+   (KEDA labels each Job with its ScaledJob). Their leases expire and the jobs are queued again
+   (each an attempt). Or `vyreon-core build withdraw <build> <reason>`: it ends the build's live
+   leases at once.
+4. **No nodes:** the autoscaler removes idle nodes within about 10 minutes; to remove them at once,
+   `deploy/k8s/ops/delete-idle.sh`. To forbid nodes entirely, step 3's PUT with
+   `"auto_scale":false,"count":0` (this deletes every node of the pool, running or not).
+
+### 9. The daily runs: KEDA replaces CronJob `daily`
+
+Once core queues daily work (C-051) for the build in `50-keda.yaml`, the ScaledJobs run it: the
+tape (`tape`, which counts every priority), the block (`day-block-daily`, outside the backfill's
+cap) and the pass (`ordered-pass`). Suspend the CronJob then, and never run both:
+`kubectl -n vyreon patch cronjob daily -p '{"spec":{"suspend":true}}'`. Why:
+- Both would start: KEDA within 30 seconds of core's 07:30 queueing, the CronJob at 07:45. Whichever
+  pod claims second finds nothing; the CronJob's first pod then waits 30 minutes for a late queue,
+  holding a node (about $0.10 every morning).
+- KEDA starts nothing on a morning with nothing queued (the CronJob's accepted $0.25, C-051) and
+  starts the pass whenever it becomes claimable, which during the backfill is after the backfill's
+  earlier passes (the CronJob's pod gave up on it the same morning).
+- The block has its own slot and its own node, as the CronJob gave it, so a backfill holding all 12
+  slots for a day and more never delays the deadline (20:00 MT, C-050).
+- What the CronJob did that KEDA does not: one pod for all three kinds on one node. Under KEDA the
+  tape's node is idle for a poll when the tape ends and the block's pod takes it (6 + 2 CPUs do
+  not fit together; the tape is minutes), and the pass (1 CPU) fits beside the block.
+Keep `40-daily.yaml` for a fallback (KEDA down): resume the CronJob and pause the ScaledJobs.
+C-065's 30-minute STALLED allowance for daily-only work was for the CronJob's 15-minute gap; with
+KEDA 15 would do (a core change, not made here).
+
+### 10. First run under KEDA: the recompute of the test block (the owner; $ about $5)
+
+Two blocks of 5 sessions, 2024-07-09..07-22, on build 48461197+7361a31e2fda (or its successor),
+started by KEDA alone. Before: run.sh has finished and deleted its node; steps 1 to 4 done (core
+image with C-065 and 0046, the login, the pool autoscaled at 0 nodes, the ScaledJobs on image
+48461197); 914ffed7 withdrawn; CronJob `daily` suspended or not applied.
+
+```sh
+kubectl -n vyreon exec deploy/vyreon-core -- vyreon-core schedule day-block FREE_REPORT_64 48461197+7361a31e2fda 2024-07-09 2024-07-22 5
+```
+
+(The passes of these days are queued again under the new build as each day publishes, C-037/C-062;
+if the build's tape method changed, schedule its tapes first and `tape` runs them.)
+
+What to watch, and what passes:
+1. **One pod per claimable job.** `kubectl -n vyreon get jobs -l scaledjob.keda.sh/name=day-block`
+   shows exactly 2 Jobs within a minute of the schedule and no third while the nodes come up
+   (5 to 10 polls); the operator's log says "Number of pending Jobs: 2", then "No need to create
+   jobs". `health.sh`: 0 pods that found nothing to claim. Each pass: one `ordered-pass-…` Job at a
+   time, started within a poll of its day publishing. Count any extra pods (a poll inside a pod's
+   sub-second claim window); more than one in the run is a finding.
+2. **Nodes added and removed.** Two `TriggeredScaleUp` events, two `day` nodes within about 5
+   minutes, each block on its own node, the pass pods beside a block. After each block ends its
+   node goes within about 15 minutes (unless a pass runs there); after the last pass, 0 nodes:
+   `kubectl get nodes -l doks.digitalocean.com/node-pool=day` empty and the pool's GET `count: 0`.
+   That settles the scale-to-zero question.
+3. **Two nodes sharing the request budget.** Core's ledger by minute (query in 5): the busiest
+   minutes at or under 1,900 with two workers; the workers' logs without a provider 429; Intrinio's
+   own usage for the window (Intrinio MCP `get_account_usage`) against the ledger's sum.
+4. **The work itself:** both blocks DONE, 10 days published, gate a on them
+   (`vyreon-core refcheck list 2024-07-09 2024-07-22`), STALLED and CLAIMS_EMPTY not opened.
+5. **Idle stays idle:** an hour after the last pass, no Job and no node was started.
+Cost: two nodes for about 13 hours each (first day about 226 minutes, later days 100-134), about
+$4.50, plus the passes.
 
 ## Perishable archive (C-052)
 

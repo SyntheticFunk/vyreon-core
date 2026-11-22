@@ -2254,3 +2254,64 @@ move into core; the fourth (spend) cannot. Migration 0042.
     `a_slow_progress_webhook_holds_no_connection_and_posts_nothing_past_its_deadline`;
     `core-api/tests/worker_api.rs` (a URL as a worker's name: 422); unit `work::tests`,
     `progress::tests::a_line_longer_than_a_post_is_cut_and_counted`, `vyreon-core` `tests::a_setting_that_cannot_be_read_is_named_never_printed`.
+
+## C-066 KEDA starts the workers from the queue; pool `day` autoscales; caps instead of judgement (2026-11-22; MILESTONES "Before the full build" items 2 and 4)
+The test block's tapes needed an operator to size Jobs, count completions and delete idle nodes
+(8 idle nodes on 2026-11-22). Written, not applied: `deploy/k8s/50-keda.yaml`, migration 0046,
+runbook `deploy/k8s/README.md` "Workers from the queue".
+- **One ScaledJob per kind, and the daily block apart.** `tape`, `day-block`, `ordered-pass`, and
+  `day-block-daily`: a backfill of 12 blocks of about 35 hours each can hold every slot for a day
+  and more, and the CronJob gave the daily session a node of its own; its pod claims daily work
+  only (`VYREON_WORKER_DAILY` "0"), and `day-block` counts only the other blocks, so the two never
+  start a pod each for one job. Tapes and passes count every priority (the daily tape is minutes;
+  the daily pass waits for the backfill's passes by the claim's rule, C-051).
+- **The trigger counts what a worker of the build can claim:** `core.claimable_count(kind, build,
+  daily)` over `core.claimable_job` with the claim's own filters (`work::claim_as`). Per build,
+  because workers claim only their own build's jobs: another admitted build's claimable work (today
+  914ffed7's ordered passes) would start pods that find nothing. A function, SECURITY DEFINER with a
+  fixed search_path, executable only by the group `vyreon_scaler`: the view calls invoker-rights
+  functions, which PostgreSQL checks as the caller (CREATE VIEW, Notes), so SELECT on the view would
+  need SELECT on the store's tables. The existing `vyreon_ordered_pass` login reads the published
+  store and not `core`; it is not reused. Its own login `vyreon_keda`; Secret `vyreon-scaler-pg` in
+  `vyreon` (a namespaced TriggerAuthentication reads its own namespace: KEDA 2.21
+  `resolver.getTriggerAuthSpec`). The owner of the migrations cannot create roles: the bootstrap
+  does (`10-postgres.yaml`), and on this cluster a superuser once, before the image with 0046.
+- **One pod per claimable job.** `targetQueryValue` 1, `scalingStrategy: accurate` (KEDA 2.21
+  `scale_jobs.go`: min(count - pending Jobs, cap - unfinished Jobs)): a claimed job leaves the count,
+  and a Job is pending until its pod runs, so a pod waiting minutes for a node holds back every
+  later poll. The residual: a poll in the moment between a pod starting and its claim (0.9 s on
+  2026-11-22's day pod) starts one extra pod, which finds nothing (no miss, C-065) and exits.
+  `pollingInterval` 30 s.
+- **Each Job one pod, `backoffLimit: 0`:** the job goes back to core's queue on failure and the next
+  poll starts a pod for it; core's attempts are the retry (C-035), and a Kubernetes retry beside
+  them would start a second pod for one job. C-040 holds: no Job-wide limit over several pods.
+  `activeDeadlineSeconds` (tape 2 h, block 72 h, daily block 23 h, pass 6 h) so a stuck pod that still
+  heartbeats cannot hold a node for ever; a stopped block resumes at its next session.
+- **`rollout.strategy: gradual`:** KEDA's default deletes running Jobs when a ScaledJob changes.
+  Jobs are owned by their ScaledJob: deleting one (or KEDA's CRDs) deletes its running Jobs (runbook).
+- **Caps (item 4):** tapes 24 (3 a node, 8 nodes: the test block's tape run); blocks 12 (the owner's
+  rule, nodes only while the request budget has headroom: one node averaged 101 requests a minute
+  with bursts of 500-760, core grants at most 1,900, so 12 average about 64% and their bursts wait in
+  core's budget); daily block 1; pass 1 (C-046). Pool `day`: autoscaled, min 0, max 13: the hard
+  cost cap, $2.17 an hour. Pods name pool `day` (pool `day-std` carries the same label and taint).
+- **Scale to zero:** DigitalOcean's autoscaling page (updated 2026-10-29) supports a pool at 0; the
+  doctl `node-pool create` reference still says "Scale-to-zero is not supported". The API's answer
+  and the first run decide (runbook). The autoscaler's template for an empty `day` pool (read from
+  the API) carries the pool's label, node-pool label and taint, so a pending worker pod brings up a
+  node.
+- **CronJob `daily` (C-051) is superseded** once KEDA runs the daily build: both would start pods for
+  the same session (and the CronJob's first pod waits 30 minutes for nothing); KEDA starts nothing on
+  an empty morning. Kept as the fallback. C-065's 30-minute STALLED allowance for daily-only work
+  was the CronJob's gap; 15 would do under KEDA (not changed).
+- **KEDA:** 2.21.1, the release manifest applied with `kubectl apply --server-side` (no Helm),
+  pinned by its SHA-256; tested on Kubernetes 1.34-1.36 (KEDA's compatibility table; the cluster
+  runs 1.36.5); three Deployments of 100m CPU and 100 MiB requested each on the core node.
+- **Not verified:** everything on the cluster (the runbook's step 10 is the proof: the test block
+  recomputed by KEDA alone); `sslmode=require` against CloudNativePG's server certificate (the
+  workers connect without TLS today); KEDA's real memory on the core node; Postgres's cost of the
+  four counts every 30 s (the view's per-pass functions over ~600 queued passes).
+- Tests: `core-db/tests/work.rs` `the_scaler_counts_what_a_worker_of_the_build_can_claim_and_reads_nothing_else`
+  (the count equals `work::status`'s claimable per kind at each step on the real slice, per build,
+  daily apart, zero when paused; the login cannot read `core.claimable_job`, `core.job`,
+  `vyreon.day_revision` or call `core.build_runs`). The manifest checked against KEDA 2.21.1's CRD
+  schemas (no unknown fields).
