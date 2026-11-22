@@ -6,7 +6,8 @@
 //!   vyreon-core universe on <profile> <date>          the members and their tickers on a date
 //!   vyreon-core build register <inventory.json>       register an engine build with its slot inventory
 //!   vyreon-core build admit <build> <evidence.json>   let the build's workers claim work (the checks it passed)
-//!   vyreon-core build withdraw <build> <reason>       stop them claiming
+//!   vyreon-core build withdraw <build> <reason>       stop them claiming, and stop its running jobs (their
+//!                                                     leases end; the jobs are queued again under it)
 //!   vyreon-core calendar load <sessions.json>         store the engine's trading sessions
 //!   vyreon-core schedule <tape|day-block|ordered-pass> <profile> <build> <first> <last> [block sessions]
 //!                                                     ordered passes (C-062): a session keeps its unfinished pass of
@@ -837,7 +838,11 @@ async fn main() -> ExitCode {
             (Err(e), _) | (_, Err(e)) => Err(e),
         },
         ["build", "withdraw", engine_build, reason] => match connect().await {
-            Ok(client) => build::withdraw(&client, engine_build, reason).await,
+            Ok(mut client) => build::withdraw(&mut client, engine_build, reason).await.map(|stopped| {
+                if !stopped.is_empty() {
+                    println!("running jobs stopped (their leases ended, queued again under the withdrawn build): {}", stopped.iter().map(i64::to_string).collect::<Vec<_>>().join(" "));
+                }
+            }),
             Err(e) => Err(e),
         },
         ["calendar", "load", file] => match (connect().await, json_file(file)) {

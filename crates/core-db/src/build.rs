@@ -86,14 +86,50 @@ pub async fn admit(client: &Client, build: &str, evidence: &Value) -> Result<(),
     crate::notice::log(client, &format!("Engine build {build} admitted: its workers may claim work.")).await
 }
 
-/// Withdraws an admitted build: its queued jobs are no longer claimable.
-pub async fn withdraw(client: &Client, build: &str, reason: &str) -> Result<(), String> {
-    let n = client
+/// Withdraws an admitted build: its queued jobs are no longer claimable, and its workers stop (audit
+/// 2026-11-22 changes-core 8 and the triage's note: a live lease of a withdrawn build could still
+/// publish, so a later pass, no longer waiting for it, published before it). Every live lease of the
+/// build's jobs ends (CANCELLED) and its job goes back to the queue under the build, its attempt not
+/// counted (DONE when every session was done): the worker is refused at its next call, a heartbeat
+/// or a publish. A publish already under way holds its lease's row: the withdrawal waits for it to
+/// commit (that day is published, before the withdrawal) or the publish finds the lease ended and
+/// writes nothing; never half. A claim takes the build's row first (`work::claim`), so none is
+/// granted under a build being withdrawn. Returns the jobs whose lease it ended.
+pub async fn withdraw(client: &mut Client, build: &str, reason: &str) -> Result<Vec<i64>, String> {
+    let tx = client.transaction().await.map_err(db)?;
+    let n = tx
         .execute("UPDATE core.engine_build SET withdrawn_at = now(), withdrawal = $2 WHERE engine_build = $1 AND admitted_at IS NOT NULL", &[&build, &reason])
         .await
         .map_err(db)?;
     if n == 0 {
         return Err(format!("engine build {build} is not admitted"));
     }
-    crate::notice::log(client, &format!("Engine build {build} withdrawn: {reason}.")).await
+    let stopped: Vec<i64> = tx
+        .query(
+            "WITH ended AS (
+                 UPDATE core.lease l SET ended_at = now(), outcome = 'CANCELLED', failure = 'its engine build was withdrawn'
+                 FROM core.job j
+                 WHERE l.job_id = j.job_id AND j.engine_build = $1 AND l.ended_at IS NULL
+                 RETURNING l.job_id)
+             UPDATE core.job SET state = CASE WHEN next_session IS NULL THEN 'DONE' ELSE 'QUEUED' END,
+                                 attempts = GREATEST(attempts - 1, 0),
+                                 finished_at = CASE WHEN next_session IS NULL THEN now() END
+             WHERE job_id IN (SELECT job_id FROM ended) AND state = 'LEASED'
+             RETURNING job_id",
+            &[&build],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let mut sorted = stopped.clone();
+    sorted.sort_unstable();
+    let leases = match sorted.len() {
+        0 => String::new(),
+        n => format!(" {n} running jobs stopped, their leases ended: {}.", sorted.iter().map(i64::to_string).collect::<Vec<_>>().join(" ")),
+    };
+    crate::notice::log(&tx, &format!("Engine build {build} withdrawn: {reason}.{leases}")).await?;
+    tx.commit().await.map_err(db)?;
+    Ok(sorted)
 }

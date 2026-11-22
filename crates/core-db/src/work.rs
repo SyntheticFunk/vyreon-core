@@ -465,6 +465,9 @@ pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str
     if kind == Kind::OrderedPass {
         tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
     }
+    // the build's row, shared: a withdrawal (which updates it, then ends the build's leases) waits
+    // for this claim, or this claim reads the build withdrawn (`build::withdraw`)
+    tx.execute("SELECT FROM core.engine_build WHERE engine_build = $1 FOR SHARE", &[&build]).await.map_err(db)?;
     let Some(job) = tx
         .query_opt(
             "UPDATE core.job SET state = 'LEASED', attempts = attempts + 1
