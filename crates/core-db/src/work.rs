@@ -358,16 +358,23 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         return Ok(false);
     }
     // audit 2026-11-22 changes-core 10: a day block whose attempt stopped on a day it had already
-    // said was done (its evidence names that day, C-049: a prune after `day_done`, say) never tried
-    // the day it moved on to. That attempt is not counted against the block: queued again, never
-    // FAILED on a day it did not try, nor that day given the earlier day's cause. Each such attempt
-    // has moved the block on by at least a day, so this cannot repeat without end.
+    // said was done (a prune after `day_done`, say) never tried the day it moved on to. That attempt is
+    // not counted against the block: queued again, never FAILED on a day it did not try, nor that day
+    // given the earlier day's cause. Round 2 (core-r2 4, 10): core establishes it itself. The day is
+    // the one the stop message names (C-049's evidence, as the engine writes it: `stop: <date> ...`, or
+    // `stop: prune after <date>: ...`), never the evidence's session alone, which the worker sets to its
+    // claim's first day when the message names none (`vyreon-worker` `stopped_on`); and it must be a
+    // day this very lease did (from where it began, `start_session`, to before the block's next
+    // session). Each refund then moved the block on by a day of its own lease: bounded by the block.
     if let Some(day) = db_client
         .query_opt(
-            "SELECT e.session::text FROM core.job j
-             JOIN LATERAL (SELECT l.lease_id FROM core.lease l WHERE l.job_id = j.job_id ORDER BY l.lease_id DESC LIMIT 1) l ON true
+            "SELECT s.day FROM core.job j
+             JOIN LATERAL (SELECT l.lease_id, l.start_session FROM core.lease l WHERE l.job_id = j.job_id ORDER BY l.lease_id DESC LIMIT 1) l ON true
              JOIN core.job_evidence e ON e.lease_id = l.lease_id
-             WHERE j.job_id = $1 AND j.state = 'LEASED' AND j.kind = 'DAY_BLOCK' AND e.session < j.next_session",
+             CROSS JOIN LATERAL (SELECT COALESCE((regexp_match(e.message, '^stop: ([0-9]{4}-[0-9]{2}-[0-9]{2}) '))[1],
+                                                 (regexp_match(e.message, '^stop: prune after ([0-9]{4}-[0-9]{2}-[0-9]{2}):'))[1]) AS day) s
+             WHERE j.job_id = $1 AND j.state = 'LEASED' AND j.kind = 'DAY_BLOCK'
+               AND s.day >= l.start_session::text AND s.day < j.next_session::text",
             &[&job],
         )
         .await
@@ -537,10 +544,10 @@ pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str
     let lease = tx
         .query_one(
             "WITH t AS (SELECT replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '') AS token)
-             INSERT INTO core.lease (job_id, worker, token_sha256, granted_at, expires_at)
-             SELECT $1, $2, encode(sha256(convert_to(token, 'UTF8')), 'hex'), clock_timestamp(), now() + make_interval(secs => $3) FROM t
+             INSERT INTO core.lease (job_id, worker, token_sha256, granted_at, expires_at, start_session)
+             SELECT $1, $2, encode(sha256(convert_to(token, 'UTF8')), 'hex'), clock_timestamp(), now() + make_interval(secs => $3), $4::text::date FROM t
              RETURNING (SELECT token FROM t), to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')",
-            &[&job_id, &worker, &lease_seconds],
+            &[&job_id, &worker, &lease_seconds, &next],
         )
         .await
         .map_err(db)?;
