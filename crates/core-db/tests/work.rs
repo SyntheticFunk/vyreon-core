@@ -639,6 +639,67 @@ async fn a_superseded_pass_is_queued_under_the_publishing_build_and_its_schedule
     scratch.drop().await;
 }
 
+/// Audit 2026-11-22 prebuild (changes-core.md) 1: a schedule of ordered passes and a publish that
+/// queues passes again both read "no unfinished pass" and insert one; under two different locks the
+/// second insert hit the unique index, and the publish read that as a refused bundle (the worker's
+/// 422 pauses the queue). Now `schedule` waits for the publish lock, and a violation of a core
+/// constraint inside a publish is core's failure, never a refusal: shown with a writer that holds the
+/// conflicting pass uncommitted while the publish requeues the same day's finished pass.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_schedule_waits_for_a_publish_and_a_queue_conflict_is_no_refused_bundle() {
+    let (scratch, mut client, b, d) = ready("c063_schedule_lock").await;
+    admit(&client, &b).await;
+    admit(&client, &d).await;
+    let days = ["2025-12-10", "2025-12-11"];
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[0], days[1], 30).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, days[0], days[1], 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    for day in days {
+        publish_day(&mut client, &block, day).await;
+    }
+    work::finish(&mut client, &block.token).await.unwrap();
+    while run_pass(&mut client, &d).await.is_some() {}
+
+    // a schedule of passes waits while a publish holds its lock
+    let mut publisher = scratch.client().await;
+    let held = publisher.transaction().await.unwrap();
+    held.execute(work::PUBLISH_LOCK, &[]).await.unwrap();
+    let mut scheduler = scratch.client().await;
+    let d2 = d.clone();
+    let scheduling = tokio::spawn(async move { work::schedule(&mut scheduler, Kind::OrderedPass, PROFILE, &d2, "2025-12-12", "2025-12-12", 1).await });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert!(!scheduling.is_finished(), "the schedule waits for the publish lock");
+    held.commit().await.unwrap();
+    scheduling.await.unwrap().unwrap();
+
+    // a pass of the 11th inserted by another writer, not yet committed, while the 10th's base is
+    // published again and its fall requeues the 11th's finished pass: the unique index stops the
+    // publish, which fails (nothing written) and is not refused
+    let writer = publisher.transaction().await.unwrap();
+    writer
+        .execute(
+            "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session) VALUES ('ORDERED_PASS', $1, $2, '2025-12-11', '2025-12-11', '2025-12-11')",
+            &[&PROFILE, &d],
+        )
+        .await
+        .unwrap();
+    let mut hand = scratch.client().await;
+    let (h, s, f) = parts(BASE);
+    let path = bundle(&unique("c063-again"), &h, &s, &f);
+    let path2 = path.clone();
+    let publishing = tokio::spawn(async move { publish_file(&mut hand, &path2).await });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    writer.commit().await.unwrap();
+    let refused = publishing.await.unwrap().unwrap_err();
+    std::fs::remove_file(&path).unwrap();
+    assert!(matches!(&refused, publish::Error::Failed(m) if m.contains("job_one_unfinished_pass")), "{refused}");
+    let bases = count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE represented_date = '2025-12-10' AND base_revision IS NULL").await;
+    assert_eq!(bases, 1, "nothing of the failed publish was written");
+    assert_eq!(work::status(&client).await.unwrap()["paused"], false);
+    scratch.drop().await;
+}
+
 /// C-062: a pass under a build that does not run (withdrawn) holds no later pass, and the next
 /// schedule over its session replaces it; one under another build that runs refuses the schedule.
 /// When neither the publishing build (here the base-only build, which does not publish the derived
