@@ -330,6 +330,15 @@ FND01 change tightens toward withholding); audits on this branch stopped there (
 `eng-tb` merged into `worker` 48461197 (pushed): suite 1,629 passed, 0 failed; reference pytest 174.
 Image `vyreon-worker:48461197`, build 48461197+7361a31e2fda (4,679 slots, same profiles), registered
 and admitted 2026-11-22 ~16:50 UTC; 914ffed7 stays admitted until its block ends.**
+**Owner rulings 2026-11-22 ~16:50 UTC ("Go with the market conventions for sure"):** (1) retire NVDA's
+hard-coded challenge list (`h3-p01/src/lib.rs:9-17`; the build is the test now); (2) cash dividends
+sharing an ex-date are one distribution, summed (S&P DJI "Multiple Dividend Distributions on a Single
+Day"; Xignite; CRSP's factor over all distributions to the date): BABA 2024-06-13 $1.66, 2025-06-12
+$2.00; (3) a first-session contract's EOD 0 beside a positive snapshot figure is its open interest (OCC/
+Cboe: open interest is the prior close's open positions; a series listed today has none; D-392 0 of
+15,798) — amends D-398, restores 2024-06-10's OI on 17 assets; (4) a young asset's SPY return stays over
+the asset's own two dates (D-080; excess return over the same period is the convention). Being built
+into the next image before the recompute.
 **After the block (run.sh runs its 10 passes on 914ffed7 and deletes the node):** deploy core 7c96453
 (C-065; progress webhook; stop run.sh's posts), withdraw 914ffed7, schedule a day block 2024-07-09..07-22
 on 48461197 (publishing supersedes the old days; C-037 re-derives; passes re-queue under the new build,
