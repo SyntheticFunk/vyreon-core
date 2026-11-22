@@ -773,7 +773,8 @@ struct Fallen {
 
 /// The ordered pass derives again what fell (ARCHITECTURE 5.2): a pass running on an affected day
 /// is stopped (its lease ends and the worker is told the lease is gone) and queued again; each day
-/// whose history revision fell and that has a finished pass but no unfinished one gets a pass
+/// whose history revision fell and that has a finished pass but no unfinished one under a build that
+/// runs (one under a build that does not run is cancelled first, C-063) gets a pass
 /// queued with fresh attempts, under a build that runs (C-062): the publishing build when it runs
 /// and publishes the fallen revision's profile, else the fallen revision's own build when it runs
 /// (the finished pass of that build is queued again; a pass under another build is a new job, the
@@ -793,6 +794,8 @@ struct Trigger<'a> {
 /// Returns (the days whose pass is queued or stopped and queued, the days no job derives again).
 async fn rederive(tx: &Transaction<'_>, by: &Trigger<'_>, same_day: bool, fallen: &[Fallen], lease: Option<&work::Held>) -> Result<(Vec<String>, Vec<String>), Error> {
     let date = by.date;
+    // a stopped pass of a build that does not run (a lease older than `build::withdraw` ending
+    // them) is cancelled, not queued where no worker claims: its day is then targeted below
     let stopped: Vec<String> = tx
         .query(
             "WITH stopped AS (
@@ -801,14 +804,17 @@ async fn rederive(tx: &Transaction<'_>, by: &Trigger<'_>, same_day: bool, fallen
                  WHERE l.job_id = j.job_id AND l.ended_at IS NULL AND j.kind = 'ORDERED_PASS'
                    AND (j.first_session > $1::text::date OR ($2 AND j.first_session = $1::text::date))
                  RETURNING j.job_id)
-             UPDATE core.job SET state = 'QUEUED', next_session = first_session, attempts = GREATEST(attempts - 1, 0), finished_at = NULL
+             UPDATE core.job SET state = CASE WHEN core.build_runs(engine_build) THEN 'QUEUED' ELSE 'CANCELLED' END,
+                                 next_session = first_session, attempts = GREATEST(attempts - 1, 0),
+                                 finished_at = CASE WHEN core.build_runs(engine_build) THEN NULL ELSE now() END
              WHERE job_id IN (SELECT job_id FROM stopped) AND state = 'LEASED'
-             RETURNING first_session::text",
+             RETURNING first_session::text, state = 'QUEUED'",
             &[&date, &same_day],
         )
         .await
         .map_err(db)?
         .iter()
+        .filter(|r| r.get::<_, bool>(1))
         .map(|r| r.get(0))
         .collect();
     let history: Vec<&Fallen> = fallen.iter().filter(|f| !f.day_local).collect();
@@ -818,8 +824,27 @@ async fn rederive(tx: &Transaction<'_>, by: &Trigger<'_>, same_day: bool, fallen
     let revisions: Vec<&str> = history.iter().map(|f| f.profile_revision.as_str()).collect();
     const FALLEN: &str =
         "fallen AS (SELECT * FROM unnest($1::text[]::date[], $2::text[], $3::text[], $4::text[]) AS f(day, profile_id, engine_build, profile_revision))";
+    // a pass derives a fallen day again only under a build that runs (audit 2026-11-22 changes-core
+    // 7): one of a build that does not run neither stands for the day nor keeps the publishing
+    // build from it; it is cancelled first, as `schedule` replaces it
     const UNFINISHED: &str = "SELECT FROM core.job u WHERE u.kind = 'ORDERED_PASS' AND u.profile_id = f.profile_id AND u.first_session = f.day
-                                  AND u.state IN ('QUEUED', 'LEASED', 'FAILED')";
+                                  AND u.state IN ('QUEUED', 'LEASED', 'FAILED') AND core.build_runs(u.engine_build)";
+    let replaced: Vec<i64> = tx
+        .query(
+            &format!(
+                "WITH {FALLEN}
+                 UPDATE core.job u SET state = 'CANCELLED', finished_at = now()
+                 WHERE u.kind = 'ORDERED_PASS' AND u.state IN ('QUEUED', 'FAILED') AND NOT core.build_runs(u.engine_build)
+                   AND EXISTS (SELECT FROM fallen f WHERE f.day = u.first_session AND f.profile_id = u.profile_id)
+                 RETURNING u.job_id"
+            ),
+            &[&days, &profiles, &builds, &revisions],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
     // one pass per day and profile (a unique index holds it): when two history revisions of one day
     // fell, the pass goes to the publishing build if either names it
     let requeued: Vec<String> = tx
@@ -882,10 +907,15 @@ async fn rederive(tx: &Transaction<'_>, by: &Trigger<'_>, same_day: bool, fallen
     let mut rerun: Vec<String> = stopped.iter().chain(&requeued).cloned().collect();
     rerun.sort();
     rerun.dedup();
-    if rerun.is_empty() && orphans.is_empty() {
+    if rerun.is_empty() && orphans.is_empty() && replaced.is_empty() {
         return Ok((rerun, orphans));
     }
     let mut text = by.what.clone();
+    if !replaced.is_empty() {
+        let mut jobs = replaced.clone();
+        jobs.sort_unstable();
+        text.push_str(&format!("; passes under builds that do not run cancelled: jobs {}", jobs.iter().map(i64::to_string).collect::<Vec<_>>().join(" ")));
+    }
     if let (Some(first), Some(last)) = (rerun.first(), rerun.last()) {
         text.push_str(&format!("; the ordered pass derives {} days again, {first} to {last}", rerun.len()));
     }
