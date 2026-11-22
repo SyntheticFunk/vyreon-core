@@ -273,6 +273,15 @@ usage vs core's ledger), wall times; then fix what it shows.
    or reference rules behind the newest engine decisions. Triage running overnight
    (`~/claude-artifacts/checks/2026-11-22-testblock/refcheck-2024-07-09-triage.md`). The full build
    does not start until it is diagnosed and fixed; the test block keeps running for more evidence.
+   **Triage done** (`refcheck-2024-07-09-triage.md`): 398 = 11 causes. 229 are the reference behind
+   the engine (IBIT before its first option session 180, FIELD before ETHA 24, WMT split D-161 16,
+   insider-time D-191 5, IBIT first year 4); engine: IBIT V02 `check_q05` (27, label), NVDA's
+   hard-coded challenge list 06-07/06-10 (34: retire or copy, decide), BABA two dividends one ex-date (1,
+   definition gap); thin 2024 chains near a band (12, incl. UUP forward 441-523 bp off parity: look);
+   **unresolved, possible wrong numbers: open interest on PAST session 2024-06-10 (84: ARKK, EWZ, JPM,
+   PLTR, TSLA, URA; reproduced on the worker: the reference finds D-398 first-session placeholders,
+   11-20 per asset, above the 1% gate, while the engine publishes) and CDD-FND01 all-prior counts
+   (11).** OI diagnosis running (`oi-history-2024-06-10.md`).
 5. **2024-07-10 published 09:50 UTC (~100 min after day 1)**; memory after it 1,617 MiB resident, 212
    MiB after the trim.
 3. **SAI-ACT01 / -INTRADAY withheld MISSING_REQUIRED_INPUT on 62 assets before the option
