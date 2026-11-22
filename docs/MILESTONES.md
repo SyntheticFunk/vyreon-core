@@ -287,6 +287,10 @@ token once the shape settles; the reader API stays inside the cluster; backups w
 restore; a read-only exposure check and an attack-surface audit. Phone recovery is the owner's.
 
 **Loose ends (each before the step it names):**
+- **Worker claim retry (next image, with the test block's fixes):** a fresh tape pod died 10 s after
+  start on `vyreon-core: error sending request` (2026-11-22 04:08 UTC, node networking not ready);
+  the claim (`core_client.rs:165`, 60 s timeout) is the one core call with no retry (not idempotent).
+  Retry it on errors where the request never reached core; a doubled lease expires (600 s) and requeues.
 - **C-061 core change before the test block:** a failed or omitted day no longer holds back later
   passes; NOT_PUBLISHED sessions state their cause; omit-with-reason command; digest lines.
   With it, C-062 (audit 2026-11-22 surface 6, above the cut line): a fallen day's pass is queued under
