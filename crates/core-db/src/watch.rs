@@ -1312,6 +1312,34 @@ mod tests {
         assert!(compose("🟢 Running fine · Tue Nov 17", &lines, &[]).ends_with("\nOpen problems: none"));
     }
 
+    /// Audit 2026-11-22 changes-core 18: ten long lines (days set aside with 160-character causes)
+    /// once filled the post before the open problems, and Discord's cut took the problems and their
+    /// command. The lines are cut first now: the problems' heading and count always fit.
+    #[test]
+    fn long_lines_never_push_the_open_problems_out_of_a_post() {
+        let cause = watch_cause();
+        let lines: Vec<String> = (1..=12).map(|d| format!("Set aside: Mon Dec {d:02}, 2025 · FAILED · {cause}")).collect();
+        let open: Vec<Open> = (0..3).map(|i| problem(i, &format!("Day 2025-12-{:02} failed for the last time (job {i})", i + 1))).collect();
+        let text = compose(&verdict(&open, &[], &[]), &lines, &open);
+        assert!(text.chars().count() <= LIMIT, "{}", text.chars().count());
+        assert!(text.contains("\nOpen problems (3):"), "{text}");
+        assert!(text.contains("vyreon-core problems") || text.lines().filter(|l| l.starts_with("• Day ")).count() == 3, "{text}");
+        let shown = text.lines().filter(|l| l.starts_with("Set aside: ")).count();
+        assert!(shown < 12 && text.contains(&format!("\n… and {} more lines, cut to fit", 12 - shown)), "{text}");
+        // with no problem open, the closing line stays too
+        let calm = compose("🟡 Running", &lines, &[]);
+        assert!(calm.chars().count() <= LIMIT && calm.ends_with("\nOpen problems: none"), "{calm}");
+        // lines that fit are all shown, nothing said about cutting
+        let few = compose("🟡 Running", &lines[..2], &open);
+        assert!(!few.contains("cut to fit") && few.lines().filter(|l| l.starts_with("Set aside: ")).count() == 2);
+    }
+
+    /// The first line of a real stop that is not a hold (`test_support::provider_502_stop`), cut
+    /// as the digest cuts a cause (160 characters).
+    fn watch_cause() -> String {
+        one_line(&test_support::provider_502_stop(), 160)
+    }
+
     #[test]
     fn ages_and_lines_read_plainly() {
         assert_eq!((age(59), age(600), age(3 * 3600 + 5), age(47 * 3600), age(5 * 86400)), ("0 min".into(), "10 min".into(), "3 h".into(), "47 h".into(), "5 days".into()));
