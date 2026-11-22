@@ -5,7 +5,7 @@
 //! and names no one. The webhook URL is a secret: it is read from a file, never logged, and
 //! stripped from any error text.
 use crate::App;
-use core_db::notice;
+use core_db::notice::{self, Channel};
 use serde_json::{Value, json};
 use std::sync::Arc;
 use std::time::Duration;
@@ -93,11 +93,21 @@ async fn post(http: &reqwest::Client, webhook: &str, message: &str) -> Outcome {
 /// `UNCONFIRMED_SECONDS`: at least once, the residual is a duplicate after a lost answer or a
 /// restart mid-send (Discord's webhook takes no idempotency key). Returns how many were sent.
 pub async fn send_unsent(app: &App, http: &reqwest::Client, webhook: &str) -> Result<usize, String> {
+    send_unsent_on(app, http, webhook, Channel::Alerts).await
+}
+
+/// `send_unsent` for one channel (C-065): each channel's posts in their own order, to its own
+/// webhook, so a progress post not delivered never holds back or repeats an alert. Progress posts
+/// older than `progress::STALE_HOURS` are dropped first (a backlog is history the log keeps).
+pub async fn send_unsent_on(app: &App, http: &reqwest::Client, webhook: &str, channel: Channel) -> Result<usize, String> {
     let client = app.pool.get().await.map_err(|e| e.to_string())?;
     let client: &tokio_postgres::Client = &client;
+    if channel == Channel::Progress {
+        notice::drop_stale_progress(client, core_db::progress::STALE_HOURS).await?;
+    }
     let mut sent = 0;
     for _ in 0..BATCH {
-        let Some(p) = notice::next(client, UNCONFIRMED_SECONDS).await? else {
+        let Some(p) = notice::next_on(client, UNCONFIRMED_SECONDS, channel).await? else {
             break;
         };
         match post(http, webhook, &p.message).await {
@@ -156,14 +166,47 @@ pub fn spawn_watch(app: Arc<App>, settings: core_db::watch::Settings, every: Dur
 /// a task of its own. Without a webhook nothing is started and the posts wait unsent
 /// (`vyreon-core notices mark-sent` clears them before the sender is switched on).
 pub fn spawn_sender(app: Arc<App>, webhook: String, every: Duration) -> tokio::task::JoinHandle<()> {
+    spawn_sender_on(app, webhook, every, Channel::Alerts)
+}
+
+/// The sender of one channel, in a task of its own (C-065: the progress channel's beside the
+/// alerts', each with its own webhook, order and retries).
+pub fn spawn_sender_on(app: Arc<App>, webhook: String, every: Duration, channel: Channel) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let http = reqwest::Client::builder().timeout(POST_TIMEOUT).build().expect("http client");
         let mut tick = tokio::time::interval(every);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             tick.tick().await;
-            if let Err(e) = send_unsent(&app, &http, &webhook).await {
-                eprintln!("vyreon-core: notices: {e}");
+            if let Err(e) = send_unsent_on(&app, &http, &webhook, channel).await {
+                eprintln!("vyreon-core: notices ({}): {e}", channel.name());
+            }
+        }
+    })
+}
+
+/// The progress channel's windows (C-065): every `every` (a minute in the service), a window of
+/// `progress::WINDOW_MINUTES` composed and queued when due. Its own task, so counting a window's
+/// days never delays the watch; started only when the progress webhook is set.
+pub fn spawn_progress(app: Arc<App>, profile: String, every: Duration) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut tick = tokio::time::interval(every);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            tick.tick().await;
+            let Ok(mut client) = app.pool.get().await else {
+                eprintln!("vyreon-core: progress: no database connection");
+                continue;
+            };
+            let client: &mut tokio_postgres::Client = &mut client;
+            let done = match core_db::watch::now(&*client).await {
+                Ok(now) => core_db::progress::tick(client, &profile, &now).await,
+                Err(e) => Err(e),
+            };
+            match done {
+                Ok(Some(w)) if w.posts > 0 => println!("vyreon-core: progress: {} lines in {} posts queued", w.lines, w.posts),
+                Ok(_) => {}
+                Err(e) => eprintln!("vyreon-core: progress: {e}"),
             }
         }
     })

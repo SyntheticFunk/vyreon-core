@@ -15,10 +15,10 @@
 //! Times are computed by PostgreSQL in `ZONE` (Mountain Time, with its daylight saving), from a
 //! `now` the caller passes, so a check can be run for any moment.
 //!
-//! Not here (v2, they need credentials core does not hold): spend against the budget (a
-//! DigitalOcean billing-read token) and idle worker nodes (Kubernetes read access). Each will be
-//! one more function returning `Found` rows into `current`, with its kind added to
-//! `core.problem`'s check; nothing else changes.
+//! Not here (C-065): spend against the ceiling needs DigitalOcean's billing, which core cannot
+//! read without a cloud credential, and what core holds (leases) misses the idle nodes that cost
+//! most, so the operator keeps it (`deploy/k8s/ops/health.sh`); idle worker nodes are the
+//! autoscaler's (KEDA and the pool's minimum of 0).
 use crate::daily::{self, Daily};
 use crate::{archive, evidence, notice, refcheck};
 use serde_json::{Value, json};
@@ -52,6 +52,19 @@ pub const DEADLINE_HOUR: i32 = 20;
 pub const MISSING_LINES: usize = 10;
 /// Sunday's report is at risk this many hours after Friday's deadline (Saturday).
 pub const AT_RISK_AFTER_HOURS: i32 = 2;
+/// C-065: work claimable and no worker holding a lease for this long is a stall (the owner's 15
+/// minutes, 2026-11-22: longer than a worker node takes to start and its pod to claim).
+pub const STALL_MINUTES: f64 = 15.0;
+/// The same when every claimable job is a daily run's: CronJob `daily` starts its worker at 07:45
+/// New York, 15 minutes after the 07:30 queueing (C-051), and its node then has to start.
+pub const DAILY_STALL_MINUTES: f64 = 30.0;
+/// C-065: claims that found nothing while work of their kind was claimable for their build are a
+/// problem at this many within `MISS_WINDOW_MINUTES`, while such work is still claimable at the
+/// check (the race of 2026-11-22 made about 12 a minute); it stays open while any recurs.
+pub const MISS_CLAIMS: i64 = 3;
+pub const MISS_WINDOW_MINUTES: f64 = 10.0;
+/// Misses are kept this long (the watch prunes older ones).
+pub const MISS_KEEP_DAYS: f64 = 7.0;
 
 /// Taken, for the transaction, by whatever opens or resolves a problem, and by the digest and the
 /// weekly check only while they read the open problems again and queue their post (never while
@@ -226,6 +239,8 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open])
     }
     failed_jobs(c, &mut found).await?;
     provider(c, now, open, &mut found).await?;
+    stalled(c, now, &mut found).await?;
+    claims_empty(c, now, open, &mut found).await?;
     // C-051: daily runs that cannot be given work are a problem until they can; and (round x, 11)
     // so is a session due and not queued: the tick queues before it checks, so one is left only
     // when queueing failed, and no digest of that minute is green
@@ -489,6 +504,101 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
     Ok(())
 }
 
+/// C-065 (health.sh's stall): claimable work and no live lease, continuously for `STALL_MINUTES`
+/// (`DAILY_STALL_MINUTES` when every claimable job is a daily run's): no worker is running, so
+/// nothing moves (a Job out of completions, KEDA or the node pool not starting pods). The clock is
+/// the later of when the watch first saw the condition (`core.stall_seen`, written here) and the
+/// last lease granted or ended, so a pod that claims and stops within a minute restarts it. A
+/// paused queue or a build not admitted makes nothing claimable: those are their own problems.
+async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> Result<(), String> {
+    let r = c
+        .query_one(
+            "SELECT (SELECT count(*) FROM core.claimable_job), (SELECT count(*) FROM core.claimable_job WHERE priority <> 1),
+                    EXISTS (SELECT FROM core.lease WHERE ended_at IS NULL AND expires_at >= $1::text::timestamptz),
+                    (SELECT string_agg(n || ' ' || CASE kind WHEN 'DAY_BLOCK' THEN 'day blocks' WHEN 'TAPE' THEN 'tape jobs' ELSE 'ordered passes' END, ', ' ORDER BY kind)
+                     FROM (SELECT kind, count(*) AS n FROM core.claimable_job GROUP BY kind) k)",
+            &[&now],
+        )
+        .await
+        .map_err(db)?;
+    let (claimable, backfill, live, kinds): (i64, i64, bool, Option<String>) = (r.get(0), r.get(1), r.get(2), r.get(3));
+    if claimable == 0 || live {
+        c.execute("DELETE FROM core.stall_seen", &[]).await.map_err(db)?;
+        return Ok(());
+    }
+    c.execute("INSERT INTO core.stall_seen (since) VALUES ($1::text::timestamptz) ON CONFLICT (one) DO NOTHING", &[&now]).await.map_err(db)?;
+    let limit = if backfill == 0 { DAILY_STALL_MINUTES } else { STALL_MINUTES };
+    let r = c
+        .query_one(
+            "WITH s AS (SELECT GREATEST((SELECT since FROM core.stall_seen),
+                                        (SELECT max(GREATEST(granted_at, COALESCE(ended_at, granted_at))) FROM core.lease WHERE granted_at <= $1::text::timestamptz)) AS t)
+             SELECT extract(epoch FROM $1::text::timestamptz - t)::float8 / 60, to_char(t AT TIME ZONE $2, 'Dy HH24:MI') FROM s",
+            &[&now, &ZONE],
+        )
+        .await
+        .map_err(db)?;
+    let (minutes, since): (f64, String) = (r.get(0), r.get(1));
+    if minutes >= limit {
+        found.push(Found {
+            kind: "STALLED",
+            key: "queue".into(),
+            summary: format!(
+                "Work stalled since {since} MT: {} claimable ({}) and no worker holds a lease, so no worker pod is running",
+                claimable,
+                kinds.unwrap_or_default()
+            ),
+            command: "vyreon-core queue".into(),
+            detail: None,
+        });
+    }
+    Ok(())
+}
+
+/// C-065 (health.sh's "pods that found nothing to claim"): claims that found nothing while work of
+/// their kind was claimable for their build (`core.claim_miss`, kept by the claim), at least
+/// `MISS_CLAIMS` within `MISS_WINDOW_MINUTES` while such work is still claimable now; open while
+/// any recurs and the work is still there. A miss whose work was being leased by another claim
+/// at that moment is not one: that work is not claimable at the check.
+async fn claims_empty(c: &impl GenericClient, now: &str, open: &[Open], found: &mut Vec<Found>) -> Result<(), String> {
+    c.execute("DELETE FROM core.claim_miss WHERE at < $1::text::timestamptz - make_interval(days => $2::float8::int)", &[&now, &MISS_KEEP_DAYS])
+        .await
+        .map_err(db)?;
+    let rows = c
+        .query(
+            "SELECT m.kind, m.engine_build, count(*),
+                    (SELECT count(*) FROM core.claimable_job j WHERE j.kind = m.kind AND j.engine_build = m.engine_build AND (NOT m.daily OR j.priority = 1))
+             FROM core.claim_miss m
+             WHERE m.at > $1::text::timestamptz - make_interval(secs => $2::float8 * 60) AND m.at <= $1::text::timestamptz
+             GROUP BY m.kind, m.engine_build, m.daily ORDER BY 3 DESC",
+            &[&now, &MISS_WINDOW_MINUTES],
+        )
+        .await
+        .map_err(db)?;
+    let was_open = is_open(open, "CLAIMS_EMPTY", "claims");
+    let waiting: Vec<(String, String, i64, i64)> = rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3))).filter(|w| w.3 > 0).collect();
+    let misses: i64 = waiting.iter().map(|w| w.2).sum();
+    if misses >= MISS_CLAIMS || (was_open && misses > 0) {
+        let (kind, build, _, claimable) = &waiting[0];
+        found.push(Found {
+            kind: "CLAIMS_EMPTY",
+            key: "claims".into(),
+            summary: format!(
+                "Workers left with nothing while work waited: {misses} claims found nothing in the last {MISS_WINDOW_MINUTES:.0} min, {claimable} {} of build {} still claimable",
+                kind_words(kind),
+                short(build)
+            ),
+            command: "vyreon-core queue".into(),
+            detail: None,
+        });
+    }
+    Ok(())
+}
+
+/// A build's id as a line can hold it.
+fn short(build: &str) -> String {
+    if build.chars().count() > 16 { build.chars().take(12).chain(['…']).collect() } else { build.to_owned() }
+}
+
 /// Opens a problem in the caller's transaction (with its alert), unless it is open already.
 async fn open_one(c: &impl GenericClient, f: &Found, now: Option<&str>) -> Result<bool, String> {
     // a publish opens NOT_DERIVED in its own transaction: it waits for a digest being composed
@@ -586,7 +696,7 @@ const COUNTED: &str = "SELECT d.revision_id, count(m.measurement_id)::int AS slo
          GROUP BY d.revision_id";
 
 /// Counts what each published revision holds, once (a published revision never changes).
-async fn tally(c: &impl GenericClient, revisions: &[i64]) -> Result<(), String> {
+pub(crate) async fn tally(c: &impl GenericClient, revisions: &[i64]) -> Result<(), String> {
     if revisions.is_empty() {
         return Ok(());
     }
@@ -784,7 +894,7 @@ pub fn pace(running: &[Running], waiting: i64, now: f64) -> Pace {
     Pace::Measured { hours_a_day: day / 3600.0, first_days_only, finish, parallel }
 }
 
-fn kind_words(kind: &str) -> &'static str {
+pub(crate) fn kind_words(kind: &str) -> &'static str {
     match kind {
         "DAY_BLOCK" => "day blocks",
         "ORDERED_PASS" => "ordered passes",

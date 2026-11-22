@@ -503,6 +503,10 @@ fn dropped_base_clause(base: Option<i64>, day: &str) -> String {
 /// what it published), never in between (`publish`).
 pub const PUBLISH_LOCK: &str = "SELECT pg_advisory_xact_lock(hashtextextended('vyreon publish', 0))";
 
+/// How many times one claim looks for a claimable row before it answers that there is none while
+/// some is still claimable (C-065): each look after the first is a fresh snapshot.
+pub const CLAIM_TRIES: i32 = 3;
+
 /// Claims the earliest claimable job of `kind` for the worker's own build, if there is one; a daily
 /// run's job (priority 1, C-051) before any other.
 pub async fn claim(client: &mut Client, kind: Kind, build: &str, worker: &str, lease_seconds: f64) -> Result<Option<Claim>, String> {
@@ -522,20 +526,61 @@ pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str
     // the build's row, shared: a withdrawal (which updates it, then ends the build's leases) waits
     // for this claim, or this claim reads the build withdrawn (`build::withdraw`)
     tx.execute("SELECT FROM core.engine_build WHERE engine_build = $1 FOR SHARE", &[&build]).await.map_err(db)?;
-    let Some(job) = tx
-        .query_opt(
-            "UPDATE core.job SET state = 'LEASED', attempts = attempts + 1
-             WHERE job_id = (SELECT j.job_id FROM core.job j
-                             WHERE j.job_id IN (SELECT job_id FROM core.claimable_job WHERE kind = $1 AND engine_build = $2 AND next_session IS NOT NULL)
-                               AND (NOT $3 OR j.priority = 1)
-                             ORDER BY j.priority DESC, j.first_session, j.job_id LIMIT 1 FOR UPDATE SKIP LOCKED)
-               AND state = 'QUEUED'
-             RETURNING job_id, profile_id, scope::text, attempts, next_session::text, last_session::text",
-            &[&kind.name(), &build, &daily_only],
-        )
-        .await
-        .map_err(db)?
-    else {
+    // C-065 (the claim race of 2026-11-22): the row is locked by the inner SELECT, whose own
+    // condition says `j.state = 'QUEUED'`. Under READ COMMITTED a row another claim leased and
+    // committed after this statement's snapshot is re-read at its newest version when it is locked
+    // (PostgreSQL's EvalPlanQual recheck of the locking scan's own conditions): with the state among
+    // them it fails the recheck and the scan goes on to the next claimable row, instead of handing
+    // the row to the outer `AND state = 'QUEUED'`, which dropped it and returned nothing. The view's
+    // own `state = 'QUEUED'` is read from the snapshot and is not rechecked.
+    let mut tries = 0;
+    let job = loop {
+        tries += 1;
+        let job = tx
+            .query_opt(
+                "UPDATE core.job SET state = 'LEASED', attempts = attempts + 1
+                 WHERE job_id = (SELECT j.job_id FROM core.job j
+                                 WHERE j.state = 'QUEUED'
+                                   AND j.job_id IN (SELECT job_id FROM core.claimable_job WHERE kind = $1 AND engine_build = $2 AND next_session IS NOT NULL)
+                                   AND (NOT $3 OR j.priority = 1)
+                                 ORDER BY j.priority DESC, j.first_session, j.job_id LIMIT 1 FOR UPDATE SKIP LOCKED)
+                   AND state = 'QUEUED'
+                 RETURNING job_id, profile_id, scope::text, attempts, next_session::text, last_session::text",
+                &[&kind.name(), &build, &daily_only],
+            )
+            .await
+            .map_err(db)?;
+        if job.is_some() {
+            break job;
+        }
+        // nothing leased: a row that became claimable after this statement's snapshot (a job queued
+        // again, a claim rolled back) is taken by a fresh statement, a few times at most; work still
+        // claimable after that is kept as a miss for the watch (CLAIMS_EMPTY). Rows other claims hold
+        // locked at this moment count as claimable here (they are leased a moment later), which is
+        // why the watch judges misses only while work is still claimable at its own check.
+        let claimable: i64 = tx
+            .query_one(
+                "SELECT count(*) FROM core.claimable_job WHERE kind = $1 AND engine_build = $2 AND next_session IS NOT NULL AND (NOT $3 OR priority = 1)",
+                &[&kind.name(), &build, &daily_only],
+            )
+            .await
+            .map_err(db)?
+            .get(0);
+        if claimable == 0 {
+            break None;
+        }
+        if tries >= CLAIM_TRIES {
+            tx.execute(
+                "INSERT INTO core.claim_miss (kind, engine_build, worker, daily, claimable) VALUES ($1, $2, $3, $4, $5)",
+                &[&kind.name(), &build, &worker, &daily_only, &claimable],
+            )
+            .await
+            .map_err(db)?;
+            tx.commit().await.map_err(db)?;
+            return Ok(None);
+        }
+    };
+    let Some(job) = job else {
         return Ok(None);
     };
     let (job_id, profile_id, scope, attempt, next, last): (i64, String, Option<String>, i32, Option<String>, String) =
@@ -737,14 +782,17 @@ pub async fn finish(client: &mut Client, token: &str) -> Result<i64, LeaseError>
 
 /// What `finished` reads of a job just made DONE.
 const FINISHED: &str = "kind, first_session::text, last_session::text,
-    (SELECT count(*) FROM core.job o WHERE o.kind = core.job.kind AND o.job_id <> core.job.job_id AND o.state IN ('QUEUED', 'LEASED', 'FAILED'))";
+    (SELECT count(*) FROM core.job o WHERE o.kind = core.job.kind AND o.job_id <> core.job.job_id AND o.state IN ('QUEUED', 'LEASED', 'FAILED')),
+    (SELECT extract(epoch FROM clock_timestamp() - min(l.granted_at))::float8 / 60 FROM core.lease l WHERE l.job_id = core.job.job_id)";
 
 /// The log line of a finished job (C-050: logged, not posted): one per day block; for the many
 /// small jobs, only when the last one is in.
 async fn finished(db_client: &impl GenericClient, job: &tokio_postgres::Row, by: &str) -> Result<(), String> {
-    let (kind, first, last, remaining): (String, String, String, i64) = (job.get(0), job.get(1), job.get(2), job.get(3));
+    let (kind, first, last, remaining, minutes): (String, String, String, i64, Option<f64>) = (job.get(0), job.get(1), job.get(2), job.get(3), job.get(4));
     if kind == "DAY_BLOCK" {
-        notice::log(db_client, &format!("Day block {first} to {last} done by {by} ({remaining} blocks to go).")).await
+        // C-065: with the block's minutes, from its first lease (every attempt's time included)
+        let minutes = minutes.map_or(String::new(), |m| format!(" in {m:.0} min"));
+        notice::log(db_client, &format!("Day block {first} to {last} done{minutes} by {by} ({remaining} blocks to go).")).await
     } else if remaining == 0 {
         let what = if kind == "TAPE" { "tape" } else { "ordered pass" };
         notice::log(db_client, &format!("Every scheduled {what} job is done (the last: {last}).")).await

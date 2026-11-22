@@ -58,6 +58,7 @@
 //!   vyreon-core problems                              the open problems (C-050), oldest first, and the last resolved
 //!   vyreon-core digest [weekly]                       print the 09:00 digest (or the Saturday check) as it would be posted now
 //!   vyreon-core log [n]                               the newest n (20) logged events, which are not posted
+//!   vyreon-core progress                              the last 30 minutes as the progress channel (C-065) would post them
 //!   vyreon-core daily [queue]                         the daily runs (C-051): their settings, the sessions
 //!                                                     handled and the next due; `queue` queues what is due now
 //!                                                     (the service does it every minute by itself)
@@ -71,6 +72,11 @@
 //!                                                     VYREON_CORE_SPOOL (the temp dir), VYREON_CORE_LEASE_SECONDS (300),
 //!                                                     VYREON_CORE_INTRINIO_PER_MINUTE (1800), VYREON_CORE_WEBHOOK_FILE
 //!                                                     (a file holding the Discord webhook URL; without it the posts wait).
+//!                                                     VYREON_CORE_PROGRESS_WEBHOOK_FILE (C-065, optional: a file holding a
+//!                                                     second channel's webhook URL; core then posts the run's progress
+//!                                                     there every 30 minutes, silently: days published with their counts
+//!                                                     and reference checks, blocks started, the logged events, the queue's
+//!                                                     counts; unset or absent: nothing is composed or posted for it).
 //!                                                     The watch (C-050), also read by `problems` and `digest`:
 //!                                                     VYREON_CORE_WATCH_PROFILE (FREE_REPORT_64), VYREON_CORE_DEADLINES_FROM
 //!                                                     (the first session with a publishing deadline; unset: the daily
@@ -385,6 +391,24 @@ fn watch_settings() -> Result<watch::Settings, String> {
     Ok(watch::Settings { profile, deadlines_from, volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64), deadline_hour, daily, archive, refcheck_from })
 }
 
+/// A Discord webhook's URL from the file a setting names; None (said, never the URL) when the
+/// setting or the file is absent or empty.
+fn webhook_setting(name: &str, without: &str) -> Option<String> {
+    match std::env::var(name) {
+        Ok(file) => match std::fs::read_to_string(&file) {
+            Ok(text) if !text.trim().is_empty() => Some(text.trim().to_owned()),
+            _ => {
+                println!("{file} is absent or empty: {without}");
+                None
+            }
+        },
+        Err(_) => {
+            println!("{name} is not set: {without}");
+            None
+        }
+    }
+}
+
 /// The perishable archive's bucket and key (C-052): all five settings or none. The key's files
 /// may be absent (the Secret not created yet): the archive is then off. Never printed.
 fn spaces_settings() -> Result<Option<archive::Spaces>, String> {
@@ -528,6 +552,19 @@ async fn digest(weekly: bool) -> Result<(), String> {
     Ok(())
 }
 
+async fn progress_preview() -> Result<(), String> {
+    let client = connect().await?;
+    let now = watch::now(&client).await?;
+    let posts = core_db::progress::preview(&client, &watch_settings()?.profile, &now).await?;
+    if posts.is_empty() {
+        println!("nothing happened in the last 30 minutes: no progress post");
+    }
+    for p in posts {
+        println!("{p}\n");
+    }
+    Ok(())
+}
+
 async fn log(n: &str) -> Result<(), String> {
     let n: i64 = n.parse().map_err(|_| format!("how many: {n}"))?;
     for (at, message) in notice::recent_log(&connect().await?, n).await?.iter().rev() {
@@ -566,23 +603,19 @@ async fn serve() -> Result<(), String> {
     let listener = tokio::net::TcpListener::bind(&listen).await.map_err(|e| format!("{listen}: {e}"))?;
     core_api::spawn_sweeper(app.clone());
     // the webhook's file may be absent (the Secret not created yet): the posts then wait unsent
-    let webhook = match std::env::var("VYREON_CORE_WEBHOOK_FILE") {
-        Ok(file) => match std::fs::read_to_string(&file) {
-            Ok(text) if !text.trim().is_empty() => Some(text.trim().to_owned()),
-            _ => {
-                println!("{file} is absent or empty: the channel's posts are kept unsent");
-                None
-            }
-        },
-        Err(_) => {
-            println!("VYREON_CORE_WEBHOOK_FILE is not set: the channel's posts are kept unsent");
-            None
-        }
-    };
+    let webhook = webhook_setting("VYREON_CORE_WEBHOOK_FILE", "the channel's posts are kept unsent");
+    // C-065: the progress channel, optional; absent, nothing is composed or posted for it
+    let progress = webhook_setting("VYREON_CORE_PROGRESS_WEBHOOK_FILE", "no progress is posted");
     // the watch and the sender run apart: delivering posts never delays the watch's queueing
-    core_api::notices::spawn_watch(app.clone(), watch_settings()?, std::time::Duration::from_secs(60));
+    let settings = watch_settings()?;
+    let profile = settings.profile.clone();
+    core_api::notices::spawn_watch(app.clone(), settings, std::time::Duration::from_secs(60));
     if let Some(webhook) = webhook {
         core_api::notices::spawn_sender(app.clone(), webhook, std::time::Duration::from_secs(15));
+    }
+    if let Some(webhook) = progress {
+        core_api::notices::spawn_progress(app.clone(), profile, std::time::Duration::from_secs(60));
+        core_api::notices::spawn_sender_on(app.clone(), webhook, std::time::Duration::from_secs(15), notice::Channel::Progress);
     }
     println!("vyreon-core listening on {listen} (the single-instance lock is held, C-053)");
     let mut ping = tokio::time::interval(std::time::Duration::from_secs(15));
@@ -878,6 +911,7 @@ async fn main() -> ExitCode {
         ["problems"] => problems().await,
         ["digest"] => digest(false).await,
         ["digest", "weekly"] => digest(true).await,
+        ["progress"] => progress_preview().await,
         ["daily"] => daily_runs(false).await,
         ["daily", "queue"] => daily_runs(true).await,
         ["log"] => log("20").await,
