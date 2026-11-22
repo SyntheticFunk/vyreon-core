@@ -364,8 +364,8 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
     // the one the stop message names (C-049's evidence, as the engine writes it: `stop: <date> ...`, or
     // `stop: prune after <date>: ...`), never the evidence's session alone, which the worker sets to its
     // claim's first day when the message names none (`vyreon-worker` `stopped_on`); and it must be a
-    // day this very lease did (from where it began, `start_session`, to before the block's next
-    // session). Each refund then moved the block on by a day of its own lease: bounded by the block.
+    // day this very lease did (from where it began, `start_session`, which the database sets when the
+    // lease is granted, to before the block's next session). Each refund then moved the block on by a day of its own lease: bounded by the block.
     if let Some(day) = db_client
         .query_opt(
             "SELECT s.day FROM core.job j
@@ -544,10 +544,10 @@ pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str
     let lease = tx
         .query_one(
             "WITH t AS (SELECT replace(gen_random_uuid()::text || gen_random_uuid()::text, '-', '') AS token)
-             INSERT INTO core.lease (job_id, worker, token_sha256, granted_at, expires_at, start_session)
-             SELECT $1, $2, encode(sha256(convert_to(token, 'UTF8')), 'hex'), clock_timestamp(), now() + make_interval(secs => $3), $4::text::date FROM t
+             INSERT INTO core.lease (job_id, worker, token_sha256, granted_at, expires_at)
+             SELECT $1, $2, encode(sha256(convert_to(token, 'UTF8')), 'hex'), clock_timestamp(), now() + make_interval(secs => $3) FROM t
              RETURNING (SELECT token FROM t), to_char(expires_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')",
-            &[&job_id, &worker, &lease_seconds, &next],
+            &[&job_id, &worker, &lease_seconds],
         )
         .await
         .map_err(db)?;

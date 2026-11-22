@@ -8,3 +8,13 @@
 -- is one this very lease did, so each refund moved the block on by a day of its own (`work::requeue`).
 -- Leases granted before this have none: their attempts are counted, as before C-063.
 ALTER TABLE core.lease ADD COLUMN start_session date;
+
+-- Set by the database when a lease is granted, from its job's next session (a claim moves the job to
+-- LEASED without changing it), so every path that grants a lease records it.
+CREATE FUNCTION core.lease_start_session() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    NEW.start_session := (SELECT next_session FROM core.job WHERE job_id = NEW.job_id);
+    RETURN NEW;
+END
+$$;
+CREATE TRIGGER lease_start_session BEFORE INSERT ON core.lease FOR EACH ROW EXECUTE FUNCTION core.lease_start_session();
