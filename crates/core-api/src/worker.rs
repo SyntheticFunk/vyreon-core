@@ -153,9 +153,9 @@ async fn claim(State(app): Shared, headers: HeaderMap, Json(request): Json<Claim
         return Err(ApiError(StatusCode::UNAUTHORIZED, "not the workers' token".into()));
     }
     let kind = Kind::parse(&request.kind).map_err(refused)?;
-    if request.worker.trim().is_empty() {
-        return Err(refused("a claim names its worker"));
-    }
+    // audit 2026-11-22 prebuild round 2 (core-watch.md) 5: the name is stored and posted, so one
+    // that could carry a credential is refused before anything is stored
+    work::worker_name(&request.worker).map_err(refused)?;
     let mut client = app.db().await?;
     let Some(c) = work::claim_as(&mut client, kind, &request.engine_build, &request.worker, app.config.lease_seconds, request.daily).await.map_err(failed)? else {
         return Ok(StatusCode::NO_CONTENT.into_response());

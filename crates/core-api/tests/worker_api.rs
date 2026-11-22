@@ -94,6 +94,12 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
     // no token, the wrong token, a lease token where the workers' token belongs
     let anonymous = s.http.post(format!("{}/worker/v1/claims", s.url)).json(&json!({"kind": "tape", "engine_build": s.base_build, "worker": "x"})).send().await.unwrap();
     assert_eq!(anonymous.status(), StatusCode::UNAUTHORIZED);
+    // audit 2026-11-22 prebuild round 2 (core-watch.md) 5: a worker name that could carry a
+    // credential is refused, never stored nor repeated
+    let leaky = s.claim("tape", &s.base_build, "https://discord.com/api/webhooks/1/a-token").await;
+    assert_eq!(leaky.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(!leaky.text().await.unwrap().contains("a-token"));
+    assert_eq!(admin.query_one("SELECT count(*) FROM core.lease", &[]).await.unwrap().get::<_, i64>(0), 0);
     assert_eq!(s.post("/lease/heartbeat", "not-a-lease", json!({})).await.0, StatusCode::GONE);
     // the day block waits for the tape
     assert_eq!(s.claim("day-block", &s.base_build, "day-1").await.status(), StatusCode::NO_CONTENT);

@@ -508,6 +508,29 @@ pub const PUBLISH_LOCK: &str = "SELECT pg_advisory_xact_lock(hashtextextended('v
 /// snapshot.
 pub const CLAIM_TRIES: i32 = 3;
 
+/// The longest worker name a claim takes: a Kubernetes pod's host name (an RFC 1123 label is at
+/// most 63 characters).
+pub const WORKER_NAME_MAX: usize = 63;
+
+/// Whether `worker` is a name a claim takes (audit 2026-11-22 prebuild round 2, core-watch.md, 5):
+/// 1 to `WORKER_NAME_MAX` letters, digits, '.', '_' or '-', beginning with a letter or a digit, as
+/// a pod's host name is (the engine's worker names itself `VYREON_WORKER_NAME` or its host name).
+/// The name is stored with the lease and posted in notices and progress lines, so one that could
+/// carry a credential (a URL, `key=value`, a header, anything with a space, ':', '/', '=' or '@')
+/// is refused before it is stored. The refusal never repeats the name.
+pub fn worker_name(worker: &str) -> Result<(), String> {
+    let mut chars = worker.chars();
+    let first_ok = chars.next().is_some_and(|c| c.is_ascii_alphanumeric());
+    if first_ok && worker.len() <= WORKER_NAME_MAX && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) {
+        Ok(())
+    } else {
+        Err(format!(
+            "a claim names its worker with 1 to {WORKER_NAME_MAX} letters, digits, '.', '_' or '-', beginning with a letter or a digit \
+             (a pod's host name); this one is not such a name (not repeated here)"
+        ))
+    }
+}
+
 /// Claims the earliest claimable job of `kind` for the worker's own build, if there is one; a daily
 /// run's job (priority 1, C-051) before any other.
 pub async fn claim(client: &mut Client, kind: Kind, build: &str, worker: &str, lease_seconds: f64) -> Result<Option<Claim>, String> {
@@ -517,6 +540,7 @@ pub async fn claim(client: &mut Client, kind: Kind, build: &str, worker: &str, l
 /// `claim`; with `daily_only`, only a daily run's job (priority 1): the daily CronJob's worker
 /// never takes a backfill block (C-051 amended, audit round x, 13).
 pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str, lease_seconds: f64, daily_only: bool) -> Result<Option<Claim>, String> {
+    worker_name(worker)?;
     // expired leases end first, each in its own transaction; one that cannot be ended is reported
     // by the service's sweeper every half minute and does not stop this claim
     let _ = sweep(client).await;
@@ -1099,4 +1123,26 @@ pub async fn status(db_client: &impl GenericClient) -> Result<Value, String> {
         .await
         .map_err(db)?;
     serde_json::from_str(row.get(0)).map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Audit 2026-11-22 prebuild round 2 (core-watch.md) 5: the names real workers give (pods of
+    /// the test block, 2026-11-02 and 10-28; the tests' own) are taken; a name that could carry a
+    /// credential is refused, and the refusal does not repeat it.
+    #[test]
+    fn a_worker_name_is_a_host_name() {
+        for name in ["v-block-1102-0-wqlv9", "v-block-1028-0-jxmxt", "day-7f2c", "w1", "laptop.local", "DESKTOP_7"] {
+            assert_eq!(worker_name(name), Ok(()), "{name}");
+        }
+        let long = "a".repeat(WORKER_NAME_MAX + 1);
+        for name in ["", " ", "-pod", "https://discord.com/api/webhooks/1/a-token", "password=a-token", "Bearer a-token", "pod a-token", "pod@a-token", &long] {
+            let refused = worker_name(name).unwrap_err();
+            assert!(name.trim().is_empty() || !refused.contains(name.trim()), "{refused}");
+            assert!(!refused.contains("a-token"), "{refused}");
+        }
+        assert_eq!(worker_name(&"a".repeat(WORKER_NAME_MAX)), Ok(()));
+    }
 }
