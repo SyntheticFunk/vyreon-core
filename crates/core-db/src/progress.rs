@@ -248,13 +248,18 @@ pub async fn lines(c: &impl GenericClient, profile: &str, start: &str, end: &str
         happened = true;
     }
 
-    // the queue's counts by kind, for the builds that run (a tape verify job is not a tape)
+    // the queue's counts by kind, for the builds that run (a tape verify job is not a tape); a job
+    // done in the window is one DONE now and finished in it, or one whose lease ended DONE in it
+    // (audit round 2 of core-watch, 12: an ordered pass queued again by a later publish has no
+    // `finished_at`, yet it was done in the window)
     let kinds = c
         .query(
-            "SELECT kind, count(*) FILTER (WHERE state = 'DONE' AND finished_at > $1::text::timestamptz AND finished_at <= $2::text::timestamptz),
+            "SELECT kind, count(*) FILTER (WHERE (state = 'DONE' AND finished_at > $1::text::timestamptz AND finished_at <= $2::text::timestamptz) OR w.job_id IS NOT NULL),
                     count(*) FILTER (WHERE state = 'DONE'), count(*) FILTER (WHERE state = 'LEASED'), count(*) FILTER (WHERE state = 'QUEUED'),
                     count(*) FILTER (WHERE state = 'FAILED'), count(*)
-             FROM core.job WHERE state <> 'CANCELLED' AND core.build_runs(engine_build) AND NOT COALESCE(scope @> '{\"verify\": true}', false)
+             FROM core.job
+             LEFT JOIN (SELECT DISTINCT job_id FROM core.lease WHERE outcome = 'DONE' AND ended_at > $1::text::timestamptz AND ended_at <= $2::text::timestamptz) w USING (job_id)
+             WHERE state <> 'CANCELLED' AND core.build_runs(engine_build) AND NOT COALESCE(scope @> '{\"verify\": true}', false)
              GROUP BY kind ORDER BY CASE kind WHEN 'TAPE' THEN 0 WHEN 'DAY_BLOCK' THEN 1 ELSE 2 END",
             &[&start, &end],
         )

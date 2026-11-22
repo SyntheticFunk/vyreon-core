@@ -2223,6 +2223,31 @@ async fn progress_credits_a_day_only_to_the_lease_that_published_it() {
     scratch.drop().await;
 }
 
+/// Audit round 2 of core-watch, 12: an ordered pass done, then an earlier day published again in
+/// the same window: the pass is queued again (C-037) with no `finished_at`, and the window counted
+/// it as not done. A lease that ended DONE in the window counts its job done in it.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_pass_done_then_queued_again_counts_as_done_in_its_window() {
+    use core_db::progress;
+    let (scratch, mut client, b, d) = ready("r2w_progress_done").await;
+    admit(&client, &b).await;
+    admit(&client, &d).await;
+    let day = "2025-12-10";
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, day, day, 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "day-7f2c", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &block, day).await;
+    work::finish(&mut client, &block.token).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, day, day, 1).await.unwrap();
+    assert_eq!(run_pass(&mut client, &d).await.as_deref(), Some(day));
+    base_by_hand(&mut client, day).await;
+    assert_eq!(count(&client, "SELECT count(*) FROM core.job WHERE kind = 'ORDERED_PASS' AND state = 'QUEUED'").await, 1, "the pass is queued again");
+    let now = watch::now(&client).await.unwrap();
+    let posts = progress::preview(&client, PROFILE, &now).await.unwrap();
+    assert!(posts[0].lines().any(|l| l == "Ordered passes: 1 done in this window · 0 of 1 done · 1 waiting"), "{}", posts[0]);
+    scratch.drop().await;
+}
+
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn cancelling_a_job_ends_its_lease_and_takes_it_out_of_the_queue() {
