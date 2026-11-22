@@ -859,6 +859,39 @@ async fn a_withdrawal_waits_for_the_publish_lock_and_a_retirement_beside_it_ends
     scratch.drop().await;
 }
 
+/// Audit 2026-11-22 prebuild round 2 (core-r2.md) 11: a withdrawal stamped its time and its leases'
+/// ends with its transaction's start, though it waits for the publish lock (and a claim) first; a
+/// publish and a grant are stamped with the clock, so a lease could read as ended before what it waited
+/// for. Held behind the publish lock, the withdrawal's stamps are after the lock was released.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_withdrawal_is_stamped_when_it_ends_its_leases() {
+    let (scratch, mut client, b, _) = ready("r2_withdraw_clock").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-10", 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    let mut holder = scratch.client().await;
+    let held = holder.transaction().await.unwrap();
+    held.execute(work::PUBLISH_LOCK, &[]).await.unwrap();
+    let mut c = scratch.client().await;
+    let b2 = b.clone();
+    let withdrawing = tokio::spawn(async move { build::withdraw(&mut c, &b2, "its image is replaced").await });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    let released: String = held.query_one("SELECT clock_timestamp()::text", &[]).await.unwrap().get(0);
+    held.commit().await.unwrap();
+    assert_eq!(withdrawing.await.unwrap().unwrap(), [block.job_id]);
+    let row = client
+        .query_one(
+            "SELECT b.withdrawn_at >= $1::text::timestamptz, l.ended_at >= $1::text::timestamptz, l.ended_at >= l.granted_at
+             FROM core.engine_build b, core.lease l WHERE b.engine_build = $2 AND l.job_id = $3",
+            &[&released, &b, &block.job_id],
+        )
+        .await
+        .unwrap();
+    assert_eq!((row.get::<_, bool>(0), row.get::<_, bool>(1), row.get::<_, bool>(2)), (true, true, true));
+    scratch.drop().await;
+}
+
 /// Audit 2026-11-22 prebuild (changes-core.md) 7: a fallen day whose only unfinished pass was of a
 /// withdrawn build counted as derived again: the publishing build got no pass, the withdrawn one
 /// never ran, and no problem was opened. Now that pass is cancelled and the day's pass goes to the
