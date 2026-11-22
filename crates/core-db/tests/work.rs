@@ -1991,23 +1991,36 @@ async fn claims_at_once_each_lease_a_job_while_any_is_claimable() {
     scratch.drop().await;
 }
 
-/// C-065: a claim that finds nothing while work it could take is claimable (here held by another
-/// transaction's row lock, as a claim in flight holds it) looks again `CLAIM_TRIES` times, then
-/// keeps a miss for the watch; one that finds the queue empty keeps nothing.
+/// C-065, amended by audit round 2 of core-watch (6, 8): a claim that finds only work other claims
+/// are taking (held FOR UPDATE, as a claim in flight holds it) answers that there is nothing and
+/// keeps no miss; one that finds a claimable job no claim holds tries it again, and keeps a miss
+/// naming it only when it still cannot lease it after `CLAIM_TRIES` looks; one that finds the
+/// queue empty keeps nothing.
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
-async fn a_claim_that_finds_only_locked_work_is_kept_as_a_miss() {
+async fn a_claim_misses_only_work_no_other_claim_holds() {
     let (scratch, mut client, b, _) = ready("claim_miss").await;
     admit(&client, &b).await;
     work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-10", "2025-12-10", 1).await.unwrap();
+    let job = count(&client, "SELECT job_id FROM core.job WHERE kind = 'TAPE'").await;
+    // audit round 2 of core-watch, 6: the job held as a claim in flight holds it (FOR UPDATE):
+    // another claim taking it is healthy concurrency, no miss
     let mut holder = scratch.client().await;
     let tx = holder.transaction().await.unwrap();
     tx.execute("SELECT FROM core.job WHERE kind = 'TAPE' FOR UPDATE", &[]).await.unwrap();
     assert!(work::claim(&mut client, Kind::Tape, &b, "tape-pod-1", HOUR).await.unwrap().is_none());
-    let miss = client.query_one("SELECT kind, engine_build, worker, daily, claimable FROM core.claim_miss", &[]).await.unwrap();
+    assert_eq!(count(&client, "SELECT count(*) FROM core.claim_miss").await, 0, "work other claims are taking is no miss");
+    drop(tx);
+    // held by a lock no claim takes (an insert that references the job holds KEY SHARE on it),
+    // which still stops a claim's FOR UPDATE: the job is free of claims and not leased, a miss
+    // naming it
+    let tx = holder.transaction().await.unwrap();
+    tx.execute("SELECT FROM core.job WHERE kind = 'TAPE' FOR KEY SHARE", &[]).await.unwrap();
+    assert!(work::claim(&mut client, Kind::Tape, &b, "tape-pod-1", HOUR).await.unwrap().is_none());
+    let miss = client.query_one("SELECT kind, engine_build, worker, daily, claimable, job_id FROM core.claim_miss", &[]).await.unwrap();
     assert_eq!(
-        (miss.get::<_, String>(0), miss.get::<_, String>(1), miss.get::<_, String>(2), miss.get::<_, bool>(3), miss.get::<_, i64>(4)),
-        ("TAPE".to_string(), b.clone(), "tape-pod-1".to_string(), false, 1)
+        (miss.get::<_, String>(0), miss.get::<_, String>(1), miss.get::<_, String>(2), miss.get::<_, bool>(3), miss.get::<_, i64>(4), miss.get::<_, Option<i64>>(5)),
+        ("TAPE".to_string(), b.clone(), "tape-pod-1".to_string(), false, 1, Some(job))
     );
     // a daily worker's claim counts only daily work: none is claimable for it, so no miss
     assert!(work::claim_as(&mut client, Kind::Tape, &b, "daily-pod", HOUR, true).await.unwrap().is_none());

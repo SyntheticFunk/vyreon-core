@@ -554,11 +554,13 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
     Ok(())
 }
 
-/// C-065 (health.sh's "pods that found nothing to claim"): claims that found nothing while work of
-/// their kind was claimable for their build (`core.claim_miss`, kept by the claim), at least
-/// `MISS_CLAIMS` within `MISS_WINDOW_MINUTES` while such work is still claimable now; open while
-/// any recurs and the work is still there. A miss whose work was being leased by another claim
-/// at that moment is not one: that work is not claimable at the check.
+/// C-065 (health.sh's "pods that found nothing to claim"): claims that found nothing while a job
+/// of their kind and build that no other claim held was claimable (`core.claim_miss`, kept by the
+/// claim with that job), at least `MISS_CLAIMS` within `MISS_WINDOW_MINUTES` while the job each
+/// missed is still claimable now; open while any recurs and its job is still there. A claim that
+/// found only work other claims were taking keeps no miss (audit round 2 of core-watch, 6), and a
+/// job queued after a miss is not the work it missed. The first of the groups (most misses, then
+/// kind, build and daily, so the same rows give the same text: 16) names the work.
 async fn claims_empty(c: &impl GenericClient, now: &str, open: &[Open], found: &mut Vec<Found>) -> Result<(), String> {
     c.execute("DELETE FROM core.claim_miss WHERE at < $1::text::timestamptz - make_interval(days => $2::float8::int)", &[&now, &MISS_KEEP_DAYS])
         .await
@@ -569,7 +571,8 @@ async fn claims_empty(c: &impl GenericClient, now: &str, open: &[Open], found: &
                     (SELECT count(*) FROM core.claimable_job j WHERE j.kind = m.kind AND j.engine_build = m.engine_build AND (NOT m.daily OR j.priority = 1))
              FROM core.claim_miss m
              WHERE m.at > $1::text::timestamptz - make_interval(secs => $2::float8 * 60) AND m.at <= $1::text::timestamptz
-             GROUP BY m.kind, m.engine_build, m.daily ORDER BY 3 DESC",
+               AND EXISTS (SELECT FROM core.claimable_job j WHERE j.job_id = m.job_id)
+             GROUP BY m.kind, m.engine_build, m.daily ORDER BY 3 DESC, 1, 2, m.daily",
             &[&now, &MISS_WINDOW_MINUTES],
         )
         .await

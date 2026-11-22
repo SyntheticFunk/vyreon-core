@@ -504,7 +504,8 @@ fn dropped_base_clause(base: Option<i64>, day: &str) -> String {
 pub const PUBLISH_LOCK: &str = "SELECT pg_advisory_xact_lock(hashtextextended('vyreon publish', 0))";
 
 /// How many times one claim looks for a claimable row before it answers that there is none while
-/// some is still claimable (C-065): each look after the first is a fresh snapshot.
+/// some no other claim holds is still claimable (C-065): each look after the first is a fresh
+/// snapshot.
 pub const CLAIM_TRIES: i32 = 3;
 
 /// Claims the earliest claimable job of `kind` for the worker's own build, if there is one; a daily
@@ -542,6 +543,8 @@ pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str
     // the row to the outer `AND state = 'QUEUED'`, which dropped it and returned nothing. The view's
     // own `state = 'QUEUED'` is read from the snapshot and is not rechecked.
     let mut tries = 0;
+    // a claimable job no other claim holds, found by the last look and held KEY SHARE since
+    let mut free: Option<i64> = None;
     let job = loop {
         tries += 1;
         let job = tx
@@ -561,32 +564,43 @@ pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str
         if job.is_some() {
             break job;
         }
-        // nothing leased: a row that became claimable after this statement's snapshot (a job queued
-        // again, a claim rolled back) is taken by a fresh statement, a few times at most; work still
-        // claimable after that is kept as a miss for the watch (CLAIMS_EMPTY). Rows other claims hold
-        // locked at this moment count as claimable here (they are leased a moment later), which is
-        // why the watch judges misses only while work is still claimable at its own check.
-        let claimable: i64 = tx
+        // nothing leased (audit round 2 of core-watch, 6 and 8): is a claimable job there that no
+        // other claim holds? A claim holds its row FOR UPDATE, which conflicts with this look's
+        // KEY SHARE, so the look skips exactly the jobs claims in flight are taking (healthy
+        // concurrency: nothing for this claim, and no miss), and finds a job queued after the last
+        // statement's snapshot or released by a claim that rolled back, which the next statement
+        // then takes: the answer "nothing" is true as of the last look. Held KEY SHARE until this
+        // claim ends, the job found is skipped by other claims while this one tries it again.
+        let look = tx
             .query_one(
-                "SELECT count(*) FROM core.claimable_job WHERE kind = $1 AND engine_build = $2 AND next_session IS NOT NULL AND (NOT $3 OR priority = 1)",
+                "WITH free AS (SELECT j.job_id FROM core.job j
+                               WHERE j.state = 'QUEUED'
+                                 AND j.job_id IN (SELECT job_id FROM core.claimable_job WHERE kind = $1 AND engine_build = $2 AND next_session IS NOT NULL)
+                                 AND (NOT $3 OR j.priority = 1)
+                               ORDER BY j.priority DESC, j.first_session, j.job_id LIMIT 1 FOR KEY SHARE SKIP LOCKED)
+                 SELECT (SELECT job_id FROM free),
+                        (SELECT count(*) FROM core.claimable_job WHERE kind = $1 AND engine_build = $2 AND next_session IS NOT NULL AND (NOT $3 OR priority = 1))",
                 &[&kind.name(), &build, &daily_only],
             )
             .await
-            .map_err(db)?
-            .get(0);
-        if claimable == 0 {
+            .map_err(db)?;
+        let (found, claimable): (Option<i64>, i64) = (look.get(0), look.get(1));
+        let Some(found) = found else {
             break None;
-        }
-        if tries >= CLAIM_TRIES {
+        };
+        // a job no other claim held was there before this try too, and still none was leased after
+        // `CLAIM_TRIES` tries: a miss, kept for the watch (CLAIMS_EMPTY) with the job it could not take
+        if free.is_some() && tries >= CLAIM_TRIES {
             tx.execute(
-                "INSERT INTO core.claim_miss (kind, engine_build, worker, daily, claimable) VALUES ($1, $2, $3, $4, $5)",
-                &[&kind.name(), &build, &worker, &daily_only, &claimable],
+                "INSERT INTO core.claim_miss (kind, engine_build, worker, daily, claimable, job_id) VALUES ($1, $2, $3, $4, $5, $6)",
+                &[&kind.name(), &build, &worker, &daily_only, &claimable, &found],
             )
             .await
             .map_err(db)?;
             tx.commit().await.map_err(db)?;
             return Ok(None);
         }
+        free = Some(found);
     };
     let Some(job) = job else {
         return Ok(None);
