@@ -840,11 +840,12 @@ pub async fn cancel(client: &mut Client, jobs: &[i64]) -> Result<u64, String> {
     tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
     let cancelled = cancel_in(&tx, jobs).await?;
     tx.commit().await.map_err(db)?;
-    Ok(cancelled)
+    Ok(cancelled.len() as u64)
 }
 
-/// `cancel` inside the caller's transaction.
-pub(crate) async fn cancel_in(tx: &impl GenericClient, jobs: &[i64]) -> Result<u64, String> {
+/// `cancel` inside the caller's transaction. Returns the jobs it cancelled: those of `jobs` still
+/// unfinished when it ran (one that finished meanwhile is left as it is, and not named).
+pub(crate) async fn cancel_in(tx: &impl GenericClient, jobs: &[i64]) -> Result<Vec<i64>, String> {
     // the leases, then the jobs: the order a worker's call (`held`) and `build::withdraw` take them in
     // (audit 2026-11-22 round 2, core-r2 8: the jobs first, under `retire`, could deadlock with a
     // withdrawal). A live lease is only ever on a LEASED job, which is cancelled below.
@@ -895,7 +896,7 @@ pub(crate) async fn cancel_in(tx: &impl GenericClient, jobs: &[i64]) -> Result<u
             }
         }
     }
-    Ok(cancelled.len() as u64)
+    Ok(cancelled)
 }
 
 /// What `omit` did.

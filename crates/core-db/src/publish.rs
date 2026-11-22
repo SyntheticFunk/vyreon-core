@@ -1008,7 +1008,7 @@ pub struct Retired {
     /// None when previewed: nothing was changed.
     pub retirement_id: Option<i64>,
     pub revisions: Vec<RetiredRevision>,
-    /// The unfinished jobs of the days' builds it cancelled.
+    /// The unfinished jobs of the days' builds it cancelled (as cancelled, not as selected).
     pub cancelled: Vec<i64>,
     /// Later days' history revisions that read a retired day and fall with it (C-037).
     pub fallen: u64,
@@ -1141,10 +1141,12 @@ pub async fn retire(client: &mut Client, reason: &str, dates: &[&str], preview: 
              a later day's history revision published or superseded, or a job scheduled or ended; preview again; nothing was retired"
         ));
     }
+    // the jobs it cancelled are recorded once cancelled (below): a job selected above may finish before
+    // then (its worker needs no publish lock), and is then neither cancelled nor named (core-r2 9)
     let retirement_id: i64 = tx
         .query_one(
-            "INSERT INTO core.retirement (reason, sessions, cancelled) VALUES ($1, $2::text[]::date[], $3) RETURNING retirement_id",
-            &[&reason, &dates, &cancelled],
+            "INSERT INTO core.retirement (reason, sessions, cancelled) VALUES ($1, $2::text[]::date[], '{}') RETURNING retirement_id",
+            &[&reason, &dates],
         )
         .await
         .map_err(q)?
@@ -1159,7 +1161,8 @@ pub async fn retire(client: &mut Client, reason: &str, dates: &[&str], preview: 
     .await
     .map_err(q)?;
     // after the revisions are down, so the cancel finds no published base to leave underived
-    work::cancel_in(&tx, &cancelled).await?;
+    let cancelled = work::cancel_in(&tx, &cancelled).await?;
+    tx.execute("UPDATE core.retirement SET cancelled = $2 WHERE retirement_id = $1", &[&retirement_id, &cancelled]).await.map_err(q)?;
     // what read a retired day: every later history revision (C-037), derived again
     let first = dates[0];
     let fallen: Vec<Fallen> = tx
