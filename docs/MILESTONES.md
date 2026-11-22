@@ -116,7 +116,7 @@ Next:
    2023-01-18..03-07 gap needs a ruling), the FIELD campaign, social posting, CI.
 
 ## Phase-1 launch brief (agreed with the owner 2026-11-21; C-060, C-061)
-**Image cc1d67cf** (build `cc1d67cf+f9676b89ff09`, 1,596 passed; @13 tape sample 256/256 PASS, all
+**Image 914ffed7** (build `914ffed7+7d4e45c05f63`, replacing cc1d67cf 2026-11-22; was `cc1d67cf+f9676b89ff09`, 1,596 passed; @13 tape sample 256/256 PASS, all
 six quote fields compared, bodies identical to @12, run with the phase-1 tape template; replaces
 da3dade4). Core runs `vyreon-core:a60f0fe` (deployed 2026-11-22 ~04:45 UTC: C-061..C-064, migrations to 0041); settings since 2026-11-21
 (before 23:57 UTC): `VYREON_CORE_REFCHECK_FROM=2024-07-09` (C-054; was unset), `VYREON_CORE_INTRINIO_PER_MINUTE=1900` (owner: the account's 2,000 a minute, shared by every
@@ -229,7 +229,14 @@ before scheduling.
 - Engine round 3 running (engine-r2 audit: the D-423 skip reverted to the restart, provider dividend
   listings omit real distributions (P-22, EEM 2023-12-20); FXI two-date adjustment; ACT01 ledger; SPY
   beta count; reference P01 and event window; derive_day ledger; worker error dating).
-- Then: merge `eng-gap`, the engine's full suite, new images,
+- Engine round 3 done; `eng-gap` merged into `worker` (914ffed7, pushed); full suite 1,617 passed, 0
+  failed; reference pytest 160 passed. **Phase-1 image `vyreon-worker:914ffed7`, build
+  914ffed7+7d4e45c05f63** (4,679 slots; same three profile revisions as cc1d67cf), registered and
+  admitted 2026-11-22 03:47 UTC (`cluster-scratch/evidence-914ffed7.json`); every older build (29)
+  withdrawn. Job templates still name cc1d67cf: set the image to 914ffed7 when applying.
+- `days retire --preview` shown to the owner (48 revisions of the 24 days; no job, no later history,
+  nothing derived again; token dd0cba56d5df7a6b).
+- Was: merge `eng-gap`, the engine's full suite, new images,
   register/admit the engine image (check its history profile revision), withdraw the old builds,
   `days retire --preview` to the owner, schedule the whole-range ordered passes, tapes and the test block.
 - **Owner decision (2026-11-22):** the 24 PUBLISHED days of 8 earlier builds (2022-06-06..15 and 16 in
