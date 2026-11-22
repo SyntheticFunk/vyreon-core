@@ -281,7 +281,16 @@ usage vs core's ledger), wall times; then fix what it shows.
    **unresolved, possible wrong numbers: open interest on PAST session 2024-06-10 (84: ARKK, EWZ, JPM,
    PLTR, TSLA, URA; reproduced on the worker: the reference finds D-398 first-session placeholders,
    11-20 per asset, above the 1% gate, while the engine publishes) and CDD-FND01 all-prior counts
-   (11).** OI diagnosis running (`oi-history-2024-06-10.md`).
+   (11).** **OI diagnosed (`oi-history-2024-06-10.md`): the engine is right, no wrong number.** The
+   history path applies D-398 (past sources are prepared with the overlay); the reference keeps D-398
+   first-session rows in D-079/D-175's EOD-credibility test (`chain.py:429-441`), so the provider's
+   positive snapshot figures (EOD and the next session say 0) make EOD "not credible". Engine's gate
+   matches its recorded faults on 681 of 683 marked asset-sessions. Reference fix (tested in memory):
+   leave every unknown-OI row out of the test, mirror D-175 (`tot > 0`, both figures present). New
+   provider fault (2024-06-10, 06-13 snapshots: positive first-session OI, the reverse of P-20):
+   record in PROVIDER_FAULTS.md. Owner ruling asked: take EOD's 0 beside a positive snapshot figure
+   on a first session (amends D-398; Cboe: a series listed today has 0) to restore 06-10's OI on 17
+   more assets. FND01 counts (11) diagnosis next.
 5. **2024-07-10 published 09:50 UTC (~100 min after day 1)**; memory after it 1,617 MiB resident, 212
    MiB after the trim.
 3. **SAI-ACT01 / -INTRADAY withheld MISSING_REQUIRED_INPUT on 62 assets before the option
