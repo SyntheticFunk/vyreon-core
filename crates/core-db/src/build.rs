@@ -104,8 +104,10 @@ pub async fn admit(client: &Client, build: &str, evidence: &Value) -> Result<(),
 pub async fn withdraw(client: &mut Client, build: &str, reason: &str) -> Result<Vec<i64>, String> {
     let tx = client.transaction().await.map_err(db)?;
     tx.execute(crate::work::PUBLISH_LOCK, &[]).await.map_err(db)?;
+    // the clock, not the transaction's start, as a publish and a claim stamp theirs (core-r2 11): taken
+    // after the locks, a lease's end is never before the publish or the grant the withdrawal waited for
     let n = tx
-        .execute("UPDATE core.engine_build SET withdrawn_at = now(), withdrawal = $2 WHERE engine_build = $1 AND admitted_at IS NOT NULL", &[&build, &reason])
+        .execute("UPDATE core.engine_build SET withdrawn_at = clock_timestamp(), withdrawal = $2 WHERE engine_build = $1 AND admitted_at IS NOT NULL", &[&build, &reason])
         .await
         .map_err(db)?;
     if n == 0 {
@@ -114,7 +116,7 @@ pub async fn withdraw(client: &mut Client, build: &str, reason: &str) -> Result<
     // the leases, then their jobs, in two statements: the order of every holder of the publish lock
     let ended: Vec<i64> = tx
         .query(
-            "UPDATE core.lease l SET ended_at = now(), outcome = 'CANCELLED', failure = 'its engine build was withdrawn'
+            "UPDATE core.lease l SET ended_at = clock_timestamp(), outcome = 'CANCELLED', failure = 'its engine build was withdrawn'
              FROM core.job j
              WHERE l.job_id = j.job_id AND j.engine_build = $1 AND l.ended_at IS NULL
              RETURNING l.job_id",
@@ -129,7 +131,7 @@ pub async fn withdraw(client: &mut Client, build: &str, reason: &str) -> Result<
         .query(
             "UPDATE core.job SET state = CASE WHEN next_session IS NULL THEN 'DONE' ELSE 'QUEUED' END,
                                  attempts = GREATEST(attempts - 1, 0),
-                                 finished_at = CASE WHEN next_session IS NULL THEN now() END
+                                 finished_at = CASE WHEN next_session IS NULL THEN clock_timestamp() END
              WHERE job_id = ANY($1) AND state = 'LEASED'
              RETURNING job_id",
             &[&ended],
