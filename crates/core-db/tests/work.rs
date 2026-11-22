@@ -1115,7 +1115,17 @@ async fn a_date_is_omitted_only_when_its_day_failed_for_the_provider() {
     assert_eq!(again.job_id, first.job_id);
     work::fail(&mut client, &again.token, "day 2025-12-10", &test_support::provider_input_hold(days[0]), "log").await.unwrap();
     let pass10 = count(&client, "SELECT job_id FROM core.job WHERE kind = 'ORDERED_PASS' AND first_session = '2025-12-10'").await;
-    let omitted = work::omit(&mut client, PROFILE, days[0], reason).await.unwrap();
+    // audit 2026-11-22 changes-core 12: it waits for a publish in progress (which may publish the
+    // day it is about to omit), then checks
+    let mut other = scratch.client().await;
+    let publishing = other.transaction().await.unwrap();
+    publishing.execute(work::PUBLISH_LOCK, &[]).await.unwrap();
+    let mut omitter = scratch.client().await;
+    let waiting = tokio::spawn(async move { work::omit(&mut omitter, PROFILE, "2025-12-10", reason).await });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert!(!waiting.is_finished(), "omit waits for the publish lock");
+    publishing.rollback().await.unwrap();
+    let omitted = waiting.await.unwrap().unwrap();
     assert_eq!((omitted.day_job, omitted.passes.clone()), (first.job_id, vec![pass10]));
     assert_eq!(omitted.cause, ("PROVIDER_INPUT_MISSING".to_owned(), "412 of 3904 final slots lack a provider input (more than 0.1)".to_owned()));
     assert_eq!((job_state(&client, first.job_id).await, job_state(&client, pass10).await), ("CANCELLED".into(), "CANCELLED".into()));
