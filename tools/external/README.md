@@ -106,7 +106,10 @@ mixed builds is not a correlation panel). This applies to all checks below.
 ### Flag agreement (tranche gate d; declared 2026-11-21, before any phase-1 value exists)
 
 Owner, 2026-11-18: each phase-1 tranche passes this before the next starts, once 63 sessions of
-history exist; definition approved by the owner 2026-11-21. It asks whether our IV30 sees the same
+history exist; definition approved by the owner 2026-11-21. **Panel since 2026-11-21 (C-060,
+before any phase-1 value):** the ordered passes that compute our flags run once, after every block
+(C-046), so this is judged on the whole built store after them (and on any later panel), not per
+tranche; thresholds unchanged. It asks whether our IV30 sees the same
 extremes as Cboe's own index for the same market.
 
 - **Pairs:** the 14 above (VIX/SPY, VXN/QQQ, RVX/IWM, GVZ/GLD, OVX/USO and the nine of 2026-11-18),
@@ -126,14 +129,14 @@ extremes as Cboe's own index for the same market.
   2026-11-18), so the last sessions need a fresh read of Cboe's files before the whole-store gate. The robust-z condition is our own calibration across 64
   securities, so it is not judged here; the full flag's firings on those sessions are reported
   beside the verdict.
-- **Agreement:** per pair over the tranche, (1) of the sessions where the index is extreme, the share
+- **Agreement:** per pair over the panel, (1) of the sessions where the index is extreme, the share
   where our iv30 is extreme in the same direction; (2) the reverse.
 - **Threshold:** both shares at least **0.80**, judged when the pair has at least 10 index-extreme
-  sessions in the tranche (fewer: reported, not judged). VXSLV/SLV and VXFXI/FXI are judged on
+  sessions in the panel (fewer: reported, not judged). VXSLV/SLV and VXFXI/FXI are judged on
   63-session panels only (as their correlation). Reason for 0.80: the indices are not the same
   instrument (SPX vs SPY, and a variance-swap rate vs ATM IV) and extremes can fall a session apart
   at the tenth's edge; a broken flag or a broken iv30 agrees far less often.
-- **Fail:** as every tranche gate: phase 1 stops, the cause is diagnosed and fixed, affected days are
+- **Fail:** as every phase-1 gate: phase 1 stops, the cause is diagnosed and fixed, affected days are
   recomputed; the threshold is not moved after values are seen.
 - **The other 50 securities** have no public independent IV index; their flags are covered by the
   history reference check (`tools/reference` recomputes percentiles, z-scores and flags from the
