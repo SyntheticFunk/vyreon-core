@@ -215,7 +215,14 @@ async fn published_block_at(scratch: &Scratch, test: &str, migrations: usize) ->
     let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
     let (header, scalars, files) = parts(BASE);
     let path = bundle(&format!("archive-{test}"), &header, &scalars, &files);
-    publish_for_lease(&mut client, &path, &block.token).await.unwrap();
+    if migrations == migrate::embedded().unwrap().len() {
+        publish_for_lease(&mut client, &path, &block.token).await.unwrap();
+    } else {
+        // on an older schema the publish of a later one (0044 records the lease that published a
+        // revision) cannot run: the day is published by hand, which the archive's checks take
+        // alike (they read the block's build's published base, not who published it)
+        core_db::publish::publish_file(&mut client, &path).await.unwrap();
+    }
     std::fs::remove_file(&path).unwrap();
     work::day_done(&mut client, &block.token, "2025-12-10").await.unwrap();
     (client, block.token)
