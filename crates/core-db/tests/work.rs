@@ -1069,6 +1069,55 @@ async fn a_day_cancelled_by_hand_holds_no_later_pass_and_one_still_to_come_does(
     scratch.drop().await;
 }
 
+/// Audit 2026-11-22 prebuild (changes-core.md) 6: any block that had ever covered a day made it a
+/// missing date, so under a new build with its passes scheduled for the whole range first (C-046),
+/// an earlier build's retired DONE block or cancelled block let the later passes run before the new
+/// build's block for that day, and run again after it. Only a block of a build that runs makes its
+/// day tried now, and a DONE one only while something of its day is published. The earlier build
+/// published the 10th (since retired) and had the 11th's block cancelled; the new build's passes cover
+/// the 10th to the 12th and its newest tranche, the 12th, is published.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn an_earlier_builds_ended_block_leaves_a_day_still_to_come() {
+    let (scratch, mut client, b, _) = ready("c063_earlier_block").await;
+    admit(&client, &b).await;
+    let days = ["2025-12-10", "2025-12-11", "2025-12-12"];
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[0], days[0], 1).await.unwrap();
+    let old = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &old, days[0]).await;
+    work::finish(&mut client, &old.token).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[1], days[1], 1).await.unwrap();
+    let cancelled = count(&client, "SELECT job_id FROM core.job WHERE kind = 'DAY_BLOCK' AND first_session = '2025-12-11'").await;
+    work::cancel(&mut client, &[cancelled]).await.unwrap();
+    let preview = publish::retire(&mut client, "an earlier build", &[days[0]], true, None).await.unwrap();
+    publish::retire(&mut client, "an earlier build", &[days[0]], false, Some(&preview.token)).await.unwrap();
+
+    let w = whole_build(&mut client).await;
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &w, days[0], days[2], 1).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &w, days[2], days[2], 1).await.unwrap();
+    let newest = work::claim(&mut client, Kind::DayBlock, &w, "w2", HOUR).await.unwrap().unwrap();
+    publish_base_as(&mut client, &w, &newest, days[2]).await;
+    work::finish(&mut client, &newest.token).await.unwrap();
+    // the 10th's only block is DONE with nothing published: still to come, it holds the 12th
+    assert_eq!(claimable_passes(&client).await, "", "a retired day's DONE block is no attempt of the day");
+    // the earlier build withdrawn, its cancelled block of the 11th makes no missing date either
+    build::withdraw(&mut client, &b, "its image is replaced").await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &w, days[0], days[0], 1).await.unwrap();
+    let tenth = work::claim(&mut client, Kind::DayBlock, &w, "w3", HOUR).await.unwrap().unwrap();
+    publish_base_as(&mut client, &w, &tenth, days[0]).await;
+    work::finish(&mut client, &tenth.token).await.unwrap();
+    assert_eq!(run_pass_as(&mut client, &w).await.as_deref(), Some(days[0]));
+    assert_eq!(claimable_passes(&client).await, "", "the 11th's block of a withdrawn build: still to come");
+    // the new build's block of the 11th, cancelled by hand: now a missing date
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &w, days[1], days[1], 1).await.unwrap();
+    let mine = count(&client, &format!("SELECT job_id FROM core.job WHERE kind = 'DAY_BLOCK' AND first_session = '2025-12-11' AND engine_build = '{w}'")).await;
+    work::cancel(&mut client, &[mine]).await.unwrap();
+    assert_eq!(run_pass_as(&mut client, &w).await.as_deref(), Some(days[2]));
+    let runs = count(&client, "SELECT count(*) FROM core.lease JOIN core.job USING (job_id) WHERE kind = 'ORDERED_PASS' AND first_session = '2025-12-12'").await;
+    assert_eq!(runs, 1, "the 12th's pass ran once");
+    scratch.drop().await;
+}
+
 /// C-062: `retire` takes the published days of an earlier build out of what is read, with a reason,
 /// keeping every row. Four real sessions (10th, 11th, 12th, 15th) published by the slice's builds
 /// with their passes done; the earlier build's pass of the 11th scheduled again (unfinished), and a
