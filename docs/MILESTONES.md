@@ -483,10 +483,14 @@ none); KEDA 2.21.1 + login `vyreon_keda`; pools `day` 0..13 and `day-intel` 0..1
 min 0), `day-std` deleted; hand-over 3 (914ffed7 withdrawn, 587 passes to f7b08efe); f7b08efe admitted
 (evidence `cluster-scratch/evidence-f7b08efe.json`); ScaledJobs on f7b08efe, all READY; recompute
 2024-07-09..07-22 scheduled as 2 blocks of 5, queue resumed 22:54 UTC.
-**Blocked on the owner: the backup key is read-only** (list 200, put/delete 403; the archiver logs
-AccessDenied on PutObject). Needs Read/Write/Delete on `vyreon-pg-backup` (control panel), then: WAL
-archive verified in the bucket, first base backup (B8), restore drill (C). WAL is kept in `pg_wal` until
-then; core's watch has BACKUP_STALE open (true) and will open WAL_ARCHIVING.
+**Backups live (2026-11-22):** the key was read-only (put 403); the owner gave it Read/Write/Delete
+23:40 UTC; the archiver cleared its backlog at 23:41 (B7..C3 in `vyreon-pg/wals/`, 0 waiting). First base
+backup `vyreon-pg-ondemand-gl4cq` completed 23:49:33 UTC (8 min, ~9 GB; firstRecoverabilityPoint
+23:49:33). **Restore drill passed** 23:52-23:55 UTC: restored in 2 min 38 s, every month's revisions,
+rows and body-hash digests equal to the source (`cluster-scratch/drill-20261122/`), source unchanged
+during it (no publish in the window, queue not paused); drill cluster and its volume deleted. The
+laptop safety dump `~/claude-artifacts/db-backups/vyreon-20261116T*.dump` may now go, on the owner's
+word.
 
 ## Timeline (owner, 2026-11-22)
 Full build ~11-25..28; a week of derived-layer QC (census, gate d, history reference check, "general
