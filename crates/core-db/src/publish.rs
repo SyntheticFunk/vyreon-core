@@ -79,10 +79,15 @@ fn refuse<T>(message: impl Into<String>) -> Result<T, Error> {
     Err(Error::Refused(message.into()))
 }
 
-/// A database error: data the database will not take (classes 22 and 23) is the bundle's fault.
+/// A database error: data the database will not take (classes 22 and 23) is the bundle's fault,
+/// except a constraint of core's own tables (the queue's, the notices'): the bundle writes only the
+/// store, so such a violation is core's, never a refused bundle that pauses the queue (audit
+/// 2026-11-22 changes-core 1: a pass queued meanwhile hit `job_one_unfinished_pass`).
 fn db(e: tokio_postgres::Error) -> Error {
     let message = e.as_db_error().map_or_else(|| e.to_string(), |d| d.message().to_owned());
+    let core_table = e.as_db_error().is_some_and(|d| d.schema() == Some("core"));
     match e.code().map(|c| &c.code()[..2]) {
+        Some("23") if core_table => Error::Failed(message),
         Some("22" | "23") => Error::Refused(message),
         _ => Error::Failed(message),
     }
