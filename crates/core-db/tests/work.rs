@@ -468,7 +468,9 @@ async fn newest_first_build(client: &mut Client, b: &str, d: &str, sessions: &[S
 /// holds every pass of a range whose passes are all scheduled before its first publish: the
 /// earliest pass waits for the earliest day, which a newest-first build publishes last. So each
 /// pass runs once whether the passes are scheduled at the start or after the blocks; scheduled
-/// with each wave, the later passes run again after every earlier wave (quadratic). Twelve real
+/// with each wave, the later passes run again after every earlier wave (quadratic). It rests on a
+/// day whose block is not scheduled yet holding the later passes (C-062 keeps it so: with only the
+/// published and pending days holding, AtStart measured 18 runs). Twelve real
 /// sessions to 2025-12-12 (the slice's bodies under each date: core's checks never read a body's
 /// date), blocks of three; counts and orders are simulated, no market value.
 #[tokio::test]
@@ -762,6 +764,55 @@ async fn a_failed_day_holds_no_later_pass_and_a_retried_one_holds_them_again() {
     assert_eq!(ran, [days[1], days[2], days[3]]);
     assert_eq!(passes(pass_jobs(&client).await), state(&["DONE", "DONE", "DONE", "DONE"]));
     assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE state = 'PUBLISHED' AND base_revision IS NOT NULL").await, 4);
+    scratch.drop().await;
+}
+
+/// C-062 (the gap the 2026-11-22 triage found in C-061): a day block cancelled by hand, not through
+/// `omit`, left its queued pass holding every later pass. A day is now missing whatever ended its
+/// block (FAILED, CANCELLED, or DONE with nothing published) while no block is pending; a day whose
+/// block has never been scheduled is still to come and holds (C-046), and a day scheduled again holds
+/// again. Blocks of one day on the 9th, 10th, 11th and 15th, passes 9th to 15th (the 12th's block
+/// not scheduled; the 13th and 14th are a weekend).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_day_cancelled_by_hand_holds_no_later_pass_and_one_still_to_come_does() {
+    let (scratch, mut client, b, d) = ready("c062_cancelled_day").await;
+    admit(&client, &b).await;
+    admit(&client, &d).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-09", "2025-12-11", 1).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-15", "2025-12-15", 1).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, "2025-12-09", "2025-12-15", 1).await.unwrap();
+    let tenth: i64 = count(&client, "SELECT job_id FROM core.job WHERE kind = 'DAY_BLOCK' AND first_session = '2025-12-10'").await;
+    assert_eq!(work::cancel(&mut client, &[tenth]).await.unwrap(), 1);
+    for day in ["2025-12-09", "2025-12-11", "2025-12-15"] {
+        let claim = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+        assert_eq!(claim.sessions, [day]);
+        publish_day(&mut client, &claim, day).await;
+        work::finish(&mut client, &claim.token).await.unwrap();
+    }
+    // the 9th, then the 11th past the cancelled 10th, whose queued pass holds nothing
+    assert_eq!(run_pass(&mut client, &d).await.as_deref(), Some("2025-12-09"));
+    assert_eq!(run_pass(&mut client, &d).await.as_deref(), Some("2025-12-11"), "the 10th's block was cancelled by hand: a missing date");
+    assert_eq!(cause(&client, "2025-12-10").await.0, "NOT_SCHEDULED");
+    // the 12th's block was never scheduled: it is still to come and holds the 15th's pass
+    assert_eq!(claimable_passes(&client).await, "", "a day never scheduled holds the later passes");
+    // scheduled and then cancelled by hand, it is missing too
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-12", "2025-12-12", 1).await.unwrap();
+    assert_eq!(claimable_passes(&client).await, "", "a pending day holds them");
+    let twelfth: i64 = count(&client, "SELECT job_id FROM core.job WHERE kind = 'DAY_BLOCK' AND first_session = '2025-12-12'").await;
+    work::cancel(&mut client, &[twelfth]).await.unwrap();
+    assert_eq!(claimable_passes(&client).await, "2025-12-15");
+    // the 10th scheduled again holds them again, as any pending day
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-10", 1).await.unwrap();
+    assert_eq!(claimable_passes(&client).await, "");
+    let claim = work::claim(&mut client, Kind::DayBlock, &b, "w2", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &claim, "2025-12-10").await;
+    work::finish(&mut client, &claim.token).await.unwrap();
+    let mut ran = Vec::new();
+    while let Some(day) = run_pass(&mut client, &d).await {
+        ran.push(day);
+    }
+    assert_eq!(ran, ["2025-12-10", "2025-12-11", "2025-12-15"], "the 11th derived again behind the 10th (C-037)");
     scratch.drop().await;
 }
 
