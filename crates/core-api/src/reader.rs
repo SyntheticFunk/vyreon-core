@@ -22,7 +22,8 @@
 //!     (C-061) `{code, detail}`: NOT_COMPUTED_YET (a day job is queued or running), OMITTED (the
 //!     operator's reason), PROVIDER_INPUT_MISSING (the engine held the day for missing provider
 //!     inputs, with its counts), ENGINE_FAULT (held for engine faults, with its counts), FAILED (the
-//!     stop's first line), NOT_SCHEDULED (no day job is pending or set aside for it);
+//!     stop's first line), RETIRED (its revisions were retired, with the operator's reason, C-062),
+//!     NOT_SCHEDULED (no day job is pending or set aside for it);
 //!   * a member has measurements only on the sessions it is listed (C-036): in an asset's history,
 //!     a published session on which the asset was not listed (before its first listing, after a
 //!     delisting) has the state NOT_LISTED and no revisions. Who was listed is what core recorded

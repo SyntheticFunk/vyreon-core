@@ -174,7 +174,9 @@ pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &st
 async fn passes_in_range(tx: &impl GenericClient, profile: &str, build: &str, first: &str, last: &str) -> Result<(u64, Vec<i64>), String> {
     let rows = tx
         .query(
-            "SELECT job_id, engine_build, state, first_session::text, core.build_runs(engine_build) FROM core.job
+            "SELECT job_id, engine_build, state, first_session::text,
+                    EXISTS (SELECT FROM core.engine_build b WHERE b.engine_build = core.job.engine_build AND b.admitted_at IS NOT NULL AND b.withdrawn_at IS NULL)
+             FROM core.job
              WHERE kind = 'ORDERED_PASS' AND profile_id = $1 AND state IN ('QUEUED', 'LEASED', 'FAILED')
                AND first_session BETWEEN $2::text::date AND $3::text::date
              ORDER BY first_session FOR UPDATE",
@@ -754,7 +756,7 @@ pub async fn cancel(client: &mut Client, jobs: &[i64]) -> Result<u64, String> {
 }
 
 /// `cancel` inside the caller's transaction.
-async fn cancel_in(tx: &impl GenericClient, jobs: &[i64]) -> Result<u64, String> {
+pub(crate) async fn cancel_in(tx: &impl GenericClient, jobs: &[i64]) -> Result<u64, String> {
     let cancelled: Vec<i64> = tx
         .query(
             "UPDATE core.job SET state = 'CANCELLED', finished_at = now() WHERE job_id = ANY($1) AND state IN ('QUEUED', 'LEASED', 'FAILED') RETURNING job_id",

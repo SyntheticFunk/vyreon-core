@@ -24,6 +24,15 @@
 //!                                                     recomputed instead). Records the reason, cancels the failed day job
 //!                                                     and the session's queued ordered pass; the reader API then states
 //!                                                     the session NOT_PUBLISHED with the cause OMITTED and the reason
+//!   vyreon-core days retire [--preview] <reason> <date>...   retire published days of earlier builds (C-062): every
+//!                                                     PUBLISHED revision of each date (base, day-local, history) becomes
+//!                                                     SUPERSEDED, kept, never deleted; the unfinished jobs of the builds
+//!                                                     that published those days are cancelled; later days' history
+//!                                                     revisions that read them fall and their passes are queued again
+//!                                                     (C-037). The reason is recorded (`core.retirement`, the log), and
+//!                                                     the reader states each date NOT_PUBLISHED with the cause RETIRED.
+//!                                                     --preview does it all in a transaction rolled back and prints
+//!                                                     what it would do
 //!   vyreon-core months <first> <last>                 create the store's monthly partitions for a date range
 //!   vyreon-core publish [--vouch] <bundle>...         check, write, read back and publish day bundles, in order.
 //!                                                     A revision computed from a base must name the base revision
@@ -225,6 +234,39 @@ async fn omit(profile: &str, session: &str, reason: &[&str]) -> Result<(), Strin
         jobs => format!("ordered pass {} cancelled", jobs.iter().map(i64::to_string).collect::<Vec<_>>().join(" ")),
     };
     println!("{session} omitted (omission {}): day job {} cancelled ({}: {}); {passes}", done.omission_id, done.day_job, done.cause.0, done.cause.1);
+    Ok(())
+}
+
+/// C-062: `days retire [--preview] <reason> <date>...`; the flag may stand anywhere, any other
+/// `--` word is refused before anything is done.
+fn retire_args<'a>(rest: &[&'a str]) -> Result<(&'a str, Vec<&'a str>, bool), String> {
+    let usage = "days retire [--preview] <reason> <date>...";
+    if let Some(flag) = rest.iter().find(|a| a.starts_with("--") && **a != "--preview") {
+        return Err(format!("days retire: unknown option {flag}; nothing was retired ({usage})"));
+    }
+    let words: Vec<&str> = rest.iter().copied().filter(|a| *a != "--preview").collect();
+    match words.split_first() {
+        Some((reason, dates)) if !dates.is_empty() => Ok((reason, dates.to_vec(), words.len() != rest.len())),
+        _ => Err(format!("days retire: a reason and at least one date; nothing was retired ({usage})")),
+    }
+}
+
+async fn days_retire(rest: &[&str]) -> Result<(), String> {
+    let (reason, dates, preview) = retire_args(rest)?;
+    let r = publish::retire(&mut connect().await?, reason, &dates, preview).await?;
+    for v in &r.revisions {
+        println!("{} revision {} {} {} of build {} ({})", v.date, v.revision_id, v.profile_id, v.profile_revision, v.engine_build, v.kind);
+    }
+    let list = |v: &[String]| if v.is_empty() { "none".to_owned() } else { v.join(" ") };
+    let jobs: Vec<String> = r.cancelled.iter().map(i64::to_string).collect();
+    println!("unfinished jobs cancelled: {}", list(&jobs));
+    println!("later history revisions that read them, superseded: {}", r.fallen);
+    println!("days the ordered pass derives again: {}", list(&r.rederived));
+    println!("days no job derives again: {}", list(&r.unowned));
+    match r.retirement_id {
+        Some(id) => println!("retirement {id}: {} revisions superseded (kept)", r.revisions.len()),
+        None => println!("preview: nothing was changed"),
+    }
     Ok(())
 }
 
@@ -793,6 +835,7 @@ async fn main() -> ExitCode {
         ["tape", "checks"] => tape_checks().await,
         ["queue", ref change @ ..] => queue(change).await,
         ["omit", profile, session, ref reason @ ..] if !reason.is_empty() => omit(profile, session, reason).await,
+        ["days", "retire", ref rest @ ..] => days_retire(rest).await,
         ["api-key", "create", holder, scopes] => match connect().await {
             Ok(client) => core_db::api_key::create(&client, holder, &scopes.split(',').map(str::to_owned).collect::<Vec<_>>()).await.map(|key| println!("{key}")),
             Err(e) => Err(e),
@@ -843,7 +886,7 @@ async fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::{archive_line, publish_args};
+    use super::{archive_line, publish_args, retire_args};
 
     /// Audit 2026-11-17 round w, 18: `archive list` names the endpoint the object is kept at.
     #[test]
@@ -898,6 +941,20 @@ mod tests {
         for bad in [&[][..], &["--vouch"], &["a", "--vuoch", "b"], &["a", "--vouch=yes"]] {
             let refused = publish_args(bad).unwrap_err();
             assert!(refused.contains("nothing was published"), "{refused}");
+        }
+    }
+
+    /// C-062: `days retire` reads its whole line first: `--preview` wherever it stands, the reason
+    /// first, at least one date, and no other option.
+    #[test]
+    fn the_retire_command_line_is_read_whole_before_anything_is_retired() {
+        let reason = "pre-D-397 build";
+        assert_eq!(retire_args(&[reason, "2022-06-06", "2022-06-07"]), Ok((reason, vec!["2022-06-06", "2022-06-07"], false)));
+        assert_eq!(retire_args(&["--preview", reason, "2022-06-06"]), Ok((reason, vec!["2022-06-06"], true)));
+        assert_eq!(retire_args(&[reason, "2022-06-06", "--preview"]), Ok((reason, vec!["2022-06-06"], true)));
+        for bad in [&[][..], &[reason], &["--preview", reason], &[reason, "--force", "2022-06-06"]] {
+            let refused = retire_args(bad).unwrap_err();
+            assert!(refused.contains("nothing was retired"), "{refused}");
         }
     }
 }

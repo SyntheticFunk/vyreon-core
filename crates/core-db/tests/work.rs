@@ -3,7 +3,7 @@
 //! published. Run with `cargo test -- --ignored`.
 use test_support::Scratch;
 use test_support::slice::{BASE, DERIVED, bundle, inventories, parts};
-use core_db::publish::{publish_file, publish_for_lease};
+use core_db::publish::{self, Retired, publish_file, publish_for_lease};
 use core_db::work::{self, Claim, Kind, LeaseError};
 use core_db::{build, migrate, universe, watch};
 use serde_json::{Value, json};
@@ -813,6 +813,88 @@ async fn a_day_cancelled_by_hand_holds_no_later_pass_and_one_still_to_come_does(
         ran.push(day);
     }
     assert_eq!(ran, ["2025-12-10", "2025-12-11", "2025-12-15"], "the 11th derived again behind the 10th (C-037)");
+    scratch.drop().await;
+}
+
+/// C-062: `retire` takes the published days of an earlier build out of what is read, with a reason,
+/// keeping every row. Four real sessions (10th, 11th, 12th, 15th) published by the slice's builds
+/// with their passes done; the earlier build's pass of the 11th scheduled again (unfinished), and a
+/// day block of the new build queued on the 10th. Retiring the 10th and 11th: a preview changes
+/// nothing; then their four revisions are superseded and named, the earlier build's unfinished pass
+/// is cancelled and the new build's block stays, the later history revisions that read them fall and
+/// their passes are queued again (C-037), and the reader states the 11th RETIRED. A retired day is a
+/// missing date for the later passes.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn published_days_of_an_earlier_build_are_retired_kept_and_stated() {
+    let (scratch, mut client, b, d) = ready("c062_retire").await;
+    admit(&client, &b).await;
+    admit(&client, &d).await;
+    let days = ["2025-12-10", "2025-12-11", "2025-12-12", "2025-12-15"];
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[0], days[3], 30).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, days[0], days[3], 1).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    for day in days {
+        publish_base_as(&mut client, &b, &block, day).await;
+    }
+    work::finish(&mut client, &block.token).await.unwrap();
+    while run_pass(&mut client, &d).await.is_some() {}
+    let rerun = work::schedule(&mut client, Kind::OrderedPass, PROFILE, &d, days[1], days[1], 1).await.unwrap();
+    assert_eq!(rerun.jobs, 1);
+    let pass11 = count(&client, "SELECT job_id FROM core.job WHERE kind = 'ORDERED_PASS' AND state = 'QUEUED'").await;
+    let w = whole_build(&mut client).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &w, days[0], days[0], 1).await.unwrap();
+    let block10 = count(&client, &format!("SELECT job_id FROM core.job WHERE kind = 'DAY_BLOCK' AND engine_build = '{w}'")).await;
+    let reason = "published by earlier builds; phase 1 computes them afresh";
+    let revisions_before = count(&client, "SELECT count(*) FROM vyreon.day_revision").await;
+    let notices_before = notices(&client).await.len();
+
+    // refused: no reason, a date that is not a session, a day block of the days' build that also
+    // covers a date not named
+    assert!(publish::retire(&mut client, " ", &[days[1]], true).await.unwrap_err().contains("needs a reason"));
+    assert!(publish::retire(&mut client, reason, &["2025-12-13"], true).await.unwrap_err().contains("2025-12-13 is not a trading session"));
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, days[3], "2025-12-16", 2).await.unwrap();
+    let wide = count(&client, "SELECT job_id FROM core.job WHERE kind = 'DAY_BLOCK' AND last_session = '2025-12-16'").await;
+    let refused = publish::retire(&mut client, reason, &[days[3]], false).await.unwrap_err();
+    assert!(refused.contains(&format!("day block {wide} (2025-12-15 to 2025-12-16) also covers dates not named")), "{refused}");
+    work::cancel(&mut client, &[wide]).await.unwrap();
+
+    // previewed: the report, and nothing changed
+    let preview = publish::retire(&mut client, reason, &[days[1], days[0]], true).await.unwrap();
+    let kinds: Vec<(String, String, String)> = preview.revisions.iter().map(|r| (r.date.clone(), r.engine_build.clone(), r.kind.clone())).collect();
+    let row = |day: &str, build: &str, kind: &str| (day.to_owned(), build.to_owned(), kind.to_owned());
+    assert_eq!(kinds, [row(days[0], &b, "base"), row(days[0], &d, "history"), row(days[1], &b, "base"), row(days[1], &d, "history")]);
+    assert_eq!((preview.retirement_id, preview.cancelled.clone(), preview.fallen), (None, vec![pass11], 2));
+    assert_eq!((preview.rederived.clone(), preview.unowned.clone()), (vec![days[2].to_owned(), days[3].to_owned()], vec![]));
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE state = 'PUBLISHED'").await, 8);
+    assert_eq!((job_state(&client, pass11).await, count(&client, "SELECT count(*) FROM core.retirement").await), ("QUEUED".into(), 0));
+    assert_eq!(notices(&client).await.len(), notices_before, "nothing logged");
+
+    // done: the same, kept and recorded
+    let done = publish::retire(&mut client, reason, &[days[1], days[0]], false).await.unwrap();
+    assert_eq!(Retired { retirement_id: None, ..done.clone() }, preview);
+    let id = done.retirement_id.unwrap();
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision").await, revisions_before, "no row is deleted");
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE state = 'PUBLISHED'").await, 2, "the 12th's and 15th's bases");
+    assert_eq!(count(&client, &format!("SELECT count(*) FROM core.retired_revision WHERE retirement_id = {id}")).await, 4);
+    let kept = client.query_one("SELECT reason, sessions::text, cancelled FROM core.retirement", &[]).await.unwrap();
+    assert_eq!((kept.get::<_, String>(0), kept.get::<_, String>(1), kept.get::<_, Vec<i64>>(2)), (reason.to_owned(), "{2025-12-10,2025-12-11}".to_owned(), vec![pass11]));
+    assert_eq!((job_state(&client, pass11).await, job_state(&client, block10).await), ("CANCELLED".into(), "QUEUED".into()), "the new build's block stays");
+    let said = notices(&client).await;
+    assert!(said.iter().any(|n| n == "Retired 2 dates, 2025-12-10 to 2025-12-11: 2 revisions that read them are superseded; the ordered pass derives 2 days again, 2025-12-12 to 2025-12-15"), "{said:?}");
+    assert_eq!(said.last().unwrap(), &format!("Retirement {id}: 4 published revisions of 2 dates, 2025-12-10 to 2025-12-11 superseded (kept), jobs {pass11} cancelled: {reason}."));
+    assert_eq!(cause(&client, days[1]).await, ("RETIRED".into(), reason.into()));
+    assert_eq!(cause(&client, days[0]).await.0, "NOT_COMPUTED_YET", "the new build's block will compute it");
+    assert!(publish::retire(&mut client, reason, &[days[1]], true).await.unwrap_err().contains("nothing is published on 2025-12-11"));
+
+    // the later passes wait for the new build's pending day, then run past the two missing dates
+    assert_eq!(claimable_passes(&client).await, "");
+    work::cancel(&mut client, &[block10]).await.unwrap();
+    let mut ran = Vec::new();
+    while let Some(day) = run_pass(&mut client, &d).await {
+        ran.push(day);
+    }
+    assert_eq!(ran, [days[2], days[3]]);
     scratch.drop().await;
 }
 
