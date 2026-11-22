@@ -473,6 +473,21 @@ registered 2026-11-22 15:25 MT: **the build for the hand-over** (acbf297c regist
 $0.167/h, same as `day`), autoscale 0..13; delete the empty `day-std` (its `s-8vcpu-16gb` is no longer
 offered in nyc1: it could create no node). On branch `core-ops` (de64136). Done in the rollout.
 
+## Rollout (2026-11-22, 22:35-22:55 UTC; runbook `deploy/k8s/README.md`)
+Test block ended 22:34 UTC (10 days; 10 passes; node deleted; refcheck 07-22 426 = 396 + AVGO's D-161
+part, as the triage predicted). Done: core-ops merged (4eda341); volume 250 GiB online (246G, 9 GB used);
+`pg_monitor`, `vyreon_scaler`; cert-manager v1.21.3 + Barman plugin v0.16.0; Secret, ObjectStore, weekly
+schedule; Postgres restarted with the WAL archiver (queue paused, ~3 min); core 4eda341 deployed
+(migrations 0042-0051; **fix 60a048c: core's pod names the pull secret**, its own ServiceAccount had
+none); KEDA 2.21.1 + login `vyreon_keda`; pools `day` 0..13 and `day-intel` 0..13 autoscaled (DO accepted
+min 0), `day-std` deleted; hand-over 3 (914ffed7 withdrawn, 587 passes to f7b08efe); f7b08efe admitted
+(evidence `cluster-scratch/evidence-f7b08efe.json`); ScaledJobs on f7b08efe, all READY; recompute
+2024-07-09..07-22 scheduled as 2 blocks of 5, queue resumed 22:54 UTC.
+**Blocked on the owner: the backup key is read-only** (list 200, put/delete 403; the archiver logs
+AccessDenied on PutObject). Needs Read/Write/Delete on `vyreon-pg-backup` (control panel), then: WAL
+archive verified in the bucket, first base backup (B8), restore drill (C). WAL is kept in `pg_wal` until
+then; core's watch has BACKUP_STALE open (true) and will open WAL_ARCHIVING.
+
 ## Timeline (owner, 2026-11-22)
 Full build ~11-25..28; a week of derived-layer QC (census, gate d, history reference check, "general
 shenanigans", possibly a derived recompute) to ~12-05; a week of Reporter + web integration to ~12-12;
