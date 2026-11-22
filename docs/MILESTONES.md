@@ -320,6 +320,12 @@ IBIT/WMT/ARKK chain owners 150 → 25 (all IBIT V02, gone with D-429), IBIT opti
 reason before 2024-11-26 stands (D-237: deliberate). Owner decisions: NVDA's challenge list (D), BABA's
 same-day dividends (I), first-session EOD zero (D-398), a young asset shown SPY's own return (C).
 Loose end: the worker leaves `<defunct>` refcheck python processes (harmless, unreaped).
+**eng-tb audit round 1 (14 findings + suspicion, all real) fixed: f06ed094** (D-432 bridge availability =
+the comparative's filing, a look-ahead closed; D-433 date-only insider acceptance from the next session;
+D-434 daily claim keeps sent/unsent; D-435 FIELD-SYNC01 all-64 eligibility; D-436 reference OI and
+empty-delivery rules; LLY FY2022 Q2 capex $371.0m). Real-data re-check not finished (pod load ~30):
+the proof is step 6, the new image recomputing the test-block days with gate a judging them. Round-2
+audit (narrow) running.
 
 5. **2024-07-10 published 09:50 UTC (~100 min after day 1)**; memory after it 1,617 MiB resident, 212
    MiB after the trim.
