@@ -925,17 +925,19 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
     if retried > 0 {
         lines.push(format!("Attempts retried in the last 24 hours: {retried}"));
     }
-    // C-061: each day set aside (its day job FAILED, nothing published) and each date omitted in the
-    // last 24 hours, with its cause code, so a provider day reads at a glance
+    // C-061: each day set aside (its day job FAILED, the day not published: no base, or no day-local
+    // revision on it) and each date omitted in the last 24 hours, with its cause code, so a provider
+    // day reads at a glance
     let missing = c
         .query(
             &format!(
-                "SELECT s.session, {d}, 'Set aside', c->>'code', c->>'detail'
+                "SELECT s.session, {d}, 'Set aside', c->>'code',
+                        COALESCE('base revision ' || core.base_without_day_local(s.session, j.profile_id) || ' published, no day-local revision on it; ', '')
+                            || (c->>'detail')
                  FROM core.job j JOIN core.session s ON s.session BETWEEN j.first_session AND j.last_session
                  CROSS JOIN LATERAL core.job_failure_cause(j.job_id) AS c
                  WHERE j.kind = 'DAY_BLOCK' AND j.profile_id = $2 AND j.state = 'FAILED'
-                   AND NOT EXISTS (SELECT FROM vyreon.day_revision r WHERE r.represented_date = s.session AND r.profile_id = j.profile_id
-                                     AND r.state = 'PUBLISHED' AND r.base_revision IS NULL)
+                   AND NOT core.day_published(s.session, j.profile_id)
                  UNION ALL
                  SELECT o.session, {o}, 'Omitted', 'OMITTED (' || (core.job_failure_cause(o.job_id)->>'code') || ')', o.reason
                  FROM core.omitted_session o

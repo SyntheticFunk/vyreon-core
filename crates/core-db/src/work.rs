@@ -373,7 +373,10 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
     if kind == "ORDERED_PASS" {
         // the later days' passes wait on this one by themselves (`core.claimable_job`); the day
         // blocks do not read it, and a pass is seconds to run again once its cause is fixed
-        notice::log(db_client, &format!("Ordered pass failed for the last time (job {job}): {why}. Later passes wait for it; the day blocks go on.")).await?;
+        let day: String = db_client.query_one("SELECT first_session::text FROM core.job WHERE job_id = $1", &[&job]).await.map_err(db)?.get(0);
+        let local = missing_day_local(db_client, job, &day).await?;
+        let wait = if local.is_empty() { "Later passes wait for it; the day blocks go on" } else { "The day blocks go on" };
+        notice::log(db_client, &format!("Ordered pass failed for the last time (job {job}): {why}{local}. {wait}.")).await?;
         return Ok(false);
     }
     if kind != "DAY_BLOCK" {
@@ -408,13 +411,31 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         .map_err(db)?
         .get(0);
     let failed: i64 = db_client.query_one("SELECT count(*) FROM core.job WHERE kind = 'DAY_BLOCK' AND state = 'FAILED'", &[]).await.map_err(db)?.get(0);
+    let local = missing_day_local(db_client, job, &day).await?;
     if failed >= FAILED_DAYS_PAUSE {
-        pause(db_client, &format!("{failed} days stand failed; the last, job {job} ({day}): {why}")).await?;
+        pause(db_client, &format!("{failed} days stand failed; the last, job {job} ({day}): {why}{local}")).await?;
     } else {
         let after = if rest == 1 { "; the rest of its block is queued again" } else { "" };
-        notice::log(db_client, &format!("Day {day} failed for the last time and is set aside (job {job}): {why}{after}. The build goes on.")).await?;
+        notice::log(db_client, &format!("Day {day} failed for the last time and is set aside (job {job}): {why}{after}{local}. The build goes on.")).await?;
     }
     Ok(false)
+}
+
+/// C-061 amended (audit 2026-11-22 changes-core 2): when the job's day has its base published but
+/// no day-local revision on it, the clause that says so (the ordered pass refuses such a day, so it
+/// is a missing day for the passes); else empty.
+async fn missing_day_local(db_client: &impl GenericClient, job: i64, day: &str) -> Result<String, String> {
+    let base: Option<i64> = db_client
+        .query_one("SELECT core.base_without_day_local($2::text::date, (SELECT profile_id FROM core.job WHERE job_id = $1))", &[&job, &day])
+        .await
+        .map_err(db)?
+        .get(0);
+    Ok(base.map_or_else(String::new, |b| {
+        format!(
+            "; its base revision {b} is published but no day-local derived revision on it: the ordered passes read {day} as missing \
+             (`vyreon-core queue retry-failed` computes the day again)"
+        )
+    }))
 }
 
 /// Taken by every publish before any row lock, and by the claim of an ordered pass: a pass is then
