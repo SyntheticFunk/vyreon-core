@@ -35,7 +35,7 @@ use std::path::Path;
 use tokio::sync::mpsc::{Receiver, channel};
 use tokio_postgres::types::ToSql;
 use crate::work::{self, LeaseError};
-use tokio_postgres::{Client, Transaction};
+use tokio_postgres::{Client, GenericClient, Transaction};
 
 /// What a publish stored.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -792,7 +792,7 @@ struct Trigger<'a> {
 }
 
 /// Returns (the days whose pass is queued or stopped and queued, the days no job derives again).
-async fn rederive(tx: &Transaction<'_>, by: &Trigger<'_>, same_day: bool, fallen: &[Fallen], lease: Option<&work::Held>) -> Result<(Vec<String>, Vec<String>), Error> {
+async fn rederive(tx: &impl GenericClient, by: &Trigger<'_>, same_day: bool, fallen: &[Fallen], lease: Option<&work::Held>) -> Result<(Vec<String>, Vec<String>), Error> {
     let date = by.date;
     // whether a job's build runs (`core.build_runs`, written out: a publish also runs on a database
     // brought to an older migration in the tests)
@@ -935,6 +935,49 @@ async fn rederive(tx: &Transaction<'_>, by: &Trigger<'_>, same_day: bool, fallen
     // what no job derives again needs the owner: a problem until each day has its job (C-050)
     crate::watch::not_derived(tx, &unowned, by.cause).await.map_err(Error::Failed)?;
     Ok((rerun, orphans))
+}
+
+/// C-063 amended (audit 2026-11-22 prebuild round 2, core-r2 1): when day block `job` ends for good
+/// on `day` (set aside FAILED, or cancelled) with the day's base PUBLISHED and no day-local revision
+/// published on it, the base is superseded and recorded (`core.dropped_base`), and what read it falls
+/// and is derived again (C-037, `rederive`, no publishing build). The engine's ordered pass reads every
+/// published base, so a base left so would feed later days' history while core calls its day missing;
+/// superseded, the day is missing everywhere. A later attempt publishes the day afresh: its base is a
+/// new revision and its day-local revision binds to it. Call it under the publish lock. Returns the
+/// base it superseded.
+pub(crate) async fn drop_base_without_day_local(tx: &impl GenericClient, job: i64, day: &str, profile: &str) -> Result<Option<i64>, String> {
+    let q = |e: tokio_postgres::Error| db(e).to_string();
+    let Some(base) = tx.query_one("SELECT core.base_without_day_local($1::text::date, $2)", &[&day, &profile]).await.map_err(q)?.get::<_, Option<i64>>(0) else {
+        return Ok(None);
+    };
+    tx.execute("UPDATE vyreon.day_revision SET state = 'SUPERSEDED' WHERE revision_id = $1 AND state = 'PUBLISHED'", &[&base]).await.map_err(q)?;
+    tx.execute(
+        "INSERT INTO core.dropped_base (revision_id, job_id, represented_date, profile_id) VALUES ($1, $2, $3::text::date, $4)",
+        &[&base, &job, &day, &profile],
+    )
+    .await
+    .map_err(q)?;
+    // what read it: a revision of the day computed on a base, and every later day's history revision
+    let fallen: Vec<Fallen> = tx
+        .query(
+            "UPDATE vyreon.day_revision SET state = 'SUPERSEDED'
+             WHERE state = 'PUBLISHED' AND base_revision IS NOT NULL
+               AND ((represented_date > $1::text::date AND NOT day_local) OR represented_date = $1::text::date)
+             RETURNING represented_date::text, profile_id, engine_build, day_local, profile_revision",
+            &[&day],
+        )
+        .await
+        .map_err(q)?
+        .iter()
+        .map(|r| Fallen { day: r.get(0), profile_id: r.get(1), engine_build: r.get(2), day_local: r.get(3), profile_revision: r.get(4) })
+        .collect();
+    let what = format!(
+        "Day {day}'s base revision {base} superseded: its day block (job {job}) ended without a day-local revision on it; {} revisions that read it are superseded",
+        fallen.len()
+    );
+    let by = Trigger { date: day, what, publisher: None, cause: "A day set aside without its day-local revision left" };
+    rederive(tx, &by, true, &fallen, None).await.map_err(|e| e.to_string())?;
+    Ok(Some(base))
 }
 
 /// One revision a retirement takes down.

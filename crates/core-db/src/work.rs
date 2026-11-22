@@ -315,6 +315,9 @@ pub async fn sweep(client: &mut Client) -> Result<u64, String> {
 /// ended meanwhile.
 async fn expire(client: &mut Client, lease: i64) -> Result<bool, String> {
     let tx = client.transaction().await.map_err(db)?;
+    // a day set aside may take down its base and what read it (`requeue`): the publish lock first,
+    // before any row lock, as a publish takes it
+    tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
     let Some(row) = tx
         .query_opt(
             "UPDATE core.lease SET ended_at = now(), outcome = 'EXPIRED', failure = 'the lease was not renewed'
@@ -443,13 +446,15 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         )
         .await
         .map_err(db)?;
-    let day: String = db_client
-        .query_one("UPDATE core.job SET first_session = next_session, last_session = next_session WHERE job_id = $1 RETURNING next_session::text", &[&job])
+    let row = db_client
+        .query_one("UPDATE core.job SET first_session = next_session, last_session = next_session WHERE job_id = $1 RETURNING next_session::text, profile_id", &[&job])
         .await
-        .map_err(db)?
-        .get(0);
+        .map_err(db)?;
+    let (day, profile): (String, String) = (row.get(0), row.get(1));
     let failed: i64 = db_client.query_one("SELECT count(*) FROM core.job WHERE kind = 'DAY_BLOCK' AND state = 'FAILED'", &[]).await.map_err(db)?.get(0);
-    let local = missing_day_local(db_client, job, &day).await?;
+    // audit 2026-11-22 round 2 core-r2 1: a base its day-local revision never joined is superseded, so
+    // no later day's history reads the day this block leaves missing
+    let local = dropped_base_clause(crate::publish::drop_base_without_day_local(db_client, job, &day, &profile).await?, &day);
     if failed >= FAILED_DAYS_PAUSE {
         pause(db_client, &format!("{failed} days stand failed; the last, job {job} ({day}): {why}{local}")).await?;
     } else {
@@ -474,6 +479,16 @@ async fn missing_day_local(db_client: &impl GenericClient, job: i64, day: &str) 
              (`vyreon-core queue retry-failed` computes the day again)"
         )
     }))
+}
+
+/// The clause a notice gives a base `drop_base_without_day_local` superseded; else empty.
+fn dropped_base_clause(base: Option<i64>, day: &str) -> String {
+    base.map_or_else(String::new, |b| {
+        format!(
+            "; its base revision {b} was published but no day-local derived revision on it: the base is superseded, so no later day's \
+             history reads {day} (a missing date everywhere; `vyreon-core queue retry-failed` computes the day again)"
+        )
+    })
 }
 
 /// Taken by every publish before any row lock, and by the claim of an ordered pass: a pass is then
@@ -739,6 +754,8 @@ pub async fn fail(client: &mut Client, token: &str, stage: &str, message: &str, 
     // stored, logged or printed: the text is withheld whole
     let (stage, message, log) = (&scrubbed(stage), &scrubbed(message), &scrubbed(log));
     let tx = client.transaction().await.map_err(failed)?;
+    // before the lease's row, as a publish takes it: a day set aside may take down its base (`requeue`)
+    tx.execute(PUBLISH_LOCK, &[]).await.map_err(failed)?;
     let lease = held(&tx, token).await?;
     tx.execute(
         "UPDATE core.lease SET ended_at = now(), outcome = 'FAILED', failed_stage = $2, failure = $3, failure_log = $4 WHERE lease_id = $1",
@@ -812,6 +829,8 @@ pub async fn retry_failed(db_client: &impl GenericClient) -> Result<u64, String>
 /// x, 2: a repair a republish queued, then cancelled). Returns how many jobs were cancelled.
 pub async fn cancel(client: &mut Client, jobs: &[i64]) -> Result<u64, String> {
     let tx = client.transaction().await.map_err(db)?;
+    // a cancelled day block may take down its day's base (`cancel_in`): the publish lock first
+    tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
     let cancelled = cancel_in(&tx, jobs).await?;
     tx.commit().await.map_err(db)?;
     Ok(cancelled)
@@ -819,16 +838,15 @@ pub async fn cancel(client: &mut Client, jobs: &[i64]) -> Result<u64, String> {
 
 /// `cancel` inside the caller's transaction.
 pub(crate) async fn cancel_in(tx: &impl GenericClient, jobs: &[i64]) -> Result<u64, String> {
-    let cancelled: Vec<i64> = tx
+    let rows = tx
         .query(
-            "UPDATE core.job SET state = 'CANCELLED', finished_at = now() WHERE job_id = ANY($1) AND state IN ('QUEUED', 'LEASED', 'FAILED') RETURNING job_id",
+            "UPDATE core.job SET state = 'CANCELLED', finished_at = now() WHERE job_id = ANY($1) AND state IN ('QUEUED', 'LEASED', 'FAILED')
+             RETURNING job_id, kind, next_session::text, profile_id",
             &[&jobs],
         )
         .await
-        .map_err(db)?
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
+        .map_err(db)?;
+    let cancelled: Vec<i64> = rows.iter().map(|r| r.get(0)).collect();
     tx.execute(
         "UPDATE core.lease SET ended_at = now(), outcome = 'CANCELLED', failure = 'the job was cancelled' WHERE job_id = ANY($1) AND ended_at IS NULL",
         &[&jobs],
@@ -855,6 +873,17 @@ pub(crate) async fn cancel_in(tx: &impl GenericClient, jobs: &[i64]) -> Result<u
     for profile in absent.iter().map(|(_, p, _)| p.clone()).collect::<std::collections::BTreeSet<String>>() {
         let days: Vec<(String, String, bool)> = absent.iter().filter(|(_, p, _)| *p == profile).cloned().collect();
         crate::watch::not_derived(tx, &days, "Cancelling their ordered pass left").await?;
+    }
+    // a day block cancelled on a day whose base it published without the day-local revision: the base
+    // is superseded, as when a block is set aside (audit 2026-11-22 round 2 core-r2 1)
+    for r in rows.iter().filter(|r| r.get::<_, String>(1) == "DAY_BLOCK") {
+        let (job, day, profile): (i64, Option<String>, String) = (r.get(0), r.get(2), r.get(3));
+        if let Some(day) = day {
+            let local = dropped_base_clause(crate::publish::drop_base_without_day_local(tx, job, &day, &profile).await?, &day);
+            if !local.is_empty() {
+                notice::log(tx, &format!("Day block job {job} cancelled on {day}{local}.")).await?;
+            }
+        }
     }
     Ok(cancelled.len() as u64)
 }
