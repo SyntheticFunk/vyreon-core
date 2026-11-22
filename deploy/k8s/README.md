@@ -374,7 +374,7 @@ https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md; 
 publishes no default; the cluster's `cluster_autoscaler_configuration.scale_down_unneeded_time` can
 set it, `PUT /v2/kubernetes/clusters/{id}`).
 
-**Pool `day-intel`, the Intel fallback (C-068; owner 2026-11-22: Basic Intel `s-8vcpu-16gb-intel`, $0.167/h like `day`, autoscale 0..13; the old `day-intel` pool's `s-8vcpu-16gb` is no longer offered in nyc1 and could create no node, so it is deleted).** nyc1 has refused
+**Pool `day-intel`, the Intel fallback (C-068; owner 2026-11-22: Basic Intel `s-8vcpu-16gb-intel`, $0.167/h like `day`, autoscale 0..13; the old `day-std` pool's `s-8vcpu-16gb` is no longer offered in nyc1 and could create no node, so it is deleted).** nyc1 has refused
 AMD capacity (MILESTONES "Layout"). Every worker pod now allows pool `day-intel` (Intel
 `s-8vcpu-16gb`, same label and taint) and prefers `day` (node affinity, `50-keda.yaml`). The
 scheduler places a pod on an existing `day` node first; when no node fits, the autoscaler grows a
