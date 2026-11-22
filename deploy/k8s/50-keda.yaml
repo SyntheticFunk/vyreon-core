@@ -59,20 +59,23 @@
 #   ordered-pass       1  date order (C-046): one pass at a time; the claim holds every later pass
 #                         behind an unfinished one anyway
 # Pool `day` max_nodes = 13 (12 day blocks + the daily one): the hard cost cap, 13 x $0.167 an
-# hour = $2.17 an hour at most. Pool `day-std` (the Intel fallback, C-068) autoscaled 0..N: the
-# nodes follow the pods, and the pods KEDA's caps (a block waits for every earlier tape, so blocks
-# and tapes do not fill nodes at once), so in a build the two pools hold about 13 between them; the
-# pools' maxima are the cost cap only if KEDA's caps failed: 13 + N then (README "Workers from the
-# queue", 3; N is the owner's). A day-block pod beyond the pool's nodes waits Pending, holding
+# hour = $2.17 an hour at most. Pool `day-std` (the Intel fallback, C-068) autoscaled 0..N. The nodes
+# follow the pods and the pods KEDA's caps: 12 + 1 blocks on a node each, 24 tapes three a node (a
+# tape does not fit beside a block), passes beside blocks: up to 21 nodes if tapes of later dates run
+# while 12 earlier blocks do (round 2, 18), so the pools' maxima (13 + N) are the cap that binds; in
+# a newest-first build blocks wait for every earlier tape and the two rarely overlap. README
+# "Workers from the queue", 3; N is the owner's. A day-block pod beyond the pool's nodes waits Pending, holding
 # nothing (it has not claimed); keep max_nodes >= day-block + day-block-daily.
 ---
-# C-068 (audit opsurface ops.md 6): the daily session's block is never left without a node. The pool's
-# 13 nodes hold at most 12 backfill blocks, but tapes (2 CPUs) and passes (1 CPU) may take the 13th
-# node's room, and a block needs 6 CPUs; a cap alone reserves a Job slot, not CPUs. So the daily
-# block outranks everything and may preempt (the scheduler evicts the lowest-priority pods on one
-# node to fit it): a tape or a pass first (priority 0: minutes of work, their leases expire and the
-# job is claimed again, the attempt free, C-035 amended), a backfill block only if no node holds
-# anything lower (a node stockout). Backfill blocks preempt nothing (`Never`): they wait for a node.
+# C-068 (audit opsurface ops.md 6; round 2, 10): the daily session's block is never left without a
+# node, and never takes one from a backfill block. The pool's 13 nodes hold at most 12 backfill
+# blocks, but tapes (2 CPUs) and passes (1 CPU) may take the 13th node's room, and a block needs 6
+# CPUs; a cap alone reserves a Job slot, not CPUs. So the daily block outranks tapes and passes and
+# may preempt them (priority 0: minutes of work, their leases expire and the job is claimed again,
+# the attempt free, C-035 amended). Backfill blocks carry the SAME value (1000), so the scheduler can
+# never evict one for the daily block (preemption takes only lower priorities): where evicting tapes
+# or passes does not make room, the daily pod waits Pending and the autoscaler adds a node. Backfill
+# blocks preempt nothing (`Never`): they wait for a node.
 apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
@@ -86,10 +89,10 @@ apiVersion: scheduling.k8s.io/v1
 kind: PriorityClass
 metadata:
   name: vyreon-backfill-block
-value: 100
+value: 1000
 preemptionPolicy: Never
 globalDefault: false
-description: "Vyreon: a backfill day block; above tapes and passes, preempts nothing (C-068)"
+description: "Vyreon: a backfill day block; level with the daily block (never evicted for it), preempts nothing (C-068)"
 ---
 # The trigger's database password. A namespaced TriggerAuthentication reads its Secret from its own
 # namespace (KEDA 2.21 `resolver.getTriggerAuthSpec`: `TriggerAuthentication` -> the ScaledJob's
@@ -456,12 +459,15 @@ spec:
               - {name: VYREON_CORE_PG_RO_FILE, value: /secrets/ordered-pass-pg}
               - name: VYREON_WORKER_NAME
                 valueFrom: {fieldRef: {fieldPath: metadata.name}}
-            # the limit (C-068): a pass beside a day block (14Gi limit on a 13.3 GiB node) is
-            # killed by its own limit, never the block by the node's OOM killer; 6Gi is 6 times the
-            # ~1 GB estimated at the full range (MILESTONES), until measured (README "The caps")
+            # memory request = limit (C-068 round 2, suspicion 20): the scheduler reserves what the
+            # pass may use, so a pass and a block (10Gi request) fit the node's 13.3 GiB allocatable
+            # together, and under memory pressure the kubelet evicts pods above their requests first
+            # (the pass never is). 3Gi is three times the ~1 GB estimated at the full range
+            # (MILESTONES), until measured (README "The caps"); raised, it must stay <= 3.2Gi to sit
+            # beside a block, else passes take a node of their own
             resources:
-              requests: {cpu: "1", memory: 2Gi}
-              limits: {memory: 6Gi}
+              requests: {cpu: "1", memory: 3Gi}
+              limits: {memory: 3Gi}
             volumeMounts:
               - {name: work, mountPath: /work}
               - {name: secrets, mountPath: /secrets, readOnly: true}

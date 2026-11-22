@@ -32,7 +32,7 @@ if d.get('paused'): print('!! queue PAUSED:', d.get('pause_reason'))
 print('claimable:', d.get('claimable'), ' live leases:', d.get('live_leases'))
 for j in d['jobs']:
     if j['state'] in ('QUEUED','LEASED','FAILED'):
-        print(('!! ' if j['state']=='FAILED' else '   ') + f\"{j['kind']:13} {j['state']:7} {j['jobs']:4} jobs {j['first']}..{j['last']}\")" 2>/dev/null || echo "!! queue: unreadable (core not reachable)"
+        print(('!! ' if j['state']=='FAILED' else '   ') + f\"{j['kind']:13} {j['state']:7} {j['jobs']:4} jobs {j['first']}..{j['last']} build {str(j.get('build'))[:16]}\")" 2>/dev/null || echo "!! queue: unreadable (core not reachable)"
 
 # jobs of the admitted build(s), done today vs pods that finished
 sql "SELECT kind, state, count(*) FROM core.job j JOIN core.engine_build b USING (engine_build)
@@ -66,10 +66,15 @@ done
 
 # nodes: worker nodes with no worker pod are idle and billing
 BUSY=$(kubectl -n $NS get pods -l app=vyreon-worker -o wide --no-headers 2>/dev/null | grep -E "Running|Pending|ContainerCreating" | awk '{print $7}' | sort -u)
-for n in $(kubectl get nodes --no-headers 2>/dev/null | awk '$1 ~ /^day/ {print $1}'); do
-  echo "$BUSY" | grep -qx "$n" || echo "!! idle node $n (no worker pod): delete-idle.sh"
-done
-echo "   nodes: $(kubectl get nodes --no-headers 2>/dev/null | awk '$1 ~ /^day/' | wc -l) worker, $(kubectl get nodes --no-headers 2>/dev/null | awk '$1 !~ /^day/' | wc -l) other"
+# C-068 round 2 (round2-core.md 19): a node list that cannot be read is said, never "0 nodes"
+if NODES=$(kubectl get nodes --no-headers 2>&1); then
+  for n in $(echo "$NODES" | awk '$1 ~ /^day/ {print $1}'); do
+    echo "$BUSY" | grep -qx "$n" || echo "!! idle node $n (no worker pod): delete-idle.sh"
+  done
+  echo "   nodes: $(echo "$NODES" | awk 'NF && $1 ~ /^day/' | wc -l) worker, $(echo "$NODES" | awk 'NF && $1 !~ /^day/' | wc -l) other"
+else
+  echo "!! nodes: unreadable ($(echo "$NODES" | tail -1 | cut -c1-120)): how many run, and bill, is not known here; DigitalOcean's panel says"
+fi
 
 # stall: claimable work and no lease for a while
 sql "SELECT CASE WHEN EXISTS (SELECT FROM core.claimable_job) AND NOT EXISTS (SELECT FROM core.lease WHERE outcome IS NULL)

@@ -2599,4 +2599,35 @@ owner from the runbooks. Every real finding fixed; finding 14 is the engine's. M
   released, its full size if not) and states "at most" for a minute as its and the previous minute's
   leases: a lease's requests are made within 35 s of its grant. Test
   `the_ledger_shows_the_grants_never_released`.
+- **4: `delete-idle.sh` never deletes a node with a worker pod still to finish, and when in doubt
+  deletes nothing.** A node is a candidate only if this kubeconfig's cluster shows it with the droplet
+  id DigitalOcean records for it (another cluster's kubeconfig matches none: nothing deleted, exit 1).
+  A candidate is cordoned before its pods are listed again, so no worker can be scheduled onto it
+  between the check and the deletion; a pod not finished, or a listing that fails, uncordons it and
+  leaves it; drain is skipped only with no worker pod at all. Checked with stand-in `kubectl` and
+  DigitalOcean answers (a running pod, a finished one, none, a young node, a pod arriving at the
+  cordon, another cluster's node list), not on the account.
+- **19: `health.sh` says when the node list cannot be read**, never "0 worker, 0 other".
+- **8: the recompute's command names the build the ScaledJobs run** (README "Workers from the queue"
+  10), and `vyreon-core queue` lists jobs by kind, state **and build** (`work::status`), so who owns
+  what is checked before KEDA is expected to start anything.
+- **5 and 12: recovery.** A schedule made after the last archived WAL is lost without trace in the
+  store: D5 compares `vyreon-core queue` (by build) with the schedules MILESTONES records and makes
+  again what is missing. `ops/recover-production.yaml` takes the new Cluster's name and the lost
+  server's on the command line (placeholders), and D repoints from the current names, so a second
+  loss recovers from the current server's history, not the first one's.
+- **10: the daily block never evicts a backfill block.** `vyreon-backfill-block` now has the daily
+  class's value (1000) and preempts nothing; preemption takes only lower priorities, so the daily
+  pod evicts tapes or passes where that makes room and otherwise waits for the autoscaler's node.
+  In a stockout it waits (the deadline alert says so); the 6-CPU argument for a class over a cap of
+  11 stands.
+- **18: the cost bound is the pools' maxima.** With every cap working, tapes of later dates beside
+  12 earlier blocks can hold up to 21 nodes (a tape does not fit beside a block), so README states
+  `day` 13 plus `day-std`'s maximum as the cap that binds (13: $4.34 an hour; 6: $3.17; 0: no
+  fallback).
+- **Suspicion 20: the pass's memory request equals its limit, 3Gi.** A block (10Gi request) and a
+  pass then fit the node's 13.3 GiB allocatable as scheduled, and under memory pressure the kubelet
+  evicts pods above their requests first, never the pass; the block's own 14Gi limit above its
+  request is as before. The measurement plan raises it at a 2 GiB peak; above 3.2Gi a pass no longer
+  fits beside a block and takes a node of its own (a cost).
 

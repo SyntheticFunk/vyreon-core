@@ -1147,16 +1147,18 @@ pub async fn omit(client: &mut Client, profile: &str, session: &str, reason: &st
     Ok(Omitted { omission_id, day_job, passes, cause })
 }
 
-/// The queue at a glance: jobs by kind and state, what is claimable, and the pause.
+/// The queue at a glance: jobs by kind, state and build (C-068 round 2, 8: which build owns what), what
+/// is claimable, and the pause.
 pub async fn status(db_client: &impl GenericClient) -> Result<Value, String> {
     let row = db_client
         .query_one(
             "SELECT jsonb_build_object(
                  'paused', (SELECT paused FROM core.queue_control),
                  'pause_reason', (SELECT reason FROM core.queue_control),
-                 'jobs', COALESCE((SELECT jsonb_agg(jsonb_build_object('kind', kind, 'state', state, 'jobs', n, 'first', first, 'last', last) ORDER BY kind, state)
-                                   FROM (SELECT kind, state, count(*) AS n, min(first_session) AS first, max(last_session) AS last
-                                         FROM core.job GROUP BY kind, state) j), '[]'::jsonb),
+                 'jobs', COALESCE((SELECT jsonb_agg(jsonb_build_object('kind', kind, 'state', state, 'build', engine_build, 'jobs', n, 'first', first, 'last', last)
+                                                    ORDER BY kind, state, engine_build)
+                                   FROM (SELECT kind, state, engine_build, count(*) AS n, min(first_session) AS first, max(last_session) AS last
+                                         FROM core.job GROUP BY kind, state, engine_build) j), '[]'::jsonb),
                  'claimable', COALESCE((SELECT jsonb_object_agg(kind, n) FROM (SELECT kind, count(*) AS n FROM core.claimable_job GROUP BY kind) c), '{}'::jsonb),
                  'live_leases', (SELECT count(*) FROM core.lease WHERE ended_at IS NULL))::text",
             &[],
