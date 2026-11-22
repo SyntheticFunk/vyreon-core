@@ -798,9 +798,13 @@ pub async fn session_done(db_client: &impl GenericClient, lease: &Held, session:
     if lease.next_session.as_deref() != Some(session) {
         return Err(LeaseError::Refused(format!("job {}'s next session is {}, not {session}", lease.job_id, lease.next_session.as_deref().unwrap_or("none: all are done"))));
     }
+    // audit 2026-11-22 opsurface round 2 (round2-core.md) 9, C-035 amended: a day block's attempts are
+    // its next day's. The lease that moves it on is that day's first attempt, so the failures charged on
+    // earlier days never set a later day aside on its first failure
     db_client
         .execute(
-            "UPDATE core.job SET next_session = (SELECT min(session) FROM core.session WHERE session > $2::text::date AND session <= last_session)
+            "UPDATE core.job SET next_session = (SELECT min(session) FROM core.session WHERE session > $2::text::date AND session <= last_session),
+                                 attempts = CASE WHEN kind = 'DAY_BLOCK' THEN 1 ELSE attempts END
              WHERE job_id = $1",
             &[&lease.job_id, &session],
         )

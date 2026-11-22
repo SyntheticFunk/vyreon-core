@@ -489,6 +489,13 @@ engine's sensor-level withholding as the first line (a fault withholds its senso
   Two is a plain declared default (one lost node is ordinary on a 13-node autoscaled pool, a second
   on the same day is not yet a pattern), not tuned. Applies to every kind (a tape or a pass whose
   pod is killed is the same case). Test `a_lost_node_never_sets_a_day_aside_on_its_first_loss`.
+- **Amended 2026-11-22 (C-068 round 2, `round2-core.md` 9): a block's attempts are its next day's.**
+  The free losses fixed the lost-node case, but failures charged on an earlier day still spent a
+  later day's attempts (two charged failures on Monday, the third lease finishing Monday and failing
+  on Tuesday set Tuesday aside at once). The lease that moves a block to its next day is that day's
+  first attempt (`session_done` sets `attempts = 1`), so the basis above now holds: each day set aside
+  has had its own three attempts (and its two free losses). Bounded: each reset needs a day done.
+  Test `a_days_attempts_are_its_own`.
 
 ## C-036 A member has slots only on the sessions it is listed (owner, 2026-11-14)
 Nothing stored may depend on which assets are in the universe. An asset not listed on a session

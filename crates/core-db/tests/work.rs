@@ -230,6 +230,34 @@ async fn a_lost_workers_block_resumes_and_a_failed_day_is_set_aside() {
     scratch.drop().await;
 }
 
+/// Audit 2026-11-22 opsurface round 2 (round2-core.md) 9, C-035 amended: two failures charged on the
+/// 10th, then a third lease finishes the 10th and fails on the 11th: the block's three attempts were
+/// spent, so the 11th was set aside on its first failure. A block's attempts are now its next day's:
+/// the lease that moves it on is that day's first, and the 11th is tried three times.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_days_attempts_are_its_own() {
+    let (scratch, mut client, b, _) = ready("c068_day_attempts").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-11", 30).await.unwrap();
+    for _ in 0..2 {
+        let lease = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+        assert!(work::fail(&mut client, &lease.token, "day 2025-12-10", "worker ran out of disk", "log").await.unwrap());
+    }
+    let third = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    assert_eq!(third.attempt, 3);
+    publish_day(&mut client, &third, "2025-12-10").await;
+    assert!(work::fail(&mut client, &third.token, "day 2025-12-11", "worker ran out of disk", "log").await.unwrap(), "the 11th's first failure");
+    assert_eq!(block_state(&client).await, ("QUEUED".to_owned(), 1));
+    for attempt in 2..=3 {
+        let lease = work::claim(&mut client, Kind::DayBlock, &b, "w2", HOUR).await.unwrap().unwrap();
+        assert_eq!((lease.sessions[0].as_str(), lease.attempt), ("2025-12-11", attempt));
+        assert_eq!(work::fail(&mut client, &lease.token, "day 2025-12-11", "worker ran out of disk", "log").await.unwrap(), attempt < 3);
+    }
+    assert_eq!(cause(&client, "2025-12-11").await.1, "worker ran out of disk", "set aside after its own three attempts");
+    scratch.drop().await;
+}
+
 /// The first day block's state and attempts.
 async fn block_state(client: &Client) -> (String, i32) {
     let r = client.query_one("SELECT state, attempts FROM core.job WHERE kind = 'DAY_BLOCK' ORDER BY job_id LIMIT 1", &[]).await.unwrap();
