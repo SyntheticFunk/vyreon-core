@@ -446,6 +446,10 @@ first-session now also needs the prior snapshot to lack the contract; D-440 need
 wrong return no factor rule can catch (single provider); possible rule: total-return windows before an
 asset's dividend coverage start are unknown basis.** Fix agents: engine `eng-r2`, core `core-ops`.
 
+**Owner, 2026-11-22: Intel fallback authorized** — new pool `day-intel` (Basic Intel `s-8vcpu-16gb-intel`,
+$0.167/h, same as `day`), autoscale 0..13; delete the empty `day-std` (its `s-8vcpu-16gb` is no longer
+offered in nyc1: it could create no node). On branch `core-ops` (de64136). Done in the rollout.
+
 ## Timeline (owner, 2026-11-22)
 Full build ~11-25..28; a week of derived-layer QC (census, gate d, history reference check, "general
 shenanigans", possibly a derived recompute) to ~12-05; a week of Reporter + web integration to ~12-12;
