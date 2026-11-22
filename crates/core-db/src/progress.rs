@@ -330,18 +330,36 @@ async fn compose(c: &impl GenericClient, profile: &str, start: &str, end: &str) 
     Ok(if happened { (lines, shown) } else { (Vec::new(), Vec::new()) })
 }
 
+/// `text` cut to at most `max` characters, the characters left out counted at its end ("… (N
+/// characters cut)"), never cut silently; as it is when it fits.
+pub fn fit(text: &str, max: usize) -> String {
+    let n = text.chars().count();
+    if n <= max {
+        return text.to_owned();
+    }
+    let suffix = |cut: usize| format!("… ({} characters cut)", thousands(cut as i64));
+    // the count's own length depends on how much is cut: settle it in two steps (the second
+    // cuts no more than the first, so its count is no longer)
+    let first = max.saturating_sub(suffix(n).chars().count());
+    let keep = max.saturating_sub(suffix(n - first).chars().count());
+    text.chars().take(keep).collect::<String>() + &suffix(n - keep)
+}
+
 /// The window's posts: the header, then the lines, each post at most `LIMIT` characters, at most
-/// `MAX_POSTS`; the lines that do not fit are counted on the last.
+/// `MAX_POSTS`; the lines that do not fit are counted on the last. A post always carries a line
+/// (never the header alone), and a line too long for a post of its own is cut to fit, the cut
+/// counted (audit round 2 of core-watch, 14).
 pub fn split(header: &str, lines: &[String]) -> Vec<String> {
+    let len = |s: &str| s.chars().count();
+    let tail = |n: usize| format!("\n… and {n} more lines (`vyreon-core log 100`, `vyreon-core queue`)");
     let mut posts: Vec<String> = Vec::new();
     let mut post = header.to_string();
+    let mut has_lines = false;
     for (i, line) in lines.iter().enumerate() {
-        let last_post = posts.len() + 1 == MAX_POSTS;
         let rest = lines.len() - i - 1;
-        let tail = |n: usize| format!("\n… and {n} more lines (`vyreon-core log 100`, `vyreon-core queue`)");
-        let room = if last_post && rest > 0 { tail(rest).chars().count() } else { 0 };
-        if post.chars().count() + 1 + line.chars().count() + room > LIMIT {
-            if last_post {
+        let room = |posts: &Vec<String>| if posts.len() + 1 == MAX_POSTS && rest > 0 { len(&tail(rest)) } else { 0 };
+        if has_lines && len(&post) + 1 + len(line) + room(&posts) > LIMIT {
+            if posts.len() + 1 == MAX_POSTS {
                 post.push_str(&tail(rest + 1));
                 posts.push(post);
                 return posts;
@@ -349,8 +367,10 @@ pub fn split(header: &str, lines: &[String]) -> Vec<String> {
             posts.push(post);
             post = format!("{header} (continued)");
         }
+        let line = fit(line, LIMIT.saturating_sub(len(&post) + 1 + room(&posts)));
         post.push('\n');
-        post.push_str(line);
+        post.push_str(&line);
+        has_lines = true;
     }
     posts.push(post);
     posts
@@ -505,5 +525,25 @@ mod tests {
         let shown: usize = posts.iter().map(|p| p.lines().filter(|l| l.contains("Day block")).count()).sum();
         let tail = posts[2].lines().last().unwrap();
         assert_eq!(tail, format!("… and {} more lines (`vyreon-core log 100`, `vyreon-core queue`)", 200 - shown));
+    }
+
+    /// Audit round 2 of core-watch, 14: a line longer than a post made a post of the header alone,
+    /// then a post over the limit. Now every post carries a line, stays under the limit, and a line
+    /// cut to fit says how much was cut.
+    #[test]
+    fn a_line_longer_than_a_post_is_cut_and_counted() {
+        let header = "Progress · Sat Nov 22 14:00–14:30 MT";
+        let long = format!("Started block 2025-12-15 to 2025-12-19 on {} (job 53, attempt 1)", "x".repeat(2500));
+        let lines = vec!["14:02 Queue resumed.".to_string(), long.clone(), "14:20 Queue resumed.".to_string()];
+        let posts = split(header, &lines);
+        assert!(posts.iter().all(|p| p.chars().count() <= LIMIT), "{:?}", posts.iter().map(|p| p.chars().count()).collect::<Vec<_>>());
+        assert!(posts.iter().all(|p| p.lines().count() >= 2), "no post of the header alone");
+        assert_eq!(posts.len(), 3);
+        let cut = posts[1].lines().nth(1).unwrap();
+        let n: usize = cut.rsplit("… (").next().unwrap().trim_end_matches(" characters cut)").replace(',', "").parse().unwrap();
+        assert_eq!(cut.chars().count() - format!("… ({} characters cut)", thousands(n as i64)).chars().count() + n, long.chars().count(), "what is kept and what is counted make the line");
+        assert_eq!(posts[2], format!("{header} (continued)\n14:20 Queue resumed."));
+        assert_eq!(fit("short", 10), "short");
+        assert_eq!(fit(&"y".repeat(30), 25), format!("{}… (26 characters cut)", "y".repeat(4)));
     }
 }

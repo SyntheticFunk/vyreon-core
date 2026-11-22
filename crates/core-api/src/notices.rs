@@ -15,8 +15,10 @@ const SILENT: u32 = 1 << 12;
 /// Discord's content limit is 2,000 characters.
 const LIMIT: usize = 1900;
 
+/// The post's body: the message, cut to `LIMIT` with the characters left out counted, never cut
+/// silently (audit 2026-11-22 prebuild round 2, core-watch.md, 14).
 pub fn payload(message: &str) -> Value {
-    let content: String = if message.chars().count() > LIMIT { message.chars().take(LIMIT).chain("…".chars()).collect() } else { message.to_owned() };
+    let content = core_db::progress::fit(message, LIMIT);
     json!({"content": content, "flags": SILENT, "allowed_mentions": {"parse": []}, "username": "Vyreon core"})
 }
 
@@ -100,17 +102,27 @@ pub async fn send_unsent(app: &App, http: &reqwest::Client, webhook: &str) -> Re
 /// webhook, so a progress post not delivered never holds back or repeats an alert. Progress posts
 /// older than `progress::STALE_HOURS` are dropped first (a backlog is history the log keeps).
 pub async fn send_unsent_on(app: &App, http: &reqwest::Client, webhook: &str, channel: Channel) -> Result<usize, String> {
-    let client = app.pool.get().await.map_err(|e| e.to_string())?;
-    let client: &tokio_postgres::Client = &client;
-    if channel == Channel::Progress {
-        notice::drop_stale_progress(client, core_db::progress::STALE_HOURS).await?;
-    }
     let mut sent = 0;
     for _ in 0..BATCH {
-        let Some(p) = notice::next_on(client, UNCONFIRMED_SECONDS, channel).await? else {
+        // audit 2026-11-22 prebuild round 2 (core-watch.md) 13: a pooled connection only for each
+        // step in the database, never held across a post or a rate limit's wait, so one channel's
+        // slow webhook never keeps a connection another sender or the watch needs
+        let p = {
+            let client = app.pool.get().await.map_err(|e| e.to_string())?;
+            let client: &tokio_postgres::Client = &client;
+            // 15: the six-hour cutoff before each post, not once a batch
+            if channel == Channel::Progress {
+                notice::drop_stale_progress(client, core_db::progress::STALE_HOURS).await?;
+            }
+            notice::next_on(client, UNCONFIRMED_SECONDS, channel).await?
+        };
+        let Some(p) = p else {
             break;
         };
-        match post(http, webhook, &p.message).await {
+        let outcome = post(http, webhook, &p.message).await;
+        let client = app.pool.get().await.map_err(|e| e.to_string())?;
+        let client: &tokio_postgres::Client = &client;
+        match outcome {
             Outcome::Delivered => {
                 notice::sent(client, p.id).await?;
                 sent += 1;
