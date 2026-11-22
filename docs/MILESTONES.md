@@ -215,10 +215,17 @@ before scheduling.
   real, 2 by decision, none above the cut line; 7 are in the engine's `/v1/review`, for the Reporter
   port) and surface (16: 14 real, 1 not real, 1 by decision; above the cut line #6, a re-derived pass
   stranded under an old build, which stalls every later pass, and #5, fixed on `core-c061`).
-- Fixing now: engine batch on `eng-gap` (D-414..D-425: surface #3, #4, #7, #9, #10, #11, #12, #14;
-  depth #7, #10; #13 if clean); core batch on `core-c061` (#6; a pass held only by a day published or
-  pending; `days retire` with preview, not run). Then the "changes" audit of all of it, a new engine
-  image, merge and deploy, then the test block.
+- Round 1 fixed: engine `eng-gap` eb137961 (D-414..D-423; surface #13 left: a label only, counts
+  equal); core `core-c061` bf808f3 (C-062: no stranded pass, `days retire`).
+- "Changes" audit of round 1 (`changes-core.md`, `changes-engine.md`, triage beside): core 17 real, one
+  above the cut line (#2: a day with its base but no day-local revision stalls later passes); engine 5
+  real, none above; D-423's restart revised (the missing bar's factor is in the provider's adjustment
+  records the carry capture already holds: skip under D-404, restart only without them). Flag-gate
+  fixes on main (354059a). Round 2 running: core (all 17) and engine (#2 ledger for unpublished
+  sessions, D-423 revision, #3, #10, #14, #15).
+- Then: merge both branches, the engine's full suite, new images, deploy core (migrations 0031+),
+  register/admit the engine image (check its history profile revision), withdraw the old builds,
+  `days retire --preview` to the owner, schedule the whole-range ordered passes, tapes and the test block.
 - **Owner decision (2026-11-22):** the 24 PUBLISHED days of 8 earlier builds (2022-06-06..15 and 16 in
   phase 1's range) are retired (SUPERSEDED) with `days retire` before the test block, preview shown
   first; after phase 1, every superseded old-build revision is deleted in one cleanup (preview first;
