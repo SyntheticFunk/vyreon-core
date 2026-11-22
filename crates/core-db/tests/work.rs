@@ -931,6 +931,51 @@ async fn a_claim_that_waited_for_the_publish_lock_gets_a_live_lease() {
     scratch.drop().await;
 }
 
+/// Audit 2026-11-22 prebuild round 2 (core-watch.md) 3: a pause committed while a claim ran (after
+/// its statement's snapshot) let the claim lease, stamped after the pause (C-025). A claim now
+/// holds the queue's control row shared: behind a pause not yet committed it waits and reads the
+/// queue paused; a pause behind a claim waits for it and is stamped after it.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_pause_during_a_claim_hands_out_no_lease_after_it() {
+    let (scratch, mut client, b, _) = ready("r2w_pause_claim").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-09", "2025-12-10", 1).await.unwrap();
+    let mut pauser = scratch.client().await;
+    let pausing = pauser.transaction().await.unwrap();
+    work::pause(&pausing, "a check failed").await.unwrap();
+    let mut c = scratch.client().await;
+    let b2 = b.clone();
+    let claiming = tokio::spawn(async move { work::claim(&mut c, Kind::Tape, &b2, "tape-1", HOUR).await });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert!(!claiming.is_finished(), "the claim waits for the pause under way");
+    pausing.commit().await.unwrap();
+    assert_eq!(claiming.await.unwrap().unwrap(), None, "the pause committed first: nothing is handed out");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.lease").await, 0);
+    work::resume(&client).await.unwrap();
+
+    // a claim under way (holding the control row as a claim does): the pause waits and is
+    // stamped after it
+    let mut claimer = scratch.client().await;
+    let in_flight = claimer.transaction().await.unwrap();
+    in_flight.execute("SELECT paused FROM core.queue_control FOR SHARE", &[]).await.unwrap();
+    let mut p = scratch.client().await;
+    let pause = tokio::spawn(async move {
+        let tx = p.transaction().await.unwrap();
+        work::pause(&tx, "a check failed").await.unwrap();
+        tx.commit().await.unwrap();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(400)).await;
+    assert!(!pause.is_finished(), "the pause waits for the claim under way");
+    let ended: String = in_flight.query_one("SELECT clock_timestamp()::text", &[]).await.unwrap().get(0);
+    in_flight.commit().await.unwrap();
+    pause.await.unwrap();
+    let after: bool = client.query_one("SELECT changed_at >= $1::text::timestamptz FROM core.queue_control", &[&ended]).await.unwrap().get(0);
+    assert!(after, "the pause is stamped after the claim it waited for");
+    assert_eq!(work::claim(&mut client, Kind::Tape, &b, "tape-2", HOUR).await.unwrap(), None);
+    scratch.drop().await;
+}
+
 /// Audit 2026-11-22 prebuild (changes-core.md) 7: a fallen day whose only unfinished pass was of a
 /// withdrawn build counted as derived again: the publishing build got no pass, the withdrawn one
 /// never ran, and no problem was opened. Now that pass is cancelled and the day's pass goes to the

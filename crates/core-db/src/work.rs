@@ -523,6 +523,14 @@ pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str
     if kind == Kind::OrderedPass {
         tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
     }
+    // the queue's control row, shared (audit round 2 of core-watch, 3): a pause (which updates it)
+    // waits for this claim to commit, or this claim waits for the pause and reads the queue
+    // paused; the claimable view reads `paused` from each statement's snapshot, so without the
+    // lock a pause committed during the claim still let it lease, stamped after the pause (C-025)
+    let paused: bool = tx.query_one("SELECT paused FROM core.queue_control FOR SHARE", &[]).await.map_err(db)?.get(0);
+    if paused {
+        return Ok(None);
+    }
     // the build's row, shared: a withdrawal (which updates it, then ends the build's leases) waits
     // for this claim, or this claim reads the build withdrawn (`build::withdraw`)
     tx.execute("SELECT FROM core.engine_build WHERE engine_build = $1 FOR SHARE", &[&build]).await.map_err(db)?;
@@ -836,14 +844,19 @@ pub fn scrubbed(text: &str) -> String {
     }
 }
 
-/// Stops claims until `resume`. The first reason is kept: it is what stopped the queue. Call it in
+/// Stops claims until `resume`. The first reason is kept: it is what stopped the queue. A claim
+/// under way holds the control row shared, so the pause waits for it and is stamped after it
+/// (`changed_at` on the clock, once the row is locked); every lease granted is then either before
+/// the pause or refused by it. Call it in
 /// a transaction: the pause and its notice are one event (C-027), and a restart between two
 /// autocommitted statements would leave the queue paused with no notice (a second `pause` then
 /// changes nothing, so would not repair it).
 pub async fn pause(db_client: &impl GenericClient, reason: &str) -> Result<(), String> {
     let reason = &scrubbed(reason);
+    // the row first: an UPDATE computes its new row (and its clock) before it waits for a locker
+    db_client.execute("SELECT FROM core.queue_control FOR UPDATE", &[]).await.map_err(db)?;
     let paused = db_client
-        .execute("UPDATE core.queue_control SET paused = true, reason = $1, changed_at = now() WHERE NOT paused", &[&reason])
+        .execute("UPDATE core.queue_control SET paused = true, reason = $1, changed_at = clock_timestamp() WHERE NOT paused", &[&reason])
         .await
         .map_err(db)?;
     if paused == 1 {
@@ -856,7 +869,7 @@ pub async fn pause(db_client: &impl GenericClient, reason: &str) -> Result<(), S
 /// a transaction, as `pause`.
 pub async fn resume(db_client: &impl GenericClient) -> Result<Option<String>, String> {
     let was: Option<String> = db_client.query_one("SELECT reason FROM core.queue_control", &[]).await.map_err(db)?.get(0);
-    let resumed = db_client.execute("UPDATE core.queue_control SET paused = false, reason = NULL, changed_at = now() WHERE paused", &[]).await.map_err(db)?;
+    let resumed = db_client.execute("UPDATE core.queue_control SET paused = false, reason = NULL, changed_at = clock_timestamp() WHERE paused", &[]).await.map_err(db)?;
     if resumed == 1 {
         notice::log(db_client, "Queue resumed.").await?;
     }
