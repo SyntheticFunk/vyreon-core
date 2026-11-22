@@ -359,7 +359,9 @@ audit of the build's operation** once KEDA, backups and the rulings are merged: 
 days, Postgres under 12 publishers, volume and WAL), KEDA and the autoscaler (nodes from zero, lost nodes,
 ScaledJob changes), external dependencies (Intrinio outages under the ceiling, Spaces, registry and
 kubeconfig expiry ~11-25, nyc1 AMD capacity), ordering and claims over the full range, and recovery
-from each stage by the owner from the runbooks. Its fixes land before the recompute tests them. Then watch: history-pass memory at full range (tonight's 10 passes
+from each stage by the owner from the runbooks. Its fixes land before the recompute tests them. **If its findings are converged (constructed edge
+cases, not real failure paths): fix them all and go (owner): the recompute is the build's first stage; if
+gate a passes on it, the full build follows without a pause.** Then watch: history-pass memory at full range (tonight's 10 passes
 give the first number), the core node under 12 publishing workers, and the database size posted daily.
 **Measured request draw, one node, test block 04:56-16:37 UTC:** 71,112 requests (~11,800 a day), 101 a
 minute over wall time, bursts averaging 658 with a peak of 1,900 (the ceiling) and p95 1,800. Cap for the
