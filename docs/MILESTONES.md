@@ -290,7 +290,29 @@ usage vs core's ledger), wall times; then fix what it shows.
    provider fault (2024-06-10, 06-13 snapshots: positive first-session OI, the reverse of P-20):
    record in PROVIDER_FAULTS.md. Owner ruling asked: take EOD's 0 beside a positive snapshot figure
    on a first session (amends D-398; Cboe: a series listed today has 0) to restore 06-10's OI on 17
-   more assets. FND01 counts (11) diagnosis next.
+   more assets. **FND01 counts diagnosed (`fnd01-prior-counts.md`):** GOOGL and NVDA the engine is
+   right (reference does not bridge a full-year cell toward the quarters' tag, `company_fnd.py:403`);
+   **LLY is an engine defect with wrong published numbers:** `fnd.rs` `bridge_renamed_tags`
+   (:856-905) re-tags LLY's Q1 2020 `NetIncomeLoss` as `ProfitLoss` (from the Q1 2021 10-Q's
+   comparative), splitting two cells the filer tagged alike (D-013.2) and breaking FY2020Q4: net_margin
+   YoY magnitude percentile published 0.8333 (12 priors), should be 0.7857 (14); ROA's withheld (11),
+   should be 0.5385 (13); to ~mid-2025. Fix: bridge only toward the concept's current tag (D-079
+   amendment).
+
+**Fix list before the full build (from the test block; morning 2026-11-22):**
+1. Engine: FND01 `bridge_renamed_tags` (wrong number, LLY); V02/V03 `check_q05` before the first
+   option session (label, IBIT/ETHA); the worker's claim retry; ACT01's reason before the trade-count
+   feed (check first).
+2. Engine, decisions recommended: retire NVDA's hard-coded challenge list (one-off handling; AVGO's
+   07-15 split is not withheld) if its 06-07/06-10 bars verify; BABA's two dividends on one ex-date
+   summed per ex-date (the distribution's total). Owner ruling: first-session EOD 0 beside a positive
+   snapshot figure (Cboe).
+3. Reference: IBIT before its first option session (D-117, C-057), FIELD before ETHA, WMT D-161,
+   insider time D-191, IBIT first year, OI credibility test (D-079/D-175), FND01 bridge.
+4. Provider fault: 2024-06-10/06-13 snapshots' positive first-session OI (new P-number).
+5. Core: deploy 7c96453 (C-065) after the block; items 2 and 4 (KEDA, caps).
+6. Then a new image, the test-block range recomputed by the full build, gate a re-judged on it.
+
 5. **2024-07-10 published 09:50 UTC (~100 min after day 1)**; memory after it 1,617 MiB resident, 212
    MiB after the trim.
 3. **SAI-ACT01 / -INTRADAY withheld MISSING_REQUIRED_INPUT on 62 assets before the option
