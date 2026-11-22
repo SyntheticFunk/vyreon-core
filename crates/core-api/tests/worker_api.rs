@@ -48,7 +48,12 @@ async fn service_with_pool(test: &str, connections: usize) -> Service {
     let pool = deadpool_postgres::Pool::builder(deadpool_postgres::Manager::new(scratch.config.clone(), tokio_postgres::NoTls)).max_size(connections).build().unwrap();
     let config = Config {
         worker_token_sha256: sha256_hex(WORKERS_TOKEN.as_bytes()),
-        spool: std::env::temp_dir(),
+        // a spool of the test's own: two services of one process name their spooled bundles alike
+        spool: {
+            let dir = std::env::temp_dir().join(format!("vyreon-core-spool-{test}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            dir
+        },
         lease_seconds: 300.0,
         budget: Budget::default(),
         max_bundle_bytes: 1 << 20,
