@@ -684,11 +684,26 @@ pub fn verdict(open: &[Open], handled: &[String], unjudged: &[String]) -> String
 }
 
 /// A post of a first line, the lines, and the open problems, cut to `LIMIT` characters: the
-/// problems that do not fit are counted, with the command that lists them all.
+/// problems that do not fit are counted, with the command that lists them all. The lines are cut
+/// first (audit 2026-11-22 changes-core 18): room is kept for the open problems' heading and their
+/// count, so long lines (ten days set aside with their causes) never push the problems out of the
+/// post; the lines that do not fit are counted.
 pub fn compose(first: &str, lines: &[String], open: &[Open]) -> String {
     let first = if first.chars().count() > 300 { one_line(first, 300) } else { first.to_owned() };
     let mut text = first;
-    for l in lines {
+    let reserve = if open.is_empty() {
+        "\nOpen problems: none".chars().count()
+    } else {
+        format!("\nOpen problems ({}):\n• … and {} more: `vyreon-core problems`", open.len(), open.len()).chars().count()
+    };
+    let cut = |n: usize| format!("\n… and {n} more lines, cut to fit");
+    for (i, l) in lines.iter().enumerate() {
+        let rest = lines.len() - i - 1;
+        let room = if rest == 0 { 0 } else { cut(lines.len()).chars().count() };
+        if text.chars().count() + 1 + l.chars().count() + room + reserve > LIMIT {
+            text.push_str(&cut(rest + 1));
+            break;
+        }
         text.push('\n');
         text.push_str(l);
     }
