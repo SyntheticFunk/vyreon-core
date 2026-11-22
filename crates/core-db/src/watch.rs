@@ -408,16 +408,21 @@ async fn deadlines(c: &impl GenericClient, s: &Settings, from: &str, now: &str, 
     Ok(())
 }
 
-/// (c) A job out of attempts: its last stop message, from its evidence (C-049) or its lease.
+/// (c) A job out of attempts: its final lease's stop message, from that lease's evidence (C-049) or
+/// the lease itself, as the reader states the day's cause (`core.job_failure_cause`, 0039). C-068
+/// (audit opsurface ops.md 10): an earlier attempt's evidence is never the final cause.
 async fn failed_jobs(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(), String> {
     let rows = c
         .query(
             "SELECT j.job_id, j.kind, j.first_session::text, j.last_session::text,
-                    (SELECT e.message FROM core.job_evidence e WHERE e.job_id = j.job_id ORDER BY e.attempt DESC LIMIT 1),
-                    (SELECT COALESCE(l.failed_stage || ': ', '') || COALESCE(l.failure, 'no reason given') FROM core.lease l
-                     WHERE l.job_id = j.job_id AND l.outcome IN ('FAILED', 'EXPIRED') ORDER BY l.lease_id DESC LIMIT 1),
+                    (SELECT e.message FROM core.lease l JOIN core.job_evidence e ON e.lease_id = l.lease_id
+                     WHERE l.lease_id = f.lease_id),
+                    (SELECT COALESCE(l.failed_stage || ': ', '') || COALESCE(l.failure, 'no reason given') FROM core.lease l WHERE l.lease_id = f.lease_id),
                     (SELECT count(*) FROM core.lease l WHERE l.job_id = j.job_id)
-             FROM core.job j WHERE j.state = 'FAILED' ORDER BY j.job_id",
+             FROM core.job j
+             LEFT JOIN LATERAL (SELECT l.lease_id FROM core.lease l WHERE l.job_id = j.job_id AND l.outcome IN ('FAILED', 'EXPIRED')
+                                ORDER BY l.lease_id DESC LIMIT 1) f ON true
+             WHERE j.state = 'FAILED' ORDER BY j.job_id",
             &[],
         )
         .await
@@ -445,15 +450,22 @@ async fn failed_jobs(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(
 
 /// (d) The provider failing, from the failure evidence's decisive text (its stop message and the
 /// input plan's refusals, never the log excerpt, where retried requests of good attempts also
-/// show): an authentication refusal (HTTP 401 or 403) not followed by any success, or provider
-/// errors on more than `PROVIDER_ERROR_ATTEMPTS` attempts in `PROVIDER_WINDOW_MINUTES`.
+/// show): an authentication refusal (HTTP 401 or 403) not followed by a success that called the
+/// provider, or provider errors on more than `PROVIDER_ERROR_ATTEMPTS` attempts in
+/// `PROVIDER_WINDOW_MINUTES`. C-068 (audit opsurface ops.md 9): the success is a tape or day-block
+/// lease granted after the refusal (so its worker read the key after it: a worker reads its key file
+/// when it starts) that finished, or published a day's base; an ordered pass calls no provider, and
+/// a revision or a job of a lease granted before the refusal proves nothing of the key now.
 async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut Vec<Found>) -> Result<(), String> {
     let rows = c
         .query(
             "SELECT e.job_id, e.lease_id, extract(epoch FROM $1::text::timestamptz - e.stored_at)::float8, e.message, COALESCE(e.refusals::text, ''),
                     to_char(e.stored_at AT TIME ZONE $2, 'Dy HH24:MI'),
-                    EXISTS (SELECT FROM vyreon.day_revision d WHERE d.published_at > e.stored_at AND d.published_at <= $1::text::timestamptz)
-                    OR EXISTS (SELECT FROM core.job j WHERE j.state = 'DONE' AND j.finished_at > e.stored_at AND j.finished_at <= $1::text::timestamptz)
+                    EXISTS (SELECT FROM core.lease l JOIN core.job j USING (job_id)
+                            WHERE j.kind IN ('TAPE', 'DAY_BLOCK') AND l.granted_at > e.stored_at AND l.granted_at <= $1::text::timestamptz
+                              AND ((l.outcome = 'DONE' AND l.ended_at <= $1::text::timestamptz)
+                                   OR EXISTS (SELECT FROM core.lease_revision r JOIN vyreon.day_revision d USING (revision_id)
+                                              WHERE r.lease_id = l.lease_id AND d.base_revision IS NULL AND d.published_at <= $1::text::timestamptz)))
              FROM core.job_evidence e
              WHERE e.stored_at > $1::text::timestamptz - interval '7 days' AND e.stored_at <= $1::text::timestamptz
              ORDER BY e.stored_at DESC, e.job_evidence_id DESC",
@@ -486,7 +498,7 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
         found.push(Found {
             kind: "PROVIDER_AUTH",
             key: "intrinio".into(),
-            summary: format!("The provider (Intrinio) refuses our API key: HTTP {code} on job {job} at {at} MT, and nothing has succeeded since"),
+            summary: format!("The provider (Intrinio) refuses our API key: HTTP {code} on job {job} at {at} MT, and no tape or day block started since has succeeded"),
             command: format!("vyreon-core evidence show {job}"),
             detail: None,
         });

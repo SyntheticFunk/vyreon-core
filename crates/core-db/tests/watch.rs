@@ -204,6 +204,66 @@ async fn a_last_failure_and_a_provider_burst_are_problems_from_the_evidence() {
     scratch.drop().await;
 }
 
+/// Audit 2026-11-22 opsurface (ops.md) 10, C-068: an earlier attempt left the provider's 502 as its
+/// evidence, the final one stopped with no evidence (its worker out of disk); the alert named the
+/// 502, the reader the final stop. Both now name the final lease's cause.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_final_failure_is_named_by_its_final_lease() {
+    let (scratch, mut client, b) = ready("final_cause").await;
+    build::admit(&client, &b, &json!({"checklist": "watch test"})).await.unwrap();
+    let s = settings(None);
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2024-07-16", "2024-07-16", 1).await.unwrap();
+    client.execute("UPDATE core.job SET max_attempts = 2", &[]).await.unwrap();
+    let provider = r#"options 2024-07-16 GLD: Retryable("exit 3: == failed capture /work/h5-acq/GLD/options/2023-12-19/capture: option acquisition:Transport(\"HttpStatus(502)\")")"#;
+    failed_attempt(&mut client, &b, provider).await;
+    let last = work::claim(&mut client, Kind::DayBlock, &b, "w2", 3600.0).await.unwrap().unwrap();
+    assert!(!work::fail(&mut client, &last.token, "day 2024-07-16", "worker ran out of disk", "").await.unwrap());
+    let now = watch::now(&client).await.unwrap();
+    let change = check(&mut client, &s, &now).await;
+    assert_eq!(change.opened, [format!("Day 2024-07-16 failed for the last time (job {}): day 2024-07-16: worker ran out of disk", last.job_id)]);
+    let reader: String = client.query_one("SELECT core.session_cause('2024-07-16', $1)->>'detail'", &[&PROFILE]).await.unwrap().get(0);
+    assert!(reader.contains("worker ran out of disk") && !change.opened[0].contains("502"), "{reader}");
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-22 opsurface (ops.md) 9, C-068: after the provider refused the key (HTTP 401, the
+/// engine's transport error as it writes one), an ordered pass that finished and a history revision
+/// published cleared the alarm though neither calls the provider. Only a tape or a day block started
+/// after the refusal that succeeds clears it now.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_refused_key_is_cleared_only_by_work_that_calls_the_provider() {
+    let (scratch, mut client, b) = ready("auth").await;
+    build::admit(&client, &b, &json!({"checklist": "watch test"})).await.unwrap();
+    let s = settings(None);
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-11", "2025-12-11", 1).await.unwrap();
+    let refused = r#"options 2025-12-11 GLD: Retryable("exit 3: == failed capture /work/h5-acq/GLD/options/2025-12-11/capture: option acquisition:Transport(\"HttpStatus(401)\")")"#;
+    let job = failed_attempt(&mut client, &b, refused).await;
+    let now = watch::now(&client).await.unwrap();
+    let opened_now = check(&mut client, &s, &now).await.opened;
+    assert!(opened_now.len() == 1 && opened_now[0].starts_with("The provider (Intrinio) refuses our API key: HTTP 401 on job"), "{opened_now:?}");
+    work::cancel(&mut client, &[job]).await.unwrap();
+    // an ordered pass runs and finishes, and a history revision is published: no provider call
+    published(&client, &b, "2025-12-10", &now).await;
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &b, "2025-12-10", "2025-12-10", 1).await.unwrap();
+    client.execute("UPDATE core.job SET state = 'DONE', next_session = NULL, finished_at = clock_timestamp() WHERE kind = 'ORDERED_PASS'", &[]).await.unwrap();
+    history_published(&client, "2025-12-10", &later_text(&client, 0).await).await;
+    let in_a_minute = later_text(&client, 0).await;
+    assert_eq!(check(&mut client, &s, &in_a_minute).await.resolved, Vec::<String>::new(), "a pass proves nothing of the key");
+    // a tape started after the refusal finishes: cleared
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-12", "2025-12-12", 1).await.unwrap();
+    let tape = work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();
+    let tx = client.transaction().await.unwrap();
+    let held = work::held(&tx, &tape.token).await.unwrap();
+    work::session_done(&tx, &held, "2025-12-12").await.unwrap();
+    tx.commit().await.unwrap();
+    work::finish(&mut client, &tape.token).await.unwrap();
+    let after = later_text(&client, 0).await;
+    assert_eq!(check(&mut client, &s, &after).await.resolved.len(), 1);
+    scratch.drop().await;
+}
+
 async fn later_text(client: &Client, hours: i32) -> String {
     client.query_one("SELECT (now() + make_interval(hours => $1))::text", &[&hours]).await.unwrap().get(0)
 }

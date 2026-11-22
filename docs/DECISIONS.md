@@ -2417,4 +2417,14 @@ owner from the runbooks. Every real finding fixed; finding 14 is the engine's. M
 - **8, and 5's third part:** C-065 amended (`STALLED` per kind, and the chain). A pod that fails
   before it claims never charges an attempt, so its kind's stall is how the channel sees it. Test
   `a_stall_is_per_kind_and_a_waiting_chain_is_one`.
+- **9: the key alarm clears only on work that calls the provider.** `PROVIDER_AUTH` (a 401 or 403 in
+  a stop's evidence) cleared on any revision published or any job finished after it, an ordered pass
+  among them (no provider call) and a revision of a worker started before the refusal (which proves
+  nothing of the key now). It now clears only when a tape or day-block lease granted after the
+  refusal (its worker read the key file after it) finishes, or publishes a day's base under that
+  lease (`core.lease_revision`, 0044). Test `a_refused_key_is_cleared_only_by_work_that_calls_the_provider`.
+- **10: `JOB_FAILED` names the final lease's cause**, its evidence or the lease's own failure, as the
+  reader does (`core.job_failure_cause`): the newest evidence of any attempt named an earlier
+  attempt's provider error when the final worker stopped without evidence. Test
+  `a_final_failure_is_named_by_its_final_lease`.
 
