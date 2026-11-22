@@ -26,6 +26,11 @@ struct Service {
 /// A database with the calendar, the universe and the slice's builds admitted, and the service
 /// listening on a free local port.
 async fn service(test: &str) -> Service {
+    service_with_pool(test, 4).await
+}
+
+/// `service` with a pool of `connections`.
+async fn service_with_pool(test: &str, connections: usize) -> Service {
     let scratch = Scratch::new(test).await;
     let mut client = scratch.client().await;
     migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
@@ -40,10 +45,15 @@ async fn service(test: &str) -> Service {
         build::admit(&client, &b, &json!({"checklist": "worker API test"})).await.unwrap();
         builds.push(b);
     }
-    let pool = deadpool_postgres::Pool::builder(deadpool_postgres::Manager::new(scratch.config.clone(), tokio_postgres::NoTls)).max_size(4).build().unwrap();
+    let pool = deadpool_postgres::Pool::builder(deadpool_postgres::Manager::new(scratch.config.clone(), tokio_postgres::NoTls)).max_size(connections).build().unwrap();
     let config = Config {
         worker_token_sha256: sha256_hex(WORKERS_TOKEN.as_bytes()),
-        spool: std::env::temp_dir(),
+        // a spool of the test's own: two services of one process name their spooled bundles alike
+        spool: {
+            let dir = std::env::temp_dir().join(format!("vyreon-core-spool-{test}"));
+            std::fs::create_dir_all(&dir).unwrap();
+            dir
+        },
         lease_seconds: 300.0,
         budget: Budget::default(),
         max_bundle_bytes: 1 << 20,
@@ -356,6 +366,45 @@ async fn a_refused_bundle_pauses_the_queue_and_a_failing_worker_sends_its_log() 
     assert_eq!((kept.get::<_, &str>(0), kept.get::<_, &str>(1), kept.get::<_, &str>(2), kept.get::<_, &str>(3)), ("surfaces", "no chain for XLB", "the day's log", "day-1"));
     let (record, excerpt) = core_db::evidence::show(&admin, day["job_id"].as_i64().unwrap(), None).await.unwrap().unwrap();
     assert_eq!((record["attempt"].as_i64(), record["worker"].as_str(), excerpt.as_str()), (Some(1), Some("day-1"), test_support::WORKER_LOG_REFUSED_DAY));
+    s.scratch.drop().await;
+}
+
+/// C-068 (audit opsurface ops.md, the core node's suspicion): an upload held a database connection
+/// from before its body arrived until it was published, so twelve nodes uploading or waiting for
+/// the bundle before theirs held twelve of the pool's sixteen. With a pool of one connection, a
+/// heartbeat is answered while a day's bundle (the real slice's base of 2025-12-10) is half sent,
+/// and the bundle then publishes.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn an_upload_holds_no_connection_while_its_body_arrives() {
+    use tokio::io::{AsyncReadExt, AsyncWriteExt};
+    let s = service_with_pool("api_upload_pool", 1).await;
+    let mut admin = s.scratch.client().await;
+    work::schedule(&mut admin, Kind::DayBlock, PROFILE, &s.base_build, "2025-12-10", "2025-12-10", 1).await.unwrap();
+    let day: Value = s.claim("day-block", &s.base_build, "day-1").await.json().await.unwrap();
+    let token = day["lease_token"].as_str().unwrap().to_owned();
+    let (header, scalars, files) = parts(BASE);
+    let path = bundle("api-pool", &header, &scalars, &files);
+    let bytes = std::fs::read(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    // half the body sent by hand, the rest held back
+    let host = s.url.trim_start_matches("http://").to_owned();
+    let mut upload = tokio::net::TcpStream::connect(&host).await.unwrap();
+    let head = format!(
+        "POST /worker/v1/days HTTP/1.1\r\nHost: {host}\r\nAuthorization: Bearer {token}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        bytes.len()
+    );
+    upload.write_all(head.as_bytes()).await.unwrap();
+    let half = bytes.len() / 2;
+    upload.write_all(&bytes[..half]).await.unwrap();
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let beat = tokio::time::timeout(std::time::Duration::from_secs(10), s.post("/lease/heartbeat", &token, json!({}))).await;
+    assert_eq!(beat.expect("a heartbeat is answered while an upload is under way").0, StatusCode::OK);
+    upload.write_all(&bytes[half..]).await.unwrap();
+    let mut reply = String::new();
+    upload.read_to_string(&mut reply).await.unwrap();
+    assert!(reply.starts_with("HTTP/1.1 200"), "{reply}");
+    assert_eq!(admin.query_one("SELECT count(*) FROM vyreon.day_revision WHERE state = 'PUBLISHED'", &[]).await.unwrap().get::<_, i64>(0), 1);
     s.scratch.drop().await;
 }
 

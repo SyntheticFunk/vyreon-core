@@ -16,14 +16,15 @@ only by that Job).
 
 | File | Use |
 |---|---|
-| `do.sh METHOD /v2/path [json]` | one DigitalOcean API call |
+| `do.sh METHOD /v2/path [json]` | one DigitalOcean API call; any answer but 2xx is an error (exit 1, C-068) |
 | `scale-pool.sh POOL_ID NAME COUNT` | set a worker pool's node count (costs money: the spend ceiling in docs/MILESTONES.md applies) |
 | `health.sh` | one read-only screen of a run's health; oddities flagged with !!; run at every check |
-| `delete-idle.sh` | delete every `day*` node with no running, pending or starting worker pod; run after every run ends |
+| `delete-idle.sh` | delete the `day*` nodes with no unfinished worker pod (fails closed: an unreadable pod list deletes nothing; a node with a finished worker pod is drained; C-068); the autoscaler normally does it |
 | `job-day-block.yaml` | day-block worker Job on the phase-1 image; set `metadata.name`, `completions`, `parallelism`, and the node pool |
 | `job-tape.yaml` | tape worker Job on the phase-1 image; same fields |
 | `backup-now.yaml` | an on-demand base backup of `vyreon-pg` (`kubectl create -f`; C-067) |
 | `restore-drill.yaml` | the temporary cluster of the restore drill (`../README.md`, "Backups and the volume") |
+| `recover-production.yaml` | the production recovery after the volume is lost: Cluster `vyreon-pg2`, archiving under its own name (`../README.md`, "Backups and the volume", D; C-068) |
 | `drill-counts.sql` | the drill's comparison: per month, day revisions by state and measurement rows with a digest; diff source against restore |
 
 A Job only claims work core has scheduled (`vyreon-core schedule <tape|day-block|ordered-pass> ...`,

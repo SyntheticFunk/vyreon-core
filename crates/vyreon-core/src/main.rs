@@ -8,6 +8,14 @@
 //!   vyreon-core build admit <build> <evidence.json>   let the build's workers claim work (the checks it passed)
 //!   vyreon-core build withdraw <build> <reason>       stop them claiming, and stop its running jobs (their
 //!                                                     leases end; the jobs are queued again under it)
+//!   vyreon-core build hand-over (--preview | --expect <token>) <from> <to> <reason...>   C-068: hand a build's
+//!                                                     unfinished tapes, day blocks and ordered passes to its successor,
+//!                                                     registered and NOT yet admitted (admit it after), once; <from> is
+//!                                                     withdrawn by it if it still runs: each job is cancelled and the same work
+//!                                                     queued under <to> (a block from its next session; its done days
+//!                                                     a DONE job of <from>). --preview does it in a transaction rolled
+//!                                                     back and prints each job with a token; the hand-over itself
+//!                                                     takes --expect <that token>
 //!   vyreon-core calendar load <sessions.json>         store the engine's trading sessions
 //!   vyreon-core schedule <tape|day-block|ordered-pass> <profile> <build> <first> <last> [block sessions]
 //!                                                     ordered passes (C-062): a session keeps its unfinished pass of
@@ -56,6 +64,9 @@
 //!                                                     failed with its endpoint, bucket and key (the newest sessions, or
 //!                                                     one session), each category a worker could not pack, and what is missing
 //!   vyreon-core problems                              the open problems (C-050), oldest first, and the last resolved
+//!   vyreon-core budget [hours]                        the request ledger (C-068): what is committed against the ceiling
+//!                                                     now, the busiest minutes of the last hours (6) with the requests
+//!                                                     reported and the grants never released, and how many were not
 //!   vyreon-core digest [weekly]                       print the 09:00 digest (or the Saturday check) as it would be posted now
 //!   vyreon-core log [n]                               the newest n (20) logged events, which are not posted
 //!   vyreon-core progress                              the last 30 minutes as the progress channel (C-065) would post them
@@ -82,7 +93,11 @@
 //!                                                     (the first session with a publishing deadline; unset: the daily
 //!                                                     runs' first session, else none), VYREON_CORE_DEADLINE_HOUR (20:
 //!                                                     the deadline's hour, MT, the next calendar day), VYREON_CORE_VOLUME_GIB
-//!                                                     (the database volume's size; unset: not checked).
+//!                                                     (the database volume's size; unset: not checked), VYREON_CORE_BACKUP_MAX_DAYS
+//!                                                     (C-068: the newest recoverable base backup's largest age in days, from
+//!                                                     the backup plugin's record; unset: not checked), VYREON_CORE_PG_CLUSTER
+//!                                                     (the CloudNativePG Cluster whose plugin record core reads every 5 min
+//!                                                     from the Kubernetes API with its service account; unset: not read).
 //!                                                     Daily runs (C-051), both or neither: VYREON_CORE_DAILY_FROM (the first
 //!                                                     session core queues by itself; unset: none) and VYREON_CORE_DAILY_BUILD
 //!                                                     (the admitted engine build they are queued for).
@@ -279,6 +294,55 @@ fn retire_args<'a>(rest: &[&'a str]) -> Result<(&'a str, Vec<&'a str>, bool, Opt
     }
 }
 
+/// C-068: `build hand-over (--preview | --expect <token>) <from> <to> <reason...>`; the flags may
+/// stand anywhere, exactly one of them, as `days retire`'s.
+fn hand_over_args<'a>(rest: &[&'a str]) -> Result<(&'a str, &'a str, String, bool, Option<&'a str>), String> {
+    let usage = "build hand-over (--preview | --expect <token>) <from> <to> <reason...>";
+    let (mut words, mut preview, mut expect) = (Vec::new(), false, None);
+    let mut args = rest.iter().copied();
+    while let Some(a) = args.next() {
+        match a {
+            "--preview" => preview = true,
+            "--expect" => match args.next() {
+                Some(token) if !token.starts_with("--") && expect.is_none() => expect = Some(token),
+                _ => return Err(format!("build hand-over: --expect takes one token; nothing was moved ({usage})")),
+            },
+            flag if flag.starts_with("--") => return Err(format!("build hand-over: unknown option {flag}; nothing was moved ({usage})")),
+            word => words.push(word),
+        }
+    }
+    if preview == expect.is_some() {
+        return Err(format!("build hand-over: either --preview, or --expect with the token the preview printed; nothing was moved ({usage})"));
+    }
+    match words.as_slice() {
+        [from, to, reason @ ..] if !reason.is_empty() => Ok((from, to, reason.join(" "), preview, expect)),
+        _ => Err(format!("build hand-over: the two builds and a reason; nothing was moved ({usage})")),
+    }
+}
+
+async fn build_hand_over(rest: &[&str]) -> Result<(), String> {
+    let (from, to, reason, preview, expect) = hand_over_args(rest)?;
+    let h = build::hand_over(&mut connect().await?, from, to, &reason, preview, expect).await?;
+    if h.withdrew {
+        println!("build {from} still runs: it is withdrawn by this hand-over (its live leases end, their jobs carried)");
+    }
+    for c in &h.carried {
+        let new = c.new_job.map_or_else(|| "a new job".to_owned(), |j| format!("job {j}"));
+        println!("{} job {} ({}) {} to {}: cancelled; {new} of build {to}", c.kind, c.old_job, c.state, c.first, c.last);
+    }
+    for j in &h.verify_cancelled {
+        println!("TAPE verify job {j}: cancelled, not carried (a sample of build {from}'s caches)");
+    }
+    match h.hand_over_id {
+        Some(id) => println!("hand-over {id}: {} jobs of build {from} are build {to}'s; now admit build {to} (`vyreon-core build admit`)", h.carried.len()),
+        None => println!(
+            "preview: nothing was changed; to hand over exactly this: vyreon-core build hand-over --expect {} {from} {to} {reason:?}",
+            h.token
+        ),
+    }
+    Ok(())
+}
+
 async fn days_retire(rest: &[&str]) -> Result<(), String> {
     let (reason, dates, preview, expect) = retire_args(rest)?;
     let r = publish::retire(&mut connect().await?, reason, &dates, preview, expect).await?;
@@ -394,7 +458,12 @@ fn watch_settings() -> Result<watch::Settings, String> {
     };
     // C-054: every published day from this session is expected to have its reference check
     let refcheck_from = date_setting("VYREON_CORE_REFCHECK_FROM")?;
-    Ok(watch::Settings { profile, deadlines_from, volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64), deadline_hour, daily, archive, refcheck_from })
+    // C-068: the newest base backup's age is watched when this is set (with the volume's size)
+    let backup_days = match set("VYREON_CORE_BACKUP_MAX_DAYS") {
+        None => None,
+        Some(v) => Some(v.parse::<i32>().ok().filter(|d| *d >= 1).ok_or_else(|| "VYREON_CORE_BACKUP_MAX_DAYS is not a whole number of days from 1".to_string())?),
+    };
+    Ok(watch::Settings { profile, deadlines_from, volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64), deadline_hour, daily, archive, refcheck_from, backup_days })
 }
 
 /// A Discord webhook's URL from the file a setting names; None (said, never the URL, nor the
@@ -577,6 +646,22 @@ async fn progress_preview() -> Result<(), String> {
     Ok(())
 }
 
+/// C-068 (audit opsurface ops.md 12): the request ledger with its limits stated.
+async fn budget_ledger(hours: &str) -> Result<(), String> {
+    let hours: f64 = hours.parse().ok().filter(|h: &f64| *h > 0.0).ok_or_else(|| format!("hours: {hours}"))?;
+    let client = connect().await?;
+    let ceiling: i32 = setting("VYREON_CORE_INTRINIO_PER_MINUTE", core_db::budget::Budget::default().per_minute)?;
+    println!("committed now: {} of {ceiling} a minute", core_db::budget::committed(&client).await?);
+    let (n, requests) = core_db::budget::unreleased(&client, hours).await?;
+    println!("leases never released in the last {hours} h: {n} ({requests} requests granted; what they used is unknown)");
+    println!("busiest minutes (UTC), by the leases granted in them: used as reported + granted and never released; at most this many requests were made in the minute (its and the previous minute's leases); workers");
+    for m in core_db::budget::ledger(&client, hours, 10).await? {
+        println!("{} {:>5} + {:>4}  at most {:>5}  {} workers", m.minute, m.released, m.unreleased, m.bound, m.workers);
+    }
+    println!("a lease's requests fall in its grant minute or the next, so the bound is an upper bound per minute; Intrinio's own account usage is the measure of what was spent");
+    Ok(())
+}
+
 async fn log(n: &str) -> Result<(), String> {
     let n: i64 = n.parse().map_err(|_| format!("how many: {n}"))?;
     for (at, message) in notice::recent_log(&connect().await?, n).await?.iter().rev() {
@@ -609,7 +694,11 @@ async fn serve() -> Result<(), String> {
         return Err("another vyreon-core serve holds the database's single-instance lock (C-053): this one does not serve".into());
     }
     let manager = deadpool_postgres::Manager::new(pg, NoTls);
-    let pool = deadpool_postgres::Pool::builder(manager).max_size(16).build().map_err(|e| e.to_string())?;
+    // C-068: up to 24 tape pods, 13 day blocks and a pass at once (C-066's caps) each heartbeat and
+    // draw from the budget on a connection held for one statement or two; an upload holds none
+    // while it spools or waits for the bundle before it. PostgreSQL allows 100 (CloudNativePG's
+    // default); the watch, the scaler's four counts and the pass's login are beside these
+    let pool = deadpool_postgres::Pool::builder(manager).max_size(32).build().map_err(|e| e.to_string())?;
     let app = core_api::App::new(pool, config);
     let listen: String = setting("VYREON_CORE_LISTEN", "0.0.0.0:8080".to_string())?;
     let listener = tokio::net::TcpListener::bind(&listen).await.map_err(|e| format!("{listen}: {e}"))?;
@@ -621,6 +710,10 @@ async fn serve() -> Result<(), String> {
     // the watch and the sender run apart: delivering posts never delays the watch's queueing
     let settings = watch_settings()?;
     let profile = settings.profile.clone();
+    // C-068 round 2: the backup plugin's record, read from the Kubernetes API, is the backups' evidence
+    if let Some(cluster) = set("VYREON_CORE_PG_CLUSTER") {
+        core_api::backups::spawn(app.clone(), core_api::backups::Kube::in_cluster(), cluster, std::time::Duration::from_secs(300));
+    }
     core_api::notices::spawn_watch(app.clone(), settings, std::time::Duration::from_secs(60));
     if let Some(webhook) = webhook {
         core_api::notices::spawn_sender(app.clone(), webhook, std::time::Duration::from_secs(15));
@@ -890,6 +983,7 @@ async fn main() -> ExitCode {
             }),
             Err(e) => Err(e),
         },
+        ["build", "hand-over", ref rest @ ..] => build_hand_over(rest).await,
         ["calendar", "load", file] => match (connect().await, json_file(file)) {
             (Ok(mut client), Ok(calendar)) => work::load_calendar(&mut client, &calendar).await.map(|n| println!("{n} sessions")),
             (Err(e), _) | (_, Err(e)) => Err(e),
@@ -921,6 +1015,8 @@ async fn main() -> ExitCode {
         ["archive", "list"] => archive_list(None).await,
         ["archive", "list", date] => archive_list(Some(date)).await,
         ["problems"] => problems().await,
+        ["budget"] => budget_ledger("6").await,
+        ["budget", hours] => budget_ledger(hours).await,
         ["digest"] => digest(false).await,
         ["digest", "weekly"] => digest(true).await,
         ["progress"] => progress_preview().await,
@@ -952,7 +1048,7 @@ async fn main() -> ExitCode {
 
 #[cfg(test)]
 mod tests {
-    use super::{archive_line, publish_args, retire_args};
+    use super::{archive_line, hand_over_args, publish_args, retire_args};
 
     /// Audit 2026-11-22 prebuild round 2 (core-watch.md) 4: the webhook URL put in the setting
     /// itself (instead of the file that holds it) printed the whole URL, token and all, when the
@@ -1046,6 +1142,27 @@ mod tests {
         ] {
             let refused = retire_args(bad).unwrap_err();
             assert!(refused.contains("nothing was retired"), "{refused}");
+        }
+    }
+
+    /// C-068: `build hand-over` reads its whole line first, as `days retire` does: the two builds
+    /// (the real ones of the rollout), a reason of several words, and exactly one of the flags.
+    #[test]
+    fn the_hand_over_command_line_is_read_whole_before_anything_moves() {
+        let (old, new) = ("914ffed7+7d4e45c05f63", "48461197+7361a31e2fda");
+        let words = [old, new, "the", "rulings", "image"];
+        assert_eq!(hand_over_args(&[&["--preview"][..], &words].concat()), Ok((old, new, "the rulings image".to_owned(), true, None)));
+        assert_eq!(hand_over_args(&[&words[..], &["--expect", "9f86d081884c7d65"]].concat()), Ok((old, new, "the rulings image".to_owned(), false, Some("9f86d081884c7d65"))));
+        for bad in [
+            &[][..],
+            &["--preview", old, new],
+            &[old, new, "image"],
+            &["--preview", "--expect", "9f86d081884c7d65", old, new, "image"],
+            &[old, new, "image", "--expect"],
+            &["--force", old, new, "image"],
+        ] {
+            let refused = hand_over_args(bad).unwrap_err();
+            assert!(refused.contains("nothing was moved"), "{refused}");
         }
     }
 }

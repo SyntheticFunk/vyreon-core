@@ -320,8 +320,9 @@ async fn expire(client: &mut Client, lease: i64) -> Result<bool, String> {
     tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
     let Some(row) = tx
         .query_opt(
-            "UPDATE core.lease SET ended_at = now(), outcome = 'EXPIRED', failure = 'the lease was not renewed'
-             WHERE lease_id = $1 AND ended_at IS NULL AND expires_at < now() RETURNING job_id",
+            "UPDATE core.lease l SET ended_at = now(), outcome = 'EXPIRED', failure = 'the lease was not renewed',
+                                     stopped_on = (SELECT j.next_session FROM core.job j WHERE j.job_id = l.job_id)
+             WHERE lease_id = $1 AND ended_at IS NULL AND expires_at < now() RETURNING job_id, stopped_on::text",
             &[&lease],
         )
         .await
@@ -329,9 +330,45 @@ async fn expire(client: &mut Client, lease: i64) -> Result<bool, String> {
     else {
         return Ok(false);
     };
-    requeue(&tx, row.get(0), "its lease expired").await?;
+    let (job, day): (i64, Option<String>) = (row.get(0), row.get(1));
+    if let Some(day) = day {
+        lost(&tx, job, lease, &day).await?;
+    }
+    requeue(&tx, job, "its lease expired").await?;
     tx.commit().await.map_err(db)?;
     Ok(true)
+}
+
+/// How many leases a session of a job may lose (expired: its node lost, its pod killed or out of
+/// memory, its Job's deadline) before a lost lease is charged as an attempt (C-035 amended, C-068).
+pub const LOST_LEASES_FREE: i64 = 2;
+
+/// Audit 2026-11-22 opsurface (ops.md) 13, C-035 amended: a lease that expired without leaving its
+/// evidence (no stop the worker could explain: the node went, the pod was killed, the Job's deadline
+/// stopped it) is not charged as an attempt while the session it stopped on (`day`, the job's next
+/// session then) has lost at most `LOST_LEASES_FREE` leases: the attempt is given back before the
+/// job is moved (`requeue`), so a day is never set aside on its first lost node. A session that keeps
+/// killing its node is charged from its third lost lease on: it is set aside (or the pass, or the tape,
+/// stands FAILED) after at most `LOST_LEASES_FREE` + `max_attempts` lost leases. A stop with evidence
+/// is charged as before.
+async fn lost(tx: &impl GenericClient, job: i64, lease: i64, day: &str) -> Result<(), String> {
+    let row = tx
+        .query_one(
+            "SELECT EXISTS (SELECT FROM core.job_evidence WHERE lease_id = $2),
+                    (SELECT count(*) FROM core.lease WHERE job_id = $1 AND outcome = 'EXPIRED' AND stopped_on = $3::text::date)",
+            &[&job, &lease, &day],
+        )
+        .await
+        .map_err(db)?;
+    let (explained, lost): (bool, i64) = (row.get(0), row.get(1));
+    if explained || lost > LOST_LEASES_FREE {
+        return Ok(());
+    }
+    let n = tx.execute("UPDATE core.job SET attempts = GREATEST(attempts - 1, 0) WHERE job_id = $1 AND state = 'LEASED'", &[&job]).await.map_err(db)?;
+    if n == 1 {
+        notice::log(tx, &format!("Job {job} lost its lease on {day} without a stop ({lost} of {LOST_LEASES_FREE} such losses free on that day): the attempt is not counted.")).await?;
+    }
+    Ok(())
 }
 
 /// How many day jobs may stand FAILED before the queue stops: one bad day is set aside and the
@@ -761,9 +798,13 @@ pub async fn session_done(db_client: &impl GenericClient, lease: &Held, session:
     if lease.next_session.as_deref() != Some(session) {
         return Err(LeaseError::Refused(format!("job {}'s next session is {}, not {session}", lease.job_id, lease.next_session.as_deref().unwrap_or("none: all are done"))));
     }
+    // audit 2026-11-22 opsurface round 2 (round2-core.md) 9, C-035 amended: a day block's attempts are
+    // its next day's. The lease that moves it on is that day's first attempt, so the failures charged on
+    // earlier days never set a later day aside on its first failure
     db_client
         .execute(
-            "UPDATE core.job SET next_session = (SELECT min(session) FROM core.session WHERE session > $2::text::date AND session <= last_session)
+            "UPDATE core.job SET next_session = (SELECT min(session) FROM core.session WHERE session > $2::text::date AND session <= last_session),
+                                 attempts = CASE WHEN kind = 'DAY_BLOCK' THEN 1 ELSE attempts END
              WHERE job_id = $1",
             &[&lease.job_id, &session],
         )
@@ -1106,16 +1147,18 @@ pub async fn omit(client: &mut Client, profile: &str, session: &str, reason: &st
     Ok(Omitted { omission_id, day_job, passes, cause })
 }
 
-/// The queue at a glance: jobs by kind and state, what is claimable, and the pause.
+/// The queue at a glance: jobs by kind, state and build (C-068 round 2, 8: which build owns what), what
+/// is claimable, and the pause.
 pub async fn status(db_client: &impl GenericClient) -> Result<Value, String> {
     let row = db_client
         .query_one(
             "SELECT jsonb_build_object(
                  'paused', (SELECT paused FROM core.queue_control),
                  'pause_reason', (SELECT reason FROM core.queue_control),
-                 'jobs', COALESCE((SELECT jsonb_agg(jsonb_build_object('kind', kind, 'state', state, 'jobs', n, 'first', first, 'last', last) ORDER BY kind, state)
-                                   FROM (SELECT kind, state, count(*) AS n, min(first_session) AS first, max(last_session) AS last
-                                         FROM core.job GROUP BY kind, state) j), '[]'::jsonb),
+                 'jobs', COALESCE((SELECT jsonb_agg(jsonb_build_object('kind', kind, 'state', state, 'build', engine_build, 'jobs', n, 'first', first, 'last', last)
+                                                    ORDER BY kind, state, engine_build)
+                                   FROM (SELECT kind, state, engine_build, count(*) AS n, min(first_session) AS first, max(last_session) AS last
+                                         FROM core.job GROUP BY kind, state, engine_build) j), '[]'::jsonb),
                  'claimable', COALESCE((SELECT jsonb_object_agg(kind, n) FROM (SELECT kind, count(*) AS n FROM core.claimable_job GROUP BY kind) c), '{}'::jsonb),
                  'live_leases', (SELECT count(*) FROM core.lease WHERE ended_at IS NULL))::text",
             &[],

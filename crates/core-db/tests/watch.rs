@@ -36,7 +36,7 @@ async fn ready(test: &str) -> (Scratch, Client, String) {
 
 fn settings(from: Option<&str>) -> Settings {
     // the deadline hour of C-050 (10:00 MT): the mechanism is the same at any hour
-    Settings { profile: PROFILE.into(), deadlines_from: from.map(str::to_owned), volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None }
+    Settings { profile: PROFILE.into(), deadlines_from: from.map(str::to_owned), volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None }
 }
 
 /// The slice's base revision header (2025-12-10) as the published revision of `day`, written as
@@ -201,6 +201,72 @@ async fn a_last_failure_and_a_provider_burst_are_problems_from_the_evidence() {
     // the three were retried, not failed: handled, in the digest
     let digest = watch::digest(&client, &s, &after_three).await.unwrap();
     assert!(digest.starts_with("🟡 Running; handled: 3 retried attempts · "), "{digest}");
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-22 opsurface (ops.md) 10, C-068: an earlier attempt left the provider's 502 as its
+/// evidence, the final one stopped with no evidence (its worker out of disk); the alert named the
+/// 502, the reader the final stop. Both now name the final lease's cause.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_final_failure_is_named_by_its_final_lease() {
+    let (scratch, mut client, b) = ready("final_cause").await;
+    build::admit(&client, &b, &json!({"checklist": "watch test"})).await.unwrap();
+    let s = settings(None);
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2024-07-16", "2024-07-16", 1).await.unwrap();
+    client.execute("UPDATE core.job SET max_attempts = 2", &[]).await.unwrap();
+    let provider = r#"options 2024-07-16 GLD: Retryable("exit 3: == failed capture /work/h5-acq/GLD/options/2023-12-19/capture: option acquisition:Transport(\"HttpStatus(502)\")")"#;
+    failed_attempt(&mut client, &b, provider).await;
+    let last = work::claim(&mut client, Kind::DayBlock, &b, "w2", 3600.0).await.unwrap().unwrap();
+    assert!(!work::fail(&mut client, &last.token, "day 2024-07-16", "worker ran out of disk", "").await.unwrap());
+    let now = watch::now(&client).await.unwrap();
+    let change = check(&mut client, &s, &now).await;
+    assert_eq!(change.opened, [format!("Day 2024-07-16 failed for the last time (job {}): day 2024-07-16: worker ran out of disk", last.job_id)]);
+    let reader: String = client.query_one("SELECT core.session_cause('2024-07-16', $1)->>'detail'", &[&PROFILE]).await.unwrap().get(0);
+    assert!(reader.contains("worker ran out of disk") && !change.opened[0].contains("502"), "{reader}");
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-22 opsurface (ops.md) 9, C-068: after the provider refused the key (HTTP 401, the
+/// engine's transport error as it writes one), an ordered pass that finished and a history revision
+/// published cleared the alarm though neither calls the provider. Only a tape or a day block started
+/// after the refusal that succeeds clears it now.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_refused_key_is_cleared_only_by_work_that_calls_the_provider() {
+    let (scratch, mut client, b) = ready("auth").await;
+    build::admit(&client, &b, &json!({"checklist": "watch test"})).await.unwrap();
+    let s = settings(None);
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-11", "2025-12-11", 1).await.unwrap();
+    let refused = r#"options 2025-12-11 GLD: Retryable("exit 3: == failed capture /work/h5-acq/GLD/options/2025-12-11/capture: option acquisition:Transport(\"HttpStatus(401)\")")"#;
+    let job = failed_attempt(&mut client, &b, refused).await;
+    let now = watch::now(&client).await.unwrap();
+    let opened_now = check(&mut client, &s, &now).await.opened;
+    assert!(opened_now.len() == 1 && opened_now[0].starts_with("The provider (Intrinio) refuses our API key: HTTP 401 on job"), "{opened_now:?}");
+    work::cancel(&mut client, &[job]).await.unwrap();
+    // an ordered pass runs and finishes, and a history revision is published: no provider call
+    published(&client, &b, "2025-12-10", &now).await;
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &b, "2025-12-10", "2025-12-10", 1).await.unwrap();
+    client.execute("UPDATE core.job SET state = 'DONE', next_session = NULL, finished_at = clock_timestamp() WHERE kind = 'ORDERED_PASS'", &[]).await.unwrap();
+    history_published(&client, "2025-12-10", &later_text(&client, 0).await).await;
+    let in_a_minute = later_text(&client, 0).await;
+    assert_eq!(check(&mut client, &s, &in_a_minute).await.resolved, Vec::<String>::new(), "a pass proves nothing of the key");
+    // round 2, 15: a tape started after the refusal that finds every cache held already finishes
+    // without a request: not cleared; one that stores a cache (the real AAPL cache) clears it
+    for (session, stores) in [("2025-12-12", false), ("2025-12-15", true)] {
+        work::schedule(&mut client, Kind::Tape, PROFILE, &b, session, session, 1).await.unwrap();
+        let tape = work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();
+        if stores {
+            assert!(core_db::tape::put(&client, "AAPL", session, "engine-v1", &core_db::tape::Cache::Body(test_support::TAPE_AAPL.to_vec())).await.unwrap());
+        }
+        let tx = client.transaction().await.unwrap();
+        let held = work::held(&tx, &tape.token).await.unwrap();
+        work::session_done(&tx, &held, session).await.unwrap();
+        tx.commit().await.unwrap();
+        work::finish(&mut client, &tape.token).await.unwrap();
+        let after = later_text(&client, 0).await;
+        assert_eq!(check(&mut client, &s, &after).await.resolved.len(), usize::from(stores), "{session}");
+    }
     scratch.drop().await;
 }
 
@@ -531,8 +597,8 @@ async fn claimable_work_with_no_worker_for_a_quarter_hour_is_a_stall() {
     let t0 = watch::now(&client).await.unwrap();
     assert_eq!(check(&mut client, &s, &t0).await, opened(&[]));
     assert_eq!(check_after(&mut client, &s, &t0, 14).await, opened(&[]));
-    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.stall_seen", &[]).await.unwrap().get(0);
-    let stalled = format!("Work stalled since {since} MT: 3 claimable (3 tape jobs) and no worker holds a lease, so no worker pod is running");
+    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'TAPE'", &[]).await.unwrap().get(0);
+    let stalled = format!("Tape jobs stalled since {since} MT: 3 claimable and none leased, so no `tape` pod is running");
     assert_eq!(check_after(&mut client, &s, &t0, 15).await, opened(&[&stalled]));
     assert_eq!(posts(&client).await, [format!("🔴 {stalled}\nTo see more: `vyreon-core queue`")]);
     // a worker claims: resolved, and the clock is gone
@@ -548,12 +614,130 @@ async fn claimable_work_with_no_worker_for_a_quarter_hour_is_a_stall() {
     assert_eq!(check_after(&mut client, &s, &t1, 29).await, opened(&[]), "a daily run's start takes up to 30 minutes");
     let opened_now = check_after(&mut client, &s, &t1, 30).await.opened;
     assert_eq!(opened_now.len(), 1);
-    assert!(opened_now[0].contains(": 2 claimable (2 tape jobs) and no worker holds a lease"), "{opened_now:?}");
+    assert!(opened_now[0].contains(": 2 claimable and none leased, so no `tape` pod"), "{opened_now:?}");
     // a paused queue hands nothing out: that is its own problem, not a stall
     work::pause(&client, "watch test").await.unwrap();
     let paused = check_after(&mut client, &s, &t1, 31).await;
     assert_eq!(paused.resolved.len(), 1);
     assert!(paused.opened[0].starts_with("Work queue paused"), "{paused:?}");
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-22 opsurface (ops.md) 8 and 5, C-068, and its round 2 (13, 14): one live lease
+/// cleared the stall's clock for every kind, so a day block renewing its lease for a day hid tapes with no pod (their pods Pending
+/// for a node, or failing before they claim), and work all waiting on something nothing would do was
+/// no stall at all. A stall is now per kind, and the chain is one too: nothing claimable, nothing
+/// leased, queued work of a running build left.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_stall_is_per_kind_and_a_waiting_chain_is_one() {
+    let (scratch, mut client, b) = ready("stall_kind").await;
+    build::admit(&client, &b, &json!({"checklist": "watch test"})).await.unwrap();
+    let s = settings(None);
+    // a block of the 8th runs; the tapes of the 10th and 11th wait with no pod
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-08", "2025-12-08", 1).await.unwrap();
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-10", "2025-12-11", 1).await.unwrap();
+    work::claim(&mut client, Kind::DayBlock, &b, "day-1", 4.0 * 3600.0).await.unwrap().unwrap();
+    let t0 = watch::now(&client).await.unwrap();
+    assert_eq!(check(&mut client, &s, &t0).await, opened(&[]));
+    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'TAPE'", &[]).await.unwrap().get(0);
+    let tapes = format!("Tape jobs stalled since {since} MT: 2 claimable and none leased, so no `tape` pod is running");
+    assert_eq!(check_after(&mut client, &s, &t0, 15).await, opened(&[&tapes]), "the block's lease hides no tape stall");
+    // a tape pod claims: that kind resolves
+    work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();
+    assert_eq!(check_after(&mut client, &s, &t0, 16).await.resolved, [tapes]);
+    let rest: Vec<i64> = client.query("SELECT job_id FROM core.job WHERE state IN ('QUEUED', 'LEASED')", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
+    work::cancel(&mut client, &rest).await.unwrap();
+
+    // round 2, 14: a pass whose day no block computes (a missing day, or one not scheduled) holds
+    // nothing: no chain
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &b, "2025-12-10", "2025-12-11", 1).await.unwrap();
+    let t1 = watch::now(&client).await.unwrap();
+    assert_eq!(check(&mut client, &s, &t1).await, opened(&[]));
+    assert_eq!(check_after(&mut client, &s, &t1, 20).await, opened(&[]), "nothing waits on a missing day's pass");
+    // the chain: the days' block waits for a tape of a build since withdrawn (the claim's gate counts
+    // it), a pass of a running build stands FAILED beside it (its own problem: the passes are not
+    // counted, the block is)
+    let w: String = client.query_one("SELECT engine_build FROM core.engine_build WHERE engine_build <> $1", &[&b]).await.unwrap().get(0);
+    build::admit(&client, &w, &json!({"checklist": "watch test"})).await.unwrap();
+    work::schedule(&mut client, Kind::Tape, PROFILE, &w, "2025-12-09", "2025-12-09", 1).await.unwrap();
+    build::withdraw(&mut client, &w, "an image replaced, its tape left behind").await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-11", 2).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &b, "2025-12-08", "2025-12-08", 1).await.unwrap();
+    client.execute("UPDATE core.job SET state = 'FAILED' WHERE kind = 'ORDERED_PASS' AND first_session = '2025-12-08'", &[]).await.unwrap();
+    let t2 = watch::now(&client).await.unwrap();
+    let failed = check(&mut client, &s, &t2).await.opened;
+    assert!(failed.len() == 1 && failed[0].starts_with("Ordered pass for 2025-12-08 failed for the last time"), "{failed:?}");
+    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'CHAIN'", &[]).await.unwrap().get(0);
+    let chain = format!(
+        "Work stalled since {since} MT: 1 jobs queued (1 day blocks), none claimable and none leased: they wait for work that is not running (a withdrawn build's? `build hand-over`)"
+    );
+    assert_eq!(check_after(&mut client, &s, &t2, 15).await, opened(&[&chain]));
+    // a paused queue is its own problem, never a chain
+    work::pause(&client, "watch test").await.unwrap();
+    let paused = check_after(&mut client, &s, &t2, 60).await;
+    assert_eq!(paused.resolved, [chain]);
+    assert!(paused.opened.len() == 1 && paused.opened[0].starts_with("Work queue paused"), "{paused:?}");
+    work::resume(&client).await.unwrap();
+
+    // round 2, 13: twelve healthy backfill blocks hid a daily block with no pod (its own ScaledJob
+    // broken): a daily session's blocks are their own group, 30 minutes as before
+    let rest: Vec<i64> = client.query("SELECT job_id FROM core.job WHERE state IN ('QUEUED', 'LEASED', 'FAILED')", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
+    work::cancel(&mut client, &rest).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-05", "2025-12-05", 1).await.unwrap();
+    work::claim(&mut client, Kind::DayBlock, &b, "day-backfill", 4.0 * 3600.0).await.unwrap().unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-08", "2025-12-08", 1).await.unwrap();
+    client.execute("UPDATE core.job SET priority = 1 WHERE kind = 'DAY_BLOCK' AND state = 'QUEUED'", &[]).await.unwrap();
+    let t3 = watch::now(&client).await.unwrap();
+    assert_eq!(check(&mut client, &s, &t3).await.opened, Vec::<String>::new(), "(the cancelled pass and the pause resolve)");
+    assert_eq!(check_after(&mut client, &s, &t3, 29).await, opened(&[]));
+    let daily = check_after(&mut client, &s, &t3, 30).await.opened;
+    assert!(daily.len() == 1 && daily[0].starts_with("Daily day blocks stalled since ") && daily[0].ends_with("1 claimable and none leased, so no `day-block-daily` pod is running"), "{daily:?}");
+    scratch.drop().await;
+}
+
+/// C-068 (audit opsurface ops.md 2) and its round 2 (2, 3): the watch reads the server's WAL and
+/// archiver, and the backups only from the plugin's own record (`core.backup_evidence`, which core
+/// keeps from the Kubernetes API). On the test server (a superuser: `pg_monitor`'s functions open to
+/// it; archiving off) the volume's use counts every database and the WAL. With backups watched: no
+/// record is a problem (no evidence), a record with a recent recoverable base backup is none, a
+/// Cluster without the plugin's archiver is `WAL_ARCHIVING`, a failed read is unverified again.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn the_backups_are_judged_on_the_plugins_record_alone() {
+    let (scratch, mut client, _) = ready("storage").await;
+    let now = watch::now(&client).await.unwrap();
+    let st = watch::storage(&client, &now).await.unwrap();
+    let this: i64 = client.query_one("SELECT pg_database_size(current_database())", &[]).await.unwrap().get(0);
+    assert!(st.readable && st.data > this && st.wal.is_some_and(|w| w >= 16 << 20), "{st:?}");
+    let mut s = settings(None);
+    s.volume_bytes = Some(250 << 30);
+    assert_eq!(check(&mut client, &s, &now).await, opened(&[]), "{st:?}");
+    s.backup_days = Some(8);
+    let never = "Backups unverified: core has never read the backup plugin's record (VYREON_CORE_PG_CLUSTER, its Role: README B0)";
+    assert_eq!(check(&mut client, &s, &now).await, opened(&[never]));
+    // the plugin's record: archiving through it, a base backup three days ago
+    let three_days: String = client.query_one("SELECT to_char((now() - interval '3 days') AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')", &[]).await.unwrap().get(0);
+    let cluster = json!({"spec": {"plugins": [{"name": watch::BARMAN_PLUGIN, "isWALArchiver": true, "parameters": {"barmanObjectName": "vyreon-backup"}}]}});
+    let store = json!({"status": {"serverRecoveryWindow": {"vyreon-pg": {"firstRecoverabilityPoint": three_days, "lastSuccessfulBackupTime": three_days}}}});
+    let good = watch::BackupEvidence::from_objects("vyreon-pg", &cluster, Some(&store));
+    watch::put_backup_evidence(&client, Ok(&good)).await.unwrap();
+    let now = watch::now(&client).await.unwrap();
+    assert_eq!(check(&mut client, &s, &now).await.resolved, [never]);
+    let digest = watch::digest(&client, &s, &now).await.unwrap();
+    assert!(digest.contains(" of 250.0 GiB (") && digest.contains("newest recoverable base backup 3 days ago (the plugin's record)"), "{digest}");
+    // the plugin taken out of the Cluster: WAL goes nowhere, whatever PostgreSQL counts as archived
+    let bare = watch::BackupEvidence::from_objects("vyreon-pg", &json!({"spec": {}}), None);
+    watch::put_backup_evidence(&client, Ok(&bare)).await.unwrap();
+    let now = watch::now(&client).await.unwrap();
+    let off = check(&mut client, &s, &now).await.opened;
+    assert!(off.iter().any(|o| o.starts_with("WAL archiving is off")) && off.iter().any(|o| o.starts_with("No recoverable base backup")), "{off:?}");
+    // a read that fails: unverified, never the last good record
+    watch::put_backup_evidence(&client, Err("GET objectstores/vyreon-backup: 403 Forbidden")).await.unwrap();
+    let now = watch::now(&client).await.unwrap();
+    let change = check(&mut client, &s, &now).await;
+    assert!(change.restated.iter().any(|r| r.starts_with("Backups unverified: core cannot read the backup plugin's record: GET objectstores/vyreon-backup: 403")), "{change:?}");
+    assert!(change.resolved.is_empty(), "nothing is resolved without evidence: {change:?}");
     scratch.drop().await;
 }
 
@@ -577,7 +761,7 @@ async fn a_stall_counts_from_when_the_queue_was_resumed() {
     client.execute("UPDATE core.queue_control SET changed_at = $1::text::timestamptz", &[&resumed]).await.unwrap();
     assert_eq!(check_after(&mut client, &s, &t0, 30).await, opened(&[]), "10 minutes since the resume, not 30");
     let since: String = client.query_one("SELECT to_char(changed_at AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.queue_control", &[]).await.unwrap().get(0);
-    let stalled = format!("Work stalled since {since} MT: 2 claimable (2 tape jobs) and no worker holds a lease, so no worker pod is running");
+    let stalled = format!("Tape jobs stalled since {since} MT: 2 claimable and none leased, so no `tape` pod is running");
     assert_eq!(check_after(&mut client, &s, &t0, 35).await, opened(&[&stalled]));
     // a live lease: resolved, the claimability view not read
     work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();

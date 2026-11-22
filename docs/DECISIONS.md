@@ -477,6 +477,25 @@ passes wait for it by the claim rule, the day blocks do not read it, and a pass 
 run again once its cause is fixed. `queue retry-failed` puts the set-aside days back.
 Reason: the owner's rule that a stopped day never holds up other dates (2026-11-12), with the
 engine's sensor-level withholding as the first line (a fault withholds its sensors, not the day).
+- **Amended 2026-11-22 (C-068; audit opsurface ops.md 13): a lost node is not an attempt, twice a
+  day.** The basis above ("each failed day has already cost three attempts") did not hold: the
+  attempts are the job's, so a block that lost two leases on Monday, finished Monday on its third and
+  lost its node on Tuesday set Tuesday aside on its first try. A lease that ends by expiring (its node
+  lost, its pod killed or out of memory, its Job's `activeDeadlineSeconds`) and left no evidence (no
+  stop the worker could explain, C-049) is not charged while the session it stopped on (recorded,
+  `core.lease.stopped_on`) has lost at most `work::LOST_LEASES_FREE` (2) leases; from the third such
+  loss on that session it is charged. So a session that kills every node still ends FAILED, after
+  at most 2 + `max_attempts` (5) lost leases, and a stop with evidence is charged at once as before.
+  Two is a plain declared default (one lost node is ordinary on a 13-node autoscaled pool, a second
+  on the same day is not yet a pattern), not tuned. Applies to every kind (a tape or a pass whose
+  pod is killed is the same case). Test `a_lost_node_never_sets_a_day_aside_on_its_first_loss`.
+- **Amended 2026-11-22 (C-068 round 2, `round2-core.md` 9): a block's attempts are its next day's.**
+  The free losses fixed the lost-node case, but failures charged on an earlier day still spent a
+  later day's attempts (two charged failures on Monday, the third lease finishing Monday and failing
+  on Tuesday set Tuesday aside at once). The lease that moves a block to its next day is that day's
+  first attempt (`session_done` sets `attempts = 1`), so the basis above now holds: each day set aside
+  has had its own three attempts (and its two free losses). Bounded: each reset needs a day done.
+  Test `a_days_attempts_are_its_own`.
 
 ## C-036 A member has slots only on the sessions it is listed (owner, 2026-11-14)
 Nothing stored may depend on which assets are in the universe. An asset not listed on a session
@@ -2131,6 +2150,17 @@ move into core; the fourth (spend) cannot. Migration 0042.
     `JOB_FAILED`'s). **30 minutes when every claimable job is a daily run's:** CronJob `daily` starts
     at 07:45 New York, 15 minutes after the 07:30 queueing (C-051), and its node has to start; 15
     would alert every morning until KEDA replaces the CronJob. Resolves when a lease is live.
+    **Amended 2026-11-22 (C-068; audit opsurface ops.md 8 and 5): per kind, and the chain.** One
+    live lease of any kind cleared the clock, so a day block renewing its lease for a day hid tapes
+    or passes with no pod (Pending for a node, or failing before they claim: a Secret key missing, a
+    login refused), and work all waiting on something nothing would do was no stall. Now one problem
+    per kind (key `TAPE`, `DAY_BLOCK`, `ORDERED_PASS`): claimable work of the kind and no live lease
+    of the kind, the clock per kind (`core.stall_seen` keyed by kind, migration 0049). And the chain
+    (key `chain`): nothing claimable, no live lease, the queue not paused and jobs of a running build
+    queued, for 15 minutes; not while a pass of a running build stands FAILED (it holds the later
+    passes and is `JOB_FAILED`, one alert for one cause). The claimability view is now read every
+    minute unless every kind holds a lease (it was skipped whenever any did); KEDA reads it four
+    times every 30 s already.
   - `CLAIMS_EMPTY` (key `claims`): **at least 3 misses in 10 minutes** while work of their kind and
     build (and priority, for a daily worker) is **still claimable at the check**, open while any
     recurs with the work still there. The race made about 12 a minute. A miss whose work others were
@@ -2295,7 +2325,7 @@ runbook `deploy/k8s/README.md` "Workers from the queue".
   rule, nodes only while the request budget has headroom: one node averaged 101 requests a minute
   with bursts of 500-760, core grants at most 1,900, so 12 average about 64% and their bursts wait in
   core's budget); daily block 1; pass 1 (C-046). Pool `day`: autoscaled, min 0, max 13: the hard
-  cost cap, $2.17 an hour. Pods name pool `day` (pool `day-std` carries the same label and taint).
+  cost cap, $2.17 an hour. Pods name pool `day` (pool `day-intel` carries the same label and taint; amended 2026-11-22: `day-std` replaced, its size no longer offered in nyc1).
 - **Scale to zero:** DigitalOcean's autoscaling page (updated 2026-10-29) supports a pool at 0; the
   doctl `node-pool create` reference still says "Scale-to-zero is not supported". The API's answer
   and the first run decide (runbook). The autoscaler's template for an empty `day` pool (read from
@@ -2312,6 +2342,12 @@ runbook `deploy/k8s/README.md` "Workers from the queue".
   recomputed by KEDA alone); `sslmode=require` against CloudNativePG's server certificate (the
   workers connect without TLS today); KEDA's real memory on the core node; Postgres's cost of the
   four counts every 30 s (the view's per-pass functions over ~600 queued passes).
+- **Amended 2026-11-22 (C-068; audit opsurface ops.md 5, 6, 15 and the pass suspicion):** pods
+  prefer pool `day` and may run on `day-std` (the Intel fallback, node affinity); the daily block
+  has PriorityClass `vyreon-daily` (preempts) above `vyreon-backfill-block` (preempts nothing) above
+  tapes and passes; the ordered pass has a 6Gi memory limit and a 2 h deadline; KEDA 2.21 has no
+  limit on a ScaledJob's failed Jobs, so a pod failing before it claims is seen as its kind's
+  `STALLED`; CronJob `daily` is applied suspended. See C-068.
 - Tests: `core-db/tests/work.rs` `the_scaler_counts_what_a_worker_of_the_build_can_claim_and_reads_nothing_else`
   (the count equals `work::status`'s claimable per kind at each step on the real slice, per build,
   daily apart, zero when paused; the login cannot read `core.claimable_job`, `core.job`,
@@ -2359,3 +2395,239 @@ build, and the volume grown 120 -> 250 GB (11-22). Written, not applied: `10-pos
   sizes above. **Open:** a failing archive keeps WAL in `pg_wal`, which `DATABASE_FULL`
   (`pg_database_size`) does not count; until the watch reads `pg_stat_archiver`, the runbook's
   check is manual.
+- **Amended 2026-11-22 (C-068; audit opsurface ops.md 2): the watch reads the WAL and the backups.**
+  The open item above is closed: `DATABASE_FULL` counts every database and `pg_wal`; `WAL_ARCHIVING`
+  and `BACKUP_STALE` are new problems; core's login holds `pg_monitor` (granted once by a
+  superuser, README B0). See C-068.
+
+## C-068 The operational failure-surface audit (2026-11-22; audit `opsurface/ops.md`, core 550e76e, engine 090d7aea)
+The owner's audit of the build's operation before the recompute (MILESTONES "Before the recompute"):
+scale, KEDA and the autoscaler, external dependencies, ordering over the full range, recovery by the
+owner from the runbooks. Every real finding fixed; finding 14 is the engine's. Migration 0047.
+- **1 and 4: a build's unfinished work is handed to its successor, once (`build hand-over`).** The
+  rollout withdraws 914ffed7, which holds the 597 ordered passes of the whole range and, after the
+  test block, any queued tape or block. Withdrawn, its queued passes were claimed by no worker (KEDA
+  counts the successor's jobs only, C-066), and its queued tapes and blocks held the successor for
+  ever: a block claims only when no earlier tape is unfinished, a pass only when no day block before
+  it is unfinished, and a schedule over them is refused as an overlap. `vyreon-core build hand-over
+  (--preview | --expect <token>) <from> <to> <reason>`: with `from` withdrawn (or never admitted) and
+  `to` admitted, every unfinished job of `from` (QUEUED or FAILED, not a tape verify job, which
+  holds nothing back) is cancelled and the same work queued under `to` with fresh attempts and the
+  old priority and scope: a tape and a pass for their session, a block from its next session (the
+  days it did become a DONE job of `from`, as `requeue` keeps them when a day is set aside). A
+  FAILED job is carried too: 0038 makes a withdrawn build's ended block a day still to come, so a
+  set-aside day left under the old build would hold the successor's passes; the new image is its
+  next attempt. One transaction under the publish and scheduler locks; `--preview` rolls it back and
+  prints every job with a token over the old jobs, their states and sessions; the hand-over takes
+  `--expect <token>` and is refused if anything moved since (C-063's rule for `days retire`). Once:
+  afterwards `from` holds nothing unfinished and a second hand-over is refused. Recorded in
+  `core.hand_over` and `core.hand_over_job` (old job, new job) and the log. C-062's replacement of a
+  not-running build's pass on schedule is unchanged and agrees with it (an ordered pass is one per
+  session, 0032). **The claim's gates are not relaxed for withdrawn builds:** a block must not run
+  before every tape it reads (an old build's unfinished tape is a tape cache not yet stored), and a
+  pass must not run before the block that computes an earlier day; ignoring the old jobs would
+  publish history that skipped days still to come (C-037 would derive it again, at the cost of
+  every later pass) or withhold for a missing tape. The hand-over makes the successor own the work
+  explicitly instead. Test `a_withdrawn_builds_unfinished_work_is_handed_to_its_successor_once`;
+  the command line `the_hand_over_command_line_is_read_whole_before_anything_moves`.
+- **13:** C-035 amended (above): a lost lease is free twice per session.
+- **8, and 5's third part:** C-065 amended (`STALLED` per kind, and the chain). A pod that fails
+  before it claims never charges an attempt, so its kind's stall is how the channel sees it. Test
+  `a_stall_is_per_kind_and_a_waiting_chain_is_one`.
+- **9: the key alarm clears only on work that calls the provider.** `PROVIDER_AUTH` (a 401 or 403 in
+  a stop's evidence) cleared on any revision published or any job finished after it, an ordered pass
+  among them (no provider call) and a revision of a worker started before the refusal (which proves
+  nothing of the key now). It now clears only when a tape or day-block lease granted after the
+  refusal (its worker read the key file after it) finishes, or publishes a day's base under that
+  lease (`core.lease_revision`, 0044). Test `a_refused_key_is_cleared_only_by_work_that_calls_the_provider`.
+- **10: `JOB_FAILED` names the final lease's cause**, its evidence or the lease's own failure, as the
+  reader does (`core.job_failure_cause`): the newest evidence of any attempt named an earlier
+  attempt's provider error when the final worker stopped without evidence. Test
+  `a_final_failure_is_named_by_its_final_lease`.
+- **2: WAL archiving, the WAL's size and the base backups are watched** (C-067 amended; migration
+  0050; `watch::storage`, `watch::storage_found`). With the volume set (production): `DATABASE_FULL`
+  is every database plus `pg_wal` against the volume (a failing archive grows `pg_wal`, which
+  `pg_database_size` never counted). `WAL_ARCHIVING` (key `archiver`) when `pg_stat_archiver`'s last
+  failure is after its last success and nothing was archived for `ARCHIVE_STALE_MINUTES` (15), or a
+  finished WAL file (`.ready` in `pg_ls_archive_statusdir`) has waited 30 minutes; "no success for N
+  minutes" alone would alert on an idle database, which closes a segment only when it writes. The
+  15: CloudNativePG's `archive_timeout` is 5 minutes, so three segments missed; a plain default.
+  `BACKUP_STALE` when the newest base backup is older than `VYREON_CORE_BACKUP_MAX_DAYS` (8: the
+  weekly schedule plus a day) or none is recorded. Read from the server itself, no cloud credential
+  in core: `pg_backup_stop` writes a backup history file (`<segment>.<offset>.backup`) into `pg_wal`
+  and removes the older ones once archived (PostgreSQL 16 `do_pg_backup_stop`, `CleanupBackupHistory`,
+  as known; not re-read online), so the newest one's time is the newest base backup's end; that the
+  plugin's backups (barman-cloud-backup over the backup API) leave one is to be seen on the first
+  backup (README B8). The volume's free space as the filesystem says is not readable from SQL
+  without a superuser program; the sum of every database and the WAL is what the volume holds, less
+  the filesystem's own overhead, which the 20% margin covers. `pg_ls_waldir` and
+  `pg_ls_archive_statusdir` need `pg_monitor`: granted to `vyreon` by the bootstrap
+  (`10-postgres.yaml`) and once by hand on this cluster (README B0); without it the watch says so
+  (`WAL_ARCHIVING` key `unreadable`) and judges the volume on the data alone, never silently. Tests
+  `a_failing_archive_and_a_stale_backup_are_problems_before_the_volume_fills` (the logic on the 250 GiB
+  volume) and `the_watch_reads_the_wal_the_archiver_and_the_base_backups` (the readings on a real
+  server). Not verified: the plugin's backup history file and the archiver's statistics under the
+  plugin (both at B7/B8).
+- **12: the request ledger states its limits and the grants never released.** `vyreon-core budget
+  [hours]` (`budget::ledger`, `budget::unreleased`): the busiest minutes with the requests reported
+  (booked at release) and the requests of leases granted then and never released (a dead worker, a
+  lost release), and the count of such leases. The runbook's scaling criterion (README "The caps")
+  now reads the two together as an upper bound, beside Intrinio's own usage. The budget's rule is
+  unchanged (an unreleased lease is held at its full size). Test `the_ledger_shows_the_grants_never_released`.
+- **Suspicion (the core node under 12 publishers): an upload holds no connection while it spools.**
+  `POST /worker/v1/days` took a pool connection before its body arrived and kept it through the
+  upload (minutes for ~200 MB) and the wait for the bundle before it: twelve publishing nodes held
+  twelve of the pool's sixteen. It now takes one to name its caller, returns it, and takes one again
+  only to publish (one at a time, under the publish mutex) or to pause on a refused bundle. The pool
+  is 32 (PostgreSQL's limit is CloudNativePG's default 100): 24 tape pods, 13 blocks and a pass
+  heartbeat and draw from the budget, each a statement or two. Test
+  `an_upload_holds_no_connection_while_its_body_arrives` (a pool of one; fails on the old handler).
+  Not measured: the core node's memory with Postgres, KEDA and core under twelve publishers (the
+  recompute on two nodes, then the full build, are the measurement).
+- **3 and 11: the operator's scripts fail closed.** `ops/do.sh` treats any answer but 2xx as an error
+  (exit 1, the status and the start of DigitalOcean's message on stderr; the token goes to curl as a
+  header file, not its command line). `ops/delete-idle.sh` deletes nothing and exits 1 when the worker
+  pods or DigitalOcean's node list cannot be read (an expired kubeconfig no longer reads as "no busy
+  node"); it never deletes a node with an unfinished worker pod, drains a node with only finished
+  ones, skips the drain only on a node with no worker pod, leaves a node under 15 minutes old or not
+  running (it may be coming up for a pending pod), and reports every refused deletion (exit 1).
+  `ops/health.sh` says "spend: unreadable" on an error answer or an answer without the figure, never
+  $0.00, and says when the pods or core cannot be read. Checked with stand-in `curl`, `kubectl` and
+  DigitalOcean answers (a 401, a pool list of four nodes, one refused deletion), not on the account.
+- **5: startup failures.** The runbook's `vyreon-worker` Secret has `fred-key` (the tape and day
+  pods mount it), with a check of the keys' names; `doctl registry docker-config` loses the
+  `--read-only` flag doctl does not have (read-only is its default). KEDA 2.21.1's ScaledJob has no
+  backoff and no limit on failed Jobs (its CRD's spec fields read from the release manifest:
+  pollingInterval, min/maxReplicaCount, the two history limits, rollout, scalingStrategy, triggers,
+  envSourceContainerName, jobTargetRef), and a Job already runs one pod with no retry, so a pod that
+  fails before it claims is replaced every poll while its job is claimable, bounded by the cap and
+  the nodes. It is seen as that kind's `STALLED` (8), on `ops/health.sh` (failed Jobs per ScaledJob
+  in the last hour, pods stuck before running) and in `failedJobsHistoryLimit`'s 30 kept Jobs;
+  stopped by pausing the ScaledJob (runbook). A missing Secret key leaves the pod in
+  `CreateContainerConfigError`, pending, which KEDA counts, so that case makes no loop.
+- **6: the AMD stockout and the daily node.** Pods prefer pool `day` and allow `day-std` (required
+  affinity on the pool label, preferred `day`). The autoscaler backs a pool off after a failed
+  scale-up and grows another that fits; which one it grows when both can is its expander's, which
+  DigitalOcean does not document: checked on the first runs. `day-std` autoscaled 0..13 in the
+  runbook; nodes follow KEDA's capped pods, so about 13 between the pools in a build, and 26 only if
+  KEDA's caps failed (a lower `day-std` maximum is the owner's call). The daily block: a
+  PriorityClass, not a cap of 11 backfill blocks, because the cap reserves a Job slot and not the
+  6 CPUs (tapes of 2 and passes of 1 could still fill the room); `vyreon-daily` (1000) preempts the
+  lowest pods on one node (a tape or a pass, whose lease then expires, free of charge), a backfill
+  block (`vyreon-backfill-block`, 100, preempts nothing) only when nothing lower stands anywhere.
+  The daily tape is claimed ahead of the backfill's (priority 1); the daily block still waits for
+  every unfinished earlier tape, rightly (it reads the tape history before its day): at most the
+  backfill's tape phase, under 2 hours at the test block's rate.
+- **7: production recovery is in the runbook** (README "Backups and the volume" D,
+  `ops/recover-production.yaml`): the workers and core stopped, a new Cluster `vyreon-pg2` recovered
+  from `vyreon-pg`'s backups and archiving under its own server name from the start (the plugin will
+  not archive into a path holding another server's WAL, and the old history stays recoverable),
+  core, KEDA and the pass's login repointed to `vyreon-pg2-rw`, the schedule and a base backup on the
+  new cluster, a check before the ScaledJobs resume, then the new names committed. The drill stays
+  a drill. Not verified: CloudNativePG's handling of the recovered owner's password (the runbook sets
+  it if core cannot log in), and the whole procedure (a second drill run as D, on a copy, is the way
+  to prove it: the owner's call, about an hour and a 250 GiB volume for it).
+- **15: CronJob `daily` is applied suspended** (`suspend: true` in `40-daily.yaml`): applied as it
+  was, it started a second worker beside KEDA's every morning. MILESTONES' launch line and the
+  runbook's daily step say so.
+- **The ordered pass's memory and time (suspicion):** a 6Gi limit (a pass beside a day block is
+  killed by its own limit, not the block by the node's OOM killer; six times the ~1 GB estimate) and
+  a 2 h deadline (seconds on the test block's 10 days), with the measurement plan in README "The
+  caps": `memory.peak` and duration on the recompute and at ~100, 300 and 597 sessions; raise before
+  going on if the peak passes 4 GiB or a pass 30 minutes. Five lost leases on one session leave it
+  FAILED (C-035 amended), and later passes wait.
+
+**Amended 2026-11-22 (audit round 2 of C-068, `opsurface/round2-core.md`).**
+- **1: the successor is admitted after the hand-over, never before.** Between a withdrawal and a
+  hand-over, an admitted successor's pod could claim a later day's pass (its own, under the claim's
+  rule a withdrawn build's earlier pass holds nothing) and publish that day's history one prior
+  reading short (`eligible_63 = 62`), visible to readers until the earlier day's pass republished
+  it. Structurally safe order: `build hand-over` refuses a successor that is admitted or holds a
+  live lease, and withdraws the old build itself, in its own transaction, when it still runs; the
+  successor is admitted after it. No worker of either build runs between the withdrawal and the
+  moment every moved job is the successor's. Runbook "Workers from the queue" 4 states the order.
+- **6: a pass is carried only where the successor can run it** (C-064). A day published (by any
+  build) in profile revisions the successor does not read is a day its pass cannot claim and that
+  holds every later pass; the hand-over refuses while such a day has no day block (the old build's
+  carried, or the successor's) to compute it again, naming the days. Test
+  `a_hand_over_carries_no_pass_its_successor_cannot_run`.
+- **11: the old build's tape verify jobs are cancelled, not carried** (recorded with no new job): a
+  sample of the old build's caches, which held a schedule of the successor's tapes refused as an
+  overlap.
+- **7: the daily runs read their build again under the scheduler's lock**, which a hand-over holds:
+  a tick that read the build admitted before a hand-over no longer queues its sessions under the
+  withdrawn build (and marks them handled). Test
+  `a_tick_waiting_on_a_hand_over_queues_nothing_under_the_withdrawn_build`.
+- **13: a daily session's blocks are a stall group of their own** (`DAILY_BLOCK`, 30 minutes as
+  before): they have their own ScaledJob, and twelve healthy backfill blocks' leases hid a broken
+  `day-block-daily` for hours. Migration 0049's clock admits the group.
+- **14: the chain counts only work that waits on something.** An ordered pass whose day is neither
+  published for its build nor covered by an unfinished day block (a missing day whose block was
+  cancelled, which holds nothing under C-062, or a day not scheduled yet) is not counted; a failed
+  pass of a running build drops the passes from the count (they are `JOB_FAILED`'s) but no longer
+  hides a day block or tape stuck behind a withdrawn build's tape. Test
+  `a_stall_is_per_kind_and_a_waiting_chain_is_one` (both cases, and the daily group).
+- **15: a tape clears the key alarm only if it stored a cache.** A replacement tape worker whose
+  session's caches were all held already finishes without a request; its `DONE` lease no longer
+  counts. A tape lease must have stored a tape cache (a body or the provider's absence) between its
+  grant and its end. Test `a_refused_key_is_cleared_only_by_work_that_calls_the_provider`.
+- **2, 3 and 16: the backups are judged on the plugin's own record, and nothing resolves without
+  evidence** (replaces the backup history file above; migration 0051, `core.backup_evidence`;
+  `core_api::backups`). Two of PostgreSQL's signs were false evidence: CloudNativePG 1.30.1 answers
+  every WAL file archived when no archiver is configured (so `archived_count` grows and `.ready`
+  clears with WAL going nowhere), and `pg_backup_stop` writes its history file before Barman has
+  uploaded the label and written `backup.info` (a failed backup looked fresh). Core now reads,
+  every 5 minutes, the database's Cluster (`spec.plugins`: a Barman Cloud WAL archiver naming an
+  ObjectStore) and that ObjectStore's `status.serverRecoveryWindow.<server>`
+  (`firstRecoverabilityPoint`, `lastSuccessfulBackupTime`, `lastFailedBackupTime`: the plugin's
+  record of what is recoverable from the bucket; field names from plugin-barman-cloud v0.16.0's CRD)
+  through the Kubernetes API, as its own ServiceAccount whose Role may only `get` those two kinds
+  (`20-core.yaml`). The watch alerts on the absence of evidence: no record, a failed read or one
+  older than 15 minutes is `BACKUP_STALE` "Backups unverified" (with why); no archiver is
+  `WAL_ARCHIVING` "archiving is off"; no recovery window or a last success older than
+  `VYREON_CORE_BACKUP_MAX_DAYS` is `BACKUP_STALE`. While the record cannot be read, an open "archiving
+  is off" stays open; while the WAL cannot be read (no `pg_monitor`), an open `DATABASE_FULL` stays
+  open ("cannot be judged"). `pg_stat_archiver`'s failures and waiting files still raise
+  `WAL_ARCHIVING` (they are real failures when the plugin archives). The runbook's B7 proof is the
+  WAL file in the bucket, not PostgreSQL's count. Tests
+  `the_backups_are_judged_on_the_plugins_record_alone`, `the_backup_evidence_is_the_plugins_record`,
+  `a_failing_archive_is_a_problem_before_the_volume_fills`. Not verified: the plugin keys its
+  window by the server name (the B8 check), and the API read on the cluster.
+- **17: the ledger's bound is a real one.** Usage booked at release (`core.request_usage`) splits one
+  minute's requests across two when releases straddle its end, so "reported plus unreleased per
+  minute" was no upper bound. `vyreon-core budget` now books each lease by its grant minute (used if
+  released, its full size if not) and states "at most" for a minute as its and the previous minute's
+  leases: a lease's requests are made within 35 s of its grant. Test
+  `the_ledger_shows_the_grants_never_released`.
+- **4: `delete-idle.sh` never deletes a node with a worker pod still to finish, and when in doubt
+  deletes nothing.** A node is a candidate only if this kubeconfig's cluster shows it with the droplet
+  id DigitalOcean records for it (another cluster's kubeconfig matches none: nothing deleted, exit 1).
+  A candidate is cordoned before its pods are listed again, so no worker can be scheduled onto it
+  between the check and the deletion; a pod not finished, or a listing that fails, uncordons it and
+  leaves it; drain is skipped only with no worker pod at all. Checked with stand-in `kubectl` and
+  DigitalOcean answers (a running pod, a finished one, none, a young node, a pod arriving at the
+  cordon, another cluster's node list), not on the account.
+- **19: `health.sh` says when the node list cannot be read**, never "0 worker, 0 other".
+- **8: the recompute's command names the build the ScaledJobs run** (README "Workers from the queue"
+  10), and `vyreon-core queue` lists jobs by kind, state **and build** (`work::status`), so who owns
+  what is checked before KEDA is expected to start anything.
+- **5 and 12: recovery.** A schedule made after the last archived WAL is lost without trace in the
+  store: D5 compares `vyreon-core queue` (by build) with the schedules MILESTONES records and makes
+  again what is missing. `ops/recover-production.yaml` takes the new Cluster's name and the lost
+  server's on the command line (placeholders), and D repoints from the current names, so a second
+  loss recovers from the current server's history, not the first one's.
+- **10: the daily block never evicts a backfill block.** `vyreon-backfill-block` now has the daily
+  class's value (1000) and preempts nothing; preemption takes only lower priorities, so the daily
+  pod evicts tapes or passes where that makes room and otherwise waits for the autoscaler's node.
+  In a stockout it waits (the deadline alert says so); the 6-CPU argument for a class over a cap of
+  11 stands.
+- **18: the cost bound is the pools' maxima.** With every cap working, tapes of later dates beside
+  12 earlier blocks can hold up to 21 nodes (a tape does not fit beside a block), so README states
+  `day` 13 plus `day-std`'s maximum as the cap that binds (13: $4.34 an hour; 6: $3.17; 0: no
+  fallback).
+- **Suspicion 20: the pass's memory request equals its limit, 3Gi.** A block (10Gi request) and a
+  pass then fit the node's 13.3 GiB allocatable as scheduled, and under memory pressure the kubelet
+  evicts pods above their requests first, never the pass; the block's own 14Gi limit above its
+  request is as before. The measurement plan raises it at a 2 GiB peak; above 3.2Gi a pass no longer
+  fits beside a block and takes a node of its own (a cost).
+

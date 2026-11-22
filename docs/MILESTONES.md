@@ -41,9 +41,9 @@ security's typical level AND in the top or bottom tenth of its last 63 sessions 
 `unusual.rs` WINDOW = 63, robust z: matches); "what could not be measured, and why"; data through
 the latest session; no signals or forecasts. So by 2027-01-09 we need: (1) history back at least 63
 sessions before 2027-01-08 (phase 1 covers it); (2) **daily go-forward runs** computing each new
-session from the build onward (built, C-051: core queues T at 07:30 New York the next day, CronJob
-`daily` (`deploy/k8s/40-daily.yaml`), pool `day` to min 0; not switched on; runbook
-`deploy/k8s/README.md` "Daily runs"); (3) Reporter producing the paid issue from core's API, sent
+session from the build onward (built, C-051: core queues T at 07:30 New York the next day; KEDA's
+`day-block-daily` starts it (C-066), CronJob `daily` applied suspended as the fallback (C-068); pool
+`day` to min 0; not switched on; runbook `deploy/k8s/README.md` "Workers from the queue", 9); (3) Reporter producing the paid issue from core's API, sent
 through beehiiv. Owner, 2026-11-16: the deadline will be met; target free reports live in December
 2026. Intrinio's Startup tier (USD 333 a month, scaling to USD 999) is required for redistribution
 rights and covers free and paid reports, so it starts before the first publication of either (bought
@@ -141,7 +141,8 @@ before scheduling.
   judge its days (gates a–c, holds, memory, one node's request draw) and fix what it shows; (2) the rest: tapes to
   2026-11-20, then blocks of 15, nodes added only while the request budget has headroom (owner,
   2026-11-19); (3) the ordered passes, scheduled ONCE for the whole range (C-046); (4) the whole-store gate. Daily runs (C-051) switched on when the full build
-  starts, from 2026-11-23 (`VYREON_CORE_DAILY_FROM`/`_BUILD`, apply `40-daily.yaml`); set
+  starts, from 2026-11-23 (`VYREON_CORE_DAILY_FROM`/`_BUILD`; KEDA starts the daily work, CronJob `daily`
+  stays suspended, C-068); set
   `VYREON_CORE_DEADLINES_FROM` to the live date so deadlines don't fire during the build.
 - **Layout:** `s-8vcpu-16gb-amd` day nodes (droplet limit 30: web, the engine droplet, the core node,
   up to 27 workers). nyc1 has refused AMD capacity before; the fallback pool `day-std` (s-8vcpu-16gb
@@ -351,7 +352,9 @@ into the next image before the recompute.
 test everything):** (1) run.sh's 10 passes on 914ffed7, node deleted; (2) deploy core 7c96453 (C-065;
 progress webhook; stop run.sh's posts); (3) KEDA (release manifest, no Helm) with one ScaledJob per kind
 triggered by core's claimable count of its own build, pool `day` autoscaling min 0 max 12 (manifests
-being written on branch `core-keda`); (4) the rulings image admitted, 914ffed7 withdrawn; (5) recompute
+being written on branch `core-keda`); (4) the rulings image registered, 914ffed7's unfinished work (the 587
+queued passes, any queued tape or block) handed to it once, withdrawing 914ffed7 (`build hand-over`,
+C-068), then the rulings image admitted (README "Workers from the queue" 4: this order); (5) recompute
 2024-07-09..07-22 as 2 blocks of 5 started by KEDA alone; gate a judges; (6) the full build.
 **Added (owner, 2026-11-22: "schedule this all along with the KEDA implementation"):** the database
 volume grows 120 → 250 GB with the next core restart (measured 2024-07 days ~134 MB each, 2026-11 ~200
@@ -408,14 +411,19 @@ Run every step with `KUBECONFIG=~/claude-artifacts/cluster-scratch/kubeconfig` a
    `vyreon-core-progress-webhook` (manifest done), then stop run.sh's own posts. Registry login: DO API
    docker-credentials, both parts by stdin.
 4. **Engine:** the claim retry (loose end) plus the test block's fixes → full suite → new image
-   (`deploy/worker/build.sh`), `build register/admit` with evidence, withdraw the replaced build.
+   (`deploy/worker/build.sh`), `build register` (NOT admit yet), then `vyreon-core build hand-over --preview
+   <old> <new> "<reason>"` and, on its token, `--expect <token>` (C-068: withdraws the old build and
+   makes its queued passes, tapes and blocks the new build's, once), then `build admit` the new build
+   with evidence, then the ScaledJobs on the new image (README "Workers from the queue" 4, the order).
 5. **Items 2 and 4 (KEDA, autoscaling, caps):** written on branch `core-keda` (C-066); merge, then
    `deploy/k8s/README.md` "Workers from the queue" steps 1-4 (KEDA 2.21.1 by its release manifest,
    no Helm; the `vyreon_scaler` role before the core image with 0046), proven by step 10 (the test
    block's recompute started by KEDA alone).
 6. **Full build:** schedule tapes 2024-07-23..2026-11-20 and day blocks 2024-07-23..2026-11-20 in blocks
-   of 15 (the ordered passes are already scheduled for the whole range: never schedule them again);
-   switch daily runs on from 2026-11-23 (`VYREON_CORE_DAILY_FROM`/`_BUILD`, apply `40-daily.yaml`) with
+   of 15 (the ordered passes are scheduled for the whole range and re-owned by the image change's
+   hand-over: check `vyreon-core queue` shows them under the new build; never schedule them again while
+   they stand; schedule only what `queue` shows missing); switch daily runs on from 2026-11-23
+   (`VYREON_CORE_DAILY_FROM`/`_BUILD`; KEDA starts the daily work; CronJob `daily` stays suspended, C-068) with
    `VYREON_CORE_DEADLINES_FROM` = the live date; watch spend against $500.
 7. **Then:** whole-store gate (history reference check; `tools/external/flags.py`, refresh Cboe files
    through 11-20 first), census, backups to Spaces with a restore drill, Reporter.
@@ -430,7 +438,9 @@ the operational failure surface (owner) and the rulings diff. Backup bucket `vyr
 (nyc3, private); its limited key in `pg-backup-key-id.txt`/`pg-backup-secret.txt` (git-ignored, 600;
 tested: its bucket 200, vyreon-data 403). Test block on 914ffed7: 7 of 10 days published.
 Next: the suite → image 090d7aea → after the block: the rollout (scaler role, core deploy, volume,
-KEDA, autoscaling, image admitted/914ffed7 withdrawn, backups + first backup) with the audits' fixes →
+KEDA, autoscaling incl. `day-std` as the fallback, image admitted/914ffed7 withdrawn and handed over,
+`GRANT pg_monitor TO vyreon`, core's ServiceAccount reading the backup plugin's record (20-core.yaml),
+backups + first backup, BACKUP_STALE resolved from that record) with the audits' fixes →
 the recompute as the build's first stage → the full build.
 
 **18:20 UTC audits (`opsurface/ops.md`, `rulings.md`): NOT converged; fixing before the rollout.**

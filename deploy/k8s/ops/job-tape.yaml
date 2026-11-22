@@ -32,7 +32,7 @@ spec:
         cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
     spec:
       restartPolicy: Never
-      nodeSelector: {vyreon: worker, doks.digitalocean.com/node-pool: day-std}
+      nodeSelector: {vyreon: worker, doks.digitalocean.com/node-pool: day-intel}
       tolerations:
         - {key: vyreon, operator: Equal, value: worker, effect: NoSchedule}
       containers:

@@ -7,6 +7,7 @@
 //! `Authorization: Bearer <token>`. Workers hold no database or storage credentials (C-016): for
 //! the perishable archive core hands a worker a pre-signed URL for one object (C-052).
 pub mod adjustments;
+pub mod backups;
 pub mod notices;
 pub mod reader;
 pub mod worker;

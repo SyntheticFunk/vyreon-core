@@ -1,0 +1,47 @@
+# Production recovery after the database volume is lost (C-068, audit opsurface ops.md 7; README
+# "Backups and the volume", D). Not the drill (`restore-drill.yaml`, which archives nothing and is
+# deleted): this cluster becomes the database. Placeholders, set by README D's `sed` (round 2, 12:
+# so a second loss recovers from the then current server, not the first one's history):
+#   VYREON_PG_NEW          the new Cluster's name (vyreon-pg2 the first time, vyreon-pg3 the next)
+#   VYREON_PG_LOST_SERVER  the server name the lost Cluster archived under (its plugin
+#                          `serverName`, else its name: vyreon-pg the first time)
+# It is recovered from the latest base backup and every archived WAL file of the lost server, and
+# archives its own WAL from the start under its own name: the plugin refuses to archive into a
+# server's path that already holds WAL (barman-cloud-check-wal-archive), so the recovered database
+# never writes over the history it came from, and that history stays recoverable.
+#
+# Its Services are `VYREON_PG_NEW-rw`, ...: core, KEDA's triggers and the ordered pass's login are
+# repointed to it (README D). Roles, their passwords and memberships (vyreon, vyreon_pass,
+# vyreon_keda, pg_monitor) come back with the backup.
+#
+# Placed on the core node as `vyreon-pg` is (no node selector: worker pools are tainted). Size the
+# volume as `vyreon-pg`'s (`10-postgres.yaml`); a recovery of ~150 GB replays its WAL in an hour or
+# two (the drill measures it).
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: VYREON_PG_NEW
+  namespace: vyreon
+spec:
+  instances: 1
+  imageName: ghcr.io/cloudnative-pg/postgresql:16
+  storage:
+    size: 250Gi
+  bootstrap:
+    recovery:
+      source: vyreon-pg-backup
+      database: vyreon
+      owner: vyreon
+  externalClusters:
+    - name: vyreon-pg-backup
+      plugin:
+        name: barman-cloud.cloudnative-pg.io
+        parameters:
+          barmanObjectName: vyreon-backup
+          serverName: VYREON_PG_LOST_SERVER
+  plugins:
+    - name: barman-cloud.cloudnative-pg.io
+      isWALArchiver: true
+      parameters:
+        barmanObjectName: vyreon-backup
+        serverName: VYREON_PG_NEW

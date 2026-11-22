@@ -171,7 +171,7 @@ async fn a_build_that_cannot_work_queues_nothing_and_is_a_problem() {
     assert_eq!(refused, format!("daily runs: build {derived} is not admitted; 1 due sessions are not queued"));
     let n: i64 = client.query_one("SELECT count(*) FROM core.job", &[]).await.unwrap().get(0);
     assert_eq!(n, 0);
-    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d.clone()), archive: None, refcheck_from: None };
+    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d.clone()), archive: None, refcheck_from: None, backup_days: None };
     let now = "2025-12-11 12:31:00+00";
     let stopped = format!("Daily runs stopped: build {derived} is not admitted, so no new session is queued");
     assert_eq!(watch::check(&mut client, &s, now).await.unwrap().opened, std::slice::from_ref(&stopped));
@@ -195,7 +195,7 @@ async fn a_build_that_cannot_work_queues_nothing_and_is_a_problem() {
 async fn a_failed_queueing_is_a_problem_before_the_digest() {
     let (scratch, mut client, b, _) = ready("daily_queue_failed").await;
     let d = daily(&b, "2025-12-10");
-    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d), archive: None, refcheck_from: None };
+    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d), archive: None, refcheck_from: None, backup_days: None };
     client
         .batch_execute(
             "ALTER FUNCTION vyreon.ensure_months(date, date) RENAME TO ensure_months_kept;
@@ -241,5 +241,34 @@ async fn the_deadline_leaves_two_days_of_work_after_the_inputs_are_ready() {
     // 14 h 30 min while Mountain time is two hours behind New York; 13 h 30 min in New York's
     // winters from November 2026, when Alberta stays on UTC−6 (the zone database PostgreSQL reads)
     assert_eq!((min.as_str(), max.as_str()), ("13:30:00", "14:30:00"));
+    scratch.drop().await;
+}
+
+/// Audit 2026-11-22 opsurface round 2 (round2-core.md) 7, C-068: a tick read the build admitted, then
+/// waited for the scheduler's lock while a hand-over withdrew the build and moved its work; it then
+/// queued the session under the withdrawn build and marked it handled, so the successor never queued
+/// it. The tick reads the build again under the lock: it queues nothing and says why.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_tick_waiting_on_a_hand_over_queues_nothing_under_the_withdrawn_build() {
+    let (scratch, mut client, b, _) = ready("daily_hand_over_race").await;
+    let d = daily(&b, "2025-12-10");
+    // the hand-over: the scheduler's lock held while the build is withdrawn
+    let mut other = scratch.client().await;
+    let tx = other.transaction().await.unwrap();
+    tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.unwrap();
+    let tick = tokio::spawn(async move {
+        let r = daily::queue_due(&mut client, &d, "2025-12-11 12:30:00+00").await;
+        (r, client)
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert!(!tick.is_finished(), "the tick read the build admitted and waits for the lock");
+    tx.execute("UPDATE core.engine_build SET withdrawn_at = clock_timestamp(), withdrawal = 'handed over' WHERE engine_build = $1", &[&b]).await.unwrap();
+    tx.commit().await.unwrap();
+    let (refused, client) = tick.await.unwrap();
+    assert_eq!(refused.unwrap_err(), format!("daily runs: build {b} was withdrawn; 1 due sessions are not queued"));
+    let n: i64 = client.query_one("SELECT count(*) FROM core.job", &[]).await.unwrap().get(0);
+    let marked: i64 = client.query_one("SELECT count(*) FROM core.daily_session", &[]).await.unwrap().get(0);
+    assert_eq!((n, marked), (0, 0));
     scratch.drop().await;
 }

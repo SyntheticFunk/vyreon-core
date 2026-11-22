@@ -38,6 +38,11 @@ pub const PROVIDER_QUIET_HOURS: f64 = 2.0;
 /// The database is too full above this share of its volume, and clears below the second.
 pub const DATABASE_FULL: f64 = 0.80;
 pub const DATABASE_CLEAR: f64 = 0.78;
+/// C-068 (audit opsurface ops.md 2): WAL archiving is failing when its last attempt failed and
+/// nothing has been archived for this long, or stuck when a finished WAL file has waited twice this
+/// long to be archived. CloudNativePG closes a segment every 5 minutes (`archive_timeout`), and the
+/// plugin archives two at a time, so a quarter hour is three missed segments.
+pub const ARCHIVE_STALE_MINUTES: f64 = 15.0;
 /// The trading calendar must reach this many days ahead (C-014f).
 pub const CALENDAR_DAYS: i32 = 45;
 /// The digest's typical coverage is the median over this many earlier published sessions.
@@ -95,6 +100,9 @@ pub struct Settings {
     /// C-054: from this session every published day is expected to have a reference-check report
     /// (`VYREON_CORE_REFCHECK_FROM`); None: only the reports workers send are judged.
     pub refcheck_from: Option<String>,
+    /// C-068: the newest base backup must be at most this many days old (`VYREON_CORE_BACKUP_MAX_DAYS`;
+    /// the weekly schedule plus a day); None: the base backups are not watched.
+    pub backup_days: Option<i32>,
 }
 
 /// What the watch checks of the perishable archive (C-052).
@@ -284,19 +292,14 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open])
     if let Some(summary) = checks.not_run_summary() {
         found.push(Found { kind: "REFCHECK_NOT_RUN", key: "refcheck".into(), summary, command: "vyreon-core refcheck list".into(), detail: None });
     }
+    // C-068 (audit opsurface ops.md 2): the volume holds the data and the WAL, and the WAL grows while
+    // archiving fails; both, and the base backups, are watched where a volume is set (production)
     if let Some(volume) = s.volume_bytes.filter(|v| *v > 0) {
-        let size: i64 = c.query_one("SELECT pg_database_size(current_database())", &[]).await.map_err(db)?.get(0);
-        let share = size as f64 / volume as f64;
-        let line = if is_open(open, "DATABASE_FULL", "volume") { share > DATABASE_CLEAR } else { share > DATABASE_FULL };
-        if line {
-            found.push(Found {
-                kind: "DATABASE_FULL",
-                key: "volume".into(),
-                summary: format!("Database is {:.0}% of its volume: {} of {}", share * 100.0, gigabytes(size), gigabytes(volume)),
-                command: "vyreon-core digest".into(),
-                detail: None,
-            });
-        }
+        let st = storage(c, now).await?;
+        found.extend(storage_found(&st, volume, is_open(open, "DATABASE_FULL", "volume")));
+    }
+    if let Some(days) = s.backup_days {
+        backups(c, days, now, open, &mut found).await?;
     }
     let row = c
         .query_one(
@@ -338,6 +341,277 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open])
         }
     }
     Ok(found)
+}
+
+/// What the server says of its volume, its WAL and its backups (C-068).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct Storage {
+    /// The core login may read the WAL directory (`pg_monitor`): without it only `data` is read.
+    pub readable: bool,
+    /// Every database's size (only this database's when not `readable`).
+    pub data: i64,
+    /// `pg_wal`'s files (segments, history and backup files).
+    pub wal: Option<i64>,
+    /// Minutes since the archiver's last success and last failure (`pg_stat_archiver`).
+    pub archived_ago: Option<f64>,
+    pub failed_ago: Option<f64>,
+    /// WAL files finished and not yet archived (`.ready`), and minutes the oldest has waited.
+    pub waiting: i64,
+    pub oldest_waiting: Option<f64>,
+}
+
+/// Reads `Storage` at `now`. Never fails for want of a privilege: the functions that need
+/// `pg_monitor` are called only when the login holds it (a failed statement would abort the check's
+/// transaction).
+pub async fn storage(c: &impl GenericClient, now: &str) -> Result<Storage, String> {
+    let readable: bool = c
+        .query_one(
+            "SELECT has_function_privilege('pg_catalog.pg_ls_waldir()', 'EXECUTE')
+                AND has_function_privilege('pg_catalog.pg_ls_archive_statusdir()', 'EXECUTE')
+                AND pg_has_role('pg_read_all_stats', 'USAGE')",
+            &[],
+        )
+        .await
+        .map_err(db)?
+        .get(0);
+    let r = c
+        .query_one(
+            "SELECT extract(epoch FROM $1::text::timestamptz - last_archived_time)::float8 / 60,
+                    extract(epoch FROM $1::text::timestamptz - last_failed_time)::float8 / 60
+             FROM pg_stat_archiver",
+            &[&now],
+        )
+        .await
+        .map_err(db)?;
+    let mut st = Storage { readable, archived_ago: r.get(0), failed_ago: r.get(1), ..Storage::default() };
+    if !readable {
+        st.data = c.query_one("SELECT pg_database_size(current_database())", &[]).await.map_err(db)?.get(0);
+        return Ok(st);
+    }
+    let r = c
+        .query_one(
+            "SELECT (SELECT sum(pg_database_size(oid))::bigint FROM pg_database),
+                    (SELECT COALESCE(sum(size), 0)::bigint FROM pg_ls_waldir()),
+                    (SELECT count(*) FROM pg_ls_archive_statusdir() WHERE name LIKE '%.ready'),
+                    (SELECT extract(epoch FROM $1::text::timestamptz - min(modification))::float8 / 60 FROM pg_ls_archive_statusdir() WHERE name LIKE '%.ready')",
+            &[&now],
+        )
+        .await
+        .map_err(db)?;
+    st.data = r.get(0);
+    st.wal = Some(r.get(1));
+    st.waiting = r.get(2);
+    st.oldest_waiting = r.get(3);
+    Ok(st)
+}
+
+/// The problems `st` makes against a volume of `volume` bytes (C-068, audit opsurface ops.md 2):
+/// `DATABASE_FULL` on the data and the WAL together (a failing archive grows `pg_wal`, which
+/// `pg_database_size` never counted), `WAL_ARCHIVING` when archiving fails or is stuck (or the WAL
+/// cannot be read). Round 2, 16: without the WAL (the login lost `pg_monitor`) an open
+/// `DATABASE_FULL` stays open, never resolved on the data alone.
+pub fn storage_found(st: &Storage, volume: i64, full_open: bool) -> Vec<Found> {
+    let mut found = Vec::new();
+    let used = st.data + st.wal.unwrap_or(0);
+    let share = used as f64 / volume as f64;
+    let blind_open = full_open && st.wal.is_none();
+    if blind_open || if full_open { share > DATABASE_CLEAR } else { share > DATABASE_FULL } {
+        let summary = match st.wal {
+            Some(w) => format!("Database volume {:.0}% full: {} of {}, {} of it WAL", share * 100.0, gigabytes(used), gigabytes(volume), gigabytes(w)),
+            None if blind_open => format!("Database volume: cannot be judged while the WAL is unreadable ({} of data alone); it was full", gigabytes(st.data)),
+            None => format!("Database volume {:.0}% full on the data alone: {} of {} (WAL not read)", share * 100.0, gigabytes(used), gigabytes(volume)),
+        };
+        found.push(Found { kind: "DATABASE_FULL", key: "volume".into(), summary, command: "vyreon-core digest".into(), detail: None });
+    }
+    if !st.readable {
+        found.push(Found {
+            kind: "WAL_ARCHIVING",
+            key: "unreadable".into(),
+            summary: "The watch cannot read the WAL: the core login lacks pg_monitor (deploy/k8s/README.md, Backups B0)".into(),
+            command: "vyreon-core digest".into(),
+            detail: None,
+        });
+    }
+    let failing = st.failed_ago.is_some_and(|f| st.archived_ago.is_none_or(|a| f < a)) && st.archived_ago.is_none_or(|a| a >= ARCHIVE_STALE_MINUTES);
+    let stuck = st.oldest_waiting.is_some_and(|w| w >= 2.0 * ARCHIVE_STALE_MINUTES);
+    if failing || stuck {
+        let minutes = |m: Option<f64>| m.map_or_else(|| "never".to_owned(), |m| format!("{} ago", age((m * 60.0) as i64)));
+        let wal = st.wal.map_or_else(String::new, |w| format!(", {} in pg_wal", gigabytes(w)));
+        found.push(Found {
+            kind: "WAL_ARCHIVING",
+            key: "archiver".into(),
+            summary: format!(
+                "WAL archiving to the backup bucket is {}: last success {}, last failure {}; {} WAL files waiting{wal}, kept on the database volume until archived",
+                if failing { "failing" } else { "stuck" },
+                minutes(st.archived_ago),
+                minutes(st.failed_ago),
+                st.waiting
+            ),
+            command: "kubectl -n vyreon logs vyreon-pg-1 --all-containers --since=1h".into(),
+            detail: None,
+        });
+    }
+    found
+}
+
+/// What the backup plugin itself records (C-068 round 2, `round2-core.md` 2 and 3), as core read it
+/// through the Kubernetes API: whether the database's Cluster archives its WAL through the Barman
+/// Cloud plugin (`spec.plugins`, `isWALArchiver`), and the plugin's recovery window for the server
+/// (the ObjectStore's `status.serverRecoveryWindow.<server>`, which the plugin keeps from the backups
+/// it finds in the bucket). PostgreSQL's own signs are not evidence: CloudNativePG reports a WAL file
+/// archived when no archiver is configured, and `pg_backup_stop` writes its history file before the
+/// copy to the bucket is complete.
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct BackupEvidence {
+    pub cluster: String,
+    pub archiver: bool,
+    pub object_store: Option<String>,
+    pub server: Option<String>,
+    pub first_recoverability_point: Option<String>,
+    pub last_successful_backup: Option<String>,
+    pub last_failed_backup: Option<String>,
+}
+
+/// The plugin's name in a Cluster's `spec.plugins` (plugin-barman-cloud v0.16.0).
+pub const BARMAN_PLUGIN: &str = "barman-cloud.cloudnative-pg.io";
+
+impl BackupEvidence {
+    /// From the Cluster object `cluster` (named `name`), and the ObjectStore its archiver names, if
+    /// read (`store`). The server is the plugin's `serverName`, else the Cluster's name.
+    pub fn from_objects(name: &str, cluster: &Value, store: Option<&Value>) -> BackupEvidence {
+        let archiver = cluster["spec"]["plugins"]
+            .as_array()
+            .and_then(|p| p.iter().find(|p| p["name"] == BARMAN_PLUGIN && p["isWALArchiver"] == true && p["enabled"] != false))
+            .cloned();
+        let object_store = archiver.as_ref().and_then(|p| p["parameters"]["barmanObjectName"].as_str()).map(str::to_owned);
+        let server = archiver.as_ref().map(|p| p["parameters"]["serverName"].as_str().unwrap_or(name).to_owned());
+        let window = match (store, &server) {
+            (Some(store), Some(server)) => store["status"]["serverRecoveryWindow"][server.as_str()].clone(),
+            _ => Value::Null,
+        };
+        let at = |k: &str| window[k].as_str().map(str::to_owned);
+        BackupEvidence {
+            cluster: name.to_owned(),
+            archiver: archiver.is_some() && object_store.is_some(),
+            object_store,
+            server,
+            first_recoverability_point: at("firstRecoverabilityPoint"),
+            last_successful_backup: at("lastSuccessfulBackupTime"),
+            last_failed_backup: at("lastFailedBackupTime"),
+        }
+    }
+}
+
+/// Keeps what a read of the plugin's record found, or why it failed (one row, replaced).
+pub async fn put_backup_evidence(c: &impl GenericClient, read: Result<&BackupEvidence, &str>) -> Result<(), String> {
+    let e = read.ok().cloned().unwrap_or_default();
+    let error = read.err().map(|e| one_line(e, 300));
+    c.execute(
+        "INSERT INTO core.backup_evidence (one, read_at, error, cluster, archiver, object_store, server, first_recoverability_point, last_successful_backup, last_failed_backup)
+         VALUES (true, clock_timestamp(), $1, $2, $3, $4, $5, $6::text::timestamptz, $7::text::timestamptz, $8::text::timestamptz)
+         ON CONFLICT (one) DO UPDATE SET read_at = EXCLUDED.read_at, error = EXCLUDED.error, cluster = EXCLUDED.cluster, archiver = EXCLUDED.archiver,
+             object_store = EXCLUDED.object_store, server = EXCLUDED.server, first_recoverability_point = EXCLUDED.first_recoverability_point,
+             last_successful_backup = EXCLUDED.last_successful_backup, last_failed_backup = EXCLUDED.last_failed_backup",
+        &[
+            &error,
+            &read.ok().map(|_| e.cluster.clone()),
+            &read.ok().map(|_| e.archiver),
+            &e.object_store,
+            &e.server,
+            &e.first_recoverability_point,
+            &e.last_successful_backup,
+            &e.last_failed_backup,
+        ],
+    )
+    .await
+    .map_err(db)?;
+    Ok(())
+}
+
+/// The digest's words for the backups, from the plugin's record only (never PostgreSQL's own signs).
+async fn backup_words(c: &impl GenericClient, now: &str) -> Result<String, String> {
+    let row = c
+        .query_opt(
+            "SELECT error IS NULL AND read_at > $1::text::timestamptz - interval '15 minutes', archiver,
+                    extract(epoch FROM $1::text::timestamptz - last_successful_backup)::float8, first_recoverability_point IS NOT NULL
+             FROM core.backup_evidence",
+            &[&now],
+        )
+        .await
+        .map_err(db)?;
+    Ok(match row.map(|r| (r.get::<_, bool>(0), r.get::<_, Option<bool>>(1), r.get::<_, Option<f64>>(2), r.get::<_, bool>(3))) {
+        Some((true, Some(true), Some(ago), true)) => format!("WAL archived by the plugin; newest recoverable base backup {} ago (the plugin's record)", age(ago as i64)),
+        Some((true, Some(true), _, _)) => "WAL archived by the plugin; no recoverable base backup recorded".into(),
+        Some((true, _, _, _)) => "WAL archiving is not configured".into(),
+        _ => "backups unverified (the plugin's record not read)".into(),
+    })
+}
+
+/// The plugin's record older than this is no evidence (core reads it every 5 minutes).
+pub const EVIDENCE_STALE_MINUTES: f64 = 15.0;
+
+/// C-068 round 2: the backups as the plugin records them, when `backup_days` is set. A problem unless
+/// there is evidence: the record read within `EVIDENCE_STALE_MINUTES`, the Cluster archiving its WAL
+/// through the plugin (`WAL_ARCHIVING` key `not configured` otherwise), and a recovery window with a
+/// successful base backup no older than `backup_days` (`BACKUP_STALE` otherwise).
+async fn backups(c: &impl GenericClient, days: i32, now: &str, open: &[Open], found: &mut Vec<Found>) -> Result<(), String> {
+    // without evidence nothing the plugin's record said is resolved (round 2, 16's principle): an open
+    // "archiving is off" stays open while the record cannot be read
+    let keep_off = |found: &mut Vec<Found>| {
+        if let Some(o) = open.iter().find(|o| o.kind == "WAL_ARCHIVING" && o.key == "not configured") {
+            found.push(Found { kind: "WAL_ARCHIVING", key: o.key.clone(), summary: o.summary.clone(), command: o.command.clone(), detail: None });
+        }
+    };
+    let row = c
+        .query_opt(
+            "SELECT extract(epoch FROM $1::text::timestamptz - read_at)::float8 / 60, error, archiver, server, object_store,
+                    first_recoverability_point IS NOT NULL,
+                    extract(epoch FROM $1::text::timestamptz - last_successful_backup)::float8 / 86400,
+                    last_failed_backup > COALESCE(last_successful_backup, '-infinity')
+             FROM core.backup_evidence",
+            &[&now],
+        )
+        .await
+        .map_err(db)?;
+    let stale = |why: String| Found { kind: "BACKUP_STALE", key: "base backup".into(), summary: why, command: "kubectl -n vyreon get objectstore,backup".into(), detail: None };
+    let Some(r) = row else {
+        found.push(stale("Backups unverified: core has never read the backup plugin's record (VYREON_CORE_PG_CLUSTER, its Role: README B0)".into()));
+        keep_off(found);
+        return Ok(());
+    };
+    let (ago, error, archiver, server, store, window, backup_age, failed_last): (f64, Option<String>, Option<bool>, Option<String>, Option<String>, bool, Option<f64>, Option<bool>) =
+        (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6), r.get(7));
+    if let Some(e) = error {
+        found.push(stale(format!("Backups unverified: core cannot read the backup plugin's record: {}", one_line(&e, 160))));
+        keep_off(found);
+        return Ok(());
+    }
+    if ago >= EVIDENCE_STALE_MINUTES {
+        found.push(stale(format!("Backups unverified: the backup plugin's record was last read {} ago", age((ago * 60.0) as i64))));
+        keep_off(found);
+        return Ok(());
+    }
+    if archiver != Some(true) {
+        found.push(Found {
+            kind: "WAL_ARCHIVING",
+            key: "not configured".into(),
+            summary: "WAL archiving is off: the database's Cluster has no Barman Cloud WAL archiver, so no WAL reaches the bucket (10-postgres.yaml `plugins`)".into(),
+            command: "kubectl -n vyreon get cluster -o yaml".into(),
+            detail: None,
+        });
+    }
+    let failed = if failed_last == Some(true) { "; the newest attempt failed" } else { "" };
+    let server = server.unwrap_or_default();
+    let store = store.unwrap_or_default();
+    match backup_age {
+        Some(a) if window && a <= f64::from(days) => {}
+        Some(a) if window => found.push(stale(format!(
+            "The newest recoverable base backup of {server} finished {} ago, more than {days} days{failed}",
+            age((a * 86400.0) as i64)
+        ))),
+        _ => found.push(stale(format!("No recoverable base backup: the plugin records none for {server} in ObjectStore {store}{failed}"))),
+    }
+    Ok(())
 }
 
 /// In GiB, the unit the volume is sized in (`120Gi`).
@@ -408,16 +682,21 @@ async fn deadlines(c: &impl GenericClient, s: &Settings, from: &str, now: &str, 
     Ok(())
 }
 
-/// (c) A job out of attempts: its last stop message, from its evidence (C-049) or its lease.
+/// (c) A job out of attempts: its final lease's stop message, from that lease's evidence (C-049) or
+/// the lease itself, as the reader states the day's cause (`core.job_failure_cause`, 0039). C-068
+/// (audit opsurface ops.md 10): an earlier attempt's evidence is never the final cause.
 async fn failed_jobs(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(), String> {
     let rows = c
         .query(
             "SELECT j.job_id, j.kind, j.first_session::text, j.last_session::text,
-                    (SELECT e.message FROM core.job_evidence e WHERE e.job_id = j.job_id ORDER BY e.attempt DESC LIMIT 1),
-                    (SELECT COALESCE(l.failed_stage || ': ', '') || COALESCE(l.failure, 'no reason given') FROM core.lease l
-                     WHERE l.job_id = j.job_id AND l.outcome IN ('FAILED', 'EXPIRED') ORDER BY l.lease_id DESC LIMIT 1),
+                    (SELECT e.message FROM core.lease l JOIN core.job_evidence e ON e.lease_id = l.lease_id
+                     WHERE l.lease_id = f.lease_id),
+                    (SELECT COALESCE(l.failed_stage || ': ', '') || COALESCE(l.failure, 'no reason given') FROM core.lease l WHERE l.lease_id = f.lease_id),
                     (SELECT count(*) FROM core.lease l WHERE l.job_id = j.job_id)
-             FROM core.job j WHERE j.state = 'FAILED' ORDER BY j.job_id",
+             FROM core.job j
+             LEFT JOIN LATERAL (SELECT l.lease_id FROM core.lease l WHERE l.job_id = j.job_id AND l.outcome IN ('FAILED', 'EXPIRED')
+                                ORDER BY l.lease_id DESC LIMIT 1) f ON true
+             WHERE j.state = 'FAILED' ORDER BY j.job_id",
             &[],
         )
         .await
@@ -445,15 +724,25 @@ async fn failed_jobs(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(
 
 /// (d) The provider failing, from the failure evidence's decisive text (its stop message and the
 /// input plan's refusals, never the log excerpt, where retried requests of good attempts also
-/// show): an authentication refusal (HTTP 401 or 403) not followed by any success, or provider
-/// errors on more than `PROVIDER_ERROR_ATTEMPTS` attempts in `PROVIDER_WINDOW_MINUTES`.
+/// show): an authentication refusal (HTTP 401 or 403) not followed by a success that called the
+/// provider, or provider errors on more than `PROVIDER_ERROR_ATTEMPTS` attempts in
+/// `PROVIDER_WINDOW_MINUTES`. C-068 (audit opsurface ops.md 9): the success is a tape or day-block
+/// lease granted after the refusal (so its worker read the key after it: a worker reads its key file
+/// when it starts) that stored a tape cache before it finished (round 2, 15: a tape whose caches were
+/// all held already finishes without a request), or published a day's base; an ordered pass calls no provider, and
+/// a revision or a job of a lease granted before the refusal proves nothing of the key now.
 async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut Vec<Found>) -> Result<(), String> {
     let rows = c
         .query(
             "SELECT e.job_id, e.lease_id, extract(epoch FROM $1::text::timestamptz - e.stored_at)::float8, e.message, COALESCE(e.refusals::text, ''),
                     to_char(e.stored_at AT TIME ZONE $2, 'Dy HH24:MI'),
-                    EXISTS (SELECT FROM vyreon.day_revision d WHERE d.published_at > e.stored_at AND d.published_at <= $1::text::timestamptz)
-                    OR EXISTS (SELECT FROM core.job j WHERE j.state = 'DONE' AND j.finished_at > e.stored_at AND j.finished_at <= $1::text::timestamptz)
+                    EXISTS (SELECT FROM core.lease l JOIN core.job j USING (job_id)
+                            WHERE j.kind IN ('TAPE', 'DAY_BLOCK') AND l.granted_at > e.stored_at AND l.granted_at <= $1::text::timestamptz
+                              AND ((j.kind = 'TAPE' AND l.outcome = 'DONE' AND l.ended_at <= $1::text::timestamptz
+                                    AND EXISTS (SELECT FROM core.tape_cache t WHERE t.session BETWEEN j.first_session AND j.last_session
+                                                  AND t.stored_at >= l.granted_at AND t.stored_at <= l.ended_at))
+                                   OR EXISTS (SELECT FROM core.lease_revision r JOIN vyreon.day_revision d USING (revision_id)
+                                              WHERE r.lease_id = l.lease_id AND d.base_revision IS NULL AND d.published_at <= $1::text::timestamptz)))
              FROM core.job_evidence e
              WHERE e.stored_at > $1::text::timestamptz - interval '7 days' AND e.stored_at <= $1::text::timestamptz
              ORDER BY e.stored_at DESC, e.job_evidence_id DESC",
@@ -486,7 +775,7 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
         found.push(Found {
             kind: "PROVIDER_AUTH",
             key: "intrinio".into(),
-            summary: format!("The provider (Intrinio) refuses our API key: HTTP {code} on job {job} at {at} MT, and nothing has succeeded since"),
+            summary: format!("The provider (Intrinio) refuses our API key: HTTP {code} on job {job} at {at} MT, and no tape or day block started since has succeeded"),
             command: format!("vyreon-core evidence show {job}"),
             detail: None,
         });
@@ -504,70 +793,147 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
     Ok(())
 }
 
-/// C-065 (health.sh's stall): claimable work and no live lease, continuously for `STALL_MINUTES`
-/// (`DAILY_STALL_MINUTES` when every claimable job is a daily run's): no worker is running, so
-/// nothing moves (a Job out of completions, KEDA or the node pool not starting pods). The clock is
-/// the later of when the watch first saw the condition (`core.stall_seen`, written here), the
-/// last lease granted or ended, so a pod that claims and stops within a minute restarts it, and
-/// when the work became claimable (the queue's resume, the oldest claimable job's queueing, its
-/// build's admission), which the watch may not have seen. A paused queue or a build not admitted
-/// makes nothing claimable: those are their own problems.
+/// The kinds of work, in the order the watch states them, with the ScaledJob that starts their pods.
+/// C-068 round 2 (`round2-core.md` 13): the daily session's blocks (DAY_BLOCK of priority 1) are a
+/// group of their own, as they have a ScaledJob of their own (`day-block-daily`): a backfill block's
+/// lease says nothing of the daily pod.
+const KINDS: [(&str, &str); 4] = [("TAPE", "tape"), ("DAY_BLOCK", "day-block"), ("DAILY_BLOCK", "day-block-daily"), ("ORDERED_PASS", "ordered-pass")];
+
+/// A job's stall group: its kind, or `DAILY_BLOCK` for a daily session's day block (`KINDS`).
+const GROUP: &str = "CASE WHEN j.kind = 'DAY_BLOCK' AND j.priority = 1 THEN 'DAILY_BLOCK' ELSE j.kind END";
+
+/// C-065 (health.sh's stall), per kind (C-068, audit opsurface ops.md 8 and 5): claimable work of a
+/// kind and no live lease of that kind, continuously for `STALL_MINUTES` (`DAILY_STALL_MINUTES` when
+/// every claimable job of the kind is a daily run's): no pod of that kind runs (its ScaledJob not
+/// starting pods, its pods Pending for want of a node or failing before they claim, a Job out of
+/// completions). A lease of another kind no longer masks it: a day block renewing its lease for a
+/// day said nothing of tapes waiting with no pod. One problem per kind (key: the kind). The clock is
+/// the later of when the watch first saw the condition for the kind (`core.stall_seen`, written
+/// here), the last lease of the kind granted or ended, so a pod that claims and stops within a minute
+/// restarts it, and when the kind's work became claimable (the queue's resume, its oldest claimable
+/// job's queueing, the earliest admission of a build with such work), which the watch may not have
+/// seen.
+///
+/// And the chain (key `chain`): nothing claimable of any kind, no live lease, the queue not paused,
+/// and jobs of a running build still queued, for `STALL_MINUTES`: the queued work waits for something
+/// nothing will do (a day not scheduled, a block of a withdrawn build: `build hand-over`). Not while a
+/// pass of a running build stands FAILED: it holds the later passes by the claim's rule and is its own
+/// problem (`JOB_FAILED`), one alert for one cause. A paused queue or a build not admitted makes
+/// nothing claimable: those are their own problems.
 async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> Result<(), String> {
-    // a live lease rules a stall out: the claimability view (the queue's longest query) is read
-    // only when none is live, so the check is short while workers run (audit round 2 of
-    // core-watch, the suspicion: it holds the problem lock a publish may wait for)
-    let live: bool = c
-        .query_one("SELECT EXISTS (SELECT FROM core.lease WHERE ended_at IS NULL AND expires_at >= $1::text::timestamptz)", &[&now])
+    let leased: Vec<String> = c
+        .query(
+            &format!("SELECT DISTINCT {GROUP} FROM core.lease l JOIN core.job j USING (job_id) WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz"),
+            &[&now],
+        )
         .await
         .map_err(db)?
-        .get(0);
-    if live {
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    // every kind leased: no stall, and the claimability view (the queue's longest query) is not
+    // read (audit round 2 of core-watch, the suspicion: the check holds the problem lock a publish
+    // may wait for)
+    if KINDS.iter().all(|(k, _)| leased.iter().any(|l| l == k)) {
         c.execute("DELETE FROM core.stall_seen", &[]).await.map_err(db)?;
         return Ok(());
     }
-    let r = c
-        .query_one(
-            "WITH k AS (SELECT kind, priority, created_at, engine_build FROM core.claimable_job)
-             SELECT (SELECT count(*) FROM k), (SELECT count(*) FROM k WHERE priority <> 1),
-                    (SELECT string_agg(n || ' ' || CASE kind WHEN 'DAY_BLOCK' THEN 'day blocks' WHEN 'TAPE' THEN 'tape jobs' ELSE 'ordered passes' END, ', ' ORDER BY kind)
-                     FROM (SELECT kind, count(*) AS n FROM k GROUP BY kind) g),
-                    (SELECT min(created_at) FROM k)::text,
-                    (SELECT min(b.admitted_at) FROM core.engine_build b WHERE b.engine_build IN (SELECT engine_build FROM k))::text",
+    // (kind, claimable, not daily, oldest queued, earliest admission of a build with such work)
+    let rows = c
+        .query(
+            &format!(
+                "WITH k AS (SELECT {GROUP} AS kind, j.priority, j.created_at, j.engine_build FROM core.claimable_job j)
+                 SELECT kind, count(*), count(*) FILTER (WHERE priority <> 1), min(created_at)::text,
+                        (SELECT min(b.admitted_at) FROM core.engine_build b WHERE b.engine_build IN (SELECT engine_build FROM k x WHERE x.kind = k.kind))::text
+                 FROM k GROUP BY kind"
+            ),
             &[],
         )
         .await
         .map_err(db)?;
-    let (claimable, backfill, kinds): (i64, i64, Option<String>) = (r.get(0), r.get(1), r.get(2));
-    if claimable == 0 {
-        c.execute("DELETE FROM core.stall_seen", &[]).await.map_err(db)?;
-        return Ok(());
+    let mut any_claimable = false;
+    for (kind, pod) in KINDS {
+        let row = rows.iter().find(|r| r.get::<_, String>(0) == kind);
+        let claimable: i64 = row.map_or(0, |r| r.get(1));
+        any_claimable |= claimable > 0;
+        if claimable == 0 || leased.iter().any(|l| l == kind) {
+            c.execute("DELETE FROM core.stall_seen WHERE kind = $1", &[&kind]).await.map_err(db)?;
+            continue;
+        }
+        let row = row.expect("a kind with claimable work has its row");
+        let (backfill, queued, admitted): (i64, Option<String>, Option<String>) = (row.get(2), row.get(3), row.get(4));
+        c.execute("INSERT INTO core.stall_seen (kind, since) VALUES ($1, $2::text::timestamptz) ON CONFLICT (kind) DO NOTHING", &[&kind, &now]).await.map_err(db)?;
+        let limit = if backfill == 0 { DAILY_STALL_MINUTES } else { STALL_MINUTES };
+        // audit round 2 of core-watch, 7: the clock never starts before the work could be claimed,
+        // whatever the watch did not see (a restart over an overnight pause)
+        let (minutes, since) = stall_clock(
+            c,
+            now,
+            kind,
+            &format!(
+                "(SELECT max(GREATEST(l.granted_at, COALESCE(l.ended_at, l.granted_at))) FROM core.lease l JOIN core.job j USING (job_id)
+                  WHERE {GROUP} = $5 AND l.granted_at <= $1::text::timestamptz)"
+            ),
+            &queued,
+            &admitted,
+        )
+        .await?;
+        if minutes >= limit {
+            let words = if kind == "DAILY_BLOCK" { "daily day blocks" } else { kind_words(kind) };
+            let mut title = words.to_owned();
+            title[..1].make_ascii_uppercase();
+            found.push(Found {
+                kind: "STALLED",
+                key: kind.into(),
+                summary: format!("{title} stalled since {since} MT: {claimable} claimable and none leased, so no `{pod}` pod is running"),
+                command: "vyreon-core queue".into(),
+                detail: None,
+            });
+        }
     }
-    let (queued, admitted): (Option<String>, Option<String>) = (r.get(3), r.get(4));
-    c.execute("INSERT INTO core.stall_seen (since) VALUES ($1::text::timestamptz) ON CONFLICT (one) DO NOTHING", &[&now]).await.map_err(db)?;
-    let limit = if backfill == 0 { DAILY_STALL_MINUTES } else { STALL_MINUTES };
-    // audit round 2 of core-watch, 7: the clock never starts before the work could be claimed,
-    // whatever the watch did not see (a restart over an overnight pause): the queue's last resume
-    // (`changed_at`: claimable work means it is not paused), the oldest claimable job's queueing,
-    // the earliest admission of a build with claimable work
+    // the chain: nothing claimable, nothing leased, queued work of a running build left that waits on
+    // something (C-068 round 2, `round2-core.md` 14). Not a pass whose day is neither published for it
+    // nor being computed (a missing day, its block cancelled: it holds nothing, C-062; or a day not
+    // scheduled yet); and while a pass of a running build stands FAILED, no pass at all (it holds the
+    // later ones and is `JOB_FAILED`), but the tapes and blocks still count
     let r = c
         .query_one(
-            "WITH s AS (SELECT GREATEST((SELECT since FROM core.stall_seen),
-                                        (SELECT max(GREATEST(granted_at, COALESCE(ended_at, granted_at))) FROM core.lease WHERE granted_at <= $1::text::timestamptz),
-                                        (SELECT changed_at FROM core.queue_control),
-                                        $3::text::timestamptz, $4::text::timestamptz) AS t)
-             SELECT extract(epoch FROM $1::text::timestamptz - t)::float8 / 60, to_char(t AT TIME ZONE $2, 'Dy HH24:MI') FROM s",
-            &[&now, &ZONE, &queued, &admitted],
+            "WITH q AS (SELECT j.kind FROM core.job j
+                        WHERE j.state = 'QUEUED' AND j.next_session IS NOT NULL AND core.build_runs(j.engine_build)
+                          AND (j.kind <> 'ORDERED_PASS'
+                               OR (NOT EXISTS (SELECT FROM core.job f WHERE f.kind = 'ORDERED_PASS' AND f.state = 'FAILED' AND core.build_runs(f.engine_build))
+                                   AND (core.day_published(j.first_session, j.profile_id, j.engine_build)
+                                        OR EXISTS (SELECT FROM core.job d WHERE d.kind = 'DAY_BLOCK' AND d.profile_id = j.profile_id
+                                                     AND d.state IN ('QUEUED', 'LEASED') AND j.first_session BETWEEN d.next_session AND d.last_session)))))
+             SELECT (SELECT count(*) FROM q),
+                    (SELECT string_agg(n || ' ' || CASE kind WHEN 'DAY_BLOCK' THEN 'day blocks' WHEN 'TAPE' THEN 'tape jobs' ELSE 'ordered passes' END, ', ' ORDER BY kind)
+                     FROM (SELECT kind, count(*) AS n FROM q GROUP BY kind) g),
+                    (SELECT paused FROM core.queue_control)",
+            &[],
         )
         .await
         .map_err(db)?;
-    let (minutes, since): (f64, String) = (r.get(0), r.get(1));
-    if minutes >= limit {
+    let (queued, kinds, paused): (i64, Option<String>, bool) = (r.get(0), r.get(1), r.get(2));
+    if any_claimable || !leased.is_empty() || paused || queued == 0 {
+        c.execute("DELETE FROM core.stall_seen WHERE kind = 'CHAIN'", &[]).await.map_err(db)?;
+        return Ok(());
+    }
+    c.execute("INSERT INTO core.stall_seen (kind, since) VALUES ('CHAIN', $1::text::timestamptz) ON CONFLICT (kind) DO NOTHING", &[&now]).await.map_err(db)?;
+    let (minutes, since) = stall_clock(
+        c,
+        now,
+        "CHAIN",
+        "(SELECT max(GREATEST(l.granted_at, COALESCE(l.ended_at, l.granted_at))) FROM core.lease l WHERE l.granted_at <= $1::text::timestamptz AND $5::text IS NOT NULL)",
+        &None,
+        &None,
+    )
+    .await?;
+    if minutes >= STALL_MINUTES {
         found.push(Found {
             kind: "STALLED",
-            key: "queue".into(),
+            key: "chain".into(),
             summary: format!(
-                "Work stalled since {since} MT: {} claimable ({}) and no worker holds a lease, so no worker pod is running",
-                claimable,
+                "Work stalled since {since} MT: {queued} jobs queued ({}), none claimable and none leased: they wait for work that is not running (a withdrawn build's? `build hand-over`)",
                 kinds.unwrap_or_default()
             ),
             command: "vyreon-core queue".into(),
@@ -575,6 +941,26 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
         });
     }
     Ok(())
+}
+
+/// The stall clock of `kind` at `now`: minutes since the later of when the watch first saw it
+/// (`core.stall_seen`), `last` (an expression of the last lease that moved, over `$1` now and `$5`
+/// the kind), the queue's last change, and `queued` and `admitted`; and that moment in the owner's
+/// zone.
+async fn stall_clock(c: &impl GenericClient, now: &str, kind: &str, last: &str, queued: &Option<String>, admitted: &Option<String>) -> Result<(f64, String), String> {
+    let r = c
+        .query_one(
+            &format!(
+                "WITH s AS (SELECT GREATEST((SELECT since FROM core.stall_seen WHERE kind = $5), {last},
+                                            (SELECT changed_at FROM core.queue_control),
+                                            $3::text::timestamptz, $4::text::timestamptz) AS t)
+                 SELECT extract(epoch FROM $1::text::timestamptz - t)::float8 / 60, to_char(t AT TIME ZONE $2, 'Dy HH24:MI') FROM s"
+            ),
+            &[&now, &ZONE, queued, admitted, &kind],
+        )
+        .await
+        .map_err(db)?;
+    Ok((r.get(0), r.get(1)))
 }
 
 /// C-065 (health.sh's "pods that found nothing to claim"): claims that found nothing while a job
@@ -1185,10 +1571,22 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
         lines.push(format!("Backfill progress: {done} of {total} sessions done · {eta}"));
     }
 
-    let size: i64 = c.query_one("SELECT pg_database_size(current_database())", &[]).await.map_err(db)?.get(0);
     lines.push(match s.volume_bytes.filter(|v| *v > 0) {
-        Some(v) => format!("Database size: {} of {} ({:.0}%)", gigabytes(size), gigabytes(v), 100.0 * size as f64 / v as f64),
-        None => format!("Database size: {} (its volume's size is not set, so it is not checked)", gigabytes(size)),
+        Some(v) => {
+            // C-068: the volume's use with the WAL; round 2: the backups only as the plugin records them
+            let st = storage(c, now).await?;
+            let used = st.data + st.wal.unwrap_or(0);
+            let wal = st.wal.map_or_else(|| "WAL not read".to_owned(), |w| format!("WAL {}", gigabytes(w)));
+            let backup = match s.backup_days {
+                None => String::new(),
+                Some(_) => format!(" · {}", backup_words(c, now).await?),
+            };
+            format!("Database size: {} of {} ({:.0}%) · {wal}{backup}", gigabytes(used), gigabytes(v), 100.0 * used as f64 / v as f64)
+        }
+        None => {
+            let size: i64 = c.query_one("SELECT pg_database_size(current_database())", &[]).await.map_err(db)?.get(0);
+            format!("Database size: {} (its volume's size is not set, so it is not checked)", gigabytes(size))
+        }
     });
     if let Some(a) = &s.archive {
         let missing = archive::missing(c, &s.profile, a.expected_from.as_deref(), now).await?;
@@ -1474,6 +1872,61 @@ mod tests {
     /// as the digest cuts a cause (160 characters).
     fn watch_cause() -> String {
         one_line(&test_support::provider_502_stop(), 160)
+    }
+
+    /// C-068 (audit opsurface ops.md 2): the volume of C-067 (250 GiB). A failing archive grows
+    /// `pg_wal` while the data stays put: the volume fills with the data alone at 150 GiB (60%, no
+    /// alert before) and 60 GiB of WAL (84%); archiving failing for 15 minutes or a WAL file waiting
+    /// 30 is a problem, a single failure followed by a success is not; a login without `pg_monitor` is
+    /// told, never read as healthy, and (round 2, 16) an open full volume stays open while the WAL
+    /// cannot be read.
+    #[test]
+    fn a_failing_archive_is_a_problem_before_the_volume_fills() {
+        const GIB: i64 = 1 << 30;
+        let volume = 250 * GIB;
+        let healthy = Storage { readable: true, data: 150 * GIB, wal: Some(GIB), archived_ago: Some(2.0), failed_ago: None, waiting: 0, oldest_waiting: None };
+        assert_eq!(storage_found(&healthy, volume, false), []);
+        let kinds = |st: &Storage| storage_found(st, volume, false).iter().map(|f| (f.kind, f.key.clone())).collect::<Vec<_>>();
+        let k = |a: &'static str, b: &str| (a, b.to_owned());
+        let failing = Storage { archived_ago: Some(20.0), failed_ago: Some(1.0), waiting: 4, oldest_waiting: Some(19.0), wal: Some(60 * GIB), ..healthy.clone() };
+        assert_eq!(kinds(&failing), [k("DATABASE_FULL", "volume"), k("WAL_ARCHIVING", "archiver")]);
+        assert_eq!(storage_found(&failing, volume, false)[0].summary, "Database volume 84% full: 210.0 GiB of 250.0 GiB, 60.0 GiB of it WAL");
+        assert_eq!(kinds(&Storage { archived_ago: Some(1.0), failed_ago: Some(3.0), ..healthy.clone() }), []);
+        assert_eq!(kinds(&Storage { archived_ago: Some(10.0), failed_ago: Some(1.0), ..healthy.clone() }), []);
+        assert_eq!(kinds(&Storage { archived_ago: None, failed_ago: Some(1.0), ..healthy.clone() }), [k("WAL_ARCHIVING", "archiver")]);
+        let stuck = Storage { waiting: 7, oldest_waiting: Some(30.0), ..healthy.clone() };
+        assert_eq!(kinds(&stuck), [k("WAL_ARCHIVING", "archiver")]);
+        assert!(storage_found(&stuck, volume, false)[0].summary.starts_with("WAL archiving to the backup bucket is stuck: last success 2 min ago, last failure never; 7 WAL files waiting"));
+        // without pg_monitor: told; a full volume open with 100 GiB of data and 110 of WAL is not
+        // resolved on the 100 alone
+        let blind = Storage { readable: false, data: 100 * GIB, wal: None, ..healthy.clone() };
+        assert_eq!(kinds(&blind), [k("WAL_ARCHIVING", "unreadable")]);
+        let still = storage_found(&blind, volume, true);
+        assert_eq!((still[0].kind, still[0].summary.as_str()), ("DATABASE_FULL", "Database volume: cannot be judged while the WAL is unreadable (100.0 GiB of data alone); it was full"));
+        let nearly = Storage { data: 196 * GIB, wal: Some(0), ..healthy.clone() };
+        assert_eq!(storage_found(&nearly, volume, false), [], "78.4%: not yet full");
+        assert_eq!(storage_found(&nearly, volume, true).len(), 1, "78.4%: still full once open");
+    }
+
+    /// C-068 round 2 (`round2-core.md` 2, 3): the evidence is the plugin's own record, in the shapes
+    /// of CloudNativePG 1.30's Cluster (`spec.plugins`) and plugin-barman-cloud v0.16.0's ObjectStore
+    /// CRD (`status.serverRecoveryWindow`, read from its release manifest), named as this cluster's
+    /// manifests name them (`10-postgres.yaml`, `15-backup.yaml`).
+    #[test]
+    fn the_backup_evidence_is_the_plugins_record() {
+        let cluster = json!({"spec": {"plugins": [{"name": BARMAN_PLUGIN, "isWALArchiver": true, "parameters": {"barmanObjectName": "vyreon-backup"}}]}});
+        let store = json!({"status": {"serverRecoveryWindow": {"vyreon-pg": {
+            "firstRecoverabilityPoint": "2026-11-23T09:04:11Z", "lastSuccessfulBackupTime": "2026-11-23T09:04:11Z"}}}});
+        let e = BackupEvidence::from_objects("vyreon-pg", &cluster, Some(&store));
+        assert!(e.archiver);
+        assert_eq!((e.object_store.as_deref(), e.server.as_deref(), e.last_successful_backup.as_deref()), (Some("vyreon-backup"), Some("vyreon-pg"), Some("2026-11-23T09:04:11Z")));
+        // the plugin removed (CloudNativePG then reports every WAL file archived): no archiver
+        let bare = BackupEvidence::from_objects("vyreon-pg", &json!({"spec": {}}), None);
+        assert!(!bare.archiver && bare.last_successful_backup.is_none());
+        // a recovered cluster archiving under its own server name reads its own window, not the old
+        let pg2 = json!({"spec": {"plugins": [{"name": BARMAN_PLUGIN, "isWALArchiver": true, "parameters": {"barmanObjectName": "vyreon-backup", "serverName": "vyreon-pg2"}}]}});
+        let e = BackupEvidence::from_objects("vyreon-pg2", &pg2, Some(&store));
+        assert!(e.archiver && e.server.as_deref() == Some("vyreon-pg2") && e.first_recoverability_point.is_none());
     }
 
     #[test]

@@ -103,6 +103,13 @@ pub async fn admit(client: &Client, build: &str, evidence: &Value) -> Result<(),
 /// leases-then-jobs order every holder of the lock takes rows in leaves no cycle with `retire`.
 pub async fn withdraw(client: &mut Client, build: &str, reason: &str) -> Result<Vec<i64>, String> {
     let tx = client.transaction().await.map_err(db)?;
+    let sorted = withdraw_in(&tx, build, reason).await?;
+    tx.commit().await.map_err(db)?;
+    Ok(sorted)
+}
+
+/// `withdraw` inside the caller's transaction (C-068: `hand_over` withdraws in its own).
+async fn withdraw_in(tx: &tokio_postgres::Transaction<'_>, build: &str, reason: &str) -> Result<Vec<i64>, String> {
     tx.execute(crate::work::PUBLISH_LOCK, &[]).await.map_err(db)?;
     // the clock, not the transaction's start, as a publish and a claim stamp theirs (core-r2 11): taken
     // after the locks, a lease's end is never before the publish or the grant the withdrawal waited for
@@ -147,7 +154,258 @@ pub async fn withdraw(client: &mut Client, build: &str, reason: &str) -> Result<
         0 => String::new(),
         n => format!(" {n} running jobs stopped, their leases ended: {}.", sorted.iter().map(i64::to_string).collect::<Vec<_>>().join(" ")),
     };
-    crate::notice::log(&tx, &format!("Engine build {build} withdrawn: {reason}.{leases}")).await?;
-    tx.commit().await.map_err(db)?;
+    crate::notice::log(tx, &format!("Engine build {build} withdrawn: {reason}.{leases}")).await?;
     Ok(sorted)
+}
+
+/// One job a hand-over carries: the withdrawn build's job and what took its place.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Carried {
+    pub old_job: i64,
+    pub kind: String,
+    /// QUEUED or FAILED when it was carried.
+    pub state: String,
+    /// The sessions carried: from the old job's next session to its last.
+    pub first: String,
+    pub last: String,
+    /// The successor's new job; None in a preview.
+    pub new_job: Option<i64>,
+}
+
+/// What `hand_over` did, or, previewed, would do.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HandOver {
+    /// None when previewed: nothing was changed.
+    pub hand_over_id: Option<i64>,
+    /// `from` still ran and the hand-over withdrew it (its live leases ended, their jobs carried).
+    pub withdrew: bool,
+    pub carried: Vec<Carried>,
+    /// `from`'s unfinished tape verify jobs, cancelled and not carried (C-068 round 2, 11: a sample of
+    /// the old build's caches, which held a schedule of the successor's tapes refused as an overlap).
+    pub verify_cancelled: Vec<i64>,
+    /// What moves, as a token: the old jobs with their states and next sessions, and the two builds.
+    /// The hand-over itself is refused unless it is given the same.
+    pub token: String,
+}
+
+/// Audit 2026-11-22 opsurface (ops.md) 1 and 4, C-068: hands the unfinished work of a build to its
+/// successor, once. The successor must not be admitted yet (round 2, 1: so none of its workers runs a
+/// later pass before the moved ones; it is admitted after the hand-over); the old build, if it still
+/// runs, is withdrawn in the same transaction (`withdraw`: its live leases end, their jobs carried). Every unfinished job of
+/// `from` (QUEUED or FAILED; a tape verify job, a sample that holds nothing back, is left) is
+/// cancelled and replaced by the same work under `to`, its attempts fresh: a tape and an ordered
+/// pass for their session, a day block for its sessions from its next one (the days it did become a
+/// DONE job of `from`, as when a block is set aside), with the old job's priority and scope. A job
+/// of another build unfinished on the same sessions refuses the whole hand-over (none can be: a
+/// schedule refuses an overlap, and a pass is one per session). Without it, the withdrawn build's queued tapes and day blocks held the
+/// successor's blocks and passes for ever (the claim's gates count them, and must: a block may not
+/// run before every tape it reads, nor a pass before the block that computes its day), and its
+/// queued passes were claimed by no worker (C-066 counts the successor's jobs only).
+///
+/// With `preview`, everything is done inside a transaction rolled back and the report says exactly
+/// what it would do, with its `token`; without it, `expect` must be that token, so nothing the
+/// operator did not see is moved (C-063's rule for `days retire`). Run once: afterwards `from` holds
+/// no unfinished work and a second hand-over is refused. Takes the publish lock, then the scheduler's,
+/// as `retire` and a schedule of passes do.
+pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, preview: bool, expect: Option<&str>) -> Result<HandOver, String> {
+    let reason = crate::work::scrubbed(reason.trim());
+    if reason.is_empty() {
+        return Err("a hand-over needs a reason".into());
+    }
+    if from == to {
+        return Err("a build hands its work to another build".into());
+    }
+    if !preview && expect.is_none() {
+        return Err("a hand-over moves only what its preview showed: run it with --preview first and give the token it prints (--expect); nothing was moved".into());
+    }
+    let tx = client.transaction().await.map_err(db)?;
+    tx.execute(crate::work::PUBLISH_LOCK, &[]).await.map_err(db)?;
+    tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.map_err(db)?;
+    for build in [from, to] {
+        if tx.query_opt("SELECT FROM core.engine_build WHERE engine_build = $1", &[&build]).await.map_err(db)?.is_none() {
+            return Err(format!("engine build {build} is not registered"));
+        }
+    }
+    let (from_runs, to_runs): (bool, bool) = {
+        let r = tx.query_one("SELECT core.build_runs($1), core.build_runs($2)", &[&from, &to]).await.map_err(db)?;
+        (r.get(0), r.get(1))
+    };
+    // audit round 2 (round2-core.md) 1: the successor must not run before the hand-over. A worker of
+    // an admitted successor could claim a later day's pass while an earlier day's pass still belonged
+    // to the withdrawn build, and publish that later day's history out of date order (one prior
+    // reading short) before the earlier pass was moved and run. Not admitted, its workers claim
+    // nothing until every moved job is its own; then it is admitted.
+    if to_runs {
+        return Err(format!(
+            "build {to} is admitted: hand over before admitting it (its workers could run a later pass before the moved ones); nothing was moved"
+        ));
+    }
+    let to_leases: i64 = tx
+        .query_one("SELECT count(*) FROM core.lease l JOIN core.job j USING (job_id) WHERE j.engine_build = $1 AND l.ended_at IS NULL", &[&to])
+        .await
+        .map_err(db)?
+        .get(0);
+    if to_leases > 0 {
+        return Err(format!("build {to} has {to_leases} live leases: let them end first; nothing was moved"));
+    }
+    // the old build is withdrawn here when it still runs, in this transaction: nothing of it runs
+    // between its withdrawal and the hand-over
+    if from_runs {
+        withdraw_in(&tx, from, &format!("handed over to build {to}: {reason}")).await?;
+    }
+    let verify_cancelled: Vec<i64> = tx
+        .query(
+            "UPDATE core.job SET state = 'CANCELLED', finished_at = clock_timestamp()
+             WHERE engine_build = $1 AND kind = 'TAPE' AND state IN ('QUEUED', 'FAILED') AND COALESCE(scope @> $2::text::jsonb, false)
+             RETURNING job_id",
+            &[&from, &crate::tape::VERIFY_SCOPE],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let rows = tx
+        .query(
+            "SELECT job_id, kind, state, profile_id, next_session::text, last_session::text
+             FROM core.job
+             WHERE engine_build = $1 AND state IN ('QUEUED', 'LEASED', 'FAILED') AND next_session IS NOT NULL
+               AND NOT (kind = 'TAPE' AND COALESCE(scope @> $2::text::jsonb, false))
+             ORDER BY CASE kind WHEN 'TAPE' THEN 0 WHEN 'DAY_BLOCK' THEN 1 ELSE 2 END, first_session, job_id FOR UPDATE",
+            &[&from, &crate::tape::VERIFY_SCOPE],
+        )
+        .await
+        .map_err(db)?;
+    if let Some(r) = rows.iter().find(|r| r.get::<_, String>(2) == "LEASED") {
+        return Err(format!("job {} of build {from} is under a live lease: let it end or cancel it first; nothing was moved", r.get::<_, i64>(0)));
+    }
+    if rows.is_empty() && verify_cancelled.is_empty() {
+        return Err(format!("build {from} has no unfinished work to hand over"));
+    }
+    // audit round 2 (round2-core.md) 6, C-064: a pass is carried only where the successor can run it.
+    // A day published (by any build) whose base or day-local revision is not of a profile revision the
+    // successor reads (`core.day_published` for it) is a day it cannot read: with no day block to
+    // compute it again, its pass would never be claimed and would hold every later one. Such days are
+    // recomputed under the successor first: schedule its day blocks over them, then hand over.
+    let unreadable: Vec<String> = tx
+        .query(
+            "SELECT DISTINCT j.first_session::text FROM core.job j
+             WHERE j.engine_build = $1 AND j.kind = 'ORDERED_PASS' AND j.state IN ('QUEUED', 'FAILED')
+               AND NOT core.day_published(j.first_session, j.profile_id, $2)
+               AND EXISTS (SELECT FROM vyreon.day_revision b WHERE b.represented_date = j.first_session AND b.profile_id = j.profile_id
+                             AND b.state = 'PUBLISHED' AND b.base_revision IS NULL)
+               AND NOT EXISTS (SELECT FROM core.job d WHERE d.kind = 'DAY_BLOCK' AND d.profile_id = j.profile_id AND d.engine_build IN ($1, $2)
+                                 AND d.state IN ('QUEUED', 'FAILED') AND j.first_session BETWEEN d.next_session AND d.last_session)
+             ORDER BY 1",
+            &[&from, &to],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    if !unreadable.is_empty() {
+        let more = if unreadable.len() > 10 { format!(" and {} more", unreadable.len() - 10) } else { String::new() };
+        return Err(format!(
+            "{} days are published in profile revisions build {to} does not read, and no day block computes them again: {}{more}. \
+             Schedule build {to}'s day blocks over them first (C-064: they are recomputed), then hand over; nothing was moved",
+            unreadable.len(),
+            unreadable.iter().take(10).cloned().collect::<Vec<_>>().join(", ")
+        ));
+    }
+    let mut carried = Vec::new();
+    for r in &rows {
+        let (job, kind, state, profile, next, last): (i64, String, String, String, String, String) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5));
+        // what else is unfinished on these sessions: none can be, since a schedule refuses an overlap
+        // and a pass is one per session (0032), but a job queued by hand in SQL would make two
+        let other: Option<(i64, String)> = tx
+            .query_opt(
+                "SELECT job_id, engine_build FROM core.job
+                 WHERE kind = $1 AND profile_id = $2 AND engine_build <> $3 AND state IN ('QUEUED', 'LEASED', 'FAILED')
+                   AND NOT (kind = 'TAPE' AND COALESCE(scope @> $6::text::jsonb, false))
+                   AND first_session <= $5::text::date AND last_session >= $4::text::date
+                 ORDER BY job_id LIMIT 1",
+                &[&kind, &profile, &from, &next, &last, &crate::tape::VERIFY_SCOPE],
+            )
+            .await
+            .map_err(db)?
+            .map(|o| (o.get(0), o.get(1)));
+        if let Some((other_job, of)) = other {
+            return Err(format!(
+                "{kind} job {job} ({next} to {last}) of build {from} overlaps unfinished job {other_job} of build {of}: cancel one first; nothing was moved"
+            ));
+        }
+        carried.push(Carried { old_job: job, kind, state, first: next, last, new_job: None });
+    }
+    let token = {
+        let jobs: Vec<String> = carried.iter().map(|c| format!("{}:{}:{}", c.old_job, c.state, c.first)).collect();
+        let verify: Vec<String> = verify_cancelled.iter().map(i64::to_string).collect();
+        core_contract::sha256_hex(format!("from {from} (running {from_runs}); to {to}; jobs {}; verify {}", jobs.join(","), verify.join(",")).as_bytes())[..16]
+            .to_owned()
+    };
+    if let Some(expected) = expect.filter(|e| !preview && *e != token) {
+        return Err(format!(
+            "what build {from} holds changed since the preview (its token {expected}, now {token}): a job was scheduled, claimed, finished or cancelled; preview again; nothing was moved"
+        ));
+    }
+    let hand_over_id: i64 = tx
+        .query_one("INSERT INTO core.hand_over (from_build, to_build, reason) VALUES ($1, $2, $3) RETURNING hand_over_id", &[&from, &to, &reason])
+        .await
+        .map_err(db)?
+        .get(0);
+    for job in &verify_cancelled {
+        tx.execute("INSERT INTO core.hand_over_job (hand_over_id, old_job, new_job) VALUES ($1, $2, NULL)", &[&hand_over_id, job]).await.map_err(db)?;
+    }
+    for c in &mut carried {
+        if c.kind == "DAY_BLOCK" {
+            // the days it did: a finished job of their own, as `work::requeue` keeps them
+            tx.execute(
+                "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, state, attempts, max_attempts, finished_at, priority)
+                 SELECT kind, profile_id, engine_build, first_session,
+                        (SELECT max(session) FROM core.session WHERE session < j.next_session), NULL, scope, 'DONE', attempts, max_attempts, clock_timestamp(), priority
+                 FROM core.job j WHERE job_id = $1 AND next_session > first_session",
+                &[&c.old_job],
+            )
+            .await
+            .map_err(db)?;
+            tx.execute("UPDATE core.job SET first_session = next_session WHERE job_id = $1", &[&c.old_job]).await.map_err(db)?;
+        }
+        // cancelled before its successor is queued: one unfinished pass per session (0032)
+        tx.execute("UPDATE core.job SET state = 'CANCELLED', finished_at = clock_timestamp() WHERE job_id = $1", &[&c.old_job]).await.map_err(db)?;
+        let new: i64 = tx
+            .query_one(
+                "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, max_attempts, priority)
+                 SELECT kind, profile_id, $2, next_session, last_session, next_session, scope, max_attempts, priority FROM core.job WHERE job_id = $1
+                 RETURNING job_id",
+                &[&c.old_job, &to],
+            )
+            .await
+            .map_err(db)?
+            .get(0);
+        tx.execute("INSERT INTO core.hand_over_job (hand_over_id, old_job, new_job) VALUES ($1, $2, $3)", &[&hand_over_id, &c.old_job, &new]).await.map_err(db)?;
+        c.new_job = Some(new);
+    }
+    let counts: Vec<String> = ["TAPE", "DAY_BLOCK", "ORDERED_PASS"]
+        .iter()
+        .filter_map(|k| {
+            let n = carried.iter().filter(|c| c.kind == *k).count();
+            (n > 0).then(|| format!("{n} {}", crate::watch::kind_words(k)))
+        })
+        .collect();
+    crate::notice::log(
+        &tx,
+        &format!(
+            "Hand-over {hand_over_id}: the unfinished work of build {from} ({}) is build {to}'s, the old jobs cancelled{}: {reason}. Admit build {to} now.",
+            if counts.is_empty() { "nothing to carry".to_owned() } else { counts.join(", ") },
+            if verify_cancelled.is_empty() { String::new() } else { format!(", {} tape verify jobs cancelled", verify_cancelled.len()) }
+        ),
+    )
+    .await?;
+    if preview {
+        tx.rollback().await.map_err(db)?;
+        let carried = carried.into_iter().map(|c| Carried { new_job: None, ..c }).collect();
+        return Ok(HandOver { hand_over_id: None, withdrew: from_runs, carried, verify_cancelled, token });
+    }
+    tx.commit().await.map_err(db)?;
+    Ok(HandOver { hand_over_id: Some(hand_over_id), withdrew: from_runs, carried, verify_cancelled, token })
 }

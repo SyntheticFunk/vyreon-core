@@ -44,8 +44,9 @@ done
 # $ the cluster with its core pool; then let it pull from the registry
 doctl kubernetes cluster create vyreon --region nyc1 --version 1.36.5-do.3 \
   --node-pool "name=core;size=s-4vcpu-8gb-amd;count=1;label=vyreon=core"
-# the registry's read-only pull secret, for every pod of the namespace (after 00-namespace.yaml):
-doctl registry docker-config --read-only > pull-config.json
+# the registry's pull secret, for every pod of the namespace (after 00-namespace.yaml); read-only is
+# the command's default (doctl has no --read-only flag: C-068, audit opsurface ops.md 5)
+doctl registry docker-config > pull-config.json
 kubectl -n vyreon create secret generic regcred --type=kubernetes.io/dockerconfigjson --from-file=.dockerconfigjson=pull-config.json
 kubectl -n vyreon patch serviceaccount default -p '{"imagePullSecrets":[{"name":"regcred"}]}'
 
@@ -99,7 +100,8 @@ kubectl -n vyreon exec vyreon-pg-1 -- psql -d vyreon -c \
   "CREATE ROLE vyreon_pass LOGIN IN ROLE vyreon_ordered_pass PASSWORD '$(tr -d '\n' < pass-password)'"
 printf 'host=vyreon-pg-rw port=5432 dbname=vyreon user=vyreon_pass password=%s' "$(tr -d '\n' < pass-password)" > ordered-pass-pg
 kubectl -n vyreon create secret generic vyreon-worker \
-  --from-file=worker-token=worker-token --from-file=intrinio-key=<the Intrinio key file> --from-file=ordered-pass-pg=ordered-pass-pg
+  --from-file=worker-token=worker-token --from-file=intrinio-key=<the Intrinio key file> \
+  --from-file=fred-key=<the FRED key file> --from-file=ordered-pass-pg=ordered-pass-pg
 ```
 
 ## Run ($ while the worker pool exists)
@@ -109,6 +111,12 @@ kubectl -n vyreon create secret generic vyreon-worker \
 doctl kubernetes cluster node-pool create vyreon --name day --size s-8vcpu-16gb-amd --count 2 \
   --label vyreon=worker --taint "vyreon=worker:NoSchedule"
 ```
+
+All four keys (C-068: the tape and day-block pods mount `fred-key`, D-105's last curve fallback;
+without it they never start, stuck in `CreateContainerConfigError`, and core sees no claim: the
+kind's `STALLED`). Check: `kubectl -n vyreon get secret vyreon-worker -o jsonpath='{.data}' | python3 -c
+'import json,sys; print(sorted(json.load(sys.stdin)))'` lists `fred-key`, `intrinio-key`,
+`ordered-pass-pg`, `worker-token` (names only, no value).
 
 Apply the three Jobs of `30-workers.yaml` one at a time, each after the one before has completed
 (a worker that finds nothing to claim exits at once): `tape`, then `day-block`, then `ordered-pass`,
@@ -228,7 +236,9 @@ session at $0.167 an hour, about $24 a month; more for a retried day.
    `doctl kubernetes cluster node-pool create vyreon --name day --size s-8vcpu-16gb-amd --count 0
    --auto-scale --min-nodes 0 --max-nodes <max> --label vyreon=worker --taint "vyreon=worker:NoSchedule"`
    and use the new id.)
-4. **The CronJob:** if round v's gate was applied, remove it first: `kubectl -n vyreon delete
+4. **The CronJob (superseded by KEDA, C-066; C-068):** under KEDA skip this step: `40-daily.yaml` is
+   now applied suspended (`suspend: true`) and stays so ("Workers from the queue", 9); it is the
+   fallback only. What follows is how it was applied before KEDA. If round v's gate was applied, remove it first: `kubectl -n vyreon delete
    cronjob daily daily-worker --ignore-not-found` and `kubectl -n vyreon delete serviceaccount,role,rolebinding
    daily-gate --ignore-not-found`. Then
    `sed -e "s#VYREON_WORKER_IMAGE#registry.digitalocean.com/vyreon/vyreon-worker:<tag>#" deploy/k8s/40-daily.yaml | kubectl apply -f -`.
@@ -362,8 +372,34 @@ Scale-up from zero: the autoscaler builds an empty pool's node from DigitalOcean
 they run; one with no such pod left is removed after 10 minutes unneeded (upstream default:
 https://github.com/kubernetes/autoscaler/blob/master/cluster-autoscaler/FAQ.md; DigitalOcean
 publishes no default; the cluster's `cluster_autoscaler_configuration.scale_down_unneeded_time` can
-set it, `PUT /v2/kubernetes/clusters/{id}`). Pool `day-std` (Intel, 0 nodes) is selected by
-nothing now (every pod names pool `day`); leave it at 0 or delete it.
+set it, `PUT /v2/kubernetes/clusters/{id}`).
+
+**Pool `day-intel`, the Intel fallback (C-068; owner 2026-11-22: Basic Intel `s-8vcpu-16gb-intel`, $0.167/h like `day`, autoscale 0..13; the old `day-std` pool's `s-8vcpu-16gb` is no longer offered in nyc1 and could create no node, so it is deleted).** nyc1 has refused
+AMD capacity (MILESTONES "Layout"). Every worker pod now allows pool `day-intel` (Intel
+`s-8vcpu-16gb`, same label and taint) and prefers `day` (node affinity, `50-keda.yaml`). The
+scheduler places a pod on an existing `day` node first; when no node fits, the autoscaler grows a
+pool that fits, and after a failed scale-up (DigitalOcean out of AMD droplets) it backs that pool off
+(upstream: `max-node-provision-time`, 15 minutes, then a backoff) and grows the other, so a stockout
+no longer leaves pods Pending for ever. Which pool it grows when both can is the autoscaler's
+expander's choice, which DigitalOcean does not document or let us set; the preference steers the
+scheduler, not the scale-up. So Intel nodes may be chosen when AMD is available: slower (AMD runs
+stages at 0.54-0.73 of Intel's time), the same caps. Set it autoscaled, as `day` (same PUT, the
+pool's id from `GET .../node_pools`):
+```sh
+deploy/k8s/ops/do.sh PUT /v2/kubernetes/clusters/$VYREON_DOKS_CLUSTER/node_pools/<day-intel id> \
+  '{"name":"day-intel","count":0,"auto_scale":true,"min_nodes":0,"max_nodes":13,
+    "labels":{"vyreon":"worker"},"taints":[{"key":"vyreon","value":"worker","effect":"NoSchedule"}]}'
+```
+**Cost (C-068 round 2, 18):** nodes follow the pods and the pods KEDA's caps: 12 backfill blocks and
+the daily one a node each, 24 tapes three a node (a tape does not fit beside a block), passes beside
+blocks. With every cap working that is up to 21 nodes, if tapes of later dates run while 12 earlier
+blocks do (in a newest-first build blocks wait for every earlier tape, so the two rarely overlap,
+but nothing forbids it). So the pools' maxima are the cap that binds: `day` 13 plus `day-intel`'s.
+`day-intel` at 13: up to 26 nodes, $4.34 an hour; at 6: 19, $3.17; at 0 (no autoscaling): no fallback,
+13, $2.17. The owner's call; a lower maximum is a partial fallback. **Check on
+the first runs:** which pool the autoscaler grows (`kubectl get nodes -L doks.digitalocean.com/node-pool`);
+if it grows `day-intel` while `day` has room, say so in MILESTONES (a cost and speed question, not a
+correctness one).
 
 ### 4. Apply the ScaledJobs (free until pods start)
 
@@ -375,8 +411,25 @@ sed -e "s#VYREON_WORKER_IMAGE#$IMG#" -e "s#VYREON_ENGINE_BUILD#$BUILD#" deploy/k
 kubectl -n vyreon get scaledjob      # READY True for all four; ACTIVE True where work is claimable
 ```
 
-A new image: withdraw the old build in core (`build withdraw`, C-062), then apply again with the new
-image and build. `rollout.strategy: gradual` keeps running Jobs (KEDA's default would delete them).
+A new image (C-068), **in this order** (the order is what keeps history in date order):
+1. `vyreon-core build register <inventory>` for the new build. **Do not admit it yet.** An admitted
+   successor's pod could claim a later day's pass while an earlier day's pass still belongs to the
+   old build, and publish that day's history one reading short; the hand-over refuses an admitted
+   successor.
+2. If the new build reads other profile revisions than the old one, schedule its day blocks over the
+   days the old build published (the hand-over names them and refuses until they are covered: C-064,
+   such days are recomputed).
+3. `vyreon-core build hand-over --preview <old> <new> "<reason>"`: it withdraws the old build if it
+   still runs (its live leases end) and lists every queued or failed tape, day block and ordered pass
+   it moves, and the old tape verify jobs it cancels, with a token. A running old build changes its
+   jobs as it goes: preview with the queue paused (`queue pause`) or expect to preview again.
+   `vyreon-core build hand-over --expect <token> <old> <new> "<reason>"` does exactly that, in one
+   transaction (refused if anything changed since the preview).
+4. `vyreon-core build admit <new> <evidence>`; set `VYREON_CORE_DAILY_BUILD` to it if the daily runs
+   are on; `queue resume` if paused.
+5. Apply the ScaledJobs again with the new image and build.
+Without the hand-over the old build's queued tapes and blocks hold the new build's blocks and passes
+for ever and its passes are claimed by no pod (core's `STALLED` chain says so). `rollout.strategy: gradual` keeps running Jobs (KEDA's default would delete them).
 **Never `kubectl delete scaledjob` while a worker runs:** its Jobs are owned by it and deleted with
 it (`--cascade=orphan` keeps them); deleting KEDA's manifest deletes its CRDs and with them every
 ScaledJob and Job.
@@ -388,15 +441,35 @@ ScaledJob and Job.
   while the request budget has headroom): one node averaged 101 requests a minute over its wall
   time with bursts of 500-760 while a day downloads (2026-11-22); core grants at most 1,900 a minute
   (`VYREON_CORE_INTRINIO_PER_MINUTE`), so more nodes than the budget holds only wait in it, at node
-  cost. Check: `SELECT date_trunc('minute', minute) m, sum(requests), count(DISTINCT worker) FROM
-  core.request_usage WHERE minute > now() - interval '6 hours' GROUP BY 1 ORDER BY 2 DESC LIMIT 10`.
+  cost. Check: `vyreon-core budget [hours]` (C-068): what is committed now, the leases never
+  released, and the busiest minutes **booked by the minute each lease was granted**: what its worker
+  reported using, the full size of leases never released (a worker that died, or whose release never
+  reached core), and "at most": the minute's and the previous minute's leases together, an upper
+  bound on the requests made in the minute (a lease's requests fall within 35 s of its grant).
+  `core.request_usage` alone is no measure of a minute: it books usage when a lease is released, so
+  two releases either side of a minute's end split one minute's requests, and a dead worker's
+  requests never arrive. Judge a raise on "at most" and on Intrinio's own account usage for the same
+  hours (Intrinio MCP `get_account_usage`). Core's budget itself is not fooled: an unreleased lease
+  is held at its full size until a minute after its validity.
+- **The ordered pass's memory and time (C-068; measured, not known):** memory request = limit = 3Gi
+  (so a pass and a block, 10Gi, fit a node's 13.3 GiB together and the pass is never evicted under
+  pressure; above 3.2Gi a pass no longer fits beside a block and takes a node of its own), deadline 2 h
+  (`50-keda.yaml`). Each pass reads every published date of its base measurements, so its memory and
+  time grow with the store (engine audit finding 14). Measure on the recompute's 10 passes and at
+  about 100, 300 and the last of the 597: near a pass's end, `kubectl -n vyreon exec <pass pod> --
+  cat /sys/fs/cgroup/memory.peak` (bytes) and the Job's duration (`kubectl -n vyreon get jobs -l
+  scaledjob.keda.sh/name=ordered-pass`). If the peak passes 2 GiB or a pass takes over 30 minutes,
+  raise the request and limit together or the deadline before going on and record the numbers in
+  MILESTONES. An `OOMKilled` pass is a lost lease: free twice, then charged (C-035 amended); five on
+  one session leave it FAILED and the later passes wait (JOB_FAILED).
 - **The node cap** (the hard cost cap): pool `day` `max_nodes` (step 3's PUT with a new value).
   Keep it at least `day-block` + `day-block-daily`, else a block pod waits Pending (it holds no
   job, so nothing stalls, but it is not computing).
 
 ### 6. Cost guard ($)
 
-At most `max_nodes` x $0.167 an hour: 13 nodes, $2.17 an hour, $52 a day if every slot is busy.
+At most `max_nodes` x $0.167 an hour: 13 nodes, $2.17 an hour, $52 a day if every slot is busy, plus
+`day-intel`'s maximum (3: the pools' maxima are the cap that binds).
 Nodes exist only while worker pods run, plus about 10 minutes each. `ops/health.sh` shows spend
 against the ceiling (MILESTONES "Machines and money") and flags a worker node with no worker pod
 (`!! idle node`); the autoscaler should leave none for longer than about 10 minutes. The account's
@@ -414,6 +487,16 @@ kubectl get nodes -l doks.digitalocean.com/node-pool=day
 kubectl -n vyreon exec deploy/vyreon-core -- vyreon-core queue    # what core says is claimable
 deploy/k8s/ops/health.sh                                          # pods that found nothing, idle nodes
 ```
+
+**A pod that fails before it claims** (C-068): a Secret key missing (pod stuck in
+`CreateContainerConfigError`), a database login refused (the pass exits at once), an image that
+cannot be pulled. Core never hears from it, so no attempt is charged, and KEDA 2.21 has no backoff or
+limit on a ScaledJob's failed Jobs: a pod that exits is replaced every poll while its job is
+claimable. You see it: on the channel, that kind's `STALLED` after 15 minutes (claimable, none
+leased); on `ops/health.sh`, failed Jobs per ScaledJob in the last hour and pods stuck before running;
+and directly with `kubectl -n vyreon get jobs -l scaledjob.keda.sh/name=<name>` and `kubectl -n vyreon
+describe pod <pod>` (the events say why; `failedJobsHistoryLimit` keeps the last 30 failed Jobs and
+their logs). Stop the loop by pausing that ScaledJob (8, step 2), fix the cause, unpause.
 
 The operator logs "Number of running Jobs" and "Number of pending Jobs" every poll. A trigger that
 cannot reach the database shows READY False ("Triggers defined in ScaledJob are not working
@@ -448,24 +531,42 @@ cap) and the pass (`ordered-pass`). Suspend the CronJob then, and never run both
 - KEDA starts nothing on a morning with nothing queued (the CronJob's accepted $0.25, C-051) and
   starts the pass whenever it becomes claimable, which during the backfill is after the backfill's
   earlier passes (the CronJob's pod gave up on it the same morning).
-- The block has its own slot and its own node, as the CronJob gave it, so a backfill holding all 12
-  slots for a day and more never delays the deadline (20:00 MT, C-050).
+- The block has its own slot, and its own node by priority (C-068; round 2, 10): PriorityClass
+  `vyreon-daily` (1000, may preempt) above the tapes and passes (0), and level with
+  `vyreon-backfill-block` (1000, preempts nothing), so it can never evict a backfill block. With 12
+  backfill blocks on 12 nodes and tapes or a pass filling the 13th, the daily block evicts the tape
+  or pass pods on one node (their leases expire, their jobs are claimed again, the attempt free);
+  where that makes no room (a pass beside a block), it waits Pending and the autoscaler adds the
+  13th node. In a stockout it waits (the deadline alert, 20:00 MT, says so). A cap of 11 backfill
+  blocks would reserve a Job slot, not the 6 CPUs, since tapes (2 each) and passes (1) could still
+  fill the room.
+- **The daily tape is claimed ahead** of the backfill's (priority 1: a claim takes the daily runs'
+  jobs first). **The daily block still waits for every unfinished earlier tape** (the claim's gate:
+  a block reads the tape history before its day, from `tape_history_from`), so on a morning while the
+  backfill's tapes are still running it waits for them (the test block's tapes: 240 in 42 minutes on
+  24 pods, so the whole range's ~600 in under 2 hours). That gate is right and stays; the deadline's
+  13 h 30 min cover it.
 - What the CronJob did that KEDA does not: one pod for all three kinds on one node. Under KEDA the
   tape's node is idle for a poll when the tape ends and the block's pod takes it (6 + 2 CPUs do
   not fit together; the tape is minutes), and the pass (1 CPU) fits beside the block.
-Keep `40-daily.yaml` for a fallback (KEDA down): resume the CronJob and pause the ScaledJobs.
+`40-daily.yaml` is applied suspended (C-068) and stays suspended; it is the fallback (KEDA down):
+pause the ScaledJobs, then resume the CronJob.
 C-065's 30-minute STALLED allowance for daily-only work was for the CronJob's 15-minute gap; with
 KEDA 15 would do (a core change, not made here).
 
 ### 10. First run under KEDA: the recompute of the test block (the owner; $ about $5)
 
-Two blocks of 5 sessions, 2024-07-09..07-22, on build 48461197+7361a31e2fda (or its successor),
-started by KEDA alone. Before: run.sh has finished and deleted its node; steps 1 to 4 done (core
-image with C-065 and 0046, the login, the pool autoscaled at 0 nodes, the ScaledJobs on image
-48461197); 914ffed7 withdrawn; CronJob `daily` suspended or not applied.
+Two blocks of 5 sessions, 2024-07-09..07-22, on **the build the ScaledJobs run** (C-068 round 2, 8:
+the rollout's image, 090d7aea's build as `build register` printed it; a block of any other build
+starts no pod), started by KEDA alone. Before: run.sh has finished and deleted its node; steps 1 to 4
+done (core image with C-065 and 0046, the login, the pool autoscaled at 0 nodes, the ScaledJobs on
+that image); 914ffed7's work handed to that build and the build admitted (step 4's order); CronJob
+`daily` suspended.
 
 ```sh
-kubectl -n vyreon exec deploy/vyreon-core -- vyreon-core schedule day-block FREE_REPORT_64 48461197+7361a31e2fda 2024-07-09 2024-07-22 5
+BUILD=<the build in 50-keda.yaml as applied: kubectl -n vyreon get scaledjob day-block -o jsonpath='{.spec.triggers[0].metadata.query}'>
+kubectl -n vyreon exec deploy/vyreon-core -- vyreon-core schedule day-block FREE_REPORT_64 "$BUILD" 2024-07-09 2024-07-22 5
+kubectl -n vyreon exec deploy/vyreon-core -- vyreon-core queue    # the two blocks QUEUED under that build ("build")
 ```
 
 (The passes of these days are queued again under the new build as each day publishes, C-037/C-062;
@@ -602,6 +703,22 @@ once: 60 → 120 GiB on 2026-11-16 while `vyreon-pg-1` ran on (started 2026-11-1
 
 ### B. Backups
 
+0. **The watch's view of the WAL** (free; once; before the core image with migration 0050, C-068).
+   Core's watch reads `pg_stat_archiver`, the WAL directory (`pg_ls_waldir`: its size and the newest
+   base backup's history file) and the archiver's queue (`pg_ls_archive_statusdir`); the last two
+   need `pg_monitor`, which only a superuser grants (a fresh cluster gets it from `10-postgres.yaml`'s
+   `postInitSQL`; a restored one keeps it, role memberships being in the backup):
+   ```sh
+   kubectl -n vyreon exec vyreon-pg-1 -c postgres -- psql -d vyreon -c "GRANT pg_monitor TO vyreon"
+   ```
+   Without it the channel says so (`WAL_ARCHIVING`, "the core login lacks pg_monitor") and the
+   volume is judged on the data alone (an open `DATABASE_FULL` stays open).
+   Core also reads the **backup plugin's own record** through the Kubernetes API (C-068 round 2):
+   `20-core.yaml` makes its ServiceAccount `vyreon-core` with a Role that may only `get` the
+   Cluster and the ObjectStore, and sets `VYREON_CORE_PG_CLUSTER=vyreon-pg`; it is applied with core.
+   Check after the core rollout: `kubectl -n vyreon auth can-i get objectstores.barmancloud.cnpg.io
+   --as=system:serviceaccount:vyreon:vyreon-core` says yes, and core's log has no "backups: the
+   plugin's record cannot be read".
 1. **cert-manager** (free; once), v1.21.3 (2026-10-23; supports Kubernetes 1.33-1.36,
    https://cert-manager.io/docs/releases/), pinned by its SHA-256:
    ```sh
@@ -669,6 +786,11 @@ once: 60 → 120 GiB on 2026-11-16 while `vyreon-pg-1` ran on (started 2026-11-1
    ```
    On failure: the sidecar's log (`kubectl -n vyreon logs vyreon-pg-1 -c <sidecar name from step 6>`)
    names the cause (key, bucket, endpoint, checksum).
+   **PostgreSQL's count is not proof** (C-068 round 2): with no archiver configured CloudNativePG
+   still answers each WAL file archived, so `archived_count` grows anyway. The proof is the bucket:
+   `SELECT pg_walfile_name(pg_switch_wal())` names the file just closed; it must appear in the
+   sidecar's log as archived and under `vyreon-pg/wals/` in the bucket (Spaces panel). Core's watch
+   checks the Cluster's `spec.plugins` (`WAL_ARCHIVING` "archiving is off" without the archiver).
 8. **The first base backup, on demand:**
    ```sh
    kubectl create -f deploy/k8s/ops/backup-now.yaml
@@ -682,10 +804,23 @@ once: 60 → 120 GiB on 2026-11-16 while `vyreon-pg-1` ran on (started 2026-11-1
 9. **Each week:** `kubectl -n vyreon get scheduledbackup,backup` (the last schedule time and a
    completed Backup each Sunday); the bucket's size in the panel.
 
-**Watch:** if archiving fails, Postgres keeps every unarchived WAL file in `pg_wal` on the
-database volume until it succeeds. Core's `DATABASE_FULL` reads `pg_database_size`, which does
-not count `pg_wal`, so a failing archive can fill the volume unseen by the channel: check
-`pg_stat_archiver` (step 7) with every health check until the watch reads it.
+**Watch (C-068):** if archiving fails, Postgres keeps every unarchived WAL file in `pg_wal` on the
+database volume until it succeeds. Core's watch alerts on the channel, each one problem:
+- `WAL_ARCHIVING` (key `archiver`): the archiver's last attempt failed and nothing was archived for
+  15 minutes, or a finished WAL file has waited 30 minutes (stuck without failing). Look at the
+  plugin's log: `kubectl -n vyreon logs vyreon-pg-1 --all-containers --since=1h`.
+- `DATABASE_FULL`: every database **and the WAL** above 80% of `VYREON_CORE_VOLUME_GIB` (clears
+  below 78%). The filesystem itself is a little smaller than the volume (`df` shows ~246G of 250);
+  the 20% margin covers it.
+- `BACKUP_STALE`: no evidence of a recoverable base backup newer than `VYREON_CORE_BACKUP_MAX_DAYS`
+  (8) days, from the plugin's own record (the ObjectStore's `status.serverRecoveryWindow.<server>`:
+  `firstRecoverabilityPoint` and `lastSuccessfulBackupTime`), or that record not read in 15
+  minutes ("Backups unverified", with why). Until B8's first backup it is open, and true.
+- `WAL_ARCHIVING` "archiving is off": the Cluster has no Barman Cloud WAL archiver in `spec.plugins`.
+The 09:00 digest's "Database size" line adds the WAL and the backups as the plugin records them.
+**Verify once after B8:** `kubectl -n vyreon get objectstore vyreon-backup -o
+jsonpath='{.status.serverRecoveryWindow}{"\n"}'` shows `vyreon-pg` with both times, and within 5
+minutes `BACKUP_STALE` resolves on the channel.
 
 **Off:** remove the `plugins` section from `10-postgres.yaml` and apply (RESTART: Postgres restarts), and
 `kubectl delete scheduledbackup -n vyreon vyreon-pg-weekly`. The bucket keeps what it holds;
@@ -739,3 +874,89 @@ a `day` node (see `ops/restore-drill.yaml`; $0.17 an hour), an hour or two to re
                                                              # the drill's pvc-... volume gone (reclaim Delete)
    ```
 6. Record in `docs/MILESTONES.md`: the date, the backup used, the restore's duration, the result.
+
+The drill stays a drill: it archives nothing and is deleted. Recovering production is D.
+
+### D. Recovery after the database volume is lost (production; $ the new volume; the owner)
+
+When the database's volume is gone (deleted, corrupt, its pod unable to start on it) and the bucket
+holds the backups (C-068, audit opsurface ops.md 7; round 2, 5 and 12). The recovered database is a
+new Cluster (`ops/recover-production.yaml`), recovered from the latest base backup and every WAL file
+the lost server archived, and archiving its own WAL from its first minute under its own name in the
+same bucket: the plugin refuses to archive into a path that already holds a server's WAL, and the
+lost server's path stays the recoverable history of what came before.
+
+**What is lost:** everything written after the last WAL file archived (at most about 5 minutes,
+CloudNativePG's `archive_timeout`, more if archiving was failing: `WAL_ARCHIVING`). Core's queue is
+in the same database, so it comes back consistent with the store: a day published in that gap is
+computed again, leases live then expire, free of charge. **But a schedule made in that gap is gone
+with no trace in the store** (round 2, 5): step 5 compares the queue with the schedules recorded in
+MILESTONES (each tranche, hand-over and retirement is recorded there with its time as it is made)
+and makes again what is missing.
+
+Set the names once (the first loss: `LOST=vyreon-pg LOST_SERVER=vyreon-pg NEW=vyreon-pg2`; after
+that, the current Cluster's name for both and the next number for `NEW`; `LOST_SERVER` is the lost
+Cluster's plugin `serverName`, `kubectl -n vyreon get cluster $LOST -o
+jsonpath='{.spec.plugins[0].parameters.serverName}'`, else its name):
+```sh
+LOST=vyreon-pg LOST_SERVER=vyreon-pg NEW=vyreon-pg2
+REPOINT=(-e "s#$LOST-rw#$NEW-rw#g" -e "s#$LOST-app#$NEW-app#g" -e "s#value: $LOST\$#value: $NEW#" -e "s#name: $LOST\$#name: $NEW#")
+```
+1. **Stop the workers and core** (nothing can publish to a database that is not there; nothing
+   should start against the recovered one before it is checked):
+   ```sh
+   kubectl -n vyreon annotate scaledjob --all autoscaling.keda.sh/paused=true
+   kubectl -n vyreon delete jobs -l scaledjob.keda.sh/name --ignore-not-found   # workers of a dead database
+   kubectl -n vyreon scale deployment vyreon-core --replicas=0
+   kubectl -n vyreon get cluster $LOST -o yaml > $LOST-lost.yaml                 # its record, for MILESTONES
+   ```
+   Keep the lost Cluster object until the recovery is verified (deleting it deletes its PVC: only
+   once you are sure nothing on it is wanted). The bucket is never touched.
+2. **Recover:**
+   ```sh
+   sed -e "s#VYREON_PG_NEW#$NEW#g" -e "s#VYREON_PG_LOST_SERVER#$LOST_SERVER#g" deploy/k8s/ops/recover-production.yaml | kubectl apply -f -
+   kubectl -n vyreon get cluster $NEW -w         # "Cluster in healthy state"; note the time taken
+   ```
+3. **Point core, KEDA and the ordered pass at it.** Core and KEDA take the host on apply (core also
+   the Cluster whose backup record it reads, `VYREON_CORE_PG_CLUSTER`); the pass's login is a Secret
+   (its password came back with the roles):
+   ```sh
+   sed -e "s#VYREON_CORE_IMAGE#registry.digitalocean.com/vyreon/vyreon-core:<tag>#" "${REPOINT[@]}" deploy/k8s/20-core.yaml | kubectl apply -f -
+   printf 'host=%s-rw port=5432 dbname=vyreon user=vyreon_pass password=%s' "$NEW" "$(tr -d '\n' < pass-password)" > ordered-pass-pg
+   kubectl -n vyreon create secret generic vyreon-worker --dry-run=client -o yaml \
+     --from-file=worker-token=worker-token --from-file=intrinio-key=<the Intrinio key file> \
+     --from-file=fred-key=<the FRED key file> --from-file=ordered-pass-pg=ordered-pass-pg | kubectl apply -f -
+   IMG=registry.digitalocean.com/vyreon/vyreon-worker:<tag> BUILD=<build>
+   sed -e "s#VYREON_WORKER_IMAGE#$IMG#" -e "s#VYREON_ENGINE_BUILD#$BUILD#" "${REPOINT[@]}" deploy/k8s/50-keda.yaml | kubectl apply -f -
+   kubectl -n vyreon rollout status deployment vyreon-core
+   ```
+   If core cannot log in (its log says so), set the `vyreon` role's password to the new Secret's, by
+   stdin: `printf "ALTER ROLE vyreon PASSWORD '%s'" "$(kubectl -n vyreon get secret $NEW-app -o
+   jsonpath='{.data.password}' | base64 -d)" | kubectl -n vyreon exec -i $NEW-1 -c postgres -- psql
+   -d vyreon -v ON_ERROR_STOP=1 -q`.
+4. **The backups follow it:**
+   ```sh
+   sed "${REPOINT[@]}" deploy/k8s/15-backup.yaml | kubectl apply -f -          # the schedule names $NEW
+   sed "${REPOINT[@]}" deploy/k8s/ops/backup-now.yaml | kubectl create -f -    # a base backup now
+   ```
+   Then B7 on `$NEW-1` (the WAL file in the bucket under `$NEW/wals/`), and B8's checks: the
+   ObjectStore's `serverRecoveryWindow.$NEW` with both times, and `BACKUP_STALE` resolving.
+5. **Verify before anything runs:**
+   - `vyreon-core problems` answers, and `vyreon-core queue` (jobs by kind, state and **build**)
+     holds every schedule MILESTONES records: each tranche's day blocks and tapes, the ordered
+     passes, the hand-overs. A range missing (made in the lost minutes) is scheduled again now
+     (`vyreon-core schedule ...` as recorded; a range present is refused as an overlap, which
+     confirms it).
+   - `drill-counts.sql` on `$NEW-1` against the last counts you have (a drill's, or the lost
+     database's if they were read); the newest published revision (`SELECT max(published_at) FROM
+     vyreon.day_revision`) against the last WAL archived by the lost server (`$LOST_SERVER/wals/` in
+     the bucket).
+   - Then `kubectl -n vyreon annotate scaledjob --all autoscaling.keda.sh/paused-` and watch the first
+     claims.
+6. **Make it the standing system:** in the repository, the new names in `10-postgres.yaml` (the
+   Cluster `$NEW`, its `plugins` `serverName: $NEW`), `20-core.yaml`, `50-keda.yaml`,
+   `15-backup.yaml`, `ops/backup-now.yaml`, `ops/restore-drill.yaml` (`serverName: $NEW`) and this
+   README's examples (`ops/recover-production.yaml` takes the names on the command line and needs no
+   change); commit; record in MILESTONES the time of the loss, the recovery's duration, the last WAL
+   recovered, and the names (the next loss starts from `LOST=$NEW`). Delete the lost Cluster object
+   and its PVC only then, previewed (`kubectl -n vyreon get pvc`), on the owner's word.

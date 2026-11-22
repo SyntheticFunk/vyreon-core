@@ -191,7 +191,7 @@ async fn a_published_days_check_is_kept_once_and_judged_until_the_day_is_publish
 
     // expected from 2025-12-10: within the grace nothing is wrong; past it, a day with no report
     // is a check that did not run
-    let mut settings = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: Some("2025-12-10".into()) };
+    let mut settings = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: Some("2025-12-10".into()), backup_days: None };
     assert!(ours(watch::check(&mut client, &settings, &after(1)).await.unwrap().opened).is_empty());
     let opened = ours(watch::check(&mut client, &settings, &after(5)).await.unwrap().opened);
     assert_eq!(opened, ["Reference check did not run on 1 published day (1 with no report), the oldest 2025-12-10"]);
@@ -349,7 +349,7 @@ async fn cluster(test: &str, checks: bool) -> (Scratch, tokio_postgres::Client, 
     let (l_late, l_early) = (lease(&client, late.job_id).await, lease(&client, early.job_id).await);
     client.execute("UPDATE core.lease SET granted_at = '2026-11-19 15:32:27.781976+00' WHERE lease_id = $1", &[&l_early]).await.unwrap();
     client.execute("UPDATE core.lease SET granted_at = '2026-11-20 08:08:16.867582+00', expires_at = '2026-11-21 00:00:00+00' WHERE lease_id = $1", &[&l_late]).await.unwrap();
-    let settings = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None };
+    let settings = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None };
     let mut changes = Vec::new();
     let mut at = async |client: &mut tokio_postgres::Client, now: &str| {
         if checks {
