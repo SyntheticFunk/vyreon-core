@@ -10,6 +10,9 @@ Times are UTC unless marked MT. Write a time only after `date -u`.
 
 ## Terms (agreed with the owner 2026-11-21; define a word here before using it in a plan)
 - **Phase 1:** the database build back far enough for the MVP reports: 2024-07-09..2026-11-20 (C-060).
+- **One pass (owner, 2026-11-22):** the BASE layer computed successfully the first time (downloads,
+  tapes, hours a day: expensive to redo). The DERIVED layer is expected to be recomputed: it can only be
+  judged on the built store, and a re-run of the ordered passes is cheap (no provider calls).
 - **Final:** a value that building further back would not change. At the live date every value of
   the current week is final (C-060's chain: 596 sessions behind it).
 - **Warm-up:** the sessions at the start of a build whose derived values are not final (TA-Lib's
