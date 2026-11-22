@@ -1095,6 +1095,20 @@ async fn a_date_is_omitted_only_when_its_day_failed_for_the_provider() {
     let e = work::omit(&mut client, PROFILE, days[0], reason).await.unwrap_err();
     assert!(e.contains("held for an engine fault (400 of 3904 final slots are withheld for an engine fault (more than 0.1)): an engine fault is fixed and recomputed, never omitted"), "{e}");
 
+    // audit 2026-11-22 changes-core 9: the executor's hold and the day-local derive's are the
+    // engine's faults too, never omitted
+    for (hold, detail) in [
+        (test_support::executor_fault_hold(days[0]), "intent a: the executor held the day (too many faulted slots)"),
+        (test_support::day_local_fault_hold(days[0]), "9 of 64 objects' day-local derived records faulted (more than 0.1)"),
+    ] {
+        work::retry_failed(&client).await.unwrap();
+        let again = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+        work::fail(&mut client, &again.token, "day 2025-12-10", &hold, "log").await.unwrap();
+        assert_eq!(cause(&client, days[0]).await, ("ENGINE_FAULT".into(), detail.into()));
+        let e = work::omit(&mut client, PROFILE, days[0], reason).await.unwrap_err();
+        assert!(e.contains(&format!("held for an engine fault ({detail}): an engine fault is fixed and recomputed, never omitted")), "{e}");
+    }
+
     // tried again, it stops on the provider-input hold, and is omitted
     work::retry_failed(&client).await.unwrap();
     let again = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();

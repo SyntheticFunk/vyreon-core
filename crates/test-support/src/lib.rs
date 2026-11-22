@@ -132,6 +132,24 @@ pub fn engine_fault_hold(day: &str) -> String {
     format!("stop: {day} not published: held: 400 of 3904 final slots are withheld for an engine fault (more than 0.1): XLB--SAI-EXQ01 ...")
 }
 
+/// The engine's two other holds for its own faults, as its worker reports them (the same `stop: <date>
+/// not published: ` before them; engine worker branch of 2026-11-21): the executor's exit 1 (R7.1,
+/// vyreon-cli `day.rs`, `Stop::Held("intent <name>: the executor held the day (too many faulted
+/// slots; <its log>)")`), and the day-local derive's (D-103, vyreon-cli `derive/local.rs`, an error
+/// `"<date> held: N of M objects' day-local derived records faulted (more than X); <inherited>:
+/// <objects>"`, not a `Stop::Held`). As above, no real message of either is kept where core can read
+/// it: the counts, the log's path and the objects are chosen for the test; core reads the shape.
+pub fn executor_fault_hold(day: &str) -> String {
+    format!("stop: {day} not published: held: intent a: the executor held the day (too many faulted slots; /work/runs/worker-{day}/logs/intent-a.err)")
+}
+
+pub fn day_local_fault_hold(day: &str) -> String {
+    format!(
+        "stop: {day} not published: {day} held: 9 of 64 objects' day-local derived records faulted (more than 0.1); \
+         0 slots withheld by inheritance from an engine fault, 12 from a provider absence (not counted by the hold): [\"XLB\", \"XLE\"]"
+    )
+}
+
 /// Two real lines of the refused day's fill log (`WORKER_LOG_REFUSED_DAY`, GLD's and PLTR's
 /// option captures stopped by the provider's HTTP 502), as a two-line stop message: a stop that is
 /// not one of the engine's holds.
