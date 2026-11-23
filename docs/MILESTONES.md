@@ -621,6 +621,10 @@ below 2,000); ~18% of tape attempts failed with zero bytes (2 API attempts per s
 (attempts ≤ 3). **Tape cap 24 → 12** (coordinator, budget). The autoscaler also grew `day-intel` (7 nodes) while
 `day` was at 13 (expected per README; cost, not correctness). BACKUP_STALE "plugin's record cannot be read" once at
 core's restart (17:03 UTC), resolved by itself.
+**13:07 MT:** 4 day blocks refused at plan time (re-queued automatically, attempt 2): macro and ACT01 cohort inputs
+missing (timed captures under the saturated budget) and 2024-07-23 ETHA's T−5 (07-16, before ETHA listed) demanded
+— a possible defect that would refuse 07-23 on every attempt. **Day-block cap 12 → 8** (coordinator, budget).
+Read-only diagnosis running (`checks/2026-11-23-phase1/refusals.md`).
 **Owner, 2026-11-23 ~09:50 MT: D-191 recommendation accepted** (weight kept, text corrected: engine worker commit after f3db692e, docs only). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of

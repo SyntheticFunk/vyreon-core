@@ -207,7 +207,7 @@ metadata:
 spec:
   pollingInterval: 30
   minReplicaCount: 0
-  maxReplicaCount: 12
+  maxReplicaCount: 8   # 12 → 8 2026-11-23 (phase 1): timed input captures (macro, ACT01) ran out of time under the saturated budget
   successfulJobsHistoryLimit: 30
   failedJobsHistoryLimit: 30
   rollout: {strategy: gradual}
