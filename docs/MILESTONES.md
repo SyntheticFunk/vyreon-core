@@ -140,6 +140,10 @@ Next:
    (data-driven, not hand-written); (2) sections by theme (price and trend; volatility and options; flows and
    positioning; company events), each opening with one plain sentence and one chart; (3) full detail: every
    measurement incl. stated absences in collapsible tables, with the structured data.
+   **Owner, 2026-11-23:** start Reporter beside the build once the earliest phase-1 days have their history passes
+   (from the gap scan's work list), so the web step starts from a working Reporter. **Codex reviews the design too**
+   (read-only, like the audits), in separate passes: an accessibility pass (plain-language, non-programmatic reader)
+   and a utility pass (depth, correctness of what is shown, machine readability: answer engines, structured data).
 5. **Launch decision:** proven unattended operation first (owner, 2026-11-22: explicit go-live
    criterion; the owner may be mobilized to field work for weeks): two weeks of daily runs, history
    passes and the Sunday issue with nobody touching the system, judged afterwards from the digest and
