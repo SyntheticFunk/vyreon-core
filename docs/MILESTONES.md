@@ -608,7 +608,8 @@ last trade, 569 true); P-12 undercount invisible to one provider (UUP 9,700 vs C
 Re-test on 4d73e9f5: 07-09, 07-12, 07-16 published by 08:39 MT.
 **Round 8 merged (2026-11-23 ~16:00 UTC):** engine `worker` f3db692e (eng-v8, D-456; suite 1,678/0; reference pytest 205;
 no ordinary-day change across 107 real asset-days). Image `f3db692e` registered (not admitted): **the phase-1
-candidate**, awaiting the owner's go. Old Jobs deleted by hand again (2nd time: automation debt
+candidate**, awaiting the owner's go.
+**Owner, 2026-11-23 ~09:50 MT: D-191 recommendation accepted** (weight kept, text corrected: engine worker commit after f3db692e, docs only). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
 ~0.3333 share; until OCC fixes the cash it prices ETHA1 as 0.333333 × ETHA (= the engine's 33.3333 terms);
