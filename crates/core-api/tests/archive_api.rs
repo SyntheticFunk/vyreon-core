@@ -180,7 +180,9 @@ async fn service(test: &str, bucket: &Bucket) -> Service {
     let doc = universe::read_responses(&fixtures().join("engine-v1-PROFILE.json"), &fixtures().join("intrinio-universe")).unwrap();
     universe::store(&mut client, &doc).await.unwrap();
     let mut builds = Vec::new();
-    for inventory in inventories() {
+    for (i, inventory) in inventories().into_iter().enumerate() {
+        // C-070: the base build's day is done with its day-local revision as well (C-031)
+        let inventory = if i == 0 { test_support::slice::with_day_local(inventory) } else { inventory };
         let b = build::register(&mut client, &inventory).await.unwrap().engine_build;
         build::admit(&client, &b, &json!({"checklist": "archive API test"})).await.unwrap();
         builds.push(b);
@@ -247,6 +249,12 @@ async fn a_worker_archives_a_published_days_perishables_through_a_url_core_signs
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY, "{early}");
     let (header, scalars, files) = parts(BASE);
     let path = bundle("archive-api-base", &header, &scalars, &files);
+    let published = s.http.post(format!("{}/worker/v1/days", s.url)).bearer_auth(token).body(std::fs::read(&path).unwrap()).send().await.unwrap();
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(published.status(), StatusCode::OK);
+    let base: Value = published.json().await.unwrap();
+    let (lh, ls, lf) = test_support::slice::day_local_parts(&s.base_build, "2025-12-10", base["revision_id"].as_i64().unwrap());
+    let path = bundle("archive-api-day-local", &lh, &ls, &lf);
     let published = s.http.post(format!("{}/worker/v1/days", s.url)).bearer_auth(token).body(std::fs::read(&path).unwrap()).send().await.unwrap();
     std::fs::remove_file(&path).unwrap();
     assert_eq!(published.status(), StatusCode::OK);

@@ -12,7 +12,7 @@ use core_db::{build, migrate, universe};
 use flate2::{Compression, read::GzDecoder, write::GzEncoder};
 use serde_json::{Value, json};
 use std::io::{Read, Write};
-use test_support::slice::{BASE, bundle, inventories, parts};
+use test_support::slice::{BASE, bundle, day_local_parts, inventories, parts, with_day_local};
 use test_support::{REFCHECK_REPORT_2025_12_16, Scratch};
 
 const PROFILE: &str = "FREE_REPORT_64";
@@ -148,7 +148,8 @@ async fn a_published_days_check_is_kept_once_and_judged_until_the_day_is_publish
     let fixtures = test_support::fixtures();
     let doc = universe::read_responses(&fixtures.join("engine-v1-PROFILE.json"), &fixtures.join("intrinio-universe")).unwrap();
     universe::store(&mut client, &doc).await.unwrap();
-    let base_build = build::register(&mut client, &inventories()[0]).await.unwrap().engine_build;
+    // C-070: a day block's day is done with its base and its day-local revision (C-031)
+    let base_build = build::register(&mut client, &with_day_local(inventories().remove(0))).await.unwrap().engine_build;
     build::admit(&client, &base_build, &json!({"checklist": "refcheck test"})).await.unwrap();
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &base_build, "2025-12-10", "2025-12-10", 30).await.unwrap();
     let block = work::claim(&mut client, Kind::DayBlock, &base_build, "w1", HOUR).await.unwrap().unwrap();
@@ -168,6 +169,10 @@ async fn a_published_days_check_is_kept_once_and_judged_until_the_day_is_publish
     let (header, scalars, files) = parts(BASE);
     let path = bundle("refcheck-base", &header, &scalars, &files);
     let published = publish_for_lease(&mut client, &path, &block.token).await.unwrap();
+    std::fs::remove_file(&path).unwrap();
+    let (lh, ls, lf) = day_local_parts(&base_build, "2025-12-10", published.revision_id);
+    let path = bundle("refcheck-day-local", &lh, &ls, &lf);
+    let day_local = publish_for_lease(&mut client, &path, &block.token).await.unwrap();
     std::fs::remove_file(&path).unwrap();
     refused(refcheck::put(&mut client, &block.token, &full()).await, "has published");
     work::day_done(&mut client, &block.token, "2025-12-10").await.unwrap();
@@ -241,7 +246,7 @@ async fn a_published_days_check_is_kept_once_and_judged_until_the_day_is_publish
 
     // the day published again (its base superseded, as a republish does): the report judges
     // nothing published any more
-    client.execute("UPDATE vyreon.day_revision SET state = 'SUPERSEDED' WHERE revision_id = $1", &[&published.revision_id]).await.unwrap();
+    client.execute("UPDATE vyreon.day_revision SET state = 'SUPERSEDED' WHERE revision_id IN ($1, $2)", &[&published.revision_id, &day_local.revision_id]).await.unwrap();
     assert_eq!(refcheck::state(&client, PROFILE, None, &after(8)).await.unwrap(), refcheck::State::default());
     assert_eq!(refcheck::list(&client, None, None, 10).await.unwrap()[0]["current"], false);
 
@@ -258,6 +263,17 @@ async fn a_published_days_check_is_kept_once_and_judged_until_the_day_is_publish
         .await
         .unwrap()
         .get(0);
+    client
+        .execute(
+            "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, state, published_at, listed_members,
+                 base_revision, day_local)
+             SELECT represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, 'PUBLISHED', published_at + interval '7 hours', listed_members,
+                 $2, true
+             FROM vyreon.day_revision WHERE revision_id = $1",
+            &[&day_local.revision_id, &republished],
+        )
+        .await
+        .unwrap();
     work::finish(&mut client, &block.token).await.unwrap();
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &base_build, "2025-12-10", "2025-12-10", 30).await.unwrap();
     let second = work::claim(&mut client, Kind::DayBlock, &base_build, "w2", HOUR).await.unwrap().unwrap();
