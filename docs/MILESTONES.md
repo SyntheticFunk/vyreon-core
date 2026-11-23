@@ -135,6 +135,11 @@ Next:
    clicks; search brings both). **Page structure: a summary at the top, then graphs and details** — serves the human
    skimmer, the answer engine quoting the first lines, and the search engine indexing the depth below; the hard part is
    organising a lot of data per page accessibly.
+   **Page sketch (owner endorsed, 2026-11-23; to design against real phase-1 pages):** (1) summary: the week's 3-5
+   most notable readings for the asset, chosen by the same unusual-against-its-own-history scoring the flags use
+   (data-driven, not hand-written); (2) sections by theme (price and trend; volatility and options; flows and
+   positioning; company events), each opening with one plain sentence and one chart; (3) full detail: every
+   measurement incl. stated absences in collapsible tables, with the structured data.
 5. **Launch decision:** proven unattended operation first (owner, 2026-11-22: explicit go-live
    criterion; the owner may be mobilized to field work for weeks): two weeks of daily runs, history
    passes and the Sunday issue with nobody touching the system, judged afterwards from the digest and
