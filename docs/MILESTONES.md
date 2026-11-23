@@ -736,6 +736,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   resort; a rule built on sparse data is judged by the built population.
 
 ## Listed, not fixed
+- **Automation debt (2026-11-23, hand-over 5):** a withdrawn build's running block workers keep computing
+  (their leases are gone; they find out only at publish) and KEDA counts their Jobs as running, so the
+  successor's blocks wait. Operator deleted the two Jobs by hand. Proposed: the worker checks its lease
+  between days (and on each heartbeat) and exits when it is gone; or the hand-over runbook deletes the
+  old build's Jobs (`kubectl delete jobs -l scaledjob.keda.sh/name=day-block` for pods of the old image).
 - D-412 left by reason: halted-ETP close (the tapes carry no halt messages), zero-volume `9`, S1–S3
   (need cluster data); ETP TWAP/T-WAM fallback tiers not computed (reach the tape only via `M`/`9`);
   Network-B listing taken from the provider's current record.
