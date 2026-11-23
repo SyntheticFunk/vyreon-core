@@ -131,7 +131,10 @@ Next:
    **Answer engines (owner, 2026-11-23):** readers are increasingly ChatGPT and similar answer engines; pages state
    their answers directly (question-shaped headings, the dated value in the first sentence) so an engine can quote and
    cite them correctly. Open decision for the web step: which AI crawlers to admit (citation and reach vs. answers
-   given without a click).
+   given without a click). **Owner, 2026-11-23: AEO and SEO are both required** (answer engines cite but bring no ad
+   clicks; search brings both). **Page structure: a summary at the top, then graphs and details** — serves the human
+   skimmer, the answer engine quoting the first lines, and the search engine indexing the depth below; the hard part is
+   organising a lot of data per page accessibly.
 5. **Launch decision:** proven unattended operation first (owner, 2026-11-22: explicit go-live
    criterion; the owner may be mobilized to field work for weeks): two weeks of daily runs, history
    passes and the Sunday issue with nobody touching the system, judged afterwards from the digest and
