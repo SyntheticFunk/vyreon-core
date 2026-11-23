@@ -550,7 +550,15 @@ gaps never end the walk, successor checked even when the old code survives, fres
 223 sessions, placeholder/debut before unknown); (2) gate the build on the real-data re-test (zero
 ordinary-day refusals) plus a **whole-range missing-contract scan in the census** (raw deliveries, all 597
 days) with scoped recompute of any day found, instead of a 4th audit convergence; (3) P-27 seen on 2 dates
-in 7 scanned months; remaining paths need stacked faults. Old Jobs deleted by hand again (2nd time: automation debt
+in 7 scanned months; remaining paths need stacked faults.
+**Round 4 merged (2026-11-23 ~11:00 UTC):** engine `worker` b3f94585 (eng-v4, D-452; ~14 decision points removed,
+~10 added, zero new outcomes; suite 1,662/0; reference pytest 199; ordinary days: no value changes).
+Declined: D-441 debut zero inside the walk (proof needs a window beyond the declared one; stays unknown).
+**For the owner:** EWJ 2025-12-16 (overlay r3 #5): core's ledger dates an OCC strike adjustment the
+detector cannot confirm (prior snapshot refused) → ex-date OI can publish where D-079 withholds it;
+recommended: under D-451 a ledger-dated action the detector cannot confirm withholds that session's OI.
+The first 21 sessions after 2022-05-27 now withhold OI (no earlier quote files): outside phase 1; whether
+the provider's snapshot start ends the walk like a listing is a later call. Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
 ~0.3333 share; until OCC fixes the cash it prices ETHA1 as 0.333333 × ETHA (= the engine's 33.3333 terms);
