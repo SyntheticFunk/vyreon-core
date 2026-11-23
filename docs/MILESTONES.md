@@ -425,12 +425,12 @@ full build: 12 nodes (two thirds of the ~18 the average allows), proven on 2 nod
 
 ## Resume here if the session is lost (written 2026-11-22 04:55 UTC)
 
-**Resume pointer (2026-11-23 14:55 MT, before a session restart for Google's MCP):** PHASE 1 RUNNING on engine build
-`d9462aad+65064dee5b99` (hand-over 18; KEDA ScaledJobs and VYREON_CORE_DAILY_BUILD on it). Caps: tapes 12, day blocks 8,
-ACT01 in-flight 2. Queue: tapes 25 done / 12 running / 169 queued since the switch; 8 blocks running, 40 queued
-(incl. recomputes of 2024-07-09, 07-16, 07-17); 596 passes queued. Watch: refused days (D-457 should stop them),
-reference checks on the new days, Intrinio 429s. Next: Reporter beside the build once the earliest days have passes;
-budget-aware KEDA (approved); release script; re-runnable refchecks. Restart the loop with
+**Resume pointer (2026-11-23 ~17:50 MT):** PHASE 1 RUNNING on engine build `2a8f8c4f+5bbbf36545c0` (hand-over 20;
+KEDA and VYREON_CORE_DAILY_BUILD on it). Caps: tapes 12, day blocks 8, ACT01 in-flight 2. Core runs image 4eda341;
+core 474a229 (C-069/C-070) waits for its audit, then deploy with the queue paused (migrations 0052/0053). Watch:
+refused days, reference checks on new days, Intrinio 429s, ETHA 2024-07-23..29 labels (D-458). Next: triage the repeat
+audits; deploy core; automation debts (release script, budget-aware KEDA, re-runnable refchecks) before Reporter
+polish; Reporter beside the build once the earliest days have passes. Restart the loop with
 `/loop follow docs/MILESTONES.md under the rules in AGENTS.md`.
 Run every step with `KUBECONFIG=~/claude-artifacts/cluster-scratch/kubeconfig` and
 `VYREON_DOKS_CLUSTER=5f56e6e0-1c74-4dc9-bfdb-962ee55ebff3` (refresh the kubeconfig from DO before
@@ -685,6 +685,12 @@ Reviewers: no fabricated citations (Codex 99/99, Gemini ~112/115); little overla
 missed; Gemini inflates numbers and severities (check them); xhigh found 2 more real items than high. Keep both,
 Gemini at xhigh. Fixers: core `core-p1` (C-069), engine `eng-p1b` (D-458); then the double audit again, image,
 hand-over.
+**Fixes landed (2026-11-23 evening):** core main 474a229 (C-069 watch, C-070 one PUBLISHED revision; tests 188/0;
+pre-check `ops/precheck-c070.sql` clean: 0 duplicates, 0 bare bases; image `vyreon-core:474a229` pushed, NOT deployed —
+waits for its Codex+Gemini audit, since migrations 0052/0053 can't be rolled back). Engine worker 2a8f8c4f (D-458;
+1,683/0; pytest 205): **hand-over 20 done ~17:45 MT** (d9462aad published 2024-07-15, kept), build
+`2a8f8c4f+5bbbf36545c0` admitted, KEDA and DAILY_BUILD on it (b4b28de, core still on image 4eda341). Repeat audits of
+C-069/C-070 and D-458 by both reviewers running (`audits/2026-11-23-core-c069/`, `audits/2026-11-23-engine-d458/`).
 **Owner, 2026-11-23 ~09:50 MT: D-191 recommendation accepted** (weight kept, text corrected: engine worker commit after f3db692e, docs only). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
