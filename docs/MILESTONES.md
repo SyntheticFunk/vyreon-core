@@ -869,7 +869,8 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
 - **Automation debt (2026-11-23): concurrency caps tuned by hand from the budget** (tapes 24 → 12, blocks 12 → 8,
   ACT01 in-flight 2). Proposed: KEDA's trigger counts claimable work only while core's request budget has headroom
   (e.g. `core.claimable_count` returns 0 for a kind when the last minutes ran at the ceiling), so the system backs
-  off by itself instead of an operator lowering caps.
+  off by itself instead of an operator lowering caps. **Owner, 2026-11-23: approved ("a good idea"); to build after
+  phase 1's current run, before the two-weeks-unattended test.**
 - **Automation debt (2026-11-23, hand-over 5):** a withdrawn build's running block workers keep computing
   (their leases are gone; they find out only at publish) and KEDA counts their Jobs as running, so the
   successor's blocks wait. Operator deleted the two Jobs by hand. Proposed: the worker checks its lease
