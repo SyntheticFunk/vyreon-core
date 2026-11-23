@@ -624,7 +624,13 @@ core's restart (17:03 UTC), resolved by itself.
 **13:07 MT:** 4 day blocks refused at plan time (re-queued automatically, attempt 2): macro and ACT01 cohort inputs
 missing (timed captures under the saturated budget) and 2024-07-23 ETHA's T−5 (07-16, before ETHA listed) demanded
 — a possible defect that would refuse 07-23 on every attempt. **Day-block cap 12 → 8** (coordinator, budget).
-Read-only diagnosis running (`checks/2026-11-23-phase1/refusals.md`).
+Diagnosis (`checks/2026-11-23-phase1/refusals.md`): (1) ETHA 07-23 is a real defect (T−5 inputs checked against T's
+members, `plan.rs:1507`) but not the refusal: ETHA's 07-23..29 sensors would carry PROVIDER_INPUT_MISSING instead of
+PRIOR_SESSION_NOT_LISTED; (2) ACT01 cohorts and (3) macro run past fixed windows (180 s per asset; 3 min) that
+include waits for core's budget; macro's overrun is also misclassed fatal (no retries). One open point: Intrinio
+itself returned HTTP 429 on some first requests at 19:32 UTC, which core's 1,900 ceiling should prevent.
+Ops: VYREON_ACT01_IN_FLIGHT=2 on day blocks (0401883). Engine fix `eng-p1a` (D-457): macro overrun retryable,
+windows ~15 min (point-in-time unchanged), T−5 members from T−5. Then image + hand-over (no ordinary-day change).
 **Owner, 2026-11-23 ~09:50 MT: D-191 recommendation accepted** (weight kept, text corrected: engine worker commit after f3db692e, docs only). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
