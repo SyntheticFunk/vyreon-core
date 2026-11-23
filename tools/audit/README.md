@@ -13,7 +13,8 @@ goes on; the whole system is audited before the build and after any change that 
 Everything the loop needs is in this directory, so a new session can run it without the last one.
 
 ## The loop
-1. **Audit.** `tools/audit/run SCOPE REPO OUT_DIR [NOTE_FILE]` for each scope in `scopes/` (three at
+1. **Audit.** `tools/audit/run SCOPE REPO OUT_DIR [NOTE_FILE]` **and** `tools/audit/run-agy` (same arguments; owner,
+   2026-11-23: wherever Codex runs, Gemini runs too) for each scope in `scopes/` (three at
    a time is what the laptop takes). REPO is the candidate's worktree; the `core` scope reads this
    repository. Reports go to `~/claude-artifacts/audits/<date>-<name>/`. For a repeat audit, the note
    file says what the last one found and which commits claim to fix it, and asks for both a verdict
@@ -61,4 +62,5 @@ mode with its sandbox, read-only (tested on a scratch repo told to edit: nothing
 (`agy models`; Gemini 4 Neon when the account shows it). Read-only commands are allowed by `agy-settings.json`
 (headless mode cannot ask). The owner signs in once (`agy` interactively). Use it as an independent second reader, and for the
 design reviews of Reporter and the web (separate accessibility and utility passes). Its findings are claims, triaged
-like Codex's.
+like Codex's: the owner's caution (2026-11-23) is that Gemini's consumer answers are sycophantic and
+hallucination-prone, so nothing it says is taken on its word; a finding stands only once verified in the code or data.

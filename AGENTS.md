@@ -88,9 +88,11 @@ Context is lost over time; the files are the memory. Sessions run for days on th
 - Discord notices go to the channel only, never phone pings.
 - Production code hard-codes no machine paths.
 - Audits run without being asked: when a step or a merged batch lands (engine or core), start a
-  read-only Codex audit of what it touched, in the background, and bring the owner the triage. The
+  read-only Codex audit **and a read-only Gemini 4 Neon audit** (`tools/audit/run-agy`, same scope) of what it touched,
+  in the background, and bring the owner the triage. Wherever Codex is invoked, Gemini is invoked too (owner,
+  2026-11-23); both are treated alike. The
   loop is `tools/audit/` (README: audit, triage, cut line, fix, real day, audit again). Findings are
-  claims to verify; Codex does no code work.
+  claims to verify, from either reviewer; neither does code work.
 - One status document, `docs/MILESTONES.md`, kept short: mutable current state. Git is the
   history, so merge by default. Where a rebase or other clean-up of pushed history is really needed, first
   preserve the record (the old commits' hashes and subjects in a file under `docs/`, and a tag on the
