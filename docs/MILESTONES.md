@@ -501,7 +501,10 @@ Intrinio), 22 asset-sessions published SUPPORTED with wrong OI changes in their 
 (engine branch `eng-vanish`, D-447: undelivered series → unknown mass → 1% gate withholds; OCC: open
 interest leaves only by closing, exercise or expiry), with reference fixes for classes 1 (NVDA split
 across a refused session), 4 (FIELD-SUP01 order follows the engine, D-108; ETHA pre-listing), 5 (IBIT
-pre-options). Class 3 (thin chains) census; look at SLV and UUP forwards. Then: image, recompute the 10
+pre-options). **Also blocking (triage final, 4 days):** UUP DLM-EXPECTED-MOVE 07-10 published 1.506% QUOTED where the
+quotes cap the straddle at 1.375% (no-arbitrage: ≤ the asks): the QUOTED branch lacks D-122's band check;
+added to `eng-vanish`. Class 3 (thin chains) census: SLV 2025-06-30 forward, UUP, NVDA C7.5 σ unidentified
+(vega ~0), META C120 0.37 vs 0.32. Then: image, recompute the 10
 days again, gate a. **Owner, 2026-11-22 22:10 MT: "get it fixed and re-tested and we will evaluate
 starting phase 1 when done"** — the full build waits for that evaluation (not automatic).
 
