@@ -526,7 +526,15 @@ checks still count).
 REAL, none dismissed; D-450, OVERLAY_RULES D-450; suite 1,651/0; reference pytest 195). Snapshot window
 uses h3-calendar's closes (early closes 13:00). Round-2 Codex audits running (`audits/2026-11-23-vanish-r2/`).
 Image `68ff6c36+18f1d999a9f8` admitted after hand-over 7 (6949aa7c published nothing); **re-test 07-09..07-22
-on 4 blocks running since 07:24 UTC (00:24 MT), ~6 h.** Old Jobs deleted by hand again (2nd time: automation debt
+on 4 blocks running since 07:24 UTC (00:24 MT), ~6 h.**
+**Round-2 audits (`audits/2026-11-23-vanish-r2/`): NOT converged — an ordinary-day REGRESSION:** the new
+predecessor verifier refuses every valid multi-page capture (last page carries its request cursor), so SPY
+(>10,000 rows) would be an ENGINE_FAULT; plus conditional paths (damaged/misdated predecessors, error
+containment, split successor across sessions, combined adjustments, 22-session horizon, D-441 debut
+resurrected, immaterial adjusted root, VS-O06 volume fault clearing OI, 04:00 UTC as NY midnight).
+**Coordinator's convergence rule for round 3 (D-451): where evidence is ambiguous, withhold; do not infer;
+remove branches rather than add.** Fixer on `eng-v3`. Gates before the owner's evaluation: the real-data
+re-test shows zero ordinary-day refusals (SPY multi-page) and the next audit converges. Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
 ~0.3333 share; until OCC fixes the cash it prices ETHA1 as 0.333333 × ETHA (= the engine's 33.3333 terms);
