@@ -558,7 +558,9 @@ Declined: D-441 debut zero inside the walk (proof needs a window beyond the decl
 detector cannot confirm (prior snapshot refused) → ex-date OI can publish where D-079 withholds it;
 recommended: under D-451 a ledger-dated action the detector cannot confirm withholds that session's OI.
 The first 21 sessions after 2022-05-27 now withhold OI (no earlier quote files): outside phase 1; whether
-the provider's snapshot start ends the walk like a listing is a later call. Old Jobs deleted by hand again (2nd time: automation debt
+the provider's snapshot start ends the walk like a listing is a later call.
+Image `b3f94585+f95a01adef72` admitted after hand-over 11 (e499d9fc published nothing); **re-test 07-09..07-22 on
+4 blocks restarted ~10:40 UTC (03:40 MT)**, ~6 h. Round-4 overlay audit running (`audits/2026-11-23-vanish-r4/`). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
 ~0.3333 share; until OCC fixes the cash it prices ETHA1 as 0.333333 × ETHA (= the engine's 33.3333 terms);
