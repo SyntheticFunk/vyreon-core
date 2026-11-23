@@ -616,6 +616,11 @@ queued: 587 tapes 2024-07-23..2026-11-20 (@13 caches existed only to 2024-07-22)
 under 4d73e9f5), 596 ordered passes (date order, C-046). Daily runs on: VYREON_CORE_DAILY_FROM 2026-11-23,
 DAILY_BUILD f3db692e, DEADLINES_FROM 2026-11-30 (coordinator: no deadline alarms during the backfill). Queue resumed
 ~17:20 UTC. Caps: tapes 24 pods, blocks 12, pools day/day-intel 0..13.
+**10:30 MT:** 135 tapes done; core's budget saturated (1,900 of 1,900 committed, 27 workers; Intrinio's own counter far
+below 2,000); ~18% of tape attempts failed with zero bytes (2 API attempts per security), all retried to DONE so far
+(attempts ≤ 3). **Tape cap 24 → 12** (coordinator, budget). The autoscaler also grew `day-intel` (7 nodes) while
+`day` was at 13 (expected per README; cost, not correctness). BACKUP_STALE "plugin's record cannot be read" once at
+core's restart (17:03 UTC), resolved by itself.
 **Owner, 2026-11-23 ~09:50 MT: D-191 recommendation accepted** (weight kept, text corrected: engine worker commit after f3db692e, docs only). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
