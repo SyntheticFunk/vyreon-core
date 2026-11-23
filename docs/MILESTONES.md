@@ -419,6 +419,14 @@ full build: 12 nodes (two thirds of the ~18 the average allows), proven on 2 nod
    run.sh's posting at that deploy (not before the block finishes).
 
 ## Resume here if the session is lost (written 2026-11-22 04:55 UTC)
+
+**Resume pointer (2026-11-23 14:55 MT, before a session restart for Google's MCP):** PHASE 1 RUNNING on engine build
+`d9462aad+65064dee5b99` (hand-over 18; KEDA ScaledJobs and VYREON_CORE_DAILY_BUILD on it). Caps: tapes 12, day blocks 8,
+ACT01 in-flight 2. Queue: tapes 25 done / 12 running / 169 queued since the switch; 8 blocks running, 40 queued
+(incl. recomputes of 2024-07-09, 07-16, 07-17); 596 passes queued. Watch: refused days (D-457 should stop them),
+reference checks on the new days, Intrinio 429s. Next: Reporter beside the build once the earliest days have passes;
+budget-aware KEDA (approved); release script; re-runnable refchecks. Restart the loop with
+`/loop follow docs/MILESTONES.md under the rules in AGENTS.md`.
 Run every step with `KUBECONFIG=~/claude-artifacts/cluster-scratch/kubeconfig` and
 `VYREON_DOKS_CLUSTER=5f56e6e0-1c74-4dc9-bfdb-962ee55ebff3` (refresh the kubeconfig from DO before
 ~2026-11-25). Recommendation and evidence to the owner before anything that costs money or deletes.
