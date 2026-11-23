@@ -672,6 +672,14 @@ build `d9462aad+65064dee5b99` admitted (evidence `cluster-scratch/evidence-d9462
 VYREON_CORE_DAILY_BUILD on it (c147089); 57 old Jobs deleted by hand (automation debt: release script); published
 2024-07-09, 07-16, 07-17 kept (no ordinary-day change). Tapes 379+ done before the switch; 206 tapes, 30+ blocks
 claimable after it.
+**First Codex + Gemini 4 Neon audits (2026-11-23, core + engine D-457; triage `audits/2026-11-23-triage/triage.md`):** 4 BLOCKS:
+(1) core watch goes silent on a tick error (/live stays healthy; queueing and alerts stop) — both; (2) core keeps two
+PUBLISHED revisions after a profile-revision bump — Gemini only; (3) engine: one asset's ACT01 failure refuses all 64
+— Codex only; (4) engine: D-457's ETHA rule fails without security.json — both. ~30 LATER (every real one to fix, C-041).
+Reviewers: no fabricated citations (Codex 99/99, Gemini ~112/115); little overlap, each found a blocker the other
+missed; Gemini inflates numbers and severities (check them); xhigh found 2 more real items than high. Keep both,
+Gemini at xhigh. Fixers: core `core-p1` (C-069), engine `eng-p1b` (D-458); then the double audit again, image,
+hand-over.
 **Owner, 2026-11-23 ~09:50 MT: D-191 recommendation accepted** (weight kept, text corrected: engine worker commit after f3db692e, docs only). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
