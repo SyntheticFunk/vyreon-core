@@ -502,7 +502,8 @@ Intrinio), 22 asset-sessions published SUPPORTED with wrong OI changes in their 
 interest leaves only by closing, exercise or expiry), with reference fixes for classes 1 (NVDA split
 across a refused session), 4 (FIELD-SUP01 order follows the engine, D-108; ETHA pre-listing), 5 (IBIT
 pre-options). Class 3 (thin chains) census; look at SLV and UUP forwards. Then: image, recompute the 10
-days again, gate a, full build (~1 day slip).
+days again, gate a. **Owner, 2026-11-22 22:10 MT: "get it fixed and re-tested and we will evaluate
+starting phase 1 when done"** — the full build waits for that evaluation (not automatic).
 
 ## Timeline (owner, 2026-11-22)
 Full build ~11-25..28; a week of derived-layer QC (census, gate d, history reference check, "general
