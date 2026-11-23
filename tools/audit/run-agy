@@ -2,7 +2,7 @@
 # One read-only Antigravity (agy) review of one scope, the same contract as `run` (Codex).
 # Usage: tools/audit/run-agy SCOPE REPO OUT_DIR [NOTE_FILE]
 #   SCOPE, REPO, OUT_DIR, NOTE_FILE  as in `run`; the report goes to OUT_DIR/<scope>.agy.md
-#   Model: gemini-4-neon-high by default; VYREON_AGY_MODEL overrides it (`agy models` lists them).
+#   Model: gemini-4-neon-xhigh by default; VYREON_AGY_MODEL overrides it (`agy models` lists them).
 # Read-only: `--mode plan` (agy edits nothing; tested 2026-11-23 on a scratch repo told to edit: it read, wrote no
 # file, and only drafted a plan in its own ~/.gemini folder) plus `--sandbox`. Headless mode cannot ask for permission, so
 # `agy-settings.json` allows read-only commands only (ls, cat, grep, git log/show/diff, ...); never
@@ -15,6 +15,6 @@ file=$scope; [ -f "$file" ] || file="$here/scopes/$scope.md"
 name=$(basename "$file" .md); mkdir -p "$out"
 { cat "$here/briefs/audit-common.md"; echo; cat "$file"; if [ -n "$note" ]; then echo; cat "$note"; fi; } > "$out/$name.agy.brief.md"
 echo "candidate: $(git -C "$repo" rev-parse --short=8 HEAD) $(git -C "$repo" branch --show-current)" > "$out/$name.agy.log"
-( cd "$repo" && agy --mode plan --sandbox --settings "$here/agy-settings.json" --model "${VYREON_AGY_MODEL:-gemini-4-neon-high}" --print-timeout 0s \
+( cd "$repo" && agy --mode plan --sandbox --settings "$here/agy-settings.json" --model "${VYREON_AGY_MODEL:-gemini-4-neon-xhigh}" --print-timeout 0s \
     -p "$(cat "$out/$name.agy.brief.md")" ) > "$out/$name.agy.md" 2>> "$out/$name.agy.log"
 echo "$name (agy): $(wc -l < "$out/$name.agy.md") lines in $out/$name.agy.md"

@@ -58,7 +58,7 @@ then product intent; then the owner.
 ## A second reviewer: Antigravity (owner, 2026-11-23)
 `tools/audit/run-agy SCOPE REPO OUT_DIR [NOTE_FILE]` runs the same brief through the Antigravity CLI (`agy`) in plan
 mode with its sandbox, read-only (tested on a scratch repo told to edit: nothing changed). The report goes to
-`OUT_DIR/<scope>.agy.md` beside Codex's. Model `gemini-4-neon-high` unless `VYREON_AGY_MODEL` names another
+`OUT_DIR/<scope>.agy.md` beside Codex's. Model `gemini-4-neon-xhigh` unless `VYREON_AGY_MODEL` names another
 (`agy models`; Gemini 4 Neon when the account shows it). Read-only commands are allowed by `agy-settings.json`
 (headless mode cannot ask). The owner signs in once (`agy` interactively). Use it as an independent second reader, and for the
 design reviews of Reporter and the web (separate accessibility and utility passes). Its findings are claims, triaged
