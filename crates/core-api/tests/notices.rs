@@ -315,8 +315,60 @@ async fn a_core_whose_watch_stalled_is_not_live() {
     assert_eq!(status(&url).await, 503, "the watch stalled");
     let settings = watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None };
     let watcher = core_api::notices::spawn_watch(app.clone(), settings, std::time::Duration::from_millis(100));
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
-    assert_eq!(status(&url).await, 200, "the watch ticks again");
+    // C-069: live once a tick has completed (its checks, and today's digest past 09:00), not when it starts
+    let mut live = 503;
+    for _ in 0..50 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        live = status(&url).await;
+        if live == 200 {
+            break;
+        }
+    }
+    assert_eq!(live, 200, "the watch ticks again");
+    watcher.abort();
+    scratch.drop().await;
+}
+
+/// C-069 (audit 2026-11-23, Codex 8, Gemini 7): a watch that ticks but cannot run its checks (here
+/// no problem can be written: a trigger refuses every one) is not live: `/live` was stamped before
+/// each tick whatever its outcome, so a core whose alerts had all stopped answered 200. Once the
+/// checks run again it is live again.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_core_whose_watch_cannot_check_is_not_live() {
+    let (scratch, client, app) = ready_app("liveness_failing").await;
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let url = format!("http://{}/live", listener.local_addr().unwrap());
+    let router = core_api::router(app.clone());
+    tokio::spawn(async move { axum::serve(listener, router).await.unwrap() });
+    async fn status(url: &str) -> u16 {
+        reqwest::get(url).await.unwrap().status().as_u16()
+    }
+    work::pause(&client, "a problem for the watch to open").await.unwrap();
+    client
+        .batch_execute(
+            "CREATE FUNCTION core.refuse_problem() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'problem refused (test)'; END $$;
+             CREATE TRIGGER refuse_problem BEFORE INSERT ON core.problem FOR EACH ROW EXECUTE FUNCTION core.refuse_problem();",
+        )
+        .await
+        .unwrap();
+    app.watching(std::time::Instant::now().checked_sub(core_api::LIVE_WITHIN + std::time::Duration::from_secs(1)).unwrap());
+    let settings = watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None };
+    let watcher = core_api::notices::spawn_watch(app.clone(), settings, std::time::Duration::from_millis(100));
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    assert_eq!(status(&url).await, 503, "ticking, but no check runs");
+    client.batch_execute("DROP TRIGGER refuse_problem ON core.problem").await.unwrap();
+    let mut live = 503;
+    for _ in 0..50 {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        live = status(&url).await;
+        if live == 200 {
+            break;
+        }
+    }
+    assert_eq!(live, 200, "the checks run again");
+    let n: i64 = client.query_one("SELECT count(*) FROM core.problem WHERE kind = 'QUEUE_PAUSED' AND resolved_at IS NULL", &[]).await.unwrap().get(0);
+    assert_eq!(n, 1);
     watcher.abort();
     scratch.drop().await;
 }
