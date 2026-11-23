@@ -1,0 +1,1 @@
+{"permissions": {"allow": ["command(ls)", "command(cat)", "command(head)", "command(tail)", "command(wc)", "command(grep)", "command(rg)", "command(find)", "command(sed -n)", "command(git log)", "command(git show)", "command(git diff)", "command(git status)", "command(git rev-parse)", "command(git branch)", "command(git grep)"]}}
