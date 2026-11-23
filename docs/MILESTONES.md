@@ -605,7 +605,10 @@ ETHA1, EMB); OI clean. Remaining single-fault paths are VS-O06 VOLUME only (1-4%
 snapshot listing it (XLK 12,108 vs 12,548); null EOD volume filled below the row's own last trade (ETHA 245 vs 324
 last trade, 569 true); P-12 undercount invisible to one provider (UUP 9,700 vs Cboe 9,800) — a floor. Round 8
 (`eng-v8`, D-456) fixes the first two; the floor is stated with the Cboe census check.
-Re-test on 4d73e9f5: 07-09, 07-12, 07-16 published by 08:39 MT. Old Jobs deleted by hand again (2nd time: automation debt
+Re-test on 4d73e9f5: 07-09, 07-12, 07-16 published by 08:39 MT.
+**Round 8 merged (2026-11-23 ~16:00 UTC):** engine `worker` f3db692e (eng-v8, D-456; suite 1,678/0; reference pytest 205;
+no ordinary-day change across 107 real asset-days). Image `f3db692e` registered (not admitted): **the phase-1
+candidate**, awaiting the owner's go. Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
 ~0.3333 share; until OCC fixes the cash it prices ETHA1 as 0.333333 × ETHA (= the engine's 33.3333 terms);
