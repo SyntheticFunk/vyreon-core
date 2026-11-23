@@ -207,8 +207,8 @@ before scheduling.
 - **Backups as soon as the test block is stored** (owner, 2026-11-21; not after its census):
   CloudNativePG scheduled backups to Spaces, weekly full plus continuous WAL archiving, ~30 days, a
   bucket and key only for backups; then one restore drill. Owner, 2026-11-17: "given that
-  recomputation has a known time and money cost its actually WORTH backing shit up." Then delete the
-  laptop safety dump `~/claude-artifacts/db-backups/vyreon-20261116T*.dump`.
+  recomputation has a known time and money cost its actually WORTH backing shit up." **Done
+  2026-11-22** (backups live, restore drill passed, laptop safety dump deleted).
 - **Failure injection during phase 1:** kill a node mid-day; restart core during a publish.
 - **FIELD null-coordinates check (before launch, cheap):** every delivered FIELD-SUB01, FIELD-SUP01,
   FIELD-DIM01 and M0-FIELD-ANALYTICS slot (24 each) has null reader coordinates, like the
@@ -489,8 +489,7 @@ backup `vyreon-pg-ondemand-gl4cq` completed 23:49:33 UTC (8 min, ~9 GB; firstRec
 23:49:33). **Restore drill passed** 23:52-23:55 UTC: restored in 2 min 38 s, every month's revisions,
 rows and body-hash digests equal to the source (`cluster-scratch/drill-20261122/`), source unchanged
 during it (no publish in the window, queue not paused); drill cluster and its volume deleted. The
-laptop safety dump `~/claude-artifacts/db-backups/vyreon-20261116T*.dump` may now go, on the owner's
-word.
+laptop safety dump `~/claude-artifacts/db-backups/vyreon-20261116T2000.dump` (726 MB) deleted on the owner's word (2026-11-22 19:30 MT).
 
 ## Timeline (owner, 2026-11-22)
 Full build ~11-25..28; a week of derived-layer QC (census, gate d, history reference check, "general
