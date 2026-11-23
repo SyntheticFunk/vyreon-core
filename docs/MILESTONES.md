@@ -609,6 +609,13 @@ Re-test on 4d73e9f5: 07-09, 07-12, 07-16 published by 08:39 MT.
 **Round 8 merged (2026-11-23 ~16:00 UTC):** engine `worker` f3db692e (eng-v8, D-456; suite 1,678/0; reference pytest 205;
 no ordinary-day change across 107 real asset-days). Image `f3db692e` registered (not admitted): **the phase-1
 candidate**, awaiting the owner's go.
+**PHASE 1 STARTED (owner, 2026-11-23 ~10:00 MT: "start phase 1 and fix things as we go along"):** hand-over 15
+(4d73e9f5 → f3db692e+840196a972b9, admitted, evidence `cluster-scratch/evidence-f3db692e.json`); KEDA on f3db692e;
+queued: 587 tapes 2024-07-23..2026-11-20 (@13 caches existed only to 2024-07-22), 40 day blocks of 15
+2024-07-23..2026-11-20, the test range's unpublished days (4 blocks) and recomputes of 07-09, 07-12, 07-16 (published
+under 4d73e9f5), 596 ordered passes (date order, C-046). Daily runs on: VYREON_CORE_DAILY_FROM 2026-11-23,
+DAILY_BUILD f3db692e, DEADLINES_FROM 2026-11-30 (coordinator: no deadline alarms during the backfill). Queue resumed
+~17:20 UTC. Caps: tapes 24 pods, blocks 12, pools day/day-intel 0..13.
 **Owner, 2026-11-23 ~09:50 MT: D-191 recommendation accepted** (weight kept, text corrected: engine worker commit after f3db692e, docs only). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
