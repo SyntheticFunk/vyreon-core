@@ -491,6 +491,12 @@ rows and body-hash digests equal to the source (`cluster-scratch/drill-20261122/
 during it (no publish in the window, queue not paused); drill cluster and its volume deleted. The
 laptop safety dump `~/claude-artifacts/db-backups/vyreon-20261116T2000.dump` (726 MB) deleted on the owner's word (2026-11-22 19:30 MT).
 
+**Recompute on f7b08efe (KEDA, 2 blocks of 5, started 22:55 UTC):** first days published 02:03 (07-16) and
+02:07 UTC (07-09), ~3 h each (95 min download, 95 compute); passes run by KEDA in date order (~3 min each).
+**Gate a, first readings:** 07-09 **35** unexplained (914ffed7: 398), 07-16 **28** (558; AVGO split window),
+checked ~91.6-92.0k each as before, failed 2,577 / 2,401 (2,940 / 2,927). The remainder to triage once
+all 10 are in.
+
 ## Timeline (owner, 2026-11-22)
 Full build ~11-25..28; a week of derived-layer QC (census, gate d, history reference check, "general
 shenanigans", possibly a derived recompute) to ~12-05; a week of Reporter + web integration to ~12-12;
