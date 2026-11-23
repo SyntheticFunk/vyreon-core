@@ -582,7 +582,11 @@ short when a series is detected missing — UUP 20.9%), day refusal from a daily
 EOD-only omission clearing agreed OI, stray daily page; deeper-build only: FXI 2023-06-07 cash, FB→META.
 Round 6 (`eng-v6`, D-454) fixes them; must not change ordinary days. **Plan change (coordinator):** no restart
 of the 4d73e9f5 re-test — it is the ordinary-day evidence; the round-6 build runs phase 1 (which recomputes
-these 10 days first). Old Jobs deleted by hand again (2nd time: automation debt
+these 10 days first).
+**Round 6 merged (2026-11-23 ~14:00 UTC):** engine `worker` 5f80aac8 (eng-v6, D-454; suite 1,672/0; reference pytest
+201; fixer expects no ordinary-day change, checked on real consecutive chains). Image built and registered, NOT
+handed over (the 4d73e9f5 re-test continues as evidence; the switch waits for the owner's go). Round-6 overlay
+audit running (`audits/2026-11-23-vanish-r6/`). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
 ~0.3333 share; until OCC fixes the cash it prices ETHA1 as 0.333333 × ETHA (= the engine's 33.3333 terms);
