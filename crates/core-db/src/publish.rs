@@ -725,7 +725,11 @@ async fn read_back(tx: &Transaction<'_>, revision: i64, date: &str) -> Result<(u
 
 /// Supersedes what the new revision replaces and publishes it. Returns how many it superseded.
 ///
-/// Replaced: the day's previous revision of the profile. Then everything that read what this one
+/// Replaced: the day's published revision of the same layer of the profile (its base, its
+/// day-local revision or its history revision), whatever its profile revision (C-070: a build that
+/// bumped a profile revision left the old one PUBLISHED beside the new, and readers served both;
+/// migration 0053 holds one per layer), and as before the day's revision of the same profile
+/// revision. Then everything that read what this one
 /// replaces or adds to (C-031, ARCHITECTURE 5.3), whichever kind of revision this is:
 ///   * on the day itself, a new base replaces the base every based revision of the day was
 ///     computed from; a new day-local revision feeds the day's revisions that read history
@@ -741,8 +745,9 @@ async fn promote(tx: &Transaction<'_>, revision: i64, header: &Header, base: Opt
     let mut superseded = tx
         .execute(
             "UPDATE vyreon.day_revision SET state = 'SUPERSEDED'
-             WHERE represented_date = $1::text::date AND profile_revision = $2 AND state = 'PUBLISHED'",
-            &[&date, &header.profile_revision],
+             WHERE represented_date = $1::text::date AND state = 'PUBLISHED'
+               AND (profile_revision = $2 OR (profile_id = $3 AND (base_revision IS NULL) = $4 AND day_local = $5))",
+            &[&date, &header.profile_revision, &header.profile_id, &base.is_none(), &header.day_local],
         )
         .await
         .map_err(db)?;
