@@ -575,7 +575,14 @@ than it adds; suite 1,667/0; reference pytest 200; NVDA lookback case publishes 
 clock judged on a fixed root set, the 64 under dated tickers + adjusted roots). Round-5 overlay audit running
 (`audits/2026-11-23-vanish-r5/`), asked for ordinary-day changes and single-fault wrong NUMBERS only.
 Image `4d73e9f5+fc90cdd72406` admitted after hand-over 13 (b3f94585 published nothing); **re-test 07-09..07-22 on 4
-blocks restarted ~12:15 UTC (05:15 MT)**, ~6 h. Old Jobs deleted by hand again (2nd time: automation debt
+blocks restarted ~12:15 UTC (05:15 MT)**, ~6 h.
+**Round-5 audit (`audits/2026-11-23-vanish-r5/`):** every round-4 finding fixed (NVDA lookback publishes).
+Narrower: 2 single-fault wrong numbers (OI opened from zero escapes — ETHA 04-14 333 vs 462; volume publishes
+short when a series is detected missing — UUP 20.9%), day refusal from a daily-body read error, yesterday's
+EOD-only omission clearing agreed OI, stray daily page; deeper-build only: FXI 2023-06-07 cash, FB→META.
+Round 6 (`eng-v6`, D-454) fixes them; must not change ordinary days. **Plan change (coordinator):** no restart
+of the 4d73e9f5 re-test — it is the ordinary-day evidence; the round-6 build runs phase 1 (which recomputes
+these 10 days first). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
 ~0.3333 share; until OCC fixes the cash it prices ETHA1 as 0.333333 × ETHA (= the engine's 33.3333 terms);
