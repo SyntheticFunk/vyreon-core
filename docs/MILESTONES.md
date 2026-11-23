@@ -513,6 +513,15 @@ hand-over 5 from f7b08efe (its blocks stopped after 6 of 10 days); admitted (evi
 `cluster-scratch/evidence-6949aa7c.json`); 4 blocks (07-09..11, 07-12..15, 07-16..18, 07-19..22) so the
 re-test runs on 4 nodes (~5-6 h). Codex audits overlay + optsensors of the batch running
 (`audits/2026-11-23-vanish/`). P-27 now in PROVIDER_FAULTS.
+**Audits of the batch (2026-11-23 ~06:20 UTC, `audits/2026-11-23-vanish/`): NOT converged, hold.** Overlay 11
++ 3 reference, optsensors 10 + 3 reference, much overlap: UUP half-spread still divides by the rejected
+reprice; VS-O06 supported 0 on an OI-only fault; series missing twice; whole adjusted root absent; split
+image in pre-split units; frozen exclusion vs live series; D-175/D-398 evidence overridden; merge erasing
+unknowns; damaged predecessor read as empty; inherited: ETHA reverse-split basis, requote binding,
+returning root as corporate action. Fixer on branch `eng-v2` verifies and fixes all REAL. **Owner item:
+D-191 ETHA1 weight 33.3333 shares vs OCC memo 59890 (33 shares + cash in lieu); the fixer reports the
+standard and the effect, no change without the owner.** The re-test on 6949aa7c keeps running (its other
+checks still count).
 
 ## Timeline (owner, 2026-11-22)
 Full build ~11-25..28; a week of derived-layer QC (census, gate d, history reference check, "general
