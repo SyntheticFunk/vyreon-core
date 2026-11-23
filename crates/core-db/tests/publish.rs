@@ -711,7 +711,7 @@ async fn a_bumped_profile_revision_replaces_its_layer_and_readers_serve_one() {
     };
     let base = parts(BASE);
     let b1 = send(&mut client, &base).await;
-    let d1 = send(&mut client, &day_local).await;
+    send(&mut client, &day_local).await;
     send(&mut client, &history).await;
     assert_eq!(published_revisions(&client).await.len(), 3);
     // the day-local profile bumped: its old revision is replaced, and the history that read the day falls
