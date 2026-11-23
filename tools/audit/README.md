@@ -53,3 +53,11 @@ then product intent; then the owner.
 - `briefs/triage.md`: the verifier's instructions. `briefs/fix-common.md`: the fixers' rules.
 - History: `~/claude-artifacts/audits/` (2026-11-13 failure handlers; 2026-11-14 universe pass 4 to 9;
   `2026-11-14-baseline/`, the ten subsystems and their triage).
+
+## A second reviewer: Antigravity (owner, 2026-11-23)
+`tools/audit/run-agy SCOPE REPO OUT_DIR [NOTE_FILE]` runs the same brief through the Antigravity CLI (`agy`) in plan
+mode with its sandbox, read-only (tested on a scratch repo told to edit: nothing changed). The report goes to
+`OUT_DIR/<scope>.agy.md` beside Codex's. Model `gemini-3.8-flash-high` unless `VYREON_AGY_MODEL` names another
+(`agy models`). The owner signs in once (`agy` interactively). Use it as an independent second reader, and for the
+design reviews of Reporter and the web (separate accessibility and utility passes). Its findings are claims, triaged
+like Codex's.
