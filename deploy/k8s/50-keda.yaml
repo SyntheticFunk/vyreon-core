@@ -257,6 +257,7 @@ spec:
               - {name: VYREON_HOME, value: /work}
               - {name: VYREON_REFCHECK_MINUTES, value: "600"}
               - {name: VYREON_OPTION_EOD_SOURCE, value: bulk}
+              - {name: VYREON_ACT01_IN_FLIGHT, value: "2"}   # 2026-11-23 phase 1: ACT01 cohorts ran past their 180 s window under the shared budget
               - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
               - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
               - {name: VYREON_KEY_FILE, value: /secrets/intrinio-key}
@@ -360,6 +361,7 @@ spec:
               - {name: VYREON_HOME, value: /work}
               - {name: VYREON_REFCHECK_MINUTES, value: "600"}
               - {name: VYREON_OPTION_EOD_SOURCE, value: bulk}
+              - {name: VYREON_ACT01_IN_FLIGHT, value: "2"}   # 2026-11-23 phase 1: ACT01 cohorts ran past their 180 s window under the shared budget
               - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
               - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
               - {name: VYREON_KEY_FILE, value: /secrets/intrinio-key}
