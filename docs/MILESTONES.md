@@ -586,7 +586,16 @@ these 10 days first).
 **Round 6 merged (2026-11-23 ~14:00 UTC):** engine `worker` 5f80aac8 (eng-v6, D-454; suite 1,672/0; reference pytest
 201; fixer expects no ordinary-day change, checked on real consecutive chains). Image built and registered, NOT
 handed over (the 4d73e9f5 re-test continues as evidence; the switch waits for the owner's go). Round-6 overlay
-audit running (`audits/2026-11-23-vanish-r6/`). Old Jobs deleted by hand again (2nd time: automation debt
+audit running (`audits/2026-11-23-vanish-r6/`).
+**Round-6 audit:** every round-5 finding fixed. Remaining single-fault paths are VOLUME only: (a) an identifiability
+floor — a series with no OI and no trades yesterday that trades today and is omitted cannot be told from a lawful
+delisting with one provider (ETHA 2025-04-14 VS-O06 1,006 vs 1,377); (b) EWJ 2025-12-16 ex-date volume; (c) XLK
+2025-12-04 null EOD volume with later trade evidence. **Coordinator's judgement: converged** (each round fixes the
+last; what remains is an identifiability limit, not a code defect). Round 7 (`eng-v7`, D-455): (b), (c); (a) recorded
+as a stated limit with a census check of VS-O06 volume against Cboe's per-contract EOD files.
+**Re-test note:** block 07-19..22 attempt 1 refused 2024-07-19: the macro capture for 07-12 overran its 3-minute
+frozen cutoff ("macro source after frozen cutoff"); core re-queued it and KEDA started attempt 2 unattended. If it
+recurs, widen the macro capture window before the full build. Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
 ~0.3333 share; until OCC fixes the cash it prices ETHA1 as 0.333333 × ETHA (= the engine's 33.3333 terms);
