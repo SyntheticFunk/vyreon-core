@@ -569,7 +569,11 @@ unexpired series undelivered makes the asset's OI unknown that session, whatever
 machinery for undelivered series is removed. Also: gaps matter only for a missing series (NVDA), EMB boundary,
 EWJ ledger-dated action withholds (owner's pending item, applied under the same rule), fill containment,
 placeholder in D-255, deterministic clock rejection, debut/adjustment evidence. Cost: coverage on days a
-series goes missing, measured in the census. Old Jobs deleted by hand again (2nd time: automation debt
+series goes missing, measured in the census.
+**Round 5 merged (2026-11-23 ~12:30 UTC):** engine `worker` 4d73e9f5 (eng-v5, D-453; first round removing more
+than it adds; suite 1,667/0; reference pytest 200; NVDA lookback case publishes on a new real slice; snapshot
+clock judged on a fixed root set, the 64 under dated tickers + adjusted roots). Round-5 overlay audit running
+(`audits/2026-11-23-vanish-r5/`), asked for ordinary-day changes and single-fault wrong NUMBERS only. Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
 ~0.3333 share; until OCC fixes the cash it prices ETHA1 as 0.333333 × ETHA (= the engine's 33.3333 terms);
