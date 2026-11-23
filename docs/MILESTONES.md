@@ -867,6 +867,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   resort; a rule built on sparse data is judged by the built population.
 
 ## Listed, not fixed
+- **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
+  publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
+  checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
+  three days on d9462aad. Proposed: core queues a REFCHECK job for a published day with no report after N hours, run
+  by a small worker from the stored body (no download).
 - **Automation debt (2026-11-23): the release sequence is hand-run.** Each new image took the same ~8 manual steps
   (build, push, inventory, register, queue pause, hand-over preview + expect, evidence file + admit, ScaledJobs apply,
   delete the old build's Jobs, resume): done 9 times on 11-22/23. Proposed: one script `deploy/k8s/ops/release.sh
