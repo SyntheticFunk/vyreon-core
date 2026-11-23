@@ -123,6 +123,11 @@ Next:
    the summary and an agent extracting exact values: stable URLs per asset and week; plain, rounded, dated numbers;
    stated absences with reasons (never blanks an agent could misquote); structured data (schema.org Dataset /
    similar) beside the prose; the same values as core's API. Design this in from the start of the web step.
+   **Depth and accessibility (owner, 2026-11-23):** most readers are not programmatic (OpenBB failed selling data
+   access; most people cannot use an API), so the product is the explained report, not the API. Every page and issue
+   gives depth underneath and accessibility on top: what each measurement is in one plain sentence, what is normal
+   for this asset and whether this week is unusual, and what we cannot tell, stated; the full precision stays in the
+   engine, the checks and the structured data. Applies to Reporter (paid issues) and the web (free pages, archive).
 5. **Launch decision:** proven unattended operation first (owner, 2026-11-22: explicit go-live
    criterion; the owner may be mobilized to field work for weeks): two weeks of daily runs, history
    passes and the Sunday issue with nobody touching the system, judged afterwards from the digest and
