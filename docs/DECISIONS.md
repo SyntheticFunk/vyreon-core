@@ -2716,9 +2716,9 @@ Migration 0052. Commits d46602f (code), 86b8f06 (tests).
 3. **Mid-build safety:** running workers are unaffected by the new rules (they send both bundles
    before done, and never a day before their job). Core's restart is the risk, as for any core
    deploy: a publish in flight is rolled back and retried by the worker after 15 s and 30 s (45 s in
-   all); `day_done` and heartbeats are retried for about 75 s. Pull the image to the core node first
-   (it was the slow part of earlier deploys) and avoid a moment when a block's upload is due; a
-   publish that outlasts the restart fails that day's attempt, which the queue retries.
+   all); `day_done` is retried for about 75 s. Keep the restart short (the image pushed and its
+   pull checked first) and avoid a moment when a block's upload is due; a publish that outlasts the
+   restart can fail that day's attempt, which the queue retries (hours of a block's compute).
 4. **After:** `/live` answers 200 within a minute; `vyreon-core problems` shows no `WATCH_FAILING`.
    **No image rollback** past 0052/0053 without undoing them by hand (an older binary refuses a
    database that holds a migration it lacks).
