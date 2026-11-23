@@ -540,7 +540,17 @@ reference pytest 199); image `e499d9fc+a00db7366757` admitted after hand-over 9 
 nothing); re-test on 4 blocks restarted ~09:15 UTC (02:15 MT). Round-3 Codex audits running
 (`audits/2026-11-23-vanish-r3/`). Fixer's irreducible branches: 21-session horizon (wider window = more
 captures, owner's call), quiet dead listings (JPM rule), one certain image converted by OCC's rule,
-`first_option_session_after` reads every capture on disk (determinism: audit asked). Old Jobs deleted by hand again (2nd time: automation debt
+`first_option_session_after` reads every capture on disk (determinism: audit asked).
+**Round-3 audits (`audits/2026-11-23-vanish-r3/`): ordinary multi-page regression FIXED in both paths; NOT
+converged** (~8-10 new paths each, all needing a second provider fault on the same series: frozen pre-split
+code hiding a missing successor, a gap erasing an omission, later-day/wrong-asset predecessor files, fresh-fill
+read error refusing the day, placeholder/debut ordering). **Coordinator's recommendation to the owner (pending):**
+(1) one narrow round, no new branches (`eng-v4`, D-452: one reader bound to asset+session for every consumer,
+gaps never end the walk, successor checked even when the old code survives, fresh-fill containment inside
+223 sessions, placeholder/debut before unknown); (2) gate the build on the real-data re-test (zero
+ordinary-day refusals) plus a **whole-range missing-contract scan in the census** (raw deliveries, all 597
+days) with scoped recompute of any day found, instead of a 4th audit convergence; (3) P-27 seen on 2 dates
+in 7 scanned months; remaining paths need stacked faults. Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
 ~0.3333 share; until OCC fixes the cash it prices ETHA1 as 0.333333 × ETHA (= the engine's 33.3333 terms);
