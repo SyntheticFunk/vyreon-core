@@ -116,6 +116,13 @@ Next:
    reply (sent 2026-11-18); check Tiingo's and OCC's naming terms first. Design inputs (pre-pivot):
    `vyreon-reporter/docs/publication-design/`, `market-research/VYREON_PAID_CROSS_ASSET_PRODUCT_CONCEPT.md`,
    `~/claude-artifacts/website-plan-2026-10-12.md`, `~/claude-artifacts/literature/SYNTHESIS-*.md`.
+   **Design goal for the free reports and archive (owner, 2026-11-23): maximum utility for both human and
+   machine readers.** The free per-asset pages plus the weekly archive (64 dated pages a week, never expiring) are
+   the organic search surface the prototype never had (its ~130k users came only from ads, ~CAD 1,500, and did not
+   compound); vyreon-web's explainer pages already draw a small organic trickle. Each page serves a person skimming
+   the summary and an agent extracting exact values: stable URLs per asset and week; plain, rounded, dated numbers;
+   stated absences with reasons (never blanks an agent could misquote); structured data (schema.org Dataset /
+   similar) beside the prose; the same values as core's API. Design this in from the start of the web step.
 5. **Launch decision:** proven unattended operation first (owner, 2026-11-22: explicit go-live
    criterion; the owner may be mobilized to field work for weeks): two weeks of daily runs, history
    passes and the Sunday issue with nobody touching the system, judged afterwards from the digest and
