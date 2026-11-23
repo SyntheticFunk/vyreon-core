@@ -670,3 +670,104 @@ async fn a_cancelled_repair_pass_leaves_its_day_a_problem() {
     assert!(not_derived(&mut client).await.is_empty());
     scratch.drop().await;
 }
+
+/// The slice's base under a profile revision of its own and a build of its own (the rows, bodies,
+/// receipts and scalars are the slice's; only the build and profile names are made here): a build
+/// that bumped the base profile revision.
+async fn bumped_base(client: &mut Client, name: &str) -> (Header, Scalars, Vec<SlotFiles>) {
+    let (mut h, s, f) = parts(BASE);
+    let mut inventory = inventories().remove(0);
+    let profile = format!("{}-{name}", h.profile_revision);
+    inventory["engine_build"] = json!(format!("{}-{name}", h.engine_build));
+    for row in inventory["slots"].as_array_mut().unwrap() {
+        row["profile_revision"] = json!(profile);
+    }
+    build::register(client, &inventory).await.unwrap();
+    (h.engine_build, h.profile_revision) = (inventory["engine_build"].as_str().unwrap().to_owned(), profile);
+    (h, s, f)
+}
+
+/// The day's PUBLISHED revisions: (revision, profile revision).
+async fn published_revisions(client: &Client) -> Vec<(i64, String)> {
+    client.query("SELECT revision_id, profile_revision FROM vyreon.day_revision WHERE state = 'PUBLISHED' ORDER BY 1", &[]).await.unwrap().iter().map(|r| (r.get(0), r.get(1))).collect()
+}
+
+/// C-070 (audit 2026-11-23, Gemini 1, BLOCKS): a build that bumps a profile revision publishes the
+/// day's revision of a layer under the new name. It replaces the day's revision of that layer under
+/// the old name (before, only the same profile revision was superseded, so both stayed PUBLISHED and
+/// readers served both), takes down what read it as any republish does, and the store refuses a
+/// second PUBLISHED revision of one layer (migration 0053).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_bumped_profile_revision_replaces_its_layer_and_readers_serve_one() {
+    let (scratch, mut client) = ready("bumped").await;
+    let day_local = derived_profile(&mut client, "DLM-MAX-PAIN", "DAY-LOCAL", true).await;
+    let day_local_2 = derived_profile(&mut client, "DLM-MAX-PAIN", "DAY-LOCAL-2", true).await;
+    let history = derived_profile(&mut client, "DLM-IV30", "HISTORY", false).await;
+    let history_2 = derived_profile(&mut client, "DLM-IV30", "HISTORY-2", false).await;
+    let base_2 = bumped_base(&mut client, "BASE-2").await;
+    let send = async |client: &mut Client, (h, s, f): &(Header, Scalars, Vec<SlotFiles>)| {
+        publish(client, &bundle(&format!("bumped-{}", h.profile_revision), h, s, f)).await.unwrap()
+    };
+    let base = parts(BASE);
+    let b1 = send(&mut client, &base).await;
+    let d1 = send(&mut client, &day_local).await;
+    send(&mut client, &history).await;
+    assert_eq!(published_revisions(&client).await.len(), 3);
+    // the day-local profile bumped: its old revision is replaced, and the history that read the day falls
+    let d2 = send(&mut client, &day_local_2).await;
+    assert_eq!(d2.superseded, 2, "the old day-local revision and the day's history revision");
+    assert_eq!(published_revisions(&client).await, [(b1.revision_id, b1.profile_revision.clone()), (d2.revision_id, d2.profile_revision.clone())]);
+    // the history profile bumped: the old history revision is replaced on its own day
+    send(&mut client, &history).await;
+    let h2 = send(&mut client, &history_2).await;
+    assert_eq!(h2.superseded, 1, "the day's history revision under the old profile revision");
+    assert_eq!(published_revisions(&client).await.iter().map(|(r, _)| *r).collect::<Vec<_>>(), [b1.revision_id, d2.revision_id, h2.revision_id]);
+    // the base profile bumped: the old base is replaced, and everything computed on it falls
+    let b2 = send(&mut client, &base_2).await;
+    assert_eq!(b2.superseded, 3, "the old base, and the day-local and history revisions computed on it");
+    assert_eq!(published_revisions(&client).await, [(b2.revision_id, b2.profile_revision.clone())]);
+    // readers serve the one revision: the base's four slots, once
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.published_measurement").await, 4);
+    // the store holds it: the old base PUBLISHED again beside the new is refused
+    let twice = client.execute("UPDATE vyreon.day_revision SET state = 'PUBLISHED' WHERE revision_id = $1", &[&b1.revision_id]).await.unwrap_err();
+    assert!(twice.as_db_error().is_some_and(|e| e.constraint() == Some("day_revision_one_published_layer")), "{twice}");
+    scratch.drop().await;
+}
+
+/// C-070: migration 0053 checks the store before it holds one PUBLISHED revision per layer. A day
+/// left with two PUBLISHED bases by the earlier core (its supersession by profile revision, the
+/// state set here as that core left it) stops the migration, naming the day and both revisions;
+/// once one is retired by the operator the migration applies.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn the_migration_names_a_day_with_two_published_revisions_of_one_layer() {
+    let scratch = Scratch::new("bumped_migration").await;
+    let mut client = scratch.client().await;
+    let set = migrate::embedded().unwrap();
+    let before = set.iter().position(|m| m.name == "one_published_revision_per_layer_of_a_day").unwrap();
+    migrate::apply(&mut client, &set[..before]).await.unwrap();
+    calendar(&mut client).await;
+    universe::store(&mut client, &universe_document()).await.unwrap();
+    for inventory in inventories() {
+        build::register(&mut client, &inventory).await.unwrap();
+    }
+    client.query_one("SELECT vyreon.ensure_months('2025-12-01', '2025-12-31')", &[]).await.unwrap();
+    let base = parts(BASE);
+    let b1 = publish(&mut client, &bundle("bumped-m-1", &base.0, &base.1, &base.2)).await.unwrap();
+    let base_2 = bumped_base(&mut client, "BASE-2").await;
+    let b2 = publish(&mut client, &bundle("bumped-m-2", &base_2.0, &base_2.1, &base_2.2)).await.unwrap();
+    // what the earlier core left: the old base still PUBLISHED beside the new
+    client.execute("UPDATE vyreon.day_revision SET state = 'PUBLISHED' WHERE revision_id = $1", &[&b1.revision_id]).await.unwrap();
+    let stopped = migrate::apply(&mut client, &set).await.unwrap_err().to_string();
+    let named = format!(
+        "C-070: days with two PUBLISHED revisions of one layer (at most 20 shown): 2025-12-10 FREE_REPORT_64 base: revisions {} ({}), {} ({})",
+        b1.revision_id, b1.profile_revision, b2.revision_id, b2.profile_revision
+    );
+    assert!(stopped.contains(&named), "{stopped}");
+    let preview = core_db::publish::retire(&mut client, "two bases (test)", &["2025-12-10"], true, None).await.unwrap();
+    core_db::publish::retire(&mut client, "two bases (test)", &["2025-12-10"], false, Some(&preview.token)).await.unwrap();
+    assert_eq!(migrate::apply(&mut client, &set).await.unwrap().applied.len(), set.len() - before);
+    drop(client);
+    scratch.drop().await;
+}
