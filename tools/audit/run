@@ -15,7 +15,12 @@ file=$scope; [ -f "$file" ] || file="$here/scopes/$scope.md"
 name=$(basename "$file" .md); mkdir -p "$out"
 { cat "$here/briefs/audit-common.md"; echo; cat "$file"; if [ -n "$note" ]; then echo; cat "$note"; fi; } > "$out/$name.brief.md"
 echo "candidate: $(git -C "$repo" rev-parse --short=8 HEAD) $(git -C "$repo" branch --show-current)" > "$out/$name.log"
-codex exec -m "${VYREON_AUDIT_MODEL:-gpt-6.2-astra}" -s read-only -C "$repo" -o "$out/$name.md" - < "$out/$name.brief.md" >> "$out/$name.log" 2>&1
+# Audit a clean checkout of the commit (tracked files only): the live folder holds git-ignored secret files
+# (api.txt, tokens, keys) that a reviewer must never read (2026-11-23).
+clean=$(mktemp -d "${TMPDIR:-/tmp}/audit-clean.XXXXXX"); rmdir "$clean"
+git -C "$repo" worktree add --detach "$clean" HEAD >/dev/null 2>&1
+trap 'git -C "$repo" worktree remove --force "$clean" >/dev/null 2>&1 || true' EXIT
+codex exec -m "${VYREON_AUDIT_MODEL:-gpt-6.2-astra}" -s read-only -C "$clean" -o "$out/$name.md" - < "$out/$name.brief.md" >> "$out/$name.log" 2>&1
 echo "$name: $(wc -l < "$out/$name.md") lines in $out/$name.md"
 # Codex's allowance after this audit, from its newest session log (the owner asked to see it, 2026-11-16)
 f=$(ls -t ~/.codex/sessions/*/*/*/*.jsonl 2>/dev/null | head -1)

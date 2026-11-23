@@ -15,6 +15,11 @@ file=$scope; [ -f "$file" ] || file="$here/scopes/$scope.md"
 name=$(basename "$file" .md); mkdir -p "$out"
 { printf "%s\n\n" "Tool rule for this run: run exactly one read-only command per terminal call (ls, cat, head, tail, wc, grep, rg, find, sed -n, git log/show/diff/status/rev-parse/branch/grep). Never chain or pipe commands (no |, &&, ;, >, <, \$( ) or backticks): a chained command is refused and ends the run. Read files with cat/sed -n and search with rg instead."; cat "$here/briefs/audit-common.md"; echo; cat "$file"; if [ -n "$note" ]; then echo; cat "$note"; fi; } > "$out/$name.agy.brief.md"
 echo "candidate: $(git -C "$repo" rev-parse --short=8 HEAD) $(git -C "$repo" branch --show-current)" > "$out/$name.agy.log"
-( cd "$repo" && agy --mode plan --sandbox --settings "$here/agy-settings.json" --model "${VYREON_AGY_MODEL:-gemini-4-neon-xhigh}" --print-timeout 0s \
+# Audit a clean checkout of the commit (tracked files only): the live folder holds git-ignored secret files
+# (api.txt, tokens, keys) that a reviewer must never read (2026-11-23).
+clean=$(mktemp -d "${TMPDIR:-/tmp}/audit-clean.XXXXXX"); rmdir "$clean"
+git -C "$repo" worktree add --detach "$clean" HEAD >/dev/null 2>&1
+trap 'git -C "$repo" worktree remove --force "$clean" >/dev/null 2>&1 || true' EXIT
+( cd "$clean" && agy --mode plan --sandbox --settings "$here/agy-settings.json" --model "${VYREON_AGY_MODEL:-gemini-4-neon-xhigh}" --print-timeout 0s \
     -p "$(cat "$out/$name.agy.brief.md")" ) > "$out/$name.agy.md" 2>> "$out/$name.agy.log"
 echo "$name (agy): $(wc -l < "$out/$name.agy.md") lines in $out/$name.agy.md"
