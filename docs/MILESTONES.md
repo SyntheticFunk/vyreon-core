@@ -507,6 +507,12 @@ added to `eng-vanish`. Class 3 (thin chains) census: SLV 2025-06-30 forward, UUP
 (vega ~0), META C120 0.37 vs 0.32. Then: image, recompute the 10
 days again, gate a. **Owner, 2026-11-22 22:10 MT: "get it fixed and re-tested and we will evaluate
 starting phase 1 when done"** — the full build waits for that evaluation (not automatic).
+**Fix merged and re-test started (2026-11-23 ~06:05 UTC):** engine `worker` 6949aa7c (D-447, UNG1 merge-lost
+mass, D-448, D-449; suite 1,641/0, reference pytest 191); image `6949aa7c+2b19185fbb82` registered;
+hand-over 5 from f7b08efe (its blocks stopped after 6 of 10 days); admitted (evidence
+`cluster-scratch/evidence-6949aa7c.json`); 4 blocks (07-09..11, 07-12..15, 07-16..18, 07-19..22) so the
+re-test runs on 4 nodes (~5-6 h). Codex audits overlay + optsensors of the batch running
+(`audits/2026-11-23-vanish/`). P-27 now in PROVIDER_FAULTS.
 
 ## Timeline (owner, 2026-11-22)
 Full build ~11-25..28; a week of derived-layer QC (census, gate d, history reference check, "general
