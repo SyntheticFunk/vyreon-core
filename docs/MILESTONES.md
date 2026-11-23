@@ -140,6 +140,11 @@ Next:
    (data-driven, not hand-written); (2) sections by theme (price and trend; volatility and options; flows and
    positioning; company events), each opening with one plain sentence and one chart; (3) full detail: every
    measurement incl. stated absences in collapsible tables, with the structured data.
+   **Owner, 2026-11-23: before Reporter polish, the automation debts:** release script, budget-aware KEDA scaling,
+   re-runnable reference checks (Listed, not fixed). **And when phase 1's base layer is complete: a full audit of the
+   decisions** — every rule in force (engine DECISIONS "Rules in force", D-0xx..D-45x) judged on the built population:
+   how often it fired, on which assets and dates, whether its sample size supports it; rules fitted to one or two dates
+   are retired or generalised (with the census and the whole-range missing-contract scan).
    **Owner, 2026-11-23:** start Reporter beside the build once the earliest phase-1 days have their history passes
    (from the gap scan's work list), so the web step starts from a working Reporter. **Codex reviews the design too**
    (read-only, like the audits), in separate passes: an accessibility pass (plain-language, non-programmatic reader)
