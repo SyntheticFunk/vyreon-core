@@ -128,6 +128,10 @@ Next:
    gives depth underneath and accessibility on top: what each measurement is in one plain sentence, what is normal
    for this asset and whether this week is unusual, and what we cannot tell, stated; the full precision stays in the
    engine, the checks and the structured data. Applies to Reporter (paid issues) and the web (free pages, archive).
+   **Answer engines (owner, 2026-11-23):** readers are increasingly ChatGPT and similar answer engines; pages state
+   their answers directly (question-shaped headings, the dated value in the first sentence) so an engine can quote and
+   cite them correctly. Open decision for the web step: which AI crawlers to admit (citation and reach vs. answers
+   given without a click).
 5. **Launch decision:** proven unattended operation first (owner, 2026-11-22: explicit go-live
    criterion; the owner may be mobilized to field work for weeks): two weeks of daily runs, history
    passes and the Sunday issue with nobody touching the system, judged afterwards from the digest and
