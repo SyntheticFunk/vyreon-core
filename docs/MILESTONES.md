@@ -534,7 +534,13 @@ containment, split successor across sessions, combined adjustments, 22-session h
 resurrected, immaterial adjusted root, VS-O06 volume fault clearing OI, 04:00 UTC as NY midnight).
 **Coordinator's convergence rule for round 3 (D-451): where evidence is ambiguous, withhold; do not infer;
 remove branches rather than add.** Fixer on `eng-v3`. Gates before the owner's evaluation: the real-data
-re-test shows zero ordinary-day refusals (SPY multi-page) and the next audit converges. Old Jobs deleted by hand again (2nd time: automation debt
+re-test shows zero ordinary-day refusals (SPY multi-page) and the next audit converges.
+**Round 3 merged (2026-11-23 ~09:10 UTC):** engine `worker` e499d9fc (eng-v3, 11 commits, D-451; suite 1,660/0;
+reference pytest 199); image `e499d9fc+a00db7366757` admitted after hand-over 9 (68ff6c36 published
+nothing); re-test on 4 blocks restarted ~09:15 UTC (02:15 MT). Round-3 Codex audits running
+(`audits/2026-11-23-vanish-r3/`). Fixer's irreducible branches: 21-session horizon (wider window = more
+captures, owner's call), quiet dead listings (JPM rule), one certain image converted by OCC's rule,
+`first_option_session_after` reads every capture on disk (determinism: audit asked). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
 ~0.3333 share; until OCC fixes the cash it prices ETHA1 as 0.333333 × ETHA (= the engine's 33.3333 terms);
