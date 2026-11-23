@@ -862,6 +862,14 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   resort; a rule built on sparse data is judged by the built population.
 
 ## Listed, not fixed
+- **Automation debt (2026-11-23): the release sequence is hand-run.** Each new image took the same ~8 manual steps
+  (build, push, inventory, register, queue pause, hand-over preview + expect, evidence file + admit, ScaledJobs apply,
+  delete the old build's Jobs, resume): done 9 times on 11-22/23. Proposed: one script `deploy/k8s/ops/release.sh
+  <engine commit> "<reason>"` that runs them in order, stops on any refusal, and prints the evidence it recorded.
+- **Automation debt (2026-11-23): concurrency caps tuned by hand from the budget** (tapes 24 → 12, blocks 12 → 8,
+  ACT01 in-flight 2). Proposed: KEDA's trigger counts claimable work only while core's request budget has headroom
+  (e.g. `core.claimable_count` returns 0 for a kind when the last minutes ran at the ceiling), so the system backs
+  off by itself instead of an operator lowering caps.
 - **Automation debt (2026-11-23, hand-over 5):** a withdrawn build's running block workers keep computing
   (their leases are gone; they find out only at publish) and KEDA counts their Jobs as running, so the
   successor's blocks wait. Operator deleted the two Jobs by hand. Proposed: the worker checks its lease
