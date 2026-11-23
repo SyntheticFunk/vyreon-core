@@ -494,8 +494,15 @@ laptop safety dump `~/claude-artifacts/db-backups/vyreon-20261116T2000.dump` (72
 **Recompute on f7b08efe (KEDA, 2 blocks of 5, started 22:55 UTC):** first days published 02:03 (07-16) and
 02:07 UTC (07-09), ~3 h each (95 min download, 95 compute); passes run by KEDA in date order (~3 min each).
 **Gate a, first readings:** 07-09 **35** unexplained (914ffed7: 398), 07-16 **28** (558; AVGO split window),
-checked ~91.6-92.0k each as before, failed 2,577 / 2,401 (2,940 / 2,927). The remainder to triage once
-all 10 are in.
+checked ~91.6-92.0k each as before, failed 2,577 / 2,401 (2,940 / 2,927). The remainder triaged (`checks/2026-11-22-recompute/refcheck-remainder.md`):
+**class 2 blocks the build — provider non-delivery (P-27):** established series missing for one session
+from both EOD and snapshot (2024-06-10/11; UNG240719C15 OI 17,928 → no row → 17,919, verified on
+Intrinio), 22 asset-sessions published SUPPORTED with wrong OI changes in their histories. Fix running
+(engine branch `eng-vanish`, D-447: undelivered series → unknown mass → 1% gate withholds; OCC: open
+interest leaves only by closing, exercise or expiry), with reference fixes for classes 1 (NVDA split
+across a refused session), 4 (FIELD-SUP01 order follows the engine, D-108; ETHA pre-listing), 5 (IBIT
+pre-options). Class 3 (thin chains) census; look at SLV and UUP forwards. Then: image, recompute the 10
+days again, gate a, full build (~1 day slip).
 
 ## Timeline (owner, 2026-11-22)
 Full build ~11-25..28; a week of derived-layer QC (census, gate d, history reference check, "general
