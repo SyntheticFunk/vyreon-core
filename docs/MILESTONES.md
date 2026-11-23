@@ -595,7 +595,11 @@ last; what remains is an identifiability limit, not a code defect). Round 7 (`en
 as a stated limit with a census check of VS-O06 volume against Cboe's per-contract EOD files.
 **Re-test note:** block 07-19..22 attempt 1 refused 2024-07-19: the macro capture for 07-12 overran its 3-minute
 frozen cutoff ("macro source after frozen cutoff"); core re-queued it and KEDA started attempt 2 unattended. If it
-recurs, widen the macro capture window before the full build. Old Jobs deleted by hand again (2nd time: automation debt
+recurs, widen the macro capture window before the full build.
+**Round 7 merged (2026-11-23 ~15:00 UTC):** engine `worker` 66841b6b (eng-v7, D-455; suite 1,676/0; reference pytest
+203; ordinary days unchanged: 0 of 497,880 real EOD rows have a null volume beside a same-day trade). Image
+built and registered (not admitted): **the candidate build for phase 1.** Round-7 overlay audit running
+(`audits/2026-11-23-vanish-r7/`). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
 ~0.3333 share; until OCC fixes the cash it prices ETHA1 as 0.333333 × ETHA (= the engine's 33.3333 terms);
