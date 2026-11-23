@@ -560,7 +560,16 @@ recommended: under D-451 a ledger-dated action the detector cannot confirm withh
 The first 21 sessions after 2022-05-27 now withhold OI (no earlier quote files): outside phase 1; whether
 the provider's snapshot start ends the walk like a listing is a later call.
 Image `b3f94585+f95a01adef72` admitted after hand-over 11 (e499d9fc published nothing); **re-test 07-09..07-22 on
-4 blocks restarted ~10:40 UTC (03:40 MT)**, ~6 h. Round-4 overlay audit running (`audits/2026-11-23-vanish-r4/`). Old Jobs deleted by hand again (2nd time: automation debt
+4 blocks restarted ~10:40 UTC (03:40 MT)**, ~6 h. Round-4 overlay audit running (`audits/2026-11-23-vanish-r4/`).
+**Round-4 audit: not converged.** Ordinary-day wrong absence: a D-359 partial session in the lookback (NVDA
+2024-06-10) withholds the current book with nothing missing (hits 07-09..07-11). Wrong number: the prior count
+does not bound an undelivered series (UUP May $28 275 → 3,187 overnight; 5.3% short passes the 1% gate).
+**Coordinator's decision (priority 1, D-451), round 5 (`eng-v5`, D-453): presence-only — any established
+unexpired series undelivered makes the asset's OI unknown that session, whatever its size;** the count
+machinery for undelivered series is removed. Also: gaps matter only for a missing series (NVDA), EMB boundary,
+EWJ ledger-dated action withholds (owner's pending item, applied under the same rule), fill containment,
+placeholder in D-255, deterministic clock rejection, debut/adjustment evidence. Cost: coverage on days a
+series goes missing, measured in the census. Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
 ~0.3333 share; until OCC fixes the cash it prices ETHA1 as 0.333333 × ETHA (= the engine's 33.3333 terms);
