@@ -64,3 +64,7 @@ mode with its sandbox, read-only (tested on a scratch repo told to edit: nothing
 design reviews of Reporter and the web (separate accessibility and utility passes). Its findings are claims, triaged
 like Codex's: the owner's caution (2026-11-23) is that Gemini's consumer answers are sycophantic and
 hallucination-prone, so nothing it says is taken on its word; a finding stands only once verified in the code or data.
+**Gemini reads only the repository it audits** (2026-11-23): file reads outside the workspace are refused in headless
+mode, and widening that to the home folder would expose the secret files, so it stays refused. A note for `run-agy`
+must be self-contained: paste earlier findings into it (the triage sections), never a path under `~/claude-artifacts`.
+
