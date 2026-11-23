@@ -525,7 +525,9 @@ checks still count).
 **Round-1 fixes merged (2026-11-23 ~07:20 UTC):** engine `worker` 68ff6c36 (eng-v2, 19 commits; every finding
 REAL, none dismissed; D-450, OVERLAY_RULES D-450; suite 1,651/0; reference pytest 195). Snapshot window
 uses h3-calendar's closes (early closes 13:00). Round-2 Codex audits running (`audits/2026-11-23-vanish-r2/`).
-Next: image 68ff6c36 → hand-over from 6949aa7c → re-test 07-09..07-22 on 4 blocks.
+Image `68ff6c36+18f1d999a9f8` admitted after hand-over 7 (6949aa7c published nothing); **re-test 07-09..07-22
+on 4 blocks running since 07:24 UTC (00:24 MT), ~6 h.** Old Jobs deleted by hand again (2nd time: automation debt
+in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
 ~0.3333 share; until OCC fixes the cash it prices ETHA1 as 0.333333 × ETHA (= the engine's 33.3333 terms);
 after, share exposure 0.33, strike (100K − C)/33. D-191's stated arithmetic is wrong (gap 0.3333 shares,
