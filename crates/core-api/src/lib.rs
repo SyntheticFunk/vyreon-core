@@ -24,9 +24,10 @@ use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 use std::time::{Duration, Instant};
 
-/// `/live` fails once the watch (every minute) has not started a tick for this long, and
+/// `/live` fails once the watch (every minute) has not completed a tick for this long, and
 /// Kubernetes' liveness probe restarts the service, so a frozen core never keeps the
-/// single-instance lock (C-053 amended, audit round x, 5).
+/// single-instance lock (C-053 amended, audit round x, 5). C-069: a tick completes when its checks
+/// ran and every part that failed is a problem on the channel (`core_db::watch::tick`).
 pub const LIVE_WITHIN: Duration = Duration::from_secs(900);
 
 /// The service's settings.
@@ -53,7 +54,7 @@ pub struct App {
     /// ~0.7 GB here and ~0.6 GB in its database backend), and takes seconds.
     publishing: tokio::sync::Mutex<()>,
     spooled: AtomicU64,
-    /// When the watch last started a tick (the service's start before its first).
+    /// When the watch last completed a tick (the service's start before its first; C-069).
     watched: std::sync::Mutex<Instant>,
 }
 
@@ -62,7 +63,7 @@ impl App {
         Arc::new(App { pool, config, publishing: tokio::sync::Mutex::new(()), spooled: AtomicU64::new(0), watched: std::sync::Mutex::new(Instant::now()) })
     }
 
-    /// The watch is starting a tick.
+    /// The watch completed a tick: its checks ran and what failed is recorded (C-069).
     pub fn watching(&self, at: Instant) {
         if let Ok(mut w) = self.watched.lock() {
             *w = at;
@@ -92,13 +93,15 @@ async fn ready(axum::extract::State(app): axum::extract::State<Arc<App>>) -> Res
     Ok("ready")
 }
 
-/// Kubernetes' liveness probe: fails (503) when the watch has not started a tick within
-/// `LIVE_WITHIN`, so a core whose loops stalled is restarted and its lock freed. It reads no
-/// database: a database that is down is `/ready`'s, and a restart would not help it.
+/// Kubernetes' liveness probe: fails (503) when the watch has not completed a tick within
+/// `LIVE_WITHIN`, so a core whose loops stalled, or whose watch cannot run its checks, is restarted
+/// and its lock freed. It reads no database itself. C-069: a database down for longer than
+/// `LIVE_WITHIN` now restarts core too (the watch cannot tick without it); the new one waits in its
+/// migrate step until the database answers, and nothing could be served meanwhile.
 async fn live(axum::extract::State(app): axum::extract::State<Arc<App>>) -> Result<&'static str, ApiError> {
     let since = app.watched.lock().map_or(Duration::MAX, |w| w.elapsed());
     if since > LIVE_WITHIN {
-        return Err(ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("the watch has not ticked for {} s", since.as_secs())));
+        return Err(ApiError(StatusCode::SERVICE_UNAVAILABLE, format!("the watch has not completed a tick for {} s", since.as_secs())));
     }
     Ok("live")
 }

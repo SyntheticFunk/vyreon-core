@@ -141,15 +141,15 @@ pub async fn send_unsent_on(app: &App, http: &reqwest::Client, webhook: &str, ch
 }
 
 /// The watch (problems, the digest, the weekly check, and the daily runs' queueing, C-051) every
-/// `every` (a minute in the service). Its own task: delivering posts never delays it.
+/// `every` (a minute in the service). Its own task: delivering posts never delays it. C-069: `/live`
+/// is told when a tick ran its checks and recorded what failed (`watch::tick` Ok), never before:
+/// a watch that cannot run, hangs or has ended (a panic) leaves it behind.
 pub fn spawn_watch(app: Arc<App>, settings: core_db::watch::Settings, every: Duration) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(every);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             tick.tick().await;
-            // `/live` (round x, 5): a tick that never ends leaves this time behind
-            app.watching(std::time::Instant::now());
             let Ok(mut client) = app.pool.get().await else {
                 eprintln!("vyreon-core: watch: no database connection");
                 continue;
@@ -161,6 +161,11 @@ pub fn spawn_watch(app: Arc<App>, settings: core_db::watch::Settings, every: Dur
             };
             match watched {
                 Ok(change) => {
+                    // `/live` (round x, 5; C-069): only a tick that ran its checks and recorded them
+                    app.watching(std::time::Instant::now());
+                    for f in &change.failing {
+                        eprintln!("vyreon-core: watch: part failing: {f}");
+                    }
                     for s in &change.opened {
                         println!("vyreon-core: problem opened: {s}");
                     }

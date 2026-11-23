@@ -175,8 +175,10 @@ async fn a_build_that_cannot_work_queues_nothing_and_is_a_problem() {
     let now = "2025-12-11 12:31:00+00";
     let stopped = format!("Daily runs stopped: build {derived} is not admitted, so no new session is queued");
     assert_eq!(watch::check(&mut client, &s, now).await.unwrap().opened, std::slice::from_ref(&stopped));
-    // the minute's tick reports the refusal and still checks
-    assert!(watch::tick(&mut client, &s, now).await.is_err());
+    // the minute's tick still checks (C-069: the refusal is the open problem, not a failed tick)
+    let change = watch::tick(&mut client, &s, now).await.unwrap();
+    assert_eq!((change.opened.len(), change.resolved.len(), change.failing.len()), (0, 0, 0), "{change:?}");
+    assert_eq!(watch::open(&client, now).await.unwrap().iter().map(|o| o.summary.clone()).collect::<Vec<_>>(), std::slice::from_ref(&stopped));
     build::admit(&client, &derived, &json!({"checklist": "daily test"})).await.unwrap();
     let change = watch::tick(&mut client, &s, "2025-12-11 12:32:00+00").await.unwrap();
     assert_eq!(change.resolved, [stopped]);
@@ -189,7 +191,8 @@ async fn a_build_that_cannot_work_queues_nothing_and_is_a_problem() {
 
 /// Audit round x, 11: a tick whose queueing failed (the store's partitions could not be made, the
 /// build admitted) never queues a green digest: the session due and not queued is a problem first,
-/// and the digest says it; once queueing works the problem resolves.
+/// and the digest says it; once queueing works the problem resolves. C-069: the problem says the
+/// queueing's error (it was left to the service's log), and the tick is not a failed one.
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn a_failed_queueing_is_a_problem_before_the_digest() {
@@ -205,9 +208,9 @@ async fn a_failed_queueing_is_a_problem_before_the_digest() {
         .unwrap();
     // 09:00 Mountain on 2025-12-11 (UTC−7): the digest's minute
     let nine = "2025-12-11 16:00:00+00";
-    let why = watch::tick(&mut client, &s, nine).await.unwrap_err();
-    assert!(why.contains("partitions refused (test)"), "{why}");
-    let stopped = "Daily runs stopped: a session due is not queued (the oldest 2025-12-10): queueing failed, the service's log says why";
+    let change = watch::tick(&mut client, &s, nine).await.unwrap();
+    assert!(change.failing.is_empty(), "{change:?}");
+    let stopped = "Daily runs stopped: a session due is not queued (the oldest 2025-12-10): queueing failed: partitions refused (test)";
     let open: Vec<String> = watch::open(&client, nine).await.unwrap().into_iter().map(|o| o.summary).collect();
     assert_eq!(open, [stopped]);
     let digest: String = client.query_one("SELECT message FROM core.notice WHERE once = 'digest 2025-12-11'", &[]).await.unwrap().get(0);
@@ -270,5 +273,40 @@ async fn a_tick_waiting_on_a_hand_over_queues_nothing_under_the_withdrawn_build(
     let n: i64 = client.query_one("SELECT count(*) FROM core.job", &[]).await.unwrap().get(0);
     let marked: i64 = client.query_one("SELECT count(*) FROM core.daily_session", &[]).await.unwrap().get(0);
     assert_eq!((n, marked), (0, 0));
+    scratch.drop().await;
+}
+
+/// C-069 (audit 2026-11-23, Codex 8, Gemini 7): a persistent read error on `core.daily_session`
+/// made the daily queueing fail, then the check that would say so, which skipped the digest, while
+/// `/live` stayed green. Now each part runs on its own: the daily runs' check failing is a
+/// WATCH_FAILING problem with both errors, the queue's pause is still found in the same minute, and
+/// once the table reads again the problem resolves and the session is queued.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_daily_table_that_cannot_be_read_is_said_and_the_other_checks_still_run() {
+    let (scratch, mut client, b, _) = ready("daily_unreadable").await;
+    let d = daily(&b, "2025-12-10");
+    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d), archive: None, refcheck_from: None, backup_days: None };
+    client.batch_execute("ALTER TABLE core.daily_session RENAME TO daily_session_away").await.unwrap();
+    work::pause(&client, "checking the watch's parts").await.unwrap();
+    let now = "2025-12-11 12:31:00+00";
+    let change = watch::tick(&mut client, &s, now).await.unwrap();
+    let open: Vec<(String, String)> = watch::open(&client, now).await.unwrap().into_iter().map(|o| (o.kind, o.summary)).collect();
+    assert_eq!(open.len(), 2, "{open:?}");
+    assert_eq!(open[0].0, "QUEUE_PAUSED", "another part found its problem in the same minute");
+    assert_eq!(open[1].0, "WATCH_FAILING");
+    assert!(open[1].1.starts_with("Watch failing: cannot check the daily runs (relation \"core.daily_session\" does not exist; their queueing failed too"), "{}", open[1].1);
+    assert_eq!(change.failing.len(), 1, "{change:?}");
+    let posts: Vec<String> = client.query("SELECT message FROM core.notice WHERE post ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
+    assert!(posts.iter().any(|p| p.starts_with("🔴 Watch failing: cannot check the daily runs")), "{posts:?}");
+    // the same failure the next minute: no second alert
+    let again = watch::tick(&mut client, &s, "2025-12-11 12:32:00+00").await.unwrap();
+    assert!(again.opened.is_empty(), "{again:?}");
+    client.batch_execute("ALTER TABLE core.daily_session_away RENAME TO daily_session").await.unwrap();
+    let change = watch::tick(&mut client, &s, "2025-12-11 12:33:00+00").await.unwrap();
+    assert_eq!(change.resolved.len(), 1, "{change:?}");
+    assert!(change.resolved[0].starts_with("Watch failing: cannot check the daily runs"), "{change:?}");
+    // the session due is queued once the table reads again
+    assert_eq!(jobs_of(&client, "2025-12-10").await, daily_jobs());
     scratch.drop().await;
 }

@@ -2631,3 +2631,94 @@ owner from the runbooks. Every real finding fixed; finding 14 is the engine's. M
   request is as before. The measurement plan raises it at a 2 GiB peak; above 3.2Gi a pass no longer
   fits beside a block and takes a node of its own (a cost).
 
+
+## C-069 The watch's failing part is a problem on the channel, and stops only itself; `/live` needs a completed tick (2026-11-23; audit `2026-11-23-core-gemini-trial`, Codex 8, Gemini 7, BLOCKS)
+A failing `watch::tick` still refreshed `/live` (stamped before the tick, whatever its outcome) and
+returned before the digest, so one persistent error (a read on `core.daily_session`, say) stopped the
+daily queueing, every alert and the digest together, with the error in the service's log alone.
+Migration 0052. Commits d46602f (code), 86b8f06 (tests).
+- **Each part of the check runs on its own.** The check's thirteen parts (deadlines, the queue's
+  pause, failed jobs, the provider, stalls, empty claims, the daily runs, the archive, reference
+  checks, the volume, backups, the calendar's end, days not derived) each run in a savepoint of the
+  check's one transaction (PostgreSQL 16 manual, SAVEPOINT / ROLLBACK TO SAVEPOINT). A part that
+  fails is rolled back alone and becomes a `WATCH_FAILING` problem keyed by the part, its summary
+  the error (one alert, restated each minute without a post, resolved when the part runs again).
+  The open problems of the part's own kinds stay as they were: a part that could not look resolves
+  nothing. The other parts run as before.
+- **The tick's own parts likewise:** the check as a whole (its transaction, the problem lock, the
+  open list), the digest and the weekly check each run whatever another's outcome and are recorded
+  the same way, the check's outcome before the digest is composed (so a digest says what holds
+  after it). A check that could not run still posts no digest (round w, 13) and is itself on the
+  channel. A failed daily queueing is said in `DAILY_STOPPED` with its error, no longer "the
+  service's log says why"; if the daily runs' check fails too, its `WATCH_FAILING` carries both
+  errors.
+- **`/live` is stamped after a tick completes**, never before: its checks ran and every failure is
+  recorded. A watch that hangs, cannot run its checks (the check's transaction or the recording
+  fails), or has ended (a panic) leaves `/live` behind and Kubernetes restarts core after
+  `LIVE_WITHIN` (15 min) plus the probe's three failures. A failing part does not fail `/live`: a
+  restart cures no failing query and would stop serving the workers, and the part is on the channel.
+  Amends C-053 (round x, 5): a database down for longer than 15 minutes now restarts core too (the
+  watch cannot tick without it); the new pod waits in its migrate step until the database answers,
+  and nothing could be served meanwhile. A Postgres restart (a minute or two) stays the readiness
+  probe's.
+- **Not done here (Gemini 7's other two parts, below the brief):** the six background tasks' join
+  handles are still dropped (the watch's own end is now caught by `/live`; the sender's, the sweeper's
+  and the backups reader's are not), and one post Discord refuses with a 4xx is retried every 15 s
+  ahead of every later post. Both are open for the next batch.
+- Ordinary day: no change (no part fails; the same posts). Tests:
+  `watch.rs::a_failing_part_of_the_check_stops_only_itself`, `a_failed_check_posts_no_digest`
+  (now: the failed check is posted); `daily.rs::a_daily_table_that_cannot_be_read_is_said_and_the_other_checks_still_run`,
+  `a_failed_queueing_is_a_problem_before_the_digest`;
+  `notices.rs::a_core_whose_watch_cannot_check_is_not_live`.
+
+## C-070 One PUBLISHED revision per layer of a day; a day block's day is done with both its bundles (2026-11-23; audit `2026-11-23-core-gemini-trial`, Gemini 1, BLOCKS; Codex 1, Gemini 2 and 11, latent)
+- **A revision replaces the day's revision of its layer whatever its profile revision (Gemini 1).**
+  Supersession was keyed on (date, profile revision), and 0002's unique index too: a build that
+  bumped the base, day-local or history profile revision left the old revision PUBLISHED beside the
+  new, and readers, the external checks, the digest's tallies and `core.base_without_day_local`
+  read both. Not hit in production yet (phase 1 runs one set of profile revisions), but a derived
+  recompute under a new history profile (MILESTONES Terms, "One pass") would hit it on every day.
+  `publish::promote` now supersedes, in the publish's transaction, the day's PUBLISHED revision of
+  the same profile and layer (base: `base_revision IS NULL`; day-local; history), as well as the
+  same profile revision as before; what read it falls as after any republish (C-037). Migration
+  0053 checks the store (a day with two PUBLISHED revisions of one layer stops it, naming at most
+  20, since core does not choose which to keep), then adds the partial unique index
+  `day_revision_one_published_layer (represented_date, profile_id, (base_revision IS NULL),
+  day_local) WHERE state = 'PUBLISHED'`. 0002's index stays. Readers filter `state = 'PUBLISHED'`,
+  so they serve one revision per layer with no change of their own. Commits 3c016c3, cfadcf1.
+- **A day block's day is done only with its day-local revision (Codex 1, Gemini 2 and 11).**
+  `work::day_done` checked the block's base only, and retry recognition (`published_before`) checked
+  the job's last session but not its first: a stale bundle of another job's day of the same build
+  was answered `already_published`, and a day could be done on a bare base that later passes read
+  (C-064's error). `day_done` now refuses until a PUBLISHED day-local revision stands on the block's
+  base ("published its base but no day-local revision on it"), and a bundle dated before the lease's
+  first session goes to the full checks and is refused. The deployed worker already sends base,
+  day-local, then done (vyreon-cli `day.rs` `publish_day` refuses any other order), so it is never
+  refused by this. Commits 69c4a39, 7fc6818 (the archive, archive API and reference-check tests'
+  blocks now publish their day-local revision before `day_done`, as the worker does).
+- Tests: `publish.rs::a_bumped_profile_revision_replaces_its_layer_and_readers_serve_one`,
+  `the_migration_names_a_day_with_two_published_revisions_of_one_layer`;
+  `work.rs::the_ordered_pass_follows_the_published_days_one_at_a_time` (done refused on a base alone),
+  `a_day_before_the_job_is_not_answered_as_already_published`.
+
+### Rollout of C-069 and C-070 on a live core (phase 1 running)
+1. **Check first (reads only):** `kubectl -n vyreon exec -i vyreon-pg-1 -c postgres -- psql -d vyreon
+   -v ON_ERROR_STOP=1 < deploy/k8s/ops/precheck-c070.sql`. Check 1 (two PUBLISHED revisions of one
+   layer) must print no row: 0053 stops on any, and core's migrate step then keeps core from
+   starting (Recreate: the old pod is already gone), which stops the build. A row: retire that day
+   and compute it again before deploying. Check 2 (bases without a day-local revision) should list
+   only days a leased block is on now (`block_on_it` true); a row with `false` is a day already done
+   on its base alone: retire it and compute it again.
+2. **Deploy** the image with both containers (`kubectl set image ... core= migrate=`) as for
+   C-065. Migrations apply in order, each in its own transaction: 0052 (problem kind, instant), then
+   0053 (the check, then the index over `vyreon.day_revision`, a few thousand rows: milliseconds).
+   Nothing else changes in the store; no worker or engine change is needed.
+3. **Mid-build safety:** running workers are unaffected by the new rules (they send both bundles
+   before done, and never a day before their job). Core's restart is the risk, as for any core
+   deploy: a publish in flight is rolled back and retried by the worker after 15 s and 30 s (45 s in
+   all); `day_done` is retried for about 75 s. Keep the restart short (the image pushed and its
+   pull checked first) and avoid a moment when a block's upload is due; a publish that outlasts the
+   restart can fail that day's attempt, which the queue retries (hours of a block's compute).
+4. **After:** `/live` answers 200 within a minute; `vyreon-core problems` shows no `WATCH_FAILING`.
+   **No image rollback** past 0052/0053 without undoing them by hand (an older binary refuses a
+   database that holds a migration it lacks).

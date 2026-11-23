@@ -353,14 +353,19 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Option<Item>>, 
 }
 
 /// The published revision of the bundle's day, when the lease's job has already published that
-/// day with this very bundle: an earlier session of the job (or a day block's current one), the
+/// day with this very bundle: an earlier session of the job, never one before its first (C-070:
+/// another job's day was answered as this one's), or a day block's current one; the
 /// same profile and build, the same listed members, each slot once, and every slot's body digest
 /// equal. A worker sends a day again when the answer to its first sending was lost; that is
 /// answered, not refused. Anything else goes on to the full checks.
 async fn published_before(tx: &Transaction<'_>, header: &Header, lease: &work::Held) -> Result<Option<i64>, Error> {
     let date = header.represented_date.as_str();
     let current = lease.kind == "DAY_BLOCK" && lease.next_session.as_deref() == Some(date);
-    if !core_contract::is_date(date) || date > lease.last_session.as_str() || (!current && lease.next_session.as_deref().is_some_and(|next| date >= next)) {
+    if !core_contract::is_date(date)
+        || date < lease.first_session.as_str()
+        || date > lease.last_session.as_str()
+        || (!current && lease.next_session.as_deref().is_some_and(|next| date >= next))
+    {
         return Ok(None);
     }
     // a slot sent twice would count twice below (audit 2026-11-14, core.md 15)
@@ -725,7 +730,11 @@ async fn read_back(tx: &Transaction<'_>, revision: i64, date: &str) -> Result<(u
 
 /// Supersedes what the new revision replaces and publishes it. Returns how many it superseded.
 ///
-/// Replaced: the day's previous revision of the profile. Then everything that read what this one
+/// Replaced: the day's published revision of the same layer of the profile (its base, its
+/// day-local revision or its history revision), whatever its profile revision (C-070: a build that
+/// bumped a profile revision left the old one PUBLISHED beside the new, and readers served both;
+/// migration 0053 holds one per layer), and as before the day's revision of the same profile
+/// revision. Then everything that read what this one
 /// replaces or adds to (C-031, ARCHITECTURE 5.3), whichever kind of revision this is:
 ///   * on the day itself, a new base replaces the base every based revision of the day was
 ///     computed from; a new day-local revision feeds the day's revisions that read history
@@ -741,8 +750,9 @@ async fn promote(tx: &Transaction<'_>, revision: i64, header: &Header, base: Opt
     let mut superseded = tx
         .execute(
             "UPDATE vyreon.day_revision SET state = 'SUPERSEDED'
-             WHERE represented_date = $1::text::date AND profile_revision = $2 AND state = 'PUBLISHED'",
-            &[&date, &header.profile_revision],
+             WHERE represented_date = $1::text::date AND state = 'PUBLISHED'
+               AND (profile_revision = $2 OR (profile_id = $3 AND (base_revision IS NULL) = $4 AND day_local = $5))",
+            &[&date, &header.profile_revision, &header.profile_id, &base.is_none(), &header.day_local],
         )
         .await
         .map_err(db)?;

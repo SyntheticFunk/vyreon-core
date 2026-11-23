@@ -209,18 +209,24 @@ async fn published_block_at(scratch: &Scratch, test: &str, migrations: usize) ->
     let fixtures = test_support::fixtures();
     let doc = universe::read_responses(&fixtures.join("engine-v1-PROFILE.json"), &fixtures.join("intrinio-universe")).unwrap();
     universe::store(&mut client, &doc).await.unwrap();
-    let b = build::register(&mut client, &inventories()[0]).await.unwrap().engine_build;
+    // C-070: the block's day is done with its base and its day-local revision (C-031)
+    let b = build::register(&mut client, &test_support::slice::with_day_local(inventories().remove(0))).await.unwrap().engine_build;
     build::admit(&client, &b, &json!({"checklist": "archive test"})).await.unwrap();
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-10", 30).await.unwrap();
     let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
     let (header, scalars, files) = parts(BASE);
     let path = bundle(&format!("archive-{test}"), &header, &scalars, &files);
-    if migrations == migrate::embedded().unwrap().len() {
+    let leased = migrations == migrate::embedded().unwrap().len();
+    // on an older schema the publish of a later one (0044 records the lease that published a
+    // revision) cannot run: the day is published by hand, which the archive's checks take
+    // alike (they read the block's build's published base, not who published it)
+    let base = if leased { publish_for_lease(&mut client, &path, &block.token).await.unwrap() } else { core_db::publish::publish_file(&mut client, &path).await.unwrap() }.revision_id;
+    std::fs::remove_file(&path).unwrap();
+    let (h, s, f) = test_support::slice::day_local_parts(&b, "2025-12-10", base);
+    let path = bundle(&format!("archive-{test}-day-local"), &h, &s, &f);
+    if leased {
         publish_for_lease(&mut client, &path, &block.token).await.unwrap();
     } else {
-        // on an older schema the publish of a later one (0044 records the lease that published a
-        // revision) cannot run: the day is published by hand, which the archive's checks take
-        // alike (they read the block's build's published base, not who published it)
         core_db::publish::publish_file(&mut client, &path).await.unwrap();
     }
     std::fs::remove_file(&path).unwrap();
@@ -438,7 +444,7 @@ async fn a_block_archives_only_days_it_has_published() {
     let scratch = Scratch::new("archive_whose").await;
     let (mut client, token) = published_block(&scratch, "whose").await;
     work::finish(&mut client, &token).await.unwrap();
-    let b = build::register(&mut client, &inventories()[0]).await.unwrap().engine_build;
+    let b = build::register(&mut client, &test_support::slice::with_day_local(inventories().remove(0))).await.unwrap().engine_build;
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-10", 30).await.unwrap();
     let late = work::claim(&mut client, Kind::DayBlock, &b, "w2", HOUR).await.unwrap().unwrap();
     let r = archive::request(&mut client, &spaces(), &late.token, &request("act01-auto", "2025-12-10", TAPE_AAPL), "2025-12-11 13:00:00+00").await;

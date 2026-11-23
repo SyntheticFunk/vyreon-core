@@ -358,6 +358,8 @@ async fn the_ordered_pass_follows_the_published_days_one_at_a_time() {
     // the block is still on the 10th until its worker says the day is done (its day-local
     // revision comes after the base): the pass of the 10th waits for that (C-039)
     assert_eq!(ordered(&mut client, &d).await, None, "the block is still on the 10th");
+    // C-070 (audit 2026-11-23, Codex 1, Gemini 2 and 11): nor is the day done on its base alone
+    assert!(matches!(work::day_done(&mut client, &block.token, "2025-12-10").await, Err(LeaseError::Refused(m)) if m.contains("no day-local revision on it")));
     day_local(&mut client, &b, "2025-12-10", base.revision_id, Some(&block.token)).await;
     // the block's day is done when its worker says so, and not before its base is published
     assert!(matches!(work::day_done(&mut client, &block.token, "2025-12-11").await, Err(LeaseError::Refused(m)) if m.contains("has not published 2025-12-11")));
@@ -2675,4 +2677,29 @@ async fn the_scaler_counts_what_a_worker_of_the_build_can_claim_and_reads_nothin
     scratch.drop().await;
     let admin = test_support::connect(&std::env::var("VYREON_CORE_TEST_PG").unwrap().parse().unwrap()).await;
     admin.batch_execute(&format!("DROP ROLE {login}")).await.unwrap();
+}
+
+/// C-070 (audit 2026-11-23, Codex 1, Gemini 11): a bundle of a day before the lease's job begins is
+/// not this job's to send again. It was answered "already published" when another job of the same
+/// build had published that day the same way (retry recognition checked the job's last session, not
+/// its first), and the worker took that answer for its own day's.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_day_before_the_job_is_not_answered_as_already_published() {
+    let (scratch, mut client, b, _) = ready("before_job").await;
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-10", 30).await.unwrap();
+    let first = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    let (header, scalars, files) = parts(BASE);
+    let path = bundle("before-job-base", &header, &scalars, &files);
+    let base = publish_for_lease(&mut client, &path, &first.token).await.unwrap();
+    day_local(&mut client, &b, "2025-12-10", base.revision_id, Some(&first.token)).await;
+    work::day_done(&mut client, &first.token, "2025-12-10").await.unwrap();
+    work::finish(&mut client, &first.token).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-11", "2025-12-11", 30).await.unwrap();
+    let next = work::claim(&mut client, Kind::DayBlock, &b, "w2", HOUR).await.unwrap().unwrap();
+    let r = publish_for_lease(&mut client, &path, &next.token).await;
+    assert!(matches!(&r, Err(LeaseError::Refused(m)) if m.contains("expects 2025-12-11")), "{r:?}");
+    std::fs::remove_file(&path).unwrap();
+    scratch.drop().await;
 }

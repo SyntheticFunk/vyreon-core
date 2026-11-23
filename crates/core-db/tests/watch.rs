@@ -493,23 +493,75 @@ async fn the_weekly_headline_agrees_with_its_lines() {
 }
 
 /// Audit 2026-11-17 round w, 13: a check that fails composes no digest from the stale problem
-/// list; the next minute's check, once it succeeds, does. (The check fails here because a table
-/// it reads is renamed away for the minute; the digest itself does not read it.)
+/// list; the next minute's check, once it succeeds, does. C-069: the check that could not run is a
+/// problem on the channel itself (WATCH_FAILING), the tick is Err (so `/live` stops being told),
+/// and it resolves once the check runs. (The check fails here because a problem cannot be written
+/// for the minute: a trigger refuses the queue's pause, the way a constraint error would.)
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn a_failed_check_posts_no_digest() {
     let (scratch, mut client, _) = ready("failed_check").await;
     let s = settings(None);
     work::pause(&client, "a check failed on 2025-12-11").await.unwrap();
-    client.batch_execute("ALTER TABLE core.queue_control RENAME TO queue_control_away").await.unwrap();
-    assert!(watch::tick(&mut client, &s, "2025-12-12 09:00:00-07").await.is_err());
-    assert!(posts(&client).await.is_empty(), "no digest from a list the check could not bring up to date");
-    client.batch_execute("ALTER TABLE core.queue_control_away RENAME TO queue_control").await.unwrap();
-    watch::tick(&mut client, &s, "2025-12-12 09:01:00-07").await.unwrap();
+    client
+        .batch_execute(
+            "CREATE FUNCTION core.refuse_pause() RETURNS trigger LANGUAGE plpgsql AS $$
+             BEGIN IF NEW.kind = 'QUEUE_PAUSED' THEN RAISE EXCEPTION 'problem refused (test)'; END IF; RETURN NEW; END $$;
+             CREATE TRIGGER refuse_pause BEFORE INSERT ON core.problem FOR EACH ROW EXECUTE FUNCTION core.refuse_pause();",
+        )
+        .await
+        .unwrap();
+    let why = watch::tick(&mut client, &s, "2025-12-12 09:00:00-07").await.unwrap_err();
+    assert!(why.contains("problem refused (test)"), "{why}");
     let said = posts(&client).await;
-    assert_eq!(said.len(), 2, "{said:?}");
-    assert!(said[0].starts_with("🔴 Work queue paused"), "{said:?}");
-    assert!(said[1].starts_with("🔴 Needs you: Work queue paused"), "the digest names the problem: {said:?}");
+    assert_eq!(said.len(), 1, "the failed check is said, and no digest from a list the check could not bring up to date: {said:?}");
+    assert!(said[0].starts_with("🔴 Watch failing: cannot run its checks, so no problem opens or resolves (problem refused (test))"), "{said:?}");
+    client.batch_execute("DROP TRIGGER refuse_pause ON core.problem").await.unwrap();
+    let change = watch::tick(&mut client, &s, "2025-12-12 09:01:00-07").await.unwrap();
+    assert_eq!(change.resolved.len(), 1, "{change:?}");
+    let said = posts(&client).await;
+    assert_eq!(said.len(), 4, "{said:?}");
+    assert!(said[1].starts_with("🔴 Work queue paused"), "{said:?}");
+    assert!(said[2].starts_with("✅ Resolved: Watch failing: cannot run its checks"), "{said:?}");
+    assert!(said[3].starts_with("🔴 Needs you: Work queue paused") && !said[3].contains("Watch failing"), "the digest names what holds after the check: {said:?}");
+    scratch.drop().await;
+}
+
+/// C-069 (audit 2026-11-23, Codex 8, Gemini 7): one part of the check that fails (a table it reads
+/// renamed away for the minute: the queue's pause, which the stalls' part reads too) stops only itself. Its problem already open stays open (a part that
+/// could not look resolves nothing), the part's failure is a WATCH_FAILING problem with its error,
+/// the other parts still run, the digest is still posted and names it; once the part reads again
+/// its failure resolves and its problem is judged again.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_failing_part_of_the_check_stops_only_itself() {
+    let (scratch, mut client, b) = ready("failing_part").await;
+    let s = settings(Some("2025-12-10"));
+    work::pause(&client, "checking the watch's parts").await.unwrap();
+    watch::tick(&mut client, &s, "2025-12-12 08:00:00-07").await.unwrap();
+    let kinds = |open: Vec<watch::Open>| open.into_iter().map(|o| (o.kind, o.key)).collect::<Vec<_>>();
+    let before = kinds(watch::open(&client, "2025-12-12 08:00:00-07").await.unwrap());
+    assert_eq!(before.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(), ["SESSION_LATE", "QUEUE_PAUSED"], "{before:?}");
+    // the queue's part cannot read its table; the deadlines' part still resolves what was published
+    client.batch_execute("ALTER TABLE core.queue_control RENAME TO queue_control_away").await.unwrap();
+    published(&client, &b, "2025-12-10", "2025-12-12 08:30:00-07").await;
+    let change = watch::tick(&mut client, &s, "2025-12-12 09:00:00-07").await.unwrap();
+    let missing = "relation \"core.queue_control\" does not exist";
+    assert_eq!(change.failing, [format!("queue: {missing}"), format!("stalls: {missing}")], "{change:?}");
+    assert_eq!(change.resolved, ["Wed Dec 10 not published by its Thu 10:00 MT deadline"], "{change:?}");
+    let failing = format!("Watch failing: cannot check whether the work queue is paused ({missing})");
+    let stalls = format!("Watch failing: cannot check for stalled work ({missing})");
+    assert_eq!(change.opened, [failing.clone(), stalls.clone()], "{change:?}");
+    let open = watch::open(&client, "2025-12-12 09:00:00-07").await.unwrap();
+    assert_eq!(open.iter().map(|o| o.kind.as_str()).collect::<Vec<_>>(), ["QUEUE_PAUSED", "WATCH_FAILING", "WATCH_FAILING"], "the pause stays open, not resolved by a part that could not look");
+    let said = posts(&client).await;
+    let digest = said.last().unwrap();
+    assert!(digest.starts_with("🔴 Needs you: Work queue paused") && digest.contains(&failing), "the digest is posted and names the failure: {said:?}");
+    client.batch_execute("ALTER TABLE core.queue_control_away RENAME TO queue_control").await.unwrap();
+    let change = watch::tick(&mut client, &s, "2025-12-12 09:01:00-07").await.unwrap();
+    assert_eq!((change.resolved, change.opened.len(), change.failing.len()), (vec![failing, stalls], 0, 0));
+    let open = watch::open(&client, "2025-12-12 09:01:00-07").await.unwrap();
+    assert_eq!(open.iter().map(|o| o.kind.as_str()).collect::<Vec<_>>(), ["QUEUE_PAUSED"]);
     scratch.drop().await;
 }
 

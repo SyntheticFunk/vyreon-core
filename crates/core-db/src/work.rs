@@ -825,14 +825,24 @@ pub async fn day_done(client: &mut Client, token: &str, session: &str) -> Result
     }
     let published = tx
         .query_opt(
-            "SELECT FROM vyreon.day_revision
-             WHERE represented_date = $1::text::date AND profile_id = $2 AND engine_build = $3 AND state = 'PUBLISHED' AND base_revision IS NULL",
+            "SELECT b.revision_id, EXISTS (SELECT FROM vyreon.day_revision l
+                                           WHERE l.base_revision = b.revision_id AND l.represented_date = b.represented_date
+                                             AND l.state = 'PUBLISHED' AND l.day_local)
+             FROM vyreon.day_revision b
+             WHERE b.represented_date = $1::text::date AND b.profile_id = $2 AND b.engine_build = $3 AND b.state = 'PUBLISHED' AND b.base_revision IS NULL",
             &[&session, &lease.profile_id, &lease.engine_build],
         )
         .await
         .map_err(failed)?;
-    if published.is_none() {
+    let Some(published) = published else {
         return Err(LeaseError::Refused(format!("job {} has not published {session}", lease.job_id)));
+    };
+    if !published.get::<_, bool>(1) {
+        return Err(LeaseError::Refused(format!(
+            "job {} published {session}'s base (revision {}) but no day-local revision on it: a day is done with both (C-031, C-070)",
+            lease.job_id,
+            published.get::<_, i64>(0)
+        )));
     }
     session_done(&tx, &lease, session).await?;
     tx.commit().await.map_err(failed)

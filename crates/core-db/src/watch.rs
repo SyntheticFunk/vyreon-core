@@ -153,6 +153,9 @@ pub struct Change {
     pub resolved: Vec<String>,
     /// Open problems whose summary changed (restated without a post).
     pub restated: Vec<String>,
+    /// The parts of the watch that failed this minute, each `part: error` (C-069; their problems
+    /// open once, the service's log says each minute's).
+    pub failing: Vec<String>,
 }
 
 /// One line of at most `max` characters, with nothing a credential pattern matches (a stop
@@ -225,122 +228,289 @@ fn is_open(open: &[Open], kind: &str, key: &str) -> bool {
     open.iter().any(|o| o.kind == kind && o.key == key)
 }
 
-/// Every problem that holds at `now`.
-async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open]) -> Result<Vec<Found>, String> {
-    let mut found = Vec::new();
+/// One part of the watch (C-069): its key, what it does (said when it cannot), and the kinds of
+/// problem it finds, which stay as they were while it cannot run (never resolved by a part that
+/// did not look).
+#[derive(Debug)]
+pub struct Part {
+    pub key: &'static str,
+    pub what: &'static str,
+    pub kinds: &'static [&'static str],
+}
+
+/// A part of the watch that failed: one problem per part, its summary the part's error (C-069).
+pub const WATCH_FAILING: &str = "WATCH_FAILING";
+/// Each minute's error of a failing part is in the service's log.
+const WATCH_LOG: &str = "kubectl -n vyreon logs deploy/vyreon-core";
+
+const DEADLINES: Part = Part { key: "deadlines", what: "check the sessions' publishing deadlines", kinds: &["SESSION_LATE", "REPORT_AT_RISK"] };
+const QUEUE: Part = Part { key: "queue", what: "check whether the work queue is paused", kinds: &["QUEUE_PAUSED"] };
+const FAILED_JOBS: Part = Part { key: "failed jobs", what: "check for work that failed for the last time", kinds: &["JOB_FAILED"] };
+const PROVIDER: Part = Part { key: "provider", what: "check the provider's errors", kinds: &["PROVIDER_AUTH", "PROVIDER_ERRORS"] };
+const STALLS: Part = Part { key: "stalls", what: "check for stalled work", kinds: &["STALLED"] };
+const CLAIMS: Part = Part { key: "claims", what: "check for workers leaving while work waits", kinds: &["CLAIMS_EMPTY"] };
+const DAILY: Part = Part { key: "daily", what: "check the daily runs", kinds: &["DAILY_STOPPED"] };
+const ARCHIVE: Part = Part { key: "archive", what: "check the perishable archive", kinds: &["ARCHIVE_MISSING"] };
+const REFCHECK: Part = Part { key: "refcheck", what: "check the reference checks", kinds: &["REFCHECK_DISAGREES", "REFCHECK_NOT_RUN"] };
+const STORAGE: Part = Part { key: "storage", what: "check the database volume and its WAL", kinds: &["DATABASE_FULL", "WAL_ARCHIVING"] };
+const BACKUPS: Part = Part { key: "backups", what: "check the backups", kinds: &["BACKUP_STALE", "WAL_ARCHIVING"] };
+const CALENDAR: Part = Part { key: "calendar", what: "check where the trading calendar ends", kinds: &["CALENDAR_END"] };
+const DERIVED_AGAIN: Part = Part { key: "not derived", what: "check the days left to derive again", kinds: &["NOT_DERIVED"] };
+
+/// The tick's own parts beside the check (C-069). Their WATCH_FAILING problems are the tick's to
+/// open and resolve (`record`), never the check's: the check cannot see them.
+const CHECK: Part = Part { key: "check", what: "run its checks, so no problem opens or resolves", kinds: &[] };
+const DIGEST: Part = Part { key: "digest", what: "queue the daily digest", kinds: &[] };
+const WEEKLY: Part = Part { key: "weekly check", what: "queue the weekly check", kinds: &[] };
+const TICK_PARTS: [&Part; 3] = [&CHECK, &DIGEST, &WEEKLY];
+
+/// The problem a part that failed is.
+fn failing(p: &Part, error: &str) -> Found {
+    Found { kind: WATCH_FAILING, key: p.key.into(), summary: format!("Watch failing: cannot {} ({})", p.what, one_line(error, 240)), command: WATCH_LOG.into(), detail: None }
+}
+
+/// What the parts of one check found, and the parts that failed with their errors.
+struct Checked {
+    found: Vec<Found>,
+    failed: Vec<(&'static Part, String)>,
+}
+
+impl Checked {
+    /// Runs one part in a savepoint of the check's transaction (C-069): a part that fails is rolled
+    /// back alone and named, and the others still run. Err only when the transaction itself fails.
+    async fn part(&mut self, c: &impl GenericClient, p: &'static Part, run: impl std::future::Future<Output = Result<Vec<Found>, String>>) -> Result<(), String> {
+        c.batch_execute("SAVEPOINT watch_part").await.map_err(db)?;
+        match run.await {
+            Ok(found) => {
+                c.batch_execute("RELEASE SAVEPOINT watch_part").await.map_err(db)?;
+                self.found.extend(found);
+            }
+            Err(e) => {
+                c.batch_execute("ROLLBACK TO SAVEPOINT watch_part; RELEASE SAVEPOINT watch_part").await.map_err(db)?;
+                self.failed.push((p, e));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Every problem that holds at `now`, each part of the check on its own (C-069): a part that fails
+/// is a WATCH_FAILING problem, and the problems of its kinds that are open stay open as they are.
+/// `queueing`: the daily runs' queueing error of this minute, if it failed.
+async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open], queueing: Option<&str>) -> Result<Checked, String> {
+    let mut checked = Checked { found: Vec::new(), failed: Vec::new() };
     if let Some(from) = &s.deadlines_from {
-        deadlines(c, s, from, now, open, &mut found).await?;
+        checked
+            .part(c, &DEADLINES, async {
+                let mut found = Vec::new();
+                deadlines(c, s, from, now, open, &mut found).await?;
+                Ok(found)
+            })
+            .await?;
     }
-    if let Some(row) = c
-        .query_opt("SELECT reason, to_char(changed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM core.queue_control WHERE paused", &[])
-        .await
-        .map_err(db)?
-    {
-        let reason: String = row.get(0);
-        found.push(Found {
-            kind: "QUEUE_PAUSED",
-            key: row.get(1),
-            summary: format!("Work queue paused, nothing is handed out: {}", one_line(&reason, 160)),
-            command: "vyreon-core queue".into(),
-            detail: None,
-        });
-    }
-    failed_jobs(c, &mut found).await?;
-    provider(c, now, open, &mut found).await?;
-    stalled(c, now, &mut found).await?;
-    claims_empty(c, now, open, &mut found).await?;
+    checked
+        .part(c, &QUEUE, async {
+            let paused = c
+                .query_opt("SELECT reason, to_char(changed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM core.queue_control WHERE paused", &[])
+                .await
+                .map_err(db)?;
+            Ok(paused
+                .map(|row| {
+                    let reason: String = row.get(0);
+                    Found {
+                        kind: "QUEUE_PAUSED",
+                        key: row.get(1),
+                        summary: format!("Work queue paused, nothing is handed out: {}", one_line(&reason, 160)),
+                        command: "vyreon-core queue".into(),
+                        detail: None,
+                    }
+                })
+                .into_iter()
+                .collect())
+        })
+        .await?;
+    checked
+        .part(c, &FAILED_JOBS, async {
+            let mut found = Vec::new();
+            failed_jobs(c, &mut found).await?;
+            Ok(found)
+        })
+        .await?;
+    checked
+        .part(c, &PROVIDER, async {
+            let mut found = Vec::new();
+            provider(c, now, open, &mut found).await?;
+            Ok(found)
+        })
+        .await?;
+    checked
+        .part(c, &STALLS, async {
+            let mut found = Vec::new();
+            stalled(c, now, &mut found).await?;
+            Ok(found)
+        })
+        .await?;
+    checked
+        .part(c, &CLAIMS, async {
+            let mut found = Vec::new();
+            claims_empty(c, now, open, &mut found).await?;
+            Ok(found)
+        })
+        .await?;
     // C-051: daily runs that cannot be given work are a problem until they can; and (round x, 11)
     // so is a session due and not queued: the tick queues before it checks, so one is left only
-    // when queueing failed, and no digest of that minute is green
+    // when queueing failed, and no digest of that minute is green. C-069: the queueing's error is
+    // said in the problem, not left to the service's log
     if let Some(d) = &s.daily {
-        let why = match daily::build_stopped(c, d).await? {
-            Some(why) => Some(format!("build {} {why}, so no new session is queued", d.build)),
-            None => daily::due(c, d, now).await?.first().map(|oldest| format!("a session due is not queued (the oldest {oldest}): queueing failed, the service's log says why")),
-        };
-        if let Some(why) = why {
-            found.push(Found { kind: "DAILY_STOPPED", key: d.build.clone(), summary: format!("Daily runs stopped: {why}"), command: "vyreon-core daily".into(), detail: None });
-        }
+        checked
+            .part(c, &DAILY, async {
+                let daily = async {
+                    let why = match daily::build_stopped(c, d).await? {
+                        Some(why) => Some(format!("build {} {why}, so no new session is queued", d.build)),
+                        None => match (daily::due(c, d, now).await?.first(), queueing) {
+                            (Some(oldest), Some(e)) => Some(format!("a session due is not queued (the oldest {oldest}): queueing failed: {}", one_line(e, 240))),
+                            (Some(oldest), None) => Some(format!("a session due is not queued (the oldest {oldest}): queueing failed, the service's log says why")),
+                            (None, Some(e)) => Some(format!("queueing failed: {}", one_line(e, 240))),
+                            (None, None) => None,
+                        },
+                    };
+                    Ok::<_, String>(why.map(|why| Found { kind: "DAILY_STOPPED", key: d.build.clone(), summary: format!("Daily runs stopped: {why}"), command: "vyreon-core daily".into(), detail: None }))
+                };
+                // the check of the daily runs failing, and their queueing with it: both errors said
+                match daily.await {
+                    Ok(found) => Ok(found.into_iter().collect()),
+                    Err(e) => Err(queueing.map_or_else(|| e.clone(), |q| format!("{e}; their queueing failed too: {q}"))),
+                }
+            })
+            .await?;
     }
     // C-052: perishable archives missing past the configured age
     if let Some(a) = &s.archive
         && let Some(days) = a.alert_days
     {
-        let missing = archive::missing(c, &s.profile, a.expected_from.as_deref(), now).await?;
-        let old: Vec<&archive::Missing> = missing.iter().filter(|m| m.age >= i64::from(days) * 86_400).collect();
-        if let Some(first) = old.first() {
-            found.push(Found {
-                kind: "ARCHIVE_MISSING",
-                key: "perishables".into(),
-                summary: format!(
-                    "Perishable archive: {} missing for more than {days} {}, the oldest {} {} (the provider keeps option prints about five sessions)",
-                    old.len(),
-                    if days == 1 { "day" } else { "days" },
-                    first.session,
-                    first.category
-                ),
-                command: "vyreon-core archive list".into(),
-                detail: None,
-            });
-        }
+        checked
+            .part(c, &ARCHIVE, async {
+                let missing = archive::missing(c, &s.profile, a.expected_from.as_deref(), now).await?;
+                let old: Vec<&archive::Missing> = missing.iter().filter(|m| m.age >= i64::from(days) * 86_400).collect();
+                Ok(old
+                    .first()
+                    .map(|first| Found {
+                        kind: "ARCHIVE_MISSING",
+                        key: "perishables".into(),
+                        summary: format!(
+                            "Perishable archive: {} missing for more than {days} {}, the oldest {} {} (the provider keeps option prints about five sessions)",
+                            old.len(),
+                            if days == 1 { "day" } else { "days" },
+                            first.session,
+                            first.category
+                        ),
+                        command: "vyreon-core archive list".into(),
+                        detail: None,
+                    })
+                    .into_iter()
+                    .collect())
+            })
+            .await?;
     }
     // C-054: a published day whose reference check disagrees, and one whose check did not run, are
     // two problems, each one alert however many days it holds
-    let checks = refcheck::state(c, &s.profile, s.refcheck_from.as_deref(), now).await?;
-    if let Some(summary) = checks.disagree_summary() {
-        found.push(Found { kind: "REFCHECK_DISAGREES", key: "refcheck".into(), summary, command: "vyreon-core refcheck list".into(), detail: None });
-    }
-    if let Some(summary) = checks.not_run_summary() {
-        found.push(Found { kind: "REFCHECK_NOT_RUN", key: "refcheck".into(), summary, command: "vyreon-core refcheck list".into(), detail: None });
-    }
+    checked
+        .part(c, &REFCHECK, async {
+            let checks = refcheck::state(c, &s.profile, s.refcheck_from.as_deref(), now).await?;
+            let mut found = Vec::new();
+            if let Some(summary) = checks.disagree_summary() {
+                found.push(Found { kind: "REFCHECK_DISAGREES", key: "refcheck".into(), summary, command: "vyreon-core refcheck list".into(), detail: None });
+            }
+            if let Some(summary) = checks.not_run_summary() {
+                found.push(Found { kind: "REFCHECK_NOT_RUN", key: "refcheck".into(), summary, command: "vyreon-core refcheck list".into(), detail: None });
+            }
+            Ok(found)
+        })
+        .await?;
     // C-068 (audit opsurface ops.md 2): the volume holds the data and the WAL, and the WAL grows while
     // archiving fails; both, and the base backups, are watched where a volume is set (production)
     if let Some(volume) = s.volume_bytes.filter(|v| *v > 0) {
-        let st = storage(c, now).await?;
-        found.extend(storage_found(&st, volume, is_open(open, "DATABASE_FULL", "volume")));
+        checked
+            .part(c, &STORAGE, async {
+                let st = storage(c, now).await?;
+                Ok(storage_found(&st, volume, is_open(open, "DATABASE_FULL", "volume")))
+            })
+            .await?;
     }
     if let Some(days) = s.backup_days {
-        backups(c, days, now, open, &mut found).await?;
+        checked
+            .part(c, &BACKUPS, async {
+                let mut found = Vec::new();
+                backups(c, days, now, open, &mut found).await?;
+                Ok(found)
+            })
+            .await?;
     }
-    let row = c
-        .query_one(
-            "SELECT max(session)::text, (max(session) - ($1::text::timestamptz AT TIME ZONE $2)::date)::int FROM core.session",
-            &[&now, &ZONE],
-        )
-        .await
-        .map_err(db)?;
-    if let (Some(last), Some(left)) = (row.get::<_, Option<String>>(0), row.get::<_, Option<i32>>(1))
-        && left < CALENDAR_DAYS
-    {
-        found.push(Found {
-            kind: "CALENDAR_END",
-            key: last.clone(),
-            summary: format!("The trading calendar ends on {last}, in {left} days: daily runs stop there until the engine's later calendar is loaded"),
-            command: "vyreon-core calendar load <sessions.json>".into(),
-            detail: None,
-        });
-    }
+    checked
+        .part(c, &CALENDAR, async {
+            let row = c
+                .query_one(
+                    "SELECT max(session)::text, (max(session) - ($1::text::timestamptz AT TIME ZONE $2)::date)::int FROM core.session",
+                    &[&now, &ZONE],
+                )
+                .await
+                .map_err(db)?;
+            let mut found = Vec::new();
+            if let (Some(last), Some(left)) = (row.get::<_, Option<String>>(0), row.get::<_, Option<i32>>(1))
+                && left < CALENDAR_DAYS
+            {
+                found.push(Found {
+                    kind: "CALENDAR_END",
+                    key: last.clone(),
+                    summary: format!("The trading calendar ends on {last}, in {left} days: daily runs stop there until the engine's later calendar is loaded"),
+                    command: "vyreon-core calendar load <sessions.json>".into(),
+                    detail: None,
+                });
+            }
+            Ok(found)
+        })
+        .await?;
     // what no job derives again stays a problem until each of its days is derived again: a
     // revision of its kind published after the problem opened (the fallen ones are superseded).
     // A job does not resolve it (round w, 8 and 9: a block already past the day, a repair job
     // cancelled after the problem resolved, derive nothing)
-    for o in open.iter().filter(|o| o.kind == "NOT_DERIVED") {
-        let derived: Option<bool> = c
-            .query_one(
-                "SELECT bool_and(EXISTS (SELECT FROM vyreon.day_revision r
-                                         WHERE r.profile_id = d->>'profile_id' AND r.represented_date = (d->>'day')::date AND r.state = 'PUBLISHED'
-                                           AND r.base_revision IS NOT NULL AND r.day_local = (d->>'day_local')::boolean
-                                           AND r.published_at >= p.opened_at))
-                 FROM core.problem p, jsonb_array_elements(p.detail->'days') d WHERE p.problem_id = $1",
-                &[&o.id],
-            )
-            .await
-            .map_err(db)?
-            .get(0);
-        if derived != Some(true) {
-            found.push(Found { kind: "NOT_DERIVED", key: o.key.clone(), summary: o.summary.clone(), command: o.command.clone(), detail: None });
+    checked
+        .part(c, &DERIVED_AGAIN, async {
+            let mut found = Vec::new();
+            for o in open.iter().filter(|o| o.kind == "NOT_DERIVED") {
+                let derived: Option<bool> = c
+                    .query_one(
+                        "SELECT bool_and(EXISTS (SELECT FROM vyreon.day_revision r
+                                                 WHERE r.profile_id = d->>'profile_id' AND r.represented_date = (d->>'day')::date AND r.state = 'PUBLISHED'
+                                                   AND r.base_revision IS NOT NULL AND r.day_local = (d->>'day_local')::boolean
+                                                   AND r.published_at >= p.opened_at))
+                         FROM core.problem p, jsonb_array_elements(p.detail->'days') d WHERE p.problem_id = $1",
+                        &[&o.id],
+                    )
+                    .await
+                    .map_err(db)?
+                    .get(0);
+                if derived != Some(true) {
+                    found.push(Found { kind: "NOT_DERIVED", key: o.key.clone(), summary: o.summary.clone(), command: o.command.clone(), detail: None });
+                }
+            }
+            Ok(found)
+        })
+        .await?;
+    // a part that could not look resolves nothing: its kinds' open problems stay as they are
+    let mut held = Vec::new();
+    for (p, e) in &checked.failed {
+        for o in open {
+            if let Some(kind) = p.kinds.iter().copied().find(|k| *k == o.kind)
+                && !checked.found.iter().chain(&held).any(|f: &Found| f.kind == o.kind && f.key == o.key)
+            {
+                held.push(Found { kind, key: o.key.clone(), summary: o.summary.clone(), command: o.command.clone(), detail: None });
+            }
         }
+        held.push(failing(p, e));
     }
-    Ok(found)
+    checked.found.extend(held);
+    Ok(checked)
 }
 
 /// What the server says of its volume, its WAL and its backups (C-068).
@@ -1041,11 +1211,23 @@ pub fn resolved_text(summary: &str, age_seconds: i64) -> String {
 /// Finds the problems that hold at `now`, opens the new ones and resolves the ones that cleared,
 /// with their posts, in one transaction.
 pub async fn check(client: &mut Client, s: &Settings, now: &str) -> Result<Change, String> {
+    check_queued(client, s, now, None).await
+}
+
+/// Resolves an open problem, with its post.
+async fn resolve(c: &impl GenericClient, o: &Open, now: &str) -> Result<(), String> {
+    c.execute("UPDATE core.problem SET resolved_at = GREATEST($2::text::timestamptz, opened_at) WHERE problem_id = $1", &[&o.id, &now]).await.map_err(db)?;
+    notice::alert(c, &resolved_text(&o.summary, o.age)).await
+}
+
+/// `check`, told the error of this minute's queueing of the daily runs, if it failed (C-069).
+async fn check_queued(client: &mut Client, s: &Settings, now: &str, queueing: Option<&str>) -> Result<Change, String> {
     let tx = client.transaction().await.map_err(db)?;
     tx.execute(PROBLEM_LOCK, &[]).await.map_err(db)?;
     let open = open(&tx, now).await?;
-    let found = current(&tx, s, now, &open).await?;
-    let mut change = Change::default();
+    let checked = current(&tx, s, now, &open, queueing).await?;
+    let found = checked.found;
+    let mut change = Change { failing: checked.failed.iter().map(|(p, e)| format!("{}: {e}", p.key)).collect(), ..Change::default() };
     for f in &found {
         if !is_open(&open, f.kind, &f.key) && open_one(&tx, f, Some(now)).await? {
             change.opened.push(f.summary.clone());
@@ -1060,11 +1242,12 @@ pub async fn check(client: &mut Client, s: &Settings, now: &str) -> Result<Chang
         }
     }
     for o in &open {
+        // the tick's own parts are the tick's to resolve (`record`)
+        if o.kind == WATCH_FAILING && TICK_PARTS.iter().any(|p| p.key == o.key) {
+            continue;
+        }
         if !found.iter().any(|f| f.kind == o.kind && f.key == o.key) {
-            tx.execute("UPDATE core.problem SET resolved_at = GREATEST($2::text::timestamptz, opened_at) WHERE problem_id = $1", &[&o.id, &now])
-                .await
-                .map_err(db)?;
-            notice::alert(&tx, &resolved_text(&o.summary, o.age)).await?;
+            resolve(&tx, o, now).await?;
             change.resolved.push(o.summary.clone());
         }
     }
@@ -1726,18 +1909,46 @@ async fn weekly_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
 
 /// One minute of the watch: the daily runs' due sessions queued (C-051), the check, then the
 /// digest when it is due (09:00 in the owner's zone, once a day) and the weekly check (Saturday,
-/// 09:00). A failed step does not stop the next; the first failure is returned.
+/// 09:00).
+///
+/// C-069: each part runs whatever another's outcome (the checks each in a savepoint of the check's
+/// transaction), and a part that failed is a WATCH_FAILING problem with its error, on the channel
+/// like any other; a failed queueing is said in DAILY_STOPPED. Ok once the check ran and every
+/// failure is recorded; Err (the check could not run, or nothing could be recorded) leaves `/live`
+/// to restart a core that stays so (`core_api::LIVE_WITHIN`).
 pub async fn tick(client: &mut Client, s: &Settings, now: &str) -> Result<Change, String> {
-    let queued = match &s.daily {
-        Some(d) => daily::queue_due(client, d, now).await.map(|_| ()),
-        None => Ok(()),
+    let queueing = match &s.daily {
+        Some(d) => daily::queue_due(client, d, now).await.err(),
+        None => None,
     };
-    let checked = check(client, s, now).await;
-    // round w, 13: a failed check leaves the problem list stale; no post is composed from it
-    let Ok(change) = checked else {
-        return checked;
+    let (mut change, checked) = match check_queued(client, s, now, queueing.as_deref()).await {
+        Ok(change) => (change, Ok(())),
+        Err(e) => (Change::default(), Err(queueing.as_ref().map_or_else(|| e.clone(), |q| format!("{e}; the daily runs' queueing failed too: {q}")))),
     };
-    let row = client
+    // the check's own outcome first, so a digest of this minute says what holds after it
+    record(client, now, &[(&CHECK, checked.clone())], &mut change).await?;
+    // round w, 13: a check that could not run leaves the problem list stale; no post is composed from it
+    if checked.is_ok() {
+        let mut outcomes: Vec<(&Part, Result<(), String>)> = Vec::new();
+        match due_posts(&*client, now).await {
+            Err(e) => outcomes.push((&DIGEST, Err(e))),
+            Ok((date, nine, saturday)) => {
+                if nine {
+                    outcomes.push((&DIGEST, post_once(client, &format!("digest {date}"), s, now, false).await));
+                    if saturday {
+                        outcomes.push((&WEEKLY, post_once(client, &format!("weekly {date}"), s, now, true).await));
+                    }
+                }
+            }
+        }
+        record(client, now, &outcomes, &mut change).await?;
+    }
+    checked.map(|()| change)
+}
+
+/// The day in the owner's zone, whether the digest is due (09:00 or later) and whether it is Saturday.
+async fn due_posts(c: &impl GenericClient, now: &str) -> Result<(String, bool, bool), String> {
+    let row = c
         .query_one(
             "SELECT to_char(t, 'YYYY-MM-DD'), extract(hour FROM t) >= 9, extract(isodow FROM t) = 6
              FROM (SELECT $1::text::timestamptz AT TIME ZONE 'America/Edmonton' AS t) x",
@@ -1745,14 +1956,43 @@ pub async fn tick(client: &mut Client, s: &Settings, now: &str) -> Result<Change
         )
         .await
         .map_err(db)?;
-    let (date, nine, saturday): (String, bool, bool) = (row.get(0), row.get(1), row.get(2));
-    if nine {
-        post_once(client, &format!("digest {date}"), s, now, false).await?;
-        if saturday {
-            post_once(client, &format!("weekly {date}"), s, now, true).await?;
+    Ok((row.get(0), row.get(1), row.get(2)))
+}
+
+/// The tick's own parts (C-069): one that failed is a WATCH_FAILING problem, opened with its alert
+/// or restated with this minute's error; one that worked resolves its problem; one not run this
+/// minute (the digest before 09:00) leaves its problem as it is.
+async fn record(client: &mut Client, now: &str, outcomes: &[(&Part, Result<(), String>)], change: &mut Change) -> Result<(), String> {
+    let tx = client.transaction().await.map_err(db)?;
+    tx.execute(PROBLEM_LOCK, &[]).await.map_err(db)?;
+    let open = open(&tx, now).await?;
+    for (p, outcome) in outcomes {
+        let was = open.iter().find(|o| o.kind == WATCH_FAILING && o.key == p.key);
+        match (outcome, was) {
+            (Err(e), None) => {
+                let f = failing(p, e);
+                if open_one(&tx, &f, Some(now)).await? {
+                    change.opened.push(f.summary);
+                }
+            }
+            (Err(e), Some(o)) => {
+                let f = failing(p, e);
+                if o.summary != f.summary {
+                    tx.execute("UPDATE core.problem SET summary = $2 WHERE problem_id = $1", &[&o.id, &f.summary]).await.map_err(db)?;
+                    change.restated.push(f.summary);
+                }
+            }
+            (Ok(()), Some(o)) => {
+                resolve(&tx, o, now).await?;
+                change.resolved.push(o.summary.clone());
+            }
+            (Ok(()), None) => {}
+        }
+        if let Err(e) = outcome {
+            change.failing.push(format!("{}: {e}", p.key));
         }
     }
-    queued.map(|()| change)
+    tx.commit().await.map_err(db)
 }
 
 /// Composes the digest (or the weekly check) and queues it once under `key`. It is composed
