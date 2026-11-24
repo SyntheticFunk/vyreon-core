@@ -705,7 +705,12 @@ converged, edges only: core — a tally batch can still wait on a lock past the 
 deadline, a moving 24-h window can skip an old revision's tally, recovery mislabel; engine — split + unpublished chain
 behind it still mislabelled (value correctly withheld), one unverified day-refusal suspicion. Planned core round 4:
 statement_timeout/lock_timeout on every tally statement (a slow batch fails visibly as WATCH_FAILING, never hangs) and
-tally untallied revisions instead of a 24-h window. Gemini round 3 pending.
+tally untallied revisions instead of a 24-h window. **Gemini round 3: not run — its 5-hour quota was exhausted
+(RESOURCE_EXHAUSTED 429, resets ~20:30 MT; weekly 74% left); recorded per the owner's rule, the next audit covers it.**
+**Round closed (coordinator, owner asked whether repeated audits still pay):** round 3 found no wrong number, no silently
+wrong absence and no silent stop on a reachable path (the lock-wait case restarts core visibly; the label case withholds
+correctly). Remaining: the cheap core change (statement/lock timeouts on tally statements) and the rest LATER. Fresh-eyes
+reviews of untouched scopes (Gemini on overlay, surface, optsensors) after phase 1 are expected to pay more than round 4.
 **Owner, 2026-11-23 ~09:50 MT: D-191 recommendation accepted** (weight kept, text corrected: engine worker commit after f3db692e, docs only). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
