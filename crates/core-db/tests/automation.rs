@@ -354,3 +354,63 @@ async fn a_job_that_keeps_losing_its_lease_is_one_alert_with_its_last_error() {
     assert!(open(&client, "JOB_THRASHING").await.is_empty());
     scratch.drop().await;
 }
+
+/// C-073 (live investigation 2026-11-24: an hour's deliberate EXQ01 cutoff wait looked like a stall):
+/// a worker that reports its steps and shows no progress for `NO_PROGRESS_MINUTES` is NO_PROGRESS,
+/// one alert per job; a declared wait covers its time and alerts once it overstays its grace;
+/// progress (a request drawn) resolves it. A worker that never reported a step is not judged.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_worker_making_no_progress_is_one_alert_unless_it_declared_its_wait() {
+    let (scratch, mut client, build) = ready("auto_progress").await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &build, DAY, DAY, 30).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &build, "day-1", 24.0 * HOUR).await.unwrap().unwrap();
+    let settings = Settings {
+        profile: PROFILE.into(),
+        deadlines_from: None,
+        volume_bytes: None,
+        deadline_hour: watch::DEADLINE_HOUR,
+        daily: None,
+        archive: None,
+        refcheck_from: None,
+        backup_days: None,
+        refcheck_rerun_hours: None,
+    };
+    async fn later(client: &Client, minutes: i32) -> String {
+        client.query_one("SELECT (now() + make_interval(mins => $1))::text", &[&minutes]).await.unwrap().get(0)
+    }
+    // no step ever reported: an image before the endpoint is not judged
+    let t25 = later(&client, 25).await;
+    watch::check(&mut client, &settings, &t25).await.unwrap();
+    assert!(open(&client, "NO_PROGRESS").await.is_empty());
+    work::report_step(&mut client, &block.token, "download 2025-12-10", None, None).await.unwrap();
+    let t10 = later(&client, 10).await;
+    watch::check(&mut client, &settings, &t10).await.unwrap();
+    assert!(open(&client, "NO_PROGRESS").await.is_empty(), "within its minutes");
+    let t25 = later(&client, 25).await;
+    let change = watch::check(&mut client, &settings, &t25).await.unwrap();
+    assert_eq!(change.opened.len(), 1, "{change:?}");
+    assert!(change.opened[0].starts_with(&format!("Day block job {} (2025-12-10) on day-1: no progress since ", block.job_id)) && change.opened[0].ends_with("MT, at step \"download 2025-12-10\""), "{change:?}");
+    assert!(watch::check(&mut client, &settings, &t25).await.unwrap().opened.is_empty(), "alerted once");
+    // a deliberate wait declared: covered (resolved), until its end plus the grace
+    let until = later(&client, 60).await;
+    work::report_step(&mut client, &block.token, "EXQ01 cutoff", Some(&until), Some("the provider's 16:15 ET cutoff")).await.unwrap();
+    let t70 = later(&client, 70).await;
+    let change = watch::check(&mut client, &settings, &t70).await.unwrap();
+    assert_eq!(change.resolved.len(), 1, "{change:?}");
+    let t80 = later(&client, 80).await;
+    let change = watch::check(&mut client, &settings, &t80).await.unwrap();
+    assert_eq!(change.opened.len(), 1, "the wait overstayed its grace: {change:?}");
+    assert!(change.opened[0].contains("at step \"EXQ01 cutoff\"; its declared wait (the provider's 16:15 ET cutoff) was to end"), "{change:?}");
+    // a request drawn after it: progress, resolved
+    client
+        .execute("INSERT INTO core.budget_lease (worker, granted, granted_at, valid_until) VALUES ('day-1', 100, $1::text::timestamptz - interval '1 minute', $1::text::timestamptz)", &[&t80])
+        .await
+        .unwrap();
+    let change = watch::check(&mut client, &settings, &t80).await.unwrap();
+    assert_eq!(change.resolved.len(), 1, "{change:?}");
+    // the same step again is no progress; another step is
+    assert!(matches!(work::report_step(&mut client, &block.token, "x", Some("2020-01-01T00:00:00Z"), Some("r")).await, Err(LeaseError::Refused(_))));
+    assert!(matches!(work::report_step(&mut client, &block.token, "x api_key=OmRlYWRiZWVm", None, None).await, Err(LeaseError::Refused(_))));
+    scratch.drop().await;
+}

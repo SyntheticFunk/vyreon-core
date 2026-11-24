@@ -208,6 +208,13 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
     assert_eq!(entries[2].0, "verdicts.json");
     assert_eq!(serde_json::from_slice::<Value>(&entries[2].1).unwrap(), json!({"AAPL": verdict}));
     assert_eq!(s.post("/lease/heartbeat", token, json!({})).await.1["paused"], false);
+    // C-073: the step and a deliberate wait; a wait without its reason, or in the past, is refused
+    assert_eq!(s.post("/lease/step", token, json!({"step": "download 2025-12-10"})).await, (StatusCode::OK, json!({"recorded": true})));
+    let until: String = admin.query_one("SELECT to_char((now() + interval '40 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')", &[]).await.unwrap().get(0);
+    assert_eq!(s.post("/lease/step", token, json!({"step": "EXQ01 cutoff", "waiting_until": until, "reason": "the provider's 16:15 ET cutoff"})).await.0, StatusCode::OK);
+    assert_eq!(s.post("/lease/step", token, json!({"step": "EXQ01 cutoff", "waiting_until": until})).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(s.post("/lease/step", token, json!({"step": "x", "waiting_until": "2020-01-01T00:00:00Z", "reason": "r"})).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(s.post("/lease/step", "not-a-lease", json!({"step": "x"})).await.0, StatusCode::GONE);
     assert_eq!(s.post("/lease/finish", token, json!({})).await.0, StatusCode::UNPROCESSABLE_ENTITY, "its day is not published yet");
     let (header, scalars, files) = parts(BASE);
     let (status, published) = s.publish(token, &bundle("api-base", &header, &scalars, &files)).await;
