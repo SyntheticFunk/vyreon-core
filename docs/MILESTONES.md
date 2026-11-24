@@ -1117,6 +1117,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   next deliberate tape-method change; no re-capture now). ACT01 feed area: closes after round 5 if what remains is rare.
   Owner approved deleting stale worktrees: 54 merged worktrees + 23 logs removed from /home/diggz/wt (~28 GB; reporter-d397
   kept, unmerged Reporter work; VHDX only shrinks by export/import).
+  **Clock correction (owner's Discord, 06:30 UTC−6):** every "MT" time core printed and I reported overnight used tz-db
+  America/Edmonton (UTC−7 in winter); the owner's clock is UTC−6 year-round → all overnight MT stamps above are one hour
+  behind the owner's clock (e.g. hand-over 26 at 03:30 "MT" = 04:30 owner time). Core fix `core-clock` (C-072): one fixed
+  UTC−6 owner zone (deadlines included), planned operator actions (hand-over pause/withdraw) to progress not alerts unless
+  open > 30 min, terse progress digest. From now on my times are UTC−6.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
