@@ -2580,6 +2580,8 @@ async fn a_hand_over_is_progress_unless_it_overstays() {
     assert_eq!(at.len(), 5, "{post}");
     let rest = line.strip_prefix(&format!("Hand-over {id}: {old} → {new}, 5 blocks + 5 passes moved, 2 running jobs restarted — the rulings image · queue paused ")).unwrap_or_else(|| panic!("{post}"));
     assert!(rest.contains(&format!(" · {new} admitted ")) && rest.contains(" · queue resumed "), "{post}");
+    // round 3 (audit c072-r2, 6): the pause's reason is not the hand-over's own words: it is printed
+    assert!(rest.starts_with("(hand-over to slice-new-image: the rulings image removes a false zero"), "{post}");
     assert!(lines.contains(&"Started 2 blocks (2025): 12-08, 12-09"), "{post}");
     for folded in ["withdrawn", "Queue paused", "Queue resumed", watch::PLANNED, &format!("Engine build {new} admitted")] {
         assert!(!post.contains(folded), "{folded} is folded into the hand-over's line: {post}");
@@ -2615,6 +2617,15 @@ async fn a_hand_over_is_progress_unless_it_overstays() {
     scratch.drop().await;
 }
 
+/// A bundle refused, as the worker API refuses one (`core_api::worker`): the pause and its alert in
+/// one transaction (C-072 round 3).
+async fn refuse(client: &mut Client, what: &str) {
+    let tx = client.transaction().await.unwrap();
+    work::pause(&tx, what).await.unwrap();
+    watch::refused(&tx, what).await.unwrap();
+    tx.commit().await.unwrap();
+}
+
 /// C-072 round 2 (audit 2026-11-24-core-c072): a planned step is the hand-over's own and hides no
 /// problem. 1: a bundle refused during the operator's pause is alerted at once (the pause becomes
 /// core's). 4: a pause open at its grace's end is alerted though resumed before a check saw it
@@ -2644,34 +2655,52 @@ async fn a_planned_step_is_the_hand_overs_own_and_hides_no_problem() {
     };
     let ours = |posts: Vec<String>, what: &str| posts.into_iter().filter(|p| p.contains(what)).collect::<Vec<_>>();
 
-    // 1. a refusal during the operator's pause
+    // 1. a refusal during the operator's pause: alerted in the refusal's own transaction (round 3:
+    // the operator resumes before the watch's next minute, and the alert is there all the same)
     work::pause_by_operator(&client, "rolling out a new image").await.unwrap();
     let t0 = watch::now(&client).await.unwrap();
     let quiet = "Work queue paused by the operator, nothing is handed out: rolling out a new image";
     assert_eq!(watch::check(&mut client, &settings(&old), &t0).await.unwrap().opened, [quiet]);
-    let tx = client.transaction().await.unwrap();
-    work::pause(&tx, "job 7 (w1): bundle refused: unreadable bundle").await.unwrap();
-    tx.commit().await.unwrap();
+    refuse(&mut client, "job 7 (w1): bundle refused: unreadable bundle").await;
     let refused = "Work queue paused, nothing is handed out: job 7 (w1): bundle refused: unreadable bundle (during the operator's pause: rolling out a new image)";
-    let t = later(&client, &t0, 1).await;
-    assert_eq!(watch::check(&mut client, &settings(&old), &t).await.unwrap().alerted, [refused]);
-    assert_eq!(ours(alerts(&client).await, "Work queue paused"), [format!("🔴 {refused}\nTo see more: `vyreon-core queue`")]);
+    assert_eq!(ours(alerts(&client).await, "bundle refused"), [format!("🔴 {refused}\nTo see more: `vyreon-core queue`")], "before any check");
     work::resume(&client).await.unwrap();
     let t = later(&client, &t0, 2).await;
     watch::check(&mut client, &settings(&old), &t).await.unwrap();
     assert!(ours(alerts(&client).await, "Work queue paused").last().unwrap().starts_with(&format!("✅ Resolved: {refused}")));
+    // a refusal with no pause before it: one alert (the watch's next minute posts none again)
+    refuse(&mut client, "job 8 (w2): bundle refused: a day-local body for a base").await;
+    let t = later(&client, &t0, 3).await;
+    assert!(watch::check(&mut client, &settings(&old), &t).await.unwrap().opened.is_empty());
+    assert_eq!(ours(alerts(&client).await, "job 8").len(), 1);
+    // a refusal while that pause stands (its alert posted long before): said on its own
+    refuse(&mut client, "job 9 (w3): bundle refused: unreadable bundle").await;
+    assert_eq!(ours(alerts(&client).await, "job 9"), ["🔴 job 9 (w3): bundle refused: unreadable bundle (the queue was paused already)\nTo see more: `vyreon-core queue`"]);
+    work::resume(&client).await.unwrap();
+    let t = later(&client, &t0, 4).await;
+    watch::check(&mut client, &settings(&old), &t).await.unwrap();
 
-    // 4. open at its grace's end, resumed before a check saw it: alerted, then resolved
+    // 4. judged at its resume (round 3): resumed within its grace, quiet though the check comes
+    // after the deadline; resumed after it, alerted (then resolved) though no check saw it overdue
+    let short = "Work queue paused by the operator, nothing is handed out: a short look";
     work::pause_by_operator(&client, "a short look").await.unwrap();
     let t1 = watch::now(&client).await.unwrap();
     watch::check(&mut client, &settings(&old), &t1).await.unwrap();
     work::resume(&client).await.unwrap();
     let t = later(&client, &t1, 33).await;
     watch::check(&mut client, &settings(&old), &t).await.unwrap();
-    let short = "Work queue paused by the operator, nothing is handed out: a short look";
+    assert!(ours(alerts(&client).await, short).is_empty(), "resumed within its grace");
+    let late = "Work queue paused by the operator, nothing is handed out: a longer look";
+    work::pause_by_operator(&client, "a longer look").await.unwrap();
+    let t1 = watch::now(&client).await.unwrap();
+    watch::check(&mut client, &settings(&old), &t1).await.unwrap();
+    work::resume(&client).await.unwrap();
+    client.execute("UPDATE core.queue_control SET resumed_at = resumed_at + interval '31 minutes'", &[]).await.unwrap();
+    let t = later(&client, &t1, 33).await;
+    watch::check(&mut client, &settings(&old), &t).await.unwrap();
     assert_eq!(
-        ours(alerts(&client).await, short),
-        [format!("🔴 {short} (a planned step, still open after 33 min)\nTo see more: `vyreon-core queue`"), format!("✅ Resolved: {short} (it was open 33 min)")]
+        ours(alerts(&client).await, late),
+        [format!("🔴 {late} (a planned step, still open after 33 min)\nTo see more: `vyreon-core queue`"), format!("✅ Resolved: {late} (it was open 33 min)")]
     );
     // a check that cannot read the queue keeps a planned pause as it was: quiet within its grace
     work::pause_by_operator(&client, "another look").await.unwrap();
