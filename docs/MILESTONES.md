@@ -1219,6 +1219,8 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   are skipped. The next release therefore also carries today's LATER lists (D-459/D-460 rare items, C-072 display/rare items,
   reference edge cases), except the three tape-reader items (any reader change orphans every tape cache → full re-capture):
   those stay after phase 1 unless the owner says otherwise.
+  Owner: a rule **for this stage** (pre-launch; repeated reviews demonstrably stopped paying off), not a general law; revisit
+  after launch. "Every finding that we validate with our data is one less bug to go live."
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
