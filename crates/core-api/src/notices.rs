@@ -172,9 +172,6 @@ pub fn spawn_watch(app: Arc<App>, settings: core_db::watch::Settings, every: Dur
                     for s in &change.resolved {
                         println!("vyreon-core: problem resolved: {s}");
                     }
-                    for s in &change.alerted {
-                        println!("vyreon-core: planned step overdue, alerted: {s}");
-                    }
                 }
                 Err(e) => eprintln!("vyreon-core: watch: {e}"),
             }

@@ -269,10 +269,7 @@ async fn publish_day(State(app): Shared, headers: HeaderMap, body: Body) -> Repl
                 let mut client = app.db().await?;
                 let client: &mut Client = &mut client;
                 let tx = client.transaction().await.map_err(|e| failed(e.to_string()))?;
-                let what = format!("job {} ({}): bundle refused: {}", lease.job_id, lease.worker, e.1);
-                work::pause(&tx, &what).await.map_err(failed)?;
-                // C-072 round 3: alerted now, in the refusal's transaction, whatever the pause becomes
-                core_db::watch::refused(&tx, &what).await.map_err(failed)?;
+                work::pause(&tx, &format!("job {} ({}): bundle refused: {}", lease.job_id, lease.worker, e.1)).await.map_err(failed)?;
                 tx.commit().await.map_err(|e| failed(e.to_string()))?;
             }
             Err(e)
