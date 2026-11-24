@@ -1168,12 +1168,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   the UTC−6 clock (part 1) and the terse digest (part 3). Hand-over alert noise goes away via the release-script automation
   (pause → hand-over → admit → resume in one command), not quiet alerts. `core-clock4` doing it; 0054 rewritten, 0055
   dropped (never deployed; live DB at 53). Then core deploy.
-  **Hand-over 28 done (UTC−6 ~08:20): build `5f637983+8855e39e0be8` admitted, KEDA + DAILY_BUILD on it** (registry login had
+  **Hand-over 28 done (UTC−6 ~07:55): build `5f637983+8855e39e0be8` admitted, KEDA + DAILY_BUILD on it** (registry login had
   expired: re-logged with docker login from do-full-token.txt; doctl is not installed). 2dde1132 published no day → no extra
   recompute; the July recompute (07-09..07-23, incl. AVGO's M0 split days) and the 2026-11-23 daily block carried over.
   core-clock4 merged (790c5c3; 193/0): C-072 = UTC−6 clock + terse digest, part 2 retired; narrow audits by both running
   (`audits/2026-11-24-core-c072-r4/`); core image built; deploy after.
-  **Core 790c5c3 DEPLOYED (UTC−6 ~08:35; migration 54):** Codex r4 confirmed alert parity with pre-C-072 and correct UTC−6
+  **Core 790c5c3 DEPLOYED (UTC−6 ~08:15; migration 54):** Codex r4 confirmed alert parity with pre-C-072 and correct UTC−6
   deadlines; its remaining items are display-only → small LATER core batch: a failed resumed block shows its narrowed date;
   one duplicate hand-over post on the upgrade; `vyreon-core log`/`evidence list` print UTC and 15-backup.yaml's comment says
   02:00 MT (is 03:00); rare: a build id interpolated unscrubbed into the admit line, restart count after a prior withdrawal,
