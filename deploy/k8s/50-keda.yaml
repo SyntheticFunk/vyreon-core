@@ -66,6 +66,8 @@
 #                         behind an unfinished one anyway
 #   refcheck           1  C-073: a reference-check re-run, rare (a check whose worker stopped before
 #                         it reported); one at a time (core builds its dump in memory)
+#   republish          4  C-074: a scoped recompute, one day a pod, beside the blocks in the same
+#                         pools (whose maxima stay the cap); held back while the budget is pressed
 # Pool `day` max_nodes = 13 (12 day blocks + the daily one): the hard cost cap, 13 x $0.167 an
 # hour = $2.17 an hour at most. Pool `day-intel` (the Intel fallback, C-068) autoscaled 0..N. The nodes
 # follow the pods and the pods KEDA's caps: 12 + 1 blocks on a node each, 24 tapes three a node (a
@@ -605,5 +607,100 @@ spec:
         dbName: vyreon
         sslmode: require
         query: "SELECT core.scaler_count('REFCHECK', 'VYREON_ENGINE_BUILD')"
+        targetQueryValue: "1"
+        activationTargetQueryValue: "0"
+---
+# C-074: a scoped recompute (job kind REPUBLISH), scheduled by `vyreon-core republish`. Its worker
+# (`vyreon-worker run republish`, engine D-462) fetches the inputs its scope's stages read, computes
+# the recompute set and publishes copy-forward revisions of the day. Its pod is a day block's: the
+# same keys, requests and node pools (the pools' maxima stay the cost cap that binds); at most 4 at
+# once (owner's to change), held back like the backfill while the request budget is pressed.
+apiVersion: keda.sh/v1alpha1
+kind: ScaledJob
+metadata:
+  name: republish
+  namespace: vyreon
+spec:
+  pollingInterval: 30
+  minReplicaCount: 0
+  maxReplicaCount: 4
+  successfulJobsHistoryLimit: 10
+  failedJobsHistoryLimit: 10
+  rollout: {strategy: gradual}
+  scalingStrategy: {strategy: accurate}
+  jobTargetRef:
+    parallelism: 1
+    completions: 1
+    backoffLimit: 0
+    # a day's download and compute (about 4 h measured, 2026-11-21); a pod still going after 24 h is
+    # stuck: its lease expires and the republish is claimed again
+    activeDeadlineSeconds: 86400
+    template:
+      metadata:
+        labels: {app: vyreon-worker, work: republish}
+        annotations:
+          cluster-autoscaler.kubernetes.io/safe-to-evict: "false"
+      spec:
+        restartPolicy: Never
+        priorityClassName: vyreon-backfill-block
+        serviceAccountName: default
+        imagePullSecrets:
+          - {name: regcred}
+        nodeSelector: {vyreon: worker}
+        affinity:
+          nodeAffinity:
+            requiredDuringSchedulingIgnoredDuringExecution:
+              nodeSelectorTerms:
+                - matchExpressions:
+                    - {key: doks.digitalocean.com/node-pool, operator: In, values: [day, day-intel]}
+            preferredDuringSchedulingIgnoredDuringExecution:
+              - weight: 100
+                preference:
+                  matchExpressions:
+                    - {key: doks.digitalocean.com/node-pool, operator: In, values: [day]}
+        tolerations:
+          - {key: vyreon, operator: Equal, value: worker, effect: NoSchedule}
+        containers:
+          - name: worker
+            image: VYREON_WORKER_IMAGE
+            args: ["run", "republish", "--bin", "/opt/vyreon/bin", "--repo", "/opt/vyreon/bin"]
+            env:
+              - {name: VYREON_HOME, value: /work}
+              - {name: VYREON_OPTION_EOD_SOURCE, value: bulk}
+              - {name: VYREON_ACT01_IN_FLIGHT, value: "2"}
+              - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
+              - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
+              - {name: VYREON_KEY_FILE, value: /secrets/intrinio-key}
+              - {name: VYREON_FRED_KEY_FILE, value: /secrets/fred-key}
+              - name: VYREON_WORKER_NAME
+                valueFrom: {fieldRef: {fieldPath: metadata.name}}
+            resources:
+              requests: {cpu: "6", memory: 10Gi}
+              limits: {memory: 14Gi}
+            volumeMounts:
+              - {name: work, mountPath: /work}
+              - {name: secrets, mountPath: /secrets, readOnly: true}
+        volumes:
+          - name: work
+            emptyDir: {}
+          - name: secrets
+            secret:
+              secretName: vyreon-worker
+              defaultMode: 0400
+              items:
+                - {key: worker-token, path: worker-token}
+                - {key: intrinio-key, path: intrinio-key}
+                - {key: fred-key, path: fred-key}
+  triggers:
+    - type: postgresql
+      name: claimable-republishes
+      authenticationRef: {name: vyreon-scaler-pg}
+      metadata:
+        host: vyreon-pg-rw.vyreon.svc.cluster.local
+        port: "5432"
+        userName: vyreon_keda
+        dbName: vyreon
+        sslmode: require
+        query: "SELECT core.scaler_count('REPUBLISH', 'VYREON_ENGINE_BUILD')"
         targetQueryValue: "1"
         activationTargetQueryValue: "0"

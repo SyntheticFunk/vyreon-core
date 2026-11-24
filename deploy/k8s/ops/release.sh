@@ -64,7 +64,7 @@ REG=${VYREON_REGISTRY:-registry.digitalocean.com/vyreon}
 HERE=$(cd "$(dirname "$0")" && pwd)
 K8S=$(cd "$HERE/.." && pwd)
 VERIFY_MINUTES=${VYREON_VERIFY_MINUTES:-20}
-SCALEDJOBS=(tape day-block day-block-daily ordered-pass refcheck)
+SCALEDJOBS=(tape day-block day-block-daily ordered-pass refcheck republish)
 
 DRY=0 FROM=1 OLD_GIVEN="" EVIDENCE_IN="" CORE_TAG=""
 args=()
@@ -555,7 +555,7 @@ else
                         WHERE j.engine_build = '$BUILD' AND j.kind = v.kind AND (v.daily IS NULL OR (j.priority = 1) = v.daily)
                           AND l.granted_at >= '$SINCE'::timestamptz)
                 FROM (VALUES ('tape', 'TAPE', NULL::boolean), ('day-block', 'DAY_BLOCK', false), ('day-block-daily', 'DAY_BLOCK', true),
-                             ('ordered-pass', 'ORDERED_PASS', NULL), ('refcheck', 'REFCHECK', NULL)) v(k, kind, daily)") || rows=""
+                             ('ordered-pass', 'ORDERED_PASS', NULL), ('refcheck', 'REFCHECK', NULL), ('republish', 'REPUBLISH', NULL)) v(k, kind, daily)") || rows=""
     missing=""
     while read -r k count leases; do
       [[ -z $k ]] && continue
