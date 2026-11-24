@@ -16,6 +16,7 @@ only by that Job).
 
 | File | Use |
 |---|---|
+| `release.sh [--dry-run] <engine-image-tag> "<reason>"` | the whole worker-image release (C-073): identity and inventory from the image, push, register, pause, hand-over (preview, then its token), evidence and admit, ScaledJobs applied, daily build and core's manifest (with the running core image), the old image's Jobs deleted, resume, the new pods' first lease; stops at the first refusal and prints the evidence. `--core <core-image-tag>` deploys a core image the same safe way. Needs `KUBECONFIG`, `VYREON_DO_TOKEN_FILE` |
 | `do.sh METHOD /v2/path [json]` | one DigitalOcean API call; any answer but 2xx is an error (exit 1, C-068) |
 | `scale-pool.sh POOL_ID NAME COUNT` | set a worker pool's node count (costs money: the spend ceiling in docs/MILESTONES.md applies) |
 | `health.sh` | one read-only screen of a run's health; oddities flagged with !!; run at every check |
