@@ -1315,6 +1315,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   ~1 in 200 on low-priced assets. Built days carry the old method (OTHER_METHOD_VERSION in DLM-UNUSUALNESS history) →
   after release 2: scoped republish of family DLM-TECHNICAL on every day built before it (first real scoped use; no option files).
   Core audit fixes committed (core-scope 61c869f); engine audit fixes in progress.
+  **Live finding (UTC−6 17:45): ETHA's first sessions refused.** 2024-07-23 REFUSED by the input plan (`act01 … Missing: 1 assets
+  without a cohort or no-selection record (ETHA)`; ETHA first traded 2024-07-23, options only from 2025); 07-24's fill ends
+  with the same ACT01 gap; 08-14 completes. 07-23 published on 2a8f8c4f → likely a regression in D-459..461. Job requeued
+  (attempt 1) with no alert: observability gap (a plan refusal should alert at once, not after 3 attempts). Diagnosis + fix on
+  eng-etha (from eng-scope) → folds into release 2. Also seen: bulk option files of Jan-Feb 2024 fail whole on a quote
+  character in a row (the API captures those chains instead; costs requests, not correctness) → PROVIDER_FAULTS check.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
