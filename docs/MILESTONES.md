@@ -1100,6 +1100,16 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   routing only where a feed ratio crosses 0.95 (not measured). Audits r4 by both running (`audits/2026-11-24-d460-r4/`).
   Housekeeping for the owner: /home/diggz/wt holds ~60 stale worktrees/logs from earlier sessions (28 GB) besides
   target-worker (90 GB, the image build dir) — propose deleting the stale ones (preview, owner's OK).
+  **r4 (05:00 MT): f8029c81 NOT handed over — not strictly better than 2dde1132.** Codex 1: reading the overlay's decided
+  population lets D-125's snapshot fill supply BOTH of D-079's independent witnesses (real INDA 2026-08-27 rows) → possible
+  universe-wide false NONE on ordinary data (a design conflict my eng-f4 brief created). Also: guard replay not bound to
+  (asset, T) and diverging from `verify`; overlay defects exposed (fractional snapshot volume published, unreadable-volume
+  fault after dead-listing drop, merge drops a trade time); M0-PRINT-SIZE fails on split-translated cohort days (affects
+  production today); ACT01 reference reads an engine flag and disagrees on ordinary days; UPATH/EVC01 evidence was on edited
+  inputs. Round 5 in two parallel fixers (no helper agents): `eng-f5a` feed area (D-079 two witnesses restored, overlay,
+  guard binding, ACT01 reference), `eng-f5b` the rest (M0 print split days + affected sessions, EVC01 reference, unmodified-
+  day evidence, ops items). **For the owner: D-460's ACT01 feed-guard area has not converged in 4 rounds** (each round fixes
+  real defects and exposes older ones in the overlay beneath it).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
