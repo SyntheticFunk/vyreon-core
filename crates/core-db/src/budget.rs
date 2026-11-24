@@ -61,6 +61,16 @@ pub async fn draw(client: &mut Client, budget: Budget, worker: &str, requests: i
     let (committed, frees_in): (i32, Option<f64>) = (row.get(0), row.get(1));
     let free = budget.per_minute - committed;
     if free < 1 {
+        // C-073: the wait is recorded, by minute: the scaler starts no pod that calls the provider
+        // while one came within `PRESSURE_MINUTES` (`core.scaler_count`)
+        tx.execute(
+            "INSERT INTO core.budget_wait (minute, waits, last_at) VALUES (date_trunc('minute', clock_timestamp()), 1, clock_timestamp())
+             ON CONFLICT (minute) DO UPDATE SET waits = core.budget_wait.waits + 1, last_at = EXCLUDED.last_at",
+            &[],
+        )
+        .await
+        .map_err(db)?;
+        tx.commit().await.map_err(db)?;
         return Ok(Grant::Wait { seconds: frees_in.unwrap_or(1.0).max(0.1) });
     }
     let granted = requests.min(free).min(budget.max_lease);
@@ -112,6 +122,28 @@ pub async fn release(client: &mut Client, budget_lease_id: i64, worker: &str, us
         return Err(format!("{worker} reports {total} requests on a lease of {granted}"));
     }
     Ok(counted)
+}
+
+/// C-073: how long after a draw had to wait the scaler counts no work that calls the provider
+/// (`core.scaler_count`, migration 0055, which states the same five minutes in its SQL). A wait means
+/// the workers already ask for more than the ceiling; another pod would only wait in the budget, at
+/// node cost. Five minutes is ten of KEDA's 30-second polls: long enough that a pod started at the
+/// end of one burst does not meet the next (a day's download bursts for minutes, 2026-11-22), short
+/// enough that a quiet budget is used again within the time a node takes to come up.
+pub const PRESSURE_MINUTES: f64 = 5.0;
+
+/// C-073: when the budget last made a draw wait, if within `PRESSURE_MINUTES` of `now` (as text, UTC),
+/// and how many draws waited in that time.
+pub async fn pressed(client: &impl tokio_postgres::GenericClient, now: &str) -> Result<Option<(String, i64)>, String> {
+    let r = client
+        .query_one(
+            "SELECT to_char(max(last_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'), COALESCE(sum(waits), 0)::bigint FROM core.budget_wait
+             WHERE last_at > $1::text::timestamptz - make_interval(secs => $2::float8 * 60) AND last_at <= $1::text::timestamptz",
+            &[&now, &PRESSURE_MINUTES],
+        )
+        .await
+        .map_err(db)?;
+    Ok(r.get::<_, Option<String>>(0).map(|at| (at, r.get(1))))
 }
 
 /// What is committed against the ceiling now.

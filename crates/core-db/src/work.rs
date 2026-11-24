@@ -18,6 +18,9 @@ pub enum Kind {
     Tape,
     DayBlock,
     OrderedPass,
+    /// C-073: a published day's reference check run again, against the revisions core holds
+    /// published; queued by the watch (`refcheck::queue_reruns`), never scheduled by hand.
+    Refcheck,
 }
 
 impl Kind {
@@ -26,6 +29,7 @@ impl Kind {
             Kind::Tape => "TAPE",
             Kind::DayBlock => "DAY_BLOCK",
             Kind::OrderedPass => "ORDERED_PASS",
+            Kind::Refcheck => "REFCHECK",
         }
     }
 
@@ -34,7 +38,8 @@ impl Kind {
             "TAPE" => Ok(Kind::Tape),
             "DAY_BLOCK" => Ok(Kind::DayBlock),
             "ORDERED_PASS" => Ok(Kind::OrderedPass),
-            other => Err(format!("unknown job kind {other} (tape, day-block, ordered-pass)")),
+            "REFCHECK" => Ok(Kind::Refcheck),
+            other => Err(format!("unknown job kind {other} (tape, day-block, ordered-pass, refcheck)")),
         }
     }
 }
@@ -95,6 +100,9 @@ pub struct Scheduled {
 /// another build that runs refuses the range (withdraw that build or cancel its pass first). DONE
 /// and CANCELLED passes of any build are left as they are.
 pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &str, first: &str, last: &str, block: i32) -> Result<Scheduled, String> {
+    if kind == Kind::Refcheck {
+        return Err("reference-check re-runs are queued by core's watch (C-073), not scheduled".into());
+    }
     if kind == Kind::DayBlock && block < 1 {
         return Err("a day block holds at least one session".into());
     }
@@ -453,6 +461,12 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
     if kind == "TAPE" && crate::tape::is_verify(db_client, job).await? {
         // C-059: a sample check holds nothing back (no day block waits on it, no cache is stored)
         notice::log(db_client, &format!("Tape verify job {job} failed for the last time: {why}. Nothing waits on it.")).await?;
+        return Ok(false);
+    }
+    if kind == "REFCHECK" {
+        // C-073: a re-run holds nothing back; the day's check stands not run (REFCHECK_NOT_RUN)
+        let day: String = db_client.query_one("SELECT first_session::text FROM core.job WHERE job_id = $1", &[&job]).await.map_err(db)?.get(0);
+        notice::log(db_client, &format!("Reference-check re-run of {day} failed for the last time (job {job}): {why}. Nothing waits on it.")).await?;
         return Ok(false);
     }
     if kind == "ORDERED_PASS" {

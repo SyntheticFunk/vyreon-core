@@ -8,6 +8,8 @@
 //!   POST /lease/fail                 {stage, message, log}              -> {requeued}
 //!   PUT  /evidence                   body: the attempt's failure evidence (application/gzip) -> {new} (C-049)
 //!   PUT  /refcheck/{session}         body: the day's reference-check document (application/gzip) -> {new, report_id} (C-054)
+//!   GET  /refcheck/{session}/dump                                       -> a tar: the reference suite's dump of the revisions
+//!                                                                          a REFCHECK job checks, from what core holds published (C-073)
 //!   POST /days                       body: a day bundle                 -> what was published
 //!   PUT  /tape-caches/{session}/{asset}?method_version=V[&absence=WHY]  body: the packed cache -> {new}
 //!   POST /tape-caches/{session}/done[?method_version=V]                 the tape job's session is complete (under V; without
@@ -68,6 +70,13 @@
 //! answered `new: false` with the first's id. At most `core_db::refcheck::MAX_DOCUMENT_BYTES` (413
 //! above); a document in which a credential pattern survives is refused (422) and nothing is stored.
 //!
+//! C-073: a REFCHECK job (a reference-check re-run, queued by core's watch) is one session; its claim's
+//! `scope` names the revisions it checks (`base_revision`, `day_local_revision`). Its worker reads them
+//! as the suite's dump (`GET /refcheck/{session}/dump`: `store.jsonl`, `revisions.jsonl`, `streams/`, the
+//! layout of the engine's own dump), runs the suite and sends its document as a day block's worker does
+//! (`PUT /refcheck/{session}`, bound to those revisions or to none); core then marks the session done
+//! and the worker finishes the lease.
+//!
 //! A perishable archive (C-052) is one category of a day the job published (`core_db::archive::
 //! CATEGORIES`), packed by the worker. Core decides the object's key and answers with a pre-signed
 //! PUT URL valid for minutes, which signs the archive's length, its `Content-MD5` and its
@@ -113,6 +122,7 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/lease/fail", post(fail))
         .route("/evidence", put(evidence_put))
         .route("/refcheck/{session}", put(refcheck_put))
+        .route("/refcheck/{session}/dump", get(refcheck_dump))
         .route("/days", post(publish_day))
         .route("/days/{session}/done", post(day_done))
         .route("/tape-caches/{session}", get(tape_get))
@@ -463,6 +473,14 @@ async fn refcheck_put(State(app): Shared, headers: HeaderMap, Path(session): Pat
     let mut client = app.db().await?;
     let (new, id) = refcheck::put(&mut client, &token, &checked).await?;
     ok(json!({"new": new, "report_id": id}))
+}
+
+/// C-073: the dump a re-run's suite reads (a tar; tens to a few hundred MB for a day, built in memory:
+/// one re-run at a time, KEDA's cap).
+async fn refcheck_dump(State(app): Shared, headers: HeaderMap, Path(session): Path<String>) -> Reply {
+    let mut client = app.db().await?;
+    let bytes = refcheck::dump(&mut client, bearer(&headers)?, &session).await?;
+    Ok(([(header::CONTENT_TYPE, "application/x-tar")], bytes).into_response())
 }
 
 #[derive(Deserialize)]

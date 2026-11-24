@@ -208,18 +208,24 @@ pub async fn put(client: &mut Client, token: &str, c: &Checked) -> Result<(bool,
     let failed = |e: tokio_postgres::Error| LeaseError::Failed(db(e));
     let tx = client.transaction().await.map_err(failed)?;
     let lease = work::held(&tx, token).await?;
-    crate::archive::published_by(&tx, &lease, &c.session).await?;
+    // C-073: a re-run checks the revisions its job names, of whichever build published them
+    let rerun = lease.kind == "REFCHECK";
+    if rerun {
+        rerun_of(&tx, &lease, c).await?;
+    } else {
+        crate::archive::published_by(&tx, &lease, &c.session).await?;
+    }
     let row = tx
         .query_one(
             "SELECT (SELECT count(*)::int FROM core.lease o WHERE o.job_id = l.job_id AND o.lease_id <= l.lease_id),
                     $5::bigint IS NULL OR EXISTS (SELECT FROM vyreon.day_revision d WHERE d.revision_id = $5 AND d.represented_date = $2::text::date
-                                                    AND d.profile_id = $3 AND d.engine_build = $4 AND d.base_revision IS NULL
+                                                    AND d.profile_id = $3 AND ($7 OR d.engine_build = $4) AND d.base_revision IS NULL
                                                     AND d.state IN ('PUBLISHED', 'SUPERSEDED')),
                     $6::bigint IS NULL OR EXISTS (SELECT FROM vyreon.day_revision d WHERE d.revision_id = $6 AND d.represented_date = $2::text::date
                                                     AND d.profile_id = $3 AND d.base_revision = $5 AND d.day_local
                                                     AND d.state IN ('PUBLISHED', 'SUPERSEDED'))
              FROM core.lease l WHERE l.lease_id = $1",
-            &[&lease.lease_id, &c.session, &lease.profile_id, &lease.engine_build, &c.base_revision, &c.day_local_revision],
+            &[&lease.lease_id, &c.session, &lease.profile_id, &lease.engine_build, &c.base_revision, &c.day_local_revision, &rerun],
         )
         .await
         .map_err(failed)?;
@@ -230,6 +236,9 @@ pub async fn put(client: &mut Client, token: &str, c: &Checked) -> Result<(bool,
         .await
         .map_err(failed)?
     {
+        if rerun {
+            work::session_done(&tx, &lease, &c.session).await?;
+        }
         tx.commit().await.map_err(failed)?;
         return Ok((false, first.get(0)));
     }
@@ -287,6 +296,10 @@ pub async fn put(client: &mut Client, token: &str, c: &Checked) -> Result<(bool,
         )
         .await
         .map_err(failed)?;
+    // C-073: a re-run's one session is done once its report is kept; the worker then finishes
+    if rerun {
+        work::session_done(&tx, &lease, &c.session).await?;
+    }
     let answer = match inserted {
         Some(r) => (true, r.get(0)),
         None => {
@@ -302,6 +315,196 @@ pub async fn put(client: &mut Client, token: &str, c: &Checked) -> Result<(bool,
     Ok(answer)
 }
 
+
+/// C-073: the revisions a re-run's job names (`scope`: `base_revision`, `day_local_revision`).
+fn scoped(scope: &Value) -> (Option<i64>, Option<i64>) {
+    (scope["base_revision"].as_i64(), scope["day_local_revision"].as_i64())
+}
+
+/// C-073: a re-run's report is of its job's one session and binds to the revisions the job names,
+/// or to none (an account that states none judges nothing, and the day then stands not run).
+async fn rerun_of(tx: &impl GenericClient, lease: &work::Held, c: &Checked) -> Result<(), LeaseError> {
+    if c.session != lease.first_session {
+        return Err(LeaseError::Refused(format!("reference-check re-run job {} is of {}, not of {}", lease.job_id, lease.first_session, c.session)));
+    }
+    let scope: Value = tx
+        .query_one("SELECT COALESCE(scope, '{}'::jsonb)::text FROM core.job WHERE job_id = $1", &[&lease.job_id])
+        .await
+        .map_err(|e| LeaseError::Failed(db(e)))
+        .map(|r| serde_json::from_str(r.get::<_, &str>(0)).unwrap_or(Value::Null))?;
+    let named = scoped(&scope);
+    if c.base_revision.is_some() && (c.base_revision, c.day_local_revision) != named {
+        return Err(LeaseError::Refused(format!(
+            "the account's revisions {:?} are not the ones re-run job {} checks ({:?})",
+            [c.base_revision, c.day_local_revision],
+            lease.job_id,
+            [named.0, named.1]
+        )));
+    }
+    Ok(())
+}
+
+/// C-073: hours after its day was published, and its publishing worker stopped, that a day whose
+/// current revisions have no completed reference check gets a re-run (`VYREON_CORE_REFCHECK_RERUN_HOURS`
+/// overrides it; `off` queues none). The worker's own check runs beside its next day and is joined
+/// when that day is done (engine D-405), so a check normally lands within a day's compute of the
+/// publish; a worker whose lease is still live is never second-guessed. Six hours: past the 4-hour
+/// grace `GRACE_HOURS` (the old alert's) and inside the provider's five sessions of perishable prints.
+pub const RERUN_AFTER_HOURS: f64 = 6.0;
+
+/// The days due for a re-run at `now`: from `from` (`VYREON_CORE_REFCHECK_FROM`), the profile's
+/// published bases, published `hours` ago or more, whose publishing lease has ended, with no completed
+/// report on their current (base, day-local) pair and no re-run of that pair (any state but
+/// CANCELLED). `$1` profile, `$2` from, `$3` now, `$4` hours.
+const DUE: &str = "SELECT d.revision_id AS base, d.represented_date AS day, d.engine_build,
+                          (SELECT l.revision_id FROM vyreon.day_revision l
+                           WHERE l.base_revision = d.revision_id AND l.day_local AND l.state = 'PUBLISHED' ORDER BY l.revision_id DESC LIMIT 1) AS local
+                   FROM vyreon.day_revision d
+                   WHERE d.profile_id = $1 AND d.state = 'PUBLISHED' AND d.base_revision IS NULL AND d.represented_date >= $2::text::date
+                     AND d.published_at <= $3::text::timestamptz - make_interval(secs => $4::float8 * 3600)
+                     AND NOT EXISTS (SELECT FROM core.lease_revision lr JOIN core.lease l USING (lease_id)
+                                     WHERE lr.revision_id = d.revision_id AND l.ended_at IS NULL)";
+
+/// C-073: queues a re-run (a REFCHECK job of the day's one session) for each day due (`DUE`), for the
+/// day's own build if it runs, else the running build admitted last; a day with no running build gets
+/// none (it stays not run: REFCHECK_NOT_RUN). Once per (base, day-local) pair: a unique index refuses
+/// a second (migration 0055), so two watches never queue one twice. Returns (session, job), oldest
+/// first, with one log line when any was queued.
+pub async fn queue_reruns(c: &impl GenericClient, profile: &str, from: &str, hours: f64, now: &str) -> Result<Vec<(String, i64)>, String> {
+    let rows = c
+        .query(
+            &format!(
+                "WITH due AS ({DUE}),
+                      todo AS (
+                          SELECT due.*, COALESCE(CASE WHEN core.build_runs(due.engine_build) THEN due.engine_build END,
+                                                 (SELECT b.engine_build FROM core.engine_build b WHERE core.build_runs(b.engine_build)
+                                                  ORDER BY b.admitted_at DESC, b.engine_build LIMIT 1)) AS runner
+                          FROM due
+                          WHERE NOT EXISTS (SELECT FROM core.refcheck_report r
+                                            WHERE r.base_revision = due.base AND r.outcome = 'COMPLETED' AND r.stored_at <= $3::text::timestamptz
+                                              AND (r.day_local_revision IS NULL OR r.day_local_revision IS NOT DISTINCT FROM due.local))
+                            AND NOT EXISTS (SELECT FROM core.job j WHERE j.kind = 'REFCHECK' AND j.state <> 'CANCELLED'
+                                              AND j.scope->>'base_revision' = due.base::text
+                                              AND COALESCE(j.scope->>'day_local_revision', '') = COALESCE(due.local::text, '')))
+                 INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, max_attempts)
+                 SELECT 'REFCHECK', $1, runner, day, day, day, jsonb_build_object('base_revision', base, 'day_local_revision', local), {RERUN_ATTEMPTS}
+                 FROM todo WHERE runner IS NOT NULL ORDER BY day
+                 ON CONFLICT DO NOTHING
+                 RETURNING first_session::text, job_id"
+            ),
+            &[&profile, &from, &now, &hours],
+        )
+        .await
+        .map_err(db)?;
+    let mut queued: Vec<(String, i64)> = rows.iter().map(|r| (r.get(0), r.get(1))).collect();
+    queued.sort();
+    if let (Some(first), Some(last)) = (queued.first(), queued.last()) {
+        let days = if queued.len() == 1 { first.0.clone() } else { format!("{} days, {} to {}", queued.len(), first.0, last.0) };
+        crate::notice::log(c, &format!("Reference check re-run queued for {days}: no completed check {hours:.0} h after publishing (C-073).")).await?;
+    }
+    Ok(queued)
+}
+
+/// C-073: a re-run's attempts: the lease losses C-035 forgives, then two charged attempts (a second
+/// try covers a transient provider or node fault; a check that fails twice is the owner's to see).
+pub const RERUN_ATTEMPTS: i32 = 2;
+
+/// C-073: the dump a re-run's worker gives the reference suite (`--dump`), of the revisions its job
+/// names, from what core holds published: a tar of `store.jsonl` (one line per slot: `profile`,
+/// `measurement_id`, `object_id`, `revision_id`, `slot_state`, `method_version`, `science_version`,
+/// `body_sha256`, `body_text`, `receipt`, `stream`), `revisions.jsonl` (the base, then the day-local
+/// revision on it, each `PUBLISHED` as the suite reads a day under check) and
+/// `streams/<measurement>.<object>.<events sha256>.jsonl.gz` (each stream's events as core keeps them,
+/// gzip), exactly the engine's `refcheck::write_dump` layout. Only under a live REFCHECK lease.
+pub async fn dump(client: &mut Client, token: &str, session: &str) -> Result<Vec<u8>, LeaseError> {
+    let failed = |e: tokio_postgres::Error| LeaseError::Failed(db(e));
+    let tx = client.build_transaction().read_only(true).isolation_level(tokio_postgres::IsolationLevel::RepeatableRead).start().await.map_err(failed)?;
+    let lease = work::identify(&tx, token).await?;
+    if lease.kind != "REFCHECK" {
+        return Err(LeaseError::Refused(format!("job {} is not a reference-check re-run", lease.job_id)));
+    }
+    if session != lease.first_session {
+        return Err(LeaseError::Refused(format!("reference-check re-run job {} is of {}, not of {session}", lease.job_id, lease.first_session)));
+    }
+    let scope: Value = tx
+        .query_one("SELECT COALESCE(scope, '{}'::jsonb)::text FROM core.job WHERE job_id = $1", &[&lease.job_id])
+        .await
+        .map_err(failed)
+        .map(|r| serde_json::from_str(r.get::<_, &str>(0)).unwrap_or(Value::Null))?;
+    let (base, local) = scoped(&scope);
+    let base = base.ok_or_else(|| LeaseError::Failed(format!("re-run job {} names no base revision", lease.job_id)))?;
+    let ids: Vec<i64> = std::iter::once(base).chain(local).collect();
+    let mut archive = tar::Builder::new(Vec::new());
+    let mut add = |name: &str, bytes: &[u8]| -> Result<(), LeaseError> {
+        let mut head = tar::Header::new_gnu();
+        head.set_size(bytes.len() as u64);
+        head.set_mode(0o644);
+        head.set_cksum();
+        archive.append_data(&mut head, name, bytes).map_err(|e| LeaseError::Failed(e.to_string()))
+    };
+    let mut revisions = String::new();
+    let mut store = Vec::new();
+    for (i, id) in ids.iter().enumerate() {
+        let Some(r) = tx
+            .query_opt(
+                "SELECT represented_date::text, profile_revision, engine_build,
+                        to_char(snapshot_cutoff AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"')
+                 FROM vyreon.day_revision WHERE revision_id = $1 AND represented_date = $2::text::date",
+                &[id, &lease.first_session],
+            )
+            .await
+            .map_err(failed)?
+        else {
+            return Err(LeaseError::Refused(format!("revision {id} of {} is not held: nothing to check", lease.first_session)));
+        };
+        let (date, profile, build, cutoff): (String, String, String, String) = (r.get(0), r.get(1), r.get(2), r.get(3));
+        let slots = tx
+            .query(
+                "SELECT m.measurement_id, m.object_id, m.slot_state, m.method_version, m.science_version, m.body_sha256, m.body_text, m.receipt::text,
+                        s.root_sha256, s.events_sha256, s.event_count, s.byte_length, s.events_gzip
+                 FROM vyreon.measurement m
+                 LEFT JOIN vyreon.measurement_stream s USING (revision_id, measurement_id, object_id, represented_date)
+                 WHERE m.revision_id = $1 AND m.represented_date = $2::text::date
+                 ORDER BY m.measurement_id COLLATE \"C\", m.object_id COLLATE \"C\"",
+                &[id, &date],
+            )
+            .await
+            .map_err(failed)?;
+        for m in &slots {
+            let (measurement, object): (String, String) = (m.get(0), m.get(1));
+            let receipt: Value = serde_json::from_str(m.get::<_, &str>(7)).map_err(|e| LeaseError::Failed(e.to_string()))?;
+            let stream = match m.get::<_, Option<String>>(8) {
+                None => Value::Null,
+                Some(root) => {
+                    let events: String = m.get(9);
+                    add(&format!("streams/{measurement}.{object}.{events}.jsonl.gz"), m.get::<_, &[u8]>(12))?;
+                    json!({"root_sha256": root, "events_sha256": events, "event_count": m.get::<_, i64>(10), "byte_length": m.get::<_, i64>(11)})
+                }
+            };
+            let line = json!({
+                "profile": profile, "measurement_id": measurement, "object_id": object, "revision_id": id,
+                "slot_state": m.get::<_, String>(2), "method_version": m.get::<_, String>(3), "science_version": m.get::<_, String>(4),
+                // the body's file as the bundle carried it: core keeps it without its final newline
+                // (`publish`), the digest is over the file
+                "body_sha256": m.get::<_, String>(5), "body_text": format!("{}\n", m.get::<_, &str>(6)), "receipt": receipt, "stream": stream,
+            });
+            serde_json::to_writer(&mut store, &line).map_err(|e| LeaseError::Failed(e.to_string()))?;
+            store.push(b'\n');
+        }
+        revisions.push_str(
+            &json!({
+                "revision_id": id, "date": date, "profile": profile, "state": "PUBLISHED", "base_revision": (i > 0).then_some(base),
+                "engine_build": build, "snapshot_cutoff": cutoff, "slots": slots.len(),
+            })
+            .to_string(),
+        );
+        revisions.push('\n');
+    }
+    add("store.jsonl", &store)?;
+    add("revisions.jsonl", revisions.as_bytes())?;
+    tx.commit().await.map_err(failed)?;
+    archive.into_inner().map_err(|e| LeaseError::Failed(e.to_string()))
+}
 
 /// The columns `list` and `show` read, `r` the report.
 const COLUMNS: &str = "r.refcheck_report_id, r.session::text, r.outcome, r.why, r.checked, r.passed, r.failed, r.skipped, r.reference_errors,
@@ -434,9 +637,28 @@ pub struct State {
 /// The reference checks' state at `now` (`from`: the first session every published day of which
 /// is expected to have a report; None: only the reports sent count).
 pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, now: &str) -> Result<State, String> {
+    state_with(c, profile, from, None, now).await
+}
+
+/// `state`, with re-runs on (C-073, `rerun_hours`: `queue_reruns`' hours): a day whose check is still
+/// to be run again is not counted as not run (a re-run queued or leased under a running build, or none
+/// yet while the day is not due: published under `rerun_hours` ago, or its publishing worker still
+/// holding its lease). REFCHECK_NOT_RUN then holds only a day whose re-run also failed to complete, or
+/// that no running build could be given.
+pub async fn state_with(c: &impl GenericClient, profile: &str, from: Option<&str>, rerun_hours: Option<f64>, now: &str) -> Result<State, String> {
     let r = c
         .query_one(
-            "WITH latest AS (
+            "WITH pending AS (
+                 SELECT d.represented_date AS session FROM vyreon.day_revision d
+                 WHERE $5::float8 IS NOT NULL AND d.profile_id = $1 AND d.state = 'PUBLISHED' AND d.base_revision IS NULL
+                   AND (EXISTS (SELECT FROM core.job j WHERE j.kind = 'REFCHECK' AND j.state IN ('QUEUED', 'LEASED') AND core.build_runs(j.engine_build)
+                                  AND j.scope->>'base_revision' = d.revision_id::text)
+                        OR (NOT EXISTS (SELECT FROM core.job j WHERE j.kind = 'REFCHECK' AND j.state <> 'CANCELLED'
+                                          AND j.scope->>'base_revision' = d.revision_id::text)
+                            AND (d.published_at > $3::text::timestamptz - make_interval(secs => $5::float8 * 3600)
+                                 OR EXISTS (SELECT FROM core.lease_revision lr JOIN core.lease l USING (lease_id)
+                                            WHERE lr.revision_id = d.revision_id AND l.ended_at IS NULL))))),
+             latest AS (
                  SELECT DISTINCT ON (r.session) r.* FROM core.refcheck_report r
                  JOIN vyreon.day_revision d ON d.revision_id = r.base_revision AND d.state = 'PUBLISHED' AND d.profile_id = $1
                  WHERE r.stored_at <= $3::text::timestamptz
@@ -447,6 +669,7 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
                  SELECT d.represented_date AS session FROM vyreon.day_revision d
                  WHERE $2::text IS NOT NULL AND d.represented_date >= $2::text::date AND d.profile_id = $1 AND d.state = 'PUBLISHED'
                    AND d.base_revision IS NULL AND d.published_at <= $3::text::timestamptz - make_interval(secs => $4::float8 * 3600)
+                   AND d.represented_date NOT IN (SELECT session FROM pending)
                    AND NOT EXISTS (SELECT FROM core.refcheck_report r WHERE r.base_revision = d.revision_id AND r.stored_at <= $3::text::timestamptz
                                      AND (r.day_local_revision IS NULL
                                           OR EXISTS (SELECT FROM vyreon.day_revision x WHERE x.revision_id = r.day_local_revision AND x.state = 'PUBLISHED')))),
@@ -456,16 +679,16 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
              unjudged AS (SELECT session FROM untriaged UNION SELECT session FROM referr)
              SELECT (SELECT count(*) FROM disagree), (SELECT COALESCE(sum(failed_unexplained), 0)::bigint FROM disagree),
                     (SELECT min(session)::text FROM disagree),
-                    (SELECT count(*) FROM latest WHERE outcome = 'TIMEOUT'),
-                    (SELECT count(*) FROM latest WHERE outcome = 'CRASHED'),
-                    (SELECT count(*) FROM latest WHERE outcome = 'NOT_RUN'),
+                    (SELECT count(*) FROM latest WHERE outcome = 'TIMEOUT' AND session NOT IN (SELECT session FROM pending)),
+                    (SELECT count(*) FROM latest WHERE outcome = 'CRASHED' AND session NOT IN (SELECT session FROM pending)),
+                    (SELECT count(*) FROM latest WHERE outcome = 'NOT_RUN' AND session NOT IN (SELECT session FROM pending)),
                     (SELECT count(*) FROM unreported),
-                    (SELECT min(s)::text FROM (SELECT session AS s FROM latest WHERE outcome <> 'COMPLETED'
+                    (SELECT min(s)::text FROM (SELECT session AS s FROM latest WHERE outcome <> 'COMPLETED' AND session NOT IN (SELECT session FROM pending)
                                                UNION ALL SELECT session FROM unreported) x),
                     (SELECT count(*) FROM untriaged), (SELECT COALESCE(sum(failed), 0)::bigint FROM untriaged),
                     (SELECT count(*) FROM referr), (SELECT COALESCE(sum(reference_errors), 0)::bigint FROM referr),
                     (SELECT count(*) FROM unjudged), (SELECT min(session)::text FROM unjudged)",
-            &[&profile, &from, &now, &GRACE_HOURS],
+            &[&profile, &from, &now, &GRACE_HOURS, &rerun_hours],
         )
         .await
         .map_err(db)?;

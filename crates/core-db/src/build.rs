@@ -385,7 +385,7 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
         tx.execute("INSERT INTO core.hand_over_job (hand_over_id, old_job, new_job) VALUES ($1, $2, $3)", &[&hand_over_id, &c.old_job, &new]).await.map_err(db)?;
         c.new_job = Some(new);
     }
-    let counts: Vec<String> = ["TAPE", "DAY_BLOCK", "ORDERED_PASS"]
+    let counts: Vec<String> = ["TAPE", "DAY_BLOCK", "ORDERED_PASS", "REFCHECK"]
         .iter()
         .filter_map(|k| {
             let n = carried.iter().filter(|c| c.kind == *k).count();
