@@ -3059,7 +3059,8 @@ not fixed".
   job that moves on or finishes resolves it.
 - **Deploy:** migration 0055 (job kind REFCHECK in `job`, `job_evidence`, `claim_miss`,
   `stall_seen`; the re-run's scope check and unique index; problem kind JOB_THRASHING;
-  `core.budget_wait`; `core.scaler_count` granted to `vyreon_scaler`; `lease.job_first`, `job_last`
+  `core.budget_wait`; `core.scaler_count` granted to `vyreon_scaler`; `core.build_profile` (backfilled);
+  `job.retried_at`; `lease.job_first`, `job_last`
   and the grant trigger setting them; `hand_over_job.restarted`; `core.lease_step`; problem kind
   NO_PROGRESS), under 0054's timeouts. Order:
   `release.sh --core <tag>` first (the triggers need 0055), then `release.sh <engine-tag>` with the
@@ -3142,6 +3143,18 @@ not fixed".
      timeout applied: `migrate::apply` now waits at most `LOCK_WAIT` (60 s) for the lock and the ledger
      (`lock_timeout`, the statement's bound twice that), then fails, so the init container exits and
      is retried visibly; each migration runs without that bound.
+- **Profile layers registered (owner, after the release audit's C13).** The engine's inventory
+  declares each profile revision's layer: `"profiles": {"VYREON-RESEARCH-PROFILE-S64-3.0.0": "base",
+  "VYREON-DLM-DAY-PROFILE-1.0.0": "day-local", "VYREON-DLM-HISTORY-PROFILE-1.0.0": "history"}` (engine
+  change for eng-rel: `bundle::inventory` adds it from `vyreon_sensors::BASE_PROFILE`,
+  `DAY_DERIVED_PROFILE`, `HISTORY_DERIVED_PROFILE`). `build register` keeps it in `core.build_profile`
+  (every slot's profile declared, no other, at most one base and one day-local; a re-registration that
+  declares another layer is refused); release.sh refuses an inventory without it. Under a lease a
+  bundle presented as another layer than its profile's is refused before anything is stored. A build
+  registered before the declaration has its layers from what it published (0055 backfills them; an
+  undeclared profile's first publish fixes its layer). Test:
+  `release_audit.rs::a_bundles_layer_is_its_registered_profiles` (a declared build's first day: the
+  stripped day-local bundle refused with nothing published, then the real base and day-local accepted).
   The C-072 LATER items r2-2 (second hand-over to one successor) and r2-5 (a hand-typed withdrawal
   text) were part 2's and are moot since its retirement.
 - **The release audit (2026-11-24, `audits/2026-11-24-release/core`, Codex 19 + 1 suspicion, Gemini 14 +
@@ -3160,7 +3173,7 @@ not fixed".
   | C10 the CLI's wait count includes older waits | fixed: counts only whole minutes in the window ("at least") |
   | C11 a changed body from the same lease supersedes the first | fixed: a lease publishes a day's revision of one profile once; a different one is refused |
   | C12, G13.2 a resend with other receipt, coordinates, state, stream or cutoff acknowledged | fixed: every stored field compared before `already_published` |
-  | C13, G13.1 a stripped day-local bundle on another lease replaces the base | fixed: a second base of another profile for the day and build is refused whichever lease published the first; residual: a build's very first day with no base at all (an engine that sends day-local first, which it never does) |
+  | C13, G13.1 a stripped day-local bundle on another lease replaces the base | fixed generally (owner): a bundle's layer is what its registered profile is (`core.build_profile`: the inventory's declared `profiles`, or for a build registered before the declaration what each profile was first published as, backfilled by 0055), checked under every lease before anything is stored, a build's first day included; a second base of another profile for the day is refused too |
   | C14, G2.1 a re-run queued under a build being handed over | fixed: queueing takes the scheduler's lock (tried, never waited for) and a re-run under a build that does not run is cancelled and queued again |
   | G2.2 a re-run queued between a hand-over's preview and expect | fixed: nothing is queued while the queue is paused |
   | C15 empty hand-over fallback strands work queued meanwhile | fixed: after withdrawing, the preview runs again and hands over what appeared |
@@ -3187,7 +3200,7 @@ not fixed".
   updated automation and worker API tests, `progress.rs` unit tests; release.sh rehearsed against
   stubbed `kubectl`/`docker` for each of its findings (another's pause, a cause added mid-run, a failed
   hand-over resumed with `--from 5`, a paused ScaledJob then `--from 7`, a diff error, a reused core
-  tag, a dry run that keeps nothing, an interrupt during the push). The suite: 210 (193 + 17).
+  tag, a dry run that keeps nothing, an interrupt during the push). The suite: 211 (193 + 18).
 - Tests (added): `tests/automation.rs::a_worker_making_no_progress_is_one_alert_unless_it_declared_its_wait`;
   `tests/c072_later.rs` (a set-aside block named as it started; a hand-over stated once across a window's
   end and an upgrade, no restart from an earlier stop, the admit instruction kept; a cause during an

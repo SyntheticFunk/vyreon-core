@@ -1214,7 +1214,8 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   publish defects and the migrator's lock bound: 0aae025, 8b374d7, d91a3f7) and step reports + NO_PROGRESS
   (85067ff, 34970cc; endpoint contract in C-073 for eng-rel); then every real finding of the release audit
   (2026-11-24-release/core, Codex 19 + Gemini 14, table in C-073: 2c80dec, 220170a, f1ef818); migration 0055;
-  suite 210 passed. release.sh now needs `--evidence passed.json` ({"tests", "checks"}). **Engine side needed** (re-runs recompute from
+  suite 211 passed. release.sh now needs `--evidence passed.json` ({"tests", "checks"}) and an inventory that declares
+  its profiles' layers (`profiles`: engine change for eng-rel, spec in C-073). **Engine side needed** (re-runs recompute from
   raws, which no worker keeps): `vyreon-worker run refcheck`, spec in C-073 ("The worker"), ships in the same release.
   Release order: `release.sh --core <tag>`, then `release.sh <engine-tag>` within 15 min.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
