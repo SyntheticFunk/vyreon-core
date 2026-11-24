@@ -4,8 +4,8 @@
 //!   vyreon-core universe load <PROFILE.json> <dir>    store a profile's members and their ticker
 //!                                                     history from saved Intrinio responses
 //!   vyreon-core universe on <profile> <date>          the members and their tickers on a date
-//!   vyreon-core build register <inventory.json>       register an engine build with its slot inventory
-//!   vyreon-core build admit <build> <evidence.json>   let the build's workers claim work (the checks it passed)
+//!   vyreon-core build register <inventory.json>       register an engine build with its slot inventory (`-`: stdin)
+//!   vyreon-core build admit <build> <evidence.json>   let the build's workers claim work (the checks it passed; `-`: stdin)
 //!   vyreon-core build withdraw <build> <reason>       stop them claiming, and stop its running jobs (their
 //!                                                     leases end; the jobs are queued again under it)
 //!   vyreon-core build hand-over (--preview | --expect <token>) <from> <to> <reason...>   C-068: hand a build's
@@ -112,7 +112,10 @@
 //!                                                     than this is a problem; unset: only counted in the digest).
 //!                                                     The reference check (C-054): VYREON_CORE_REFCHECK_FROM (the first
 //!                                                     session whose published day must have a report; unset: only the
-//!                                                     reports workers send are judged)
+//!                                                     reports workers send are judged); VYREON_CORE_REFCHECK_RERUN_HOURS
+//!                                                     (C-073: a published day from VYREON_CORE_REFCHECK_FROM with no
+//!                                                     completed check, its worker gone, gets a re-run (a REFCHECK job)
+//!                                                     this many hours after publishing; default 6, `off`: none)
 //!   vyreon-core engine-store export <date> <dir>      bundles and inventories of a day from a store in
 //!                                                     the engine's schema (VYREON_ENGINE_PG[_FILE]; read-only)
 //!
@@ -153,8 +156,20 @@ async fn connect() -> Result<Client, String> {
     connect_to("VYREON_CORE_PG").await
 }
 
+/// A file's text, or with `-` the standard input (C-073, release audit, Gemini's suspicion 2: `kubectl
+/// exec -i` gives the pod's process a pipe it may not reopen as `/dev/stdin` under its own user; fd 0
+/// is read directly).
+fn read_input(file: &str) -> Result<String, String> {
+    if file == "-" {
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut text).map_err(|e| format!("standard input: {e}"))?;
+        return Ok(text);
+    }
+    std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))
+}
+
 async fn build_register(file: &str) -> Result<(), String> {
-    let text = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
+    let text = read_input(file)?;
     let inventory = serde_json::from_str(&text).map_err(|e| format!("{file}: {e}"))?;
     let r = build::register(&mut connect().await?, &inventory).await?;
     println!("{} {}: {} slots", if r.new { "registered" } else { "already registered" }, r.engine_build, r.slots);
@@ -162,7 +177,7 @@ async fn build_register(file: &str) -> Result<(), String> {
 }
 
 fn json_file(file: &str) -> Result<serde_json::Value, String> {
-    let text = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
+    let text = read_input(file)?;
     serde_json::from_str(&text).map_err(|e| format!("{file}: {e}"))
 }
 
@@ -458,12 +473,19 @@ fn watch_settings() -> Result<watch::Settings, String> {
     };
     // C-054: every published day from this session is expected to have its reference check
     let refcheck_from = date_setting("VYREON_CORE_REFCHECK_FROM")?;
+    // C-073: a day with no completed check gets a re-run this many hours after publishing (default
+    // `refcheck::RERUN_AFTER_HOURS`; `off`: none; only with VYREON_CORE_REFCHECK_FROM)
+    let refcheck_rerun_hours = match set("VYREON_CORE_REFCHECK_RERUN_HOURS").as_deref() {
+        None => Some(core_db::refcheck::RERUN_AFTER_HOURS),
+        Some("off") => None,
+        Some(v) => Some(v.parse::<f64>().ok().filter(|h| h.is_finite() && *h >= 1.0).ok_or_else(|| "VYREON_CORE_REFCHECK_RERUN_HOURS is not a number of hours from 1, or off".to_string())?),
+    };
     // C-068: the newest base backup's age is watched when this is set (with the volume's size)
     let backup_days = match set("VYREON_CORE_BACKUP_MAX_DAYS") {
         None => None,
         Some(v) => Some(v.parse::<i32>().ok().filter(|d| *d >= 1).ok_or_else(|| "VYREON_CORE_BACKUP_MAX_DAYS is not a whole number of days from 1".to_string())?),
     };
-    Ok(watch::Settings { profile, deadlines_from, volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64), deadline_hour, daily, archive, refcheck_from, backup_days })
+    Ok(watch::Settings { profile, deadlines_from, volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64), deadline_hour, daily, archive, refcheck_from, backup_days, refcheck_rerun_hours })
 }
 
 /// A Discord webhook's URL from the file a setting names; None (said, never the URL, nor the
@@ -652,6 +674,15 @@ async fn budget_ledger(hours: &str) -> Result<(), String> {
     let client = connect().await?;
     let ceiling: i32 = setting("VYREON_CORE_INTRINIO_PER_MINUTE", core_db::budget::Budget::default().per_minute)?;
     println!("committed now: {} of {ceiling} a minute", core_db::budget::committed(&client).await?);
+    // C-073: the scaler's view of the budget
+    let now = watch::now(&client).await?;
+    match core_db::budget::pressed(&client, &now).await? {
+        Some((at, n)) => println!(
+            "pressed: at least {n} draws waited in the last {:.0} min, the last at {at} UTC: KEDA starts no tape, backfill block or re-run pod until it is quiet that long",
+            core_db::budget::PRESSURE_MINUTES
+        ),
+        None => println!("not pressed: no draw waited in the last {:.0} min (KEDA starts pods for all claimable work)", core_db::budget::PRESSURE_MINUTES),
+    }
     let (n, requests) = core_db::budget::unreleased(&client, hours).await?;
     println!("leases never released in the last {hours} h: {n} ({requests} requests granted; what they used is unknown)");
     println!("busiest minutes (UTC), by the leases granted in them: used as reported + granted and never released; at most this many requests were made in the minute (its and the previous minute's leases); workers");
@@ -785,7 +816,7 @@ async fn evidence_list(job: Option<&str>) -> Result<(), String> {
         let refusals = r["refusals"].as_i64().map_or(String::new(), |n| format!(", {n} refusals"));
         println!(
             "{} job {} attempt {} {} {} by {}: {}: {} ({} bytes of log{refusals})",
-            r["stored_at"].as_str().unwrap_or_default(),
+            r["stored_mt"].as_str().unwrap_or_default(),
             r["job_id"],
             r["attempt"],
             r["kind"].as_str().unwrap_or_default(),

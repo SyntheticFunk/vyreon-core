@@ -1453,7 +1453,7 @@ async fn a_day_whose_block_failed_after_its_base_is_missing_for_the_passes() {
     assert_eq!(run_pass(&mut client, &d).await.as_deref(), Some(days[2]));
     assert_eq!(claimable_passes(&client).await, "2025-12-12");
     // the digest names the day set aside, with the base it left
-    let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None };
+    let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
     let now = watch::now(&client).await.unwrap();
     let digest = watch::digest(&mut client, &s, &now).await.unwrap();
     let line = format!("Set aside: Wed Dec 10, 2025 · FAILED · base revision {base10} superseded, no day-local revision was published on it; day-local derived: core answered 503");
@@ -1973,7 +1973,7 @@ async fn a_date_is_omitted_only_when_its_day_failed_for_the_provider() {
     assert_eq!(cause(&client, days[1]).await, ("FAILED".into(), first_line.clone()));
 
     // the digest: one line per day set aside or omitted, with its cause code
-    let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None };
+    let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
     let now = watch::now(&client).await.unwrap();
     let digest = watch::digest(&mut client, &s, &now).await.unwrap();
     assert!(digest.starts_with("🟡 Running; handled: 1 date omitted · "), "{digest}");
@@ -2565,6 +2565,7 @@ async fn a_hand_over_is_one_progress_line_and_hides_no_reason() {
         archive: None,
         refcheck_from: None,
         backup_days: None,
+        refcheck_rerun_hours: None,
     };
     work::pause(&client, "checking the new image's first day").await.unwrap();
     watch::check(&mut client, &settings, &now).await.unwrap();

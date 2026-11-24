@@ -20,7 +20,7 @@
 //! most, so the operator keeps it (`deploy/k8s/ops/health.sh`); idle worker nodes are the
 //! autoscaler's (KEDA and the pool's minimum of 0).
 use crate::daily::{self, Daily};
-use crate::{archive, evidence, notice, refcheck};
+use crate::{archive, budget, evidence, notice, refcheck};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
@@ -109,6 +109,10 @@ pub struct Settings {
     /// C-054: from this session every published day is expected to have a reference-check report
     /// (`VYREON_CORE_REFCHECK_FROM`); None: only the reports workers send are judged.
     pub refcheck_from: Option<String>,
+    /// C-073: hours after publishing (and its worker's end) that a day with no completed check gets
+    /// a re-run (`refcheck::queue_reruns`; `VYREON_CORE_REFCHECK_RERUN_HOURS`, default
+    /// `refcheck::RERUN_AFTER_HOURS`, `off`: None). Needs `refcheck_from`.
+    pub refcheck_rerun_hours: Option<f64>,
     /// C-068: the newest base backup must be at most this many days old (`VYREON_CORE_BACKUP_MAX_DAYS`;
     /// the weekly schedule plus a day); None: the base backups are not watched.
     pub backup_days: Option<i32>,
@@ -260,7 +264,9 @@ const STALLS: Part = Part { key: "stalls", what: "check for stalled work", kinds
 const CLAIMS: Part = Part { key: "claims", what: "check for workers leaving while work waits", kinds: &["CLAIMS_EMPTY"] };
 const DAILY: Part = Part { key: "daily", what: "check the daily runs", kinds: &["DAILY_STOPPED"] };
 const ARCHIVE: Part = Part { key: "archive", what: "check the perishable archive", kinds: &["ARCHIVE_MISSING"] };
-const REFCHECK: Part = Part { key: "refcheck", what: "check the reference checks", kinds: &["REFCHECK_DISAGREES", "REFCHECK_NOT_RUN"] };
+const REFCHECK: Part = Part { key: "refcheck", what: "check the reference checks (and queue their re-runs)", kinds: &["REFCHECK_DISAGREES", "REFCHECK_NOT_RUN"] };
+const PROGRESS: Part = Part { key: "progress", what: "check for workers making no progress", kinds: &["NO_PROGRESS"] };
+const THRASHING: Part = Part { key: "thrashing", what: "check for jobs losing their leases", kinds: &["JOB_THRASHING"] };
 const STORAGE: Part = Part { key: "storage", what: "check the database volume and its WAL", kinds: &["DATABASE_FULL", "WAL_ARCHIVING"] };
 const BACKUPS: Part = Part { key: "backups", what: "check the backups", kinds: &["BACKUP_STALE", "WAL_ARCHIVING"] };
 const CALENDAR: Part = Part { key: "calendar", what: "check where the trading calendar ends", kinds: &["CALENDAR_END"] };
@@ -326,10 +332,16 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
             Ok(paused
                 .map(|row| {
                     let reason: String = row.get(0);
+                    // C-073: the first cause, and the latest added while paused (`work::pause`)
+                    let causes: Vec<&str> = reason.split(crate::work::ALSO).collect();
+                    let also = match causes.len() {
+                        1 => String::new(),
+                        n => format!("; also{}: {}", if n > 2 { format!(" ({} more causes)", n - 1) } else { String::new() }, one_line(causes[n - 1], 160)),
+                    };
                     Found {
                         kind: "QUEUE_PAUSED",
                         key: row.get(1),
-                        summary: format!("Work queue paused, nothing is handed out: {}", one_line(&reason, 160)),
+                        summary: format!("Work queue paused, nothing is handed out: {}{also}", one_line(causes[0], 160)),
                         command: "vyreon-core queue".into(),
                         detail: None,
                     }
@@ -356,6 +368,20 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
         .part(c, &STALLS, async {
             let mut found = Vec::new();
             stalled(c, now, &mut found).await?;
+            Ok(found)
+        })
+        .await?;
+    checked
+        .part(c, &PROGRESS, async {
+            let mut found = Vec::new();
+            no_progress(c, now, &mut found).await?;
+            Ok(found)
+        })
+        .await?;
+    checked
+        .part(c, &THRASHING, async {
+            let mut found = Vec::new();
+            thrashing(c, now, &mut found).await?;
             Ok(found)
         })
         .await?;
@@ -425,7 +451,13 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
     // two problems, each one alert however many days it holds
     checked
         .part(c, &REFCHECK, async {
-            let checks = refcheck::state(c, &s.profile, s.refcheck_from.as_deref(), now).await?;
+            // C-073: the days due get their re-run first, so a day whose re-run was just queued is
+            // not counted as not run
+            let rerun = s.refcheck_rerun_hours.filter(|_| s.refcheck_from.is_some());
+            if let (Some(hours), Some(from)) = (rerun, &s.refcheck_from) {
+                refcheck::queue_reruns(c, &s.profile, from, hours, now).await?;
+            }
+            let checks = refcheck::state_with(c, &s.profile, s.refcheck_from.as_deref(), rerun, now).await?;
             let mut found = Vec::new();
             if let Some(summary) = checks.disagree_summary() {
                 found.push(Found { kind: "REFCHECK_DISAGREES", key: "refcheck".into(), summary, command: "vyreon-core refcheck list".into(), detail: None });
@@ -875,7 +907,7 @@ async fn failed_jobs(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(
              FROM core.job j
              LEFT JOIN LATERAL (SELECT l.lease_id FROM core.lease l WHERE l.job_id = j.job_id AND l.outcome IN ('FAILED', 'EXPIRED')
                                 ORDER BY l.lease_id DESC LIMIT 1) f ON true
-             WHERE j.state = 'FAILED' ORDER BY j.job_id",
+             WHERE j.state = 'FAILED' AND j.kind <> 'REFCHECK' ORDER BY j.job_id",
             &[],
         )
         .await
@@ -976,7 +1008,12 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
 /// C-068 round 2 (`round2-core.md` 13): the daily session's blocks (DAY_BLOCK of priority 1) are a
 /// group of their own, as they have a ScaledJob of their own (`day-block-daily`): a backfill block's
 /// lease says nothing of the daily pod.
-const KINDS: [(&str, &str); 4] = [("TAPE", "tape"), ("DAY_BLOCK", "day-block"), ("DAILY_BLOCK", "day-block-daily"), ("ORDERED_PASS", "ordered-pass")];
+const KINDS: [(&str, &str); 5] =
+    [("TAPE", "tape"), ("DAY_BLOCK", "day-block"), ("DAILY_BLOCK", "day-block-daily"), ("ORDERED_PASS", "ordered-pass"), ("REFCHECK", "refcheck")];
+
+/// C-073: the kinds whose pods the scaler holds back while the request budget is pressed
+/// (`core.scaler_count`): a kind waiting for that reason is not stalled.
+const BUDGETED: [&str; 3] = ["TAPE", "DAY_BLOCK", "REFCHECK"];
 
 /// A job's stall group: its kind, or `DAILY_BLOCK` for a daily session's day block (`KINDS`).
 const GROUP: &str = "CASE WHEN j.kind = 'DAY_BLOCK' AND j.priority = 1 THEN 'DAILY_BLOCK' ELSE j.kind END";
@@ -1031,16 +1068,23 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
         .await
         .map_err(db)?;
     let mut any_claimable = false;
+    let pressed = budget::pressed(c, now).await?.is_some();
     for (kind, pod) in KINDS {
         let row = rows.iter().find(|r| r.get::<_, String>(0) == kind);
         let claimable: i64 = row.map_or(0, |r| r.get(1));
         any_claimable |= claimable > 0;
+        // C-073: the backfill's work held back by the scaler while the budget is pressed is the
+        // budget's pace, not a stall (its clock starts again after); the daily session's work is
+        // never held back (`core.scaler_count`), so it alone still counts (release audit, Codex 4,
+        // Gemini 1: a daily tape's stall was hidden by backfill pressure)
+        let held_back = pressed && BUDGETED.contains(&kind);
+        let claimable = if held_back { claimable - row.map_or(0, |r| r.get::<_, i64>(2)) } else { claimable };
         if claimable == 0 || leased.iter().any(|l| l == kind) {
             c.execute("DELETE FROM core.stall_seen WHERE kind = $1", &[&kind]).await.map_err(db)?;
             continue;
         }
         let row = row.expect("a kind with claimable work has its row");
-        let (backfill, queued, admitted): (i64, Option<String>, Option<String>) = (row.get(2), row.get(3), row.get(4));
+        let (backfill, queued, admitted): (i64, Option<String>, Option<String>) = (if held_back { 0 } else { row.get(2) }, row.get(3), row.get(4));
         c.execute("INSERT INTO core.stall_seen (kind, since) VALUES ($1, $2::text::timestamptz) ON CONFLICT (kind) DO NOTHING", &[&kind, &now]).await.map_err(db)?;
         let limit = if backfill == 0 { DAILY_STALL_MINUTES } else { STALL_MINUTES };
         // audit round 2 of core-watch, 7: the clock never starts before the work could be claimed,
@@ -1085,7 +1129,7 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
                                         OR EXISTS (SELECT FROM core.job d WHERE d.kind = 'DAY_BLOCK' AND d.profile_id = j.profile_id
                                                      AND d.state IN ('QUEUED', 'LEASED') AND j.first_session BETWEEN d.next_session AND d.last_session)))))
              SELECT (SELECT count(*) FROM q),
-                    (SELECT string_agg(n || ' ' || CASE kind WHEN 'DAY_BLOCK' THEN 'day blocks' WHEN 'TAPE' THEN 'tape jobs' ELSE 'ordered passes' END, ', ' ORDER BY kind)
+                    (SELECT string_agg(n || ' ' || CASE kind WHEN 'DAY_BLOCK' THEN 'day blocks' WHEN 'TAPE' THEN 'tape jobs' WHEN 'REFCHECK' THEN 'reference-check re-runs' ELSE 'ordered passes' END, ', ' ORDER BY kind)
                      FROM (SELECT kind, count(*) AS n FROM q GROUP BY kind) g),
                     (SELECT paused FROM core.queue_control)",
             &[],
@@ -1116,6 +1160,167 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
                 kinds.unwrap_or_default()
             ),
             command: "vyreon-core queue".into(),
+            detail: None,
+        });
+    }
+    Ok(())
+}
+
+/// C-073: how long a worker may show no progress before NO_PROGRESS.
+pub const NO_PROGRESS_MINUTES: f64 = 20.0;
+/// C-073: how long past its declared end a wait may run before NO_PROGRESS.
+pub const WAIT_GRACE_MINUTES: f64 = 15.0;
+
+/// C-073 (live investigation, 2026-11-24: the daily run's worker heartbeated through an hour's
+/// deliberate EXQ01 cutoff wait, indistinguishable from a stall): a live lease whose worker reports
+/// its steps (`work::report_step`; a worker that never reported one, an image before it, is not
+/// judged: it could not declare a long computation or a wait) and shows no progress for
+/// `NO_PROGRESS_MINUTES`: no request drawn or reported (`core.budget_lease`, `core.request_usage`), no
+/// new step or wait, nothing published, no tape cache or reference check stored, since the later of
+/// those and its grant. A declared wait covers its time: the deadline is then the later of the above
+/// and the wait's end plus `WAIT_GRACE_MINUTES`, so a wait that overstays alerts too. One problem per
+/// job (key: the job), alerted once, resolved when progress resumes or the lease ends.
+async fn no_progress(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> Result<(), String> {
+    let rows = c
+        .query(
+            "WITH live AS (
+                 SELECT l.lease_id, l.job_id, l.worker, l.granted_at, j.kind, j.priority, j.next_session, j.first_session, j.last_session,
+                        s.step, s.step_since, s.waiting_until, s.reason
+                 FROM core.lease l JOIN core.job j USING (job_id) JOIN core.lease_step s USING (lease_id)
+                 WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz AND l.granted_at <= $1::text::timestamptz),
+             p AS (
+                 SELECT live.*, GREATEST(live.granted_at, live.step_since,
+                     (SELECT max(b.granted_at) FROM core.budget_lease b
+                      WHERE b.worker = live.worker AND b.granted_at >= live.granted_at AND b.granted_at <= $1::text::timestamptz
+                        AND (b.used IS NULL OR b.used > 0)),
+                     (SELECT max(u.minute) + interval '1 minute' FROM core.request_usage u
+                      WHERE u.worker = live.worker AND u.requests > 0 AND u.minute >= date_trunc('minute', live.granted_at) AND u.minute <= $1::text::timestamptz),
+                     (SELECT max(d.published_at) FROM core.lease_revision lr JOIN vyreon.day_revision d USING (revision_id)
+                      WHERE lr.lease_id = live.lease_id AND d.published_at <= $1::text::timestamptz),
+                     (SELECT max(r.stored_at) FROM core.refcheck_report r WHERE r.lease_id = live.lease_id AND r.stored_at <= $1::text::timestamptz),
+                     (SELECT max(k.checked_at) FROM core.tape_check k WHERE k.lease_id = live.lease_id AND k.checked_at <= $1::text::timestamptz),
+                     (SELECT max(GREATEST(a.requested_at, a.kept_at)) FROM core.perishable_archive a
+                      WHERE a.job_id = live.job_id AND a.worker = live.worker AND a.requested_at >= live.granted_at AND a.requested_at <= $1::text::timestamptz),
+                     -- release audit (Codex 18, Gemini 10): a tape job's own caches and verdicts only; the
+                     -- day block's captures of its own sessions
+                     (SELECT max(t.stored_at) FROM core.tape_cache t
+                      WHERE live.kind = 'TAPE' AND t.session BETWEEN live.first_session AND live.last_session
+                        AND t.stored_at >= live.granted_at AND t.stored_at <= $1::text::timestamptz),
+                     (SELECT max(v.stored_at) FROM core.tape_verdict v
+                      WHERE live.kind = 'TAPE' AND v.session BETWEEN live.first_session AND live.last_session
+                        AND v.stored_at >= live.granted_at AND v.stored_at <= $1::text::timestamptz),
+                     (SELECT max(i.stored_at) FROM core.input_capture i
+                      WHERE live.kind = 'DAY_BLOCK' AND i.session BETWEEN live.first_session AND live.last_session
+                        AND i.stored_at >= live.granted_at AND i.stored_at <= $1::text::timestamptz)
+                 ) AS last FROM live)
+             SELECT job_id, CASE WHEN kind = 'DAY_BLOCK' AND priority = 1 THEN 'DAILY_BLOCK' ELSE kind END, COALESCE(next_session, last_session)::text, worker, step,
+                    to_char(last AT TIME ZONE $2, 'Dy HH24:MI'), to_char(waiting_until AT TIME ZONE $2, 'Dy HH24:MI'), reason,
+                    waiting_until IS NOT NULL AND waiting_until + make_interval(secs => $4::float8 * 60) < $1::text::timestamptz
+             FROM p
+             WHERE $1::text::timestamptz > GREATEST(last + make_interval(secs => $3::float8 * 60), waiting_until + make_interval(secs => $4::float8 * 60))
+             ORDER BY job_id",
+            &[&now, &ZONE, &NO_PROGRESS_MINUTES, &WAIT_GRACE_MINUTES],
+        )
+        .await
+        .map_err(db)?;
+    for r in &rows {
+        let (job, kind, session, worker, step, since, until, reason, overstayed): (i64, String, String, String, String, String, Option<String>, Option<String>, bool) =
+            (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6), r.get(7), r.get(8));
+        let what = match kind.as_str() {
+            "DAILY_BLOCK" => "Daily day block",
+            "DAY_BLOCK" => "Day block",
+            "ORDERED_PASS" => "Ordered pass",
+            "REFCHECK" => "Reference-check re-run",
+            _ => "Tape job",
+        };
+        let wait = match (overstayed, until, reason) {
+            (true, Some(u), Some(why)) => format!("; its declared wait ({}) was to end {u} MT", one_line(&why, 120)),
+            _ => String::new(),
+        };
+        found.push(Found {
+            kind: "NO_PROGRESS",
+            key: format!("job {job}"),
+            summary: format!("{what} job {job} ({session}) on {worker}: no progress since {since} MT, at step \"{}\"{wait}", one_line(&step, 120)),
+            command: format!("kubectl -n vyreon logs {worker}"),
+            detail: None,
+        });
+    }
+    Ok(())
+}
+
+/// C-073: how many leases a job may lose without moving on before it is JOB_THRASHING.
+pub const THRASH_LEASES: i64 = 3;
+/// C-073: only leases granted this many hours before `now` count (a job queued again by
+/// `retry-failed` after its cause was fixed starts clean a day later at the latest).
+pub const THRASH_WINDOW_HOURS: f64 = 24.0;
+
+/// C-073 (MILESTONES' automation debt of 2026-11-23: 11 tapes OOM-killed 12 times in an hour, each
+/// kill a lost lease re-queued quietly, and nothing alerted): a job still to do (QUEUED or LEASED)
+/// whose attempts on the session it is still on (leases that began there: `start_session`) ended
+/// lost or failed `THRASH_LEASES` times or more within `THRASH_WINDOW_HOURS`. One problem per kind
+/// of work (key: the kind, a daily session's blocks apart), one alert however many jobs: the job
+/// that lost most (then the oldest) is named with its session and its last error (the lost lease's
+/// evidence, or its stop as core recorded it); the summary counts the others. A job set aside
+/// (FAILED) is JOB_FAILED's, a job that moves on or finishes resolves it, and an attempt stopped by
+/// the provider's errors is PROVIDER_ERRORS's (not counted).
+async fn thrashing(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> Result<(), String> {
+    // newest first within each job
+    let rows = c
+        .query(
+            &format!(
+                "SELECT {GROUP}, j.job_id, j.next_session::text, l.outcome,
+                        COALESCE(e.message, COALESCE(l.failed_stage || ': ', '') || COALESCE(l.failure, 'no reason given'))
+                 FROM core.job j JOIN core.lease l ON l.job_id = j.job_id
+                 LEFT JOIN core.job_evidence e ON e.lease_id = l.lease_id
+                 WHERE j.state IN ('QUEUED', 'LEASED') AND j.next_session IS NOT NULL AND core.build_runs(j.engine_build)
+                   AND l.outcome IN ('EXPIRED', 'FAILED') AND l.start_session = j.next_session
+                   AND l.ended_at <= $1::text::timestamptz
+                   AND l.granted_at > $1::text::timestamptz - make_interval(secs => $2::float8 * 3600)
+                   AND (j.retried_at IS NULL OR l.granted_at > j.retried_at)
+                 ORDER BY 1, j.job_id, l.ended_at DESC, l.lease_id DESC"
+            ),
+            &[&now, &THRASH_WINDOW_HOURS],
+        )
+        .await
+        .map_err(db)?;
+    // per kind: (job, session, lost, last outcome, last error), each job's losses counted; a loss to
+    // the provider's errors (an HTTP status the provider check counts) is PROVIDER_ERRORS's, one alert
+    // for one cause, and not counted here
+    let mut jobs: BTreeMap<String, Vec<(i64, String, i64, String, String)>> = BTreeMap::new();
+    for r in &rows {
+        let (kind, job, session, outcome, why): (String, i64, String, String, String) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4));
+        if provider_statuses(&why).iter().any(|c| is_provider_error(*c)) {
+            continue;
+        }
+        let list = jobs.entry(kind).or_default();
+        match list.last_mut() {
+            Some(last) if last.0 == job => last.2 += 1,
+            _ => list.push((job, session, 1, outcome, why)),
+        }
+    }
+    for (kind, list) in jobs {
+        let mut thrashing: Vec<&(i64, String, i64, String, String)> = list.iter().filter(|j| j.2 >= THRASH_LEASES).collect();
+        // the job that lost most, then the oldest
+        thrashing.sort_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(&b.0)));
+        let Some((job, session, n, outcome, why)) = thrashing.first().copied() else { continue };
+        let why = if outcome == "EXPIRED" && why == "the lease was not renewed" {
+            "its lease expired with no stop recorded (the pod killed: out of memory, its deadline, or its node lost)".to_owned()
+        } else {
+            one_line(why, 160)
+        };
+        let words = if kind == "DAILY_BLOCK" { "daily day blocks" } else { kind_words(&kind) };
+        let mut title = words.to_owned();
+        title[..1].make_ascii_uppercase();
+        let others = match thrashing.len() {
+            1 => String::new(),
+            2 => "; 1 more job of the kind too".into(),
+            k => format!("; {} more jobs of the kind too", k - 1),
+        };
+        found.push(Found {
+            kind: "JOB_THRASHING",
+            key: kind.clone(),
+            summary: format!("{title} thrashing: job {job} ({session}) lost {n} leases without moving on, the last: {why}{others}"),
+            command: format!("vyreon-core evidence list {job}"),
             detail: None,
         });
     }
@@ -1599,6 +1804,7 @@ pub(crate) fn kind_words(kind: &str) -> &'static str {
     match kind {
         "DAY_BLOCK" => "day blocks",
         "ORDERED_PASS" => "ordered passes",
+        "REFCHECK" => "reference-check re-runs",
         _ => "tape jobs",
     }
 }
@@ -1788,7 +1994,7 @@ async fn digest_of(c: &mut impl GenericClient, s: &Settings, now: &str, open: &[
     let kinds = c
         .query(
             "SELECT kind, count(*) FILTER (WHERE state = 'QUEUED'), count(*) FILTER (WHERE state = 'LEASED'), count(*) FILTER (WHERE state = 'FAILED')
-             FROM core.job GROUP BY kind ORDER BY CASE kind WHEN 'DAY_BLOCK' THEN 0 WHEN 'TAPE' THEN 1 ELSE 2 END",
+             FROM core.job GROUP BY kind ORDER BY CASE kind WHEN 'DAY_BLOCK' THEN 0 WHEN 'TAPE' THEN 1 ELSE 2 END, kind",
             &[],
         )
         .await

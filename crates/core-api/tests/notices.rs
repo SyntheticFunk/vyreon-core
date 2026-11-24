@@ -40,7 +40,7 @@ async fn problems_are_posted_once_in_order_silently_and_events_only_logged() {
     migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
     work::load_calendar(&mut client, &serde_json::from_str(CALENDAR).unwrap()).await.unwrap();
     let b = build::register(&mut client, &inventories()[0]).await.unwrap().engine_build;
-    let settings = watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None };
+    let settings = watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
 
     // the events: a build admitted, a block done, the queue paused and resumed: logged, not posted (C-050)
     build::admit(&client, &b, &json!({"checklist": "notice test"})).await.unwrap();
@@ -262,7 +262,7 @@ async fn a_gateway_timeout_waits_the_unknown_outcome_window() {
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn the_watch_runs_while_the_sender_is_stuck() {
     let (scratch, client, app) = ready_app("watch_apart").await;
-    let settings = watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None };
+    let settings = watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
     for i in 0..5 {
         notice::alert(&client, &format!("backlog {i}")).await.unwrap();
     }
@@ -313,7 +313,7 @@ async fn a_core_whose_watch_stalled_is_not_live() {
     assert_eq!(status(&url).await, 200, "just started");
     app.watching(std::time::Instant::now().checked_sub(core_api::LIVE_WITHIN + std::time::Duration::from_secs(1)).unwrap());
     assert_eq!(status(&url).await, 503, "the watch stalled");
-    let settings = watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None };
+    let settings = watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
     let watcher = core_api::notices::spawn_watch(app.clone(), settings, std::time::Duration::from_millis(100));
     // C-069: live once a tick has completed (its checks, and today's digest past 09:00), not when it starts
     let mut live = 503;
@@ -353,7 +353,7 @@ async fn a_core_whose_watch_cannot_check_is_not_live() {
         .await
         .unwrap();
     app.watching(std::time::Instant::now().checked_sub(core_api::LIVE_WITHIN + std::time::Duration::from_secs(1)).unwrap());
-    let settings = watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None };
+    let settings = watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
     let watcher = core_api::notices::spawn_watch(app.clone(), settings, std::time::Duration::from_millis(100));
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     assert_eq!(status(&url).await, 503, "ticking, but no check runs");

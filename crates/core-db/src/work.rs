@@ -18,6 +18,9 @@ pub enum Kind {
     Tape,
     DayBlock,
     OrderedPass,
+    /// C-073: a published day's reference check run again, against the revisions core holds
+    /// published; queued by the watch (`refcheck::queue_reruns`), never scheduled by hand.
+    Refcheck,
 }
 
 impl Kind {
@@ -26,6 +29,7 @@ impl Kind {
             Kind::Tape => "TAPE",
             Kind::DayBlock => "DAY_BLOCK",
             Kind::OrderedPass => "ORDERED_PASS",
+            Kind::Refcheck => "REFCHECK",
         }
     }
 
@@ -34,7 +38,8 @@ impl Kind {
             "TAPE" => Ok(Kind::Tape),
             "DAY_BLOCK" => Ok(Kind::DayBlock),
             "ORDERED_PASS" => Ok(Kind::OrderedPass),
-            other => Err(format!("unknown job kind {other} (tape, day-block, ordered-pass)")),
+            "REFCHECK" => Ok(Kind::Refcheck),
+            other => Err(format!("unknown job kind {other} (tape, day-block, ordered-pass, refcheck)")),
         }
     }
 }
@@ -95,6 +100,9 @@ pub struct Scheduled {
 /// another build that runs refuses the range (withdraw that build or cancel its pass first). DONE
 /// and CANCELLED passes of any build are left as they are.
 pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &str, first: &str, last: &str, block: i32) -> Result<Scheduled, String> {
+    if kind == Kind::Refcheck {
+        return Err("reference-check re-runs are queued by core's watch (C-073), not scheduled".into());
+    }
     if kind == Kind::DayBlock && block < 1 {
         return Err("a day block holds at least one session".into());
     }
@@ -455,6 +463,12 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         notice::log(db_client, &format!("Tape verify job {job} failed for the last time: {why}. Nothing waits on it.")).await?;
         return Ok(false);
     }
+    if kind == "REFCHECK" {
+        // C-073: a re-run holds nothing back; the day's check stands not run (REFCHECK_NOT_RUN)
+        let day: String = db_client.query_one("SELECT first_session::text FROM core.job WHERE job_id = $1", &[&job]).await.map_err(db)?.get(0);
+        notice::log(db_client, &format!("Reference-check re-run of {day} failed for the last time (job {job}): {why}. Nothing waits on it.")).await?;
+        return Ok(false);
+    }
     if kind == "ORDERED_PASS" {
         // the later days' passes wait on this one by themselves (`core.claimable_job`); the day
         // blocks do not read it, and a pass is seconds to run again once its cause is fixed
@@ -787,6 +801,69 @@ pub async fn heartbeat(client: &mut Client, token: &str, lease_seconds: f64) -> 
     Ok((row.get(0), row.get(1)))
 }
 
+/// C-073: the longest a declared wait may reach ahead of now.
+pub const WAIT_MAX_HOURS: f64 = 24.0;
+
+/// C-073: a worker's report of the step it is on and of any deliberate wait (`waiting_until`, an
+/// instant, with its `reason`; both or neither), kept per lease (`core.lease_step`). A step or a wait
+/// that differs from the last report starts its clock (`step_since`): the worker's own progress mark
+/// for the watch's NO_PROGRESS; the same report again only says the worker is alive. Refused: an empty
+/// or long text, one a credential pattern matches (never stored), a wait that is not an RFC 3339
+/// instant or is more than `WAIT_MAX_HOURS` ahead (one already over is kept).
+pub async fn report_step(client: &mut Client, token: &str, step: &str, waiting_until: Option<&str>, reason: Option<&str>) -> Result<(), LeaseError> {
+    let (step, reason) = (step.trim(), reason.map(str::trim).filter(|r| !r.is_empty()));
+    if step.is_empty() || step.chars().count() > 200 {
+        return Err(LeaseError::Refused("a step is named in 1 to 200 characters".into()));
+    }
+    if reason.is_some_and(|r| r.chars().count() > 300) {
+        return Err(LeaseError::Refused("a wait's reason is at most 300 characters".into()));
+    }
+    if waiting_until.is_some() != reason.is_some() {
+        return Err(LeaseError::Refused("a wait states both its end (waiting_until) and its reason".into()));
+    }
+    for text in std::iter::once(step).chain(reason) {
+        if let Some(found) = crate::evidence::unredacted(text) {
+            return Err(LeaseError::Refused(format!("{found}: a step report carries no credential; nothing was stored")));
+        }
+    }
+    // release audit (Gemini 12): an RFC 3339 instant, parsed strictly here (never echoed when it is not
+    // one); a wait already over is kept as reported (the watch's deadline is then the usual one), so a
+    // second of clock skew never loses the step; only one more than `WAIT_MAX_HOURS` ahead is refused
+    let until: Option<String> = match waiting_until {
+        None => None,
+        Some(u) => Some(
+            u.trim()
+                .parse::<jiff::Timestamp>()
+                .map_err(|_| LeaseError::Refused("waiting_until is not an RFC 3339 instant (not repeated here)".into()))?
+                .to_string(),
+        ),
+    };
+    let tx = client.transaction().await.map_err(failed)?;
+    let lease = held(&tx, token).await?;
+    if let Some(until) = &until {
+        let ok: bool = tx
+            .query_one("SELECT $1::text::timestamptz <= clock_timestamp() + make_interval(secs => $2::float8 * 3600)", &[until, &WAIT_MAX_HOURS])
+            .await
+            .map_err(failed)?
+            .get(0);
+        if !ok {
+            return Err(LeaseError::Refused(format!("waiting_until {until} is more than {WAIT_MAX_HOURS} h ahead")));
+        }
+    }
+    tx.execute(
+        "INSERT INTO core.lease_step (lease_id, step, waiting_until, reason, step_since, reported_at)
+         VALUES ($1, $2, $3::text::timestamptz, $4, clock_timestamp(), clock_timestamp())
+         ON CONFLICT (lease_id) DO UPDATE SET
+             step_since = CASE WHEN core.lease_step.step = EXCLUDED.step AND core.lease_step.waiting_until IS NOT DISTINCT FROM EXCLUDED.waiting_until
+                               THEN core.lease_step.step_since ELSE EXCLUDED.step_since END,
+             step = EXCLUDED.step, waiting_until = EXCLUDED.waiting_until, reason = EXCLUDED.reason, reported_at = EXCLUDED.reported_at",
+        &[&lease.lease_id, &step, &until, &reason],
+    )
+    .await
+    .map_err(failed)?;
+    tx.commit().await.map_err(failed)
+}
+
 /// Marks the lease's next session done and moves the job to the following one. The sessions of a
 /// job are done strictly in order: `session` must be the job's next. A session of the job already
 /// done is accepted and changes nothing: the call was sent again after its answer was lost.
@@ -895,8 +972,8 @@ async fn finished(db_client: &impl GenericClient, job: &tokio_postgres::Row, by:
         let minutes = minutes.map_or(String::new(), |m| format!(" in {m:.0} min"));
         notice::log(db_client, &format!("Day block {first} to {last} done{minutes} by {by} ({remaining} blocks to go).")).await
     } else if remaining == 0 {
-        let what = if kind == "TAPE" { "tape" } else { "ordered pass" };
-        notice::log(db_client, &format!("Every scheduled {what} job is done (the last: {last}).")).await
+        // C-073 (release audit, Codex 8, Gemini 4): each kind its own words (a re-run is no pass)
+        notice::log(db_client, &format!("All scheduled {} are done (the last: {last}).", crate::watch::kind_words(&kind))).await
     } else {
         Ok(())
     }
@@ -950,9 +1027,35 @@ pub async fn pause(db_client: &impl GenericClient, reason: &str) -> Result<(), S
         .map_err(db)?;
     if paused == 1 {
         notice::log(db_client, &format!("Queue paused: {reason}. No work is handed out until `vyreon-core queue resume`.")).await?;
+        return Ok(());
     }
+    // C-073 (audit c072 r4, Gemini 2; pre-existing): a cause that comes while the queue is already
+    // paused (a bundle refused, a job failed for the last time, during the operator's pause) was
+    // dropped: no log, no alert, and a resume before anyone looked lost it. It is added to the pause's
+    // reason (`also:`, the first reason kept first, at most `PAUSE_CAUSES_KEPT` added, the oldest
+    // dropped first) and alerted at once, in this transaction (an outbox row, as the log's): the
+    // watch's QUEUE_PAUSED problem is already open and only restates. The same cause again (a
+    // worker's retried call) adds nothing and posts nothing.
+    let was: Option<String> = db_client.query_one("SELECT reason FROM core.queue_control WHERE paused", &[]).await.map_err(db)?.get(0);
+    let Some(was) = was else { return Ok(()) };
+    let mut causes: Vec<&str> = was.split(ALSO).collect();
+    if causes.iter().any(|c| *c == reason.as_str()) {
+        return Ok(());
+    }
+    causes.push(reason);
+    while causes.len() > PAUSE_CAUSES_KEPT + 1 {
+        causes.remove(1);
+    }
+    db_client.execute("UPDATE core.queue_control SET reason = $1 WHERE paused", &[&causes.join(ALSO)]).await.map_err(db)?;
+    notice::log(db_client, &format!("Queue already paused; also: {reason}.")).await?;
+    notice::alert(db_client, &crate::watch::alert_text(&format!("Work queue already paused; also: {}", crate::watch::one_line(reason, 300)), "vyreon-core queue")).await?;
     Ok(())
 }
+
+/// C-073: how a pause's later causes follow its first in `queue_control.reason`.
+pub const ALSO: &str = "\nalso: ";
+/// C-073: the later causes a pause's reason keeps (the first cause is always kept).
+pub const PAUSE_CAUSES_KEPT: usize = 5;
 
 /// Lets work be claimed again. Returns the reason the queue was paused for, if it was. Call it in
 /// a transaction, as `pause`.
@@ -973,7 +1076,8 @@ pub async fn retry_failed(db_client: &impl GenericClient) -> Result<u64, String>
         .query(
             "UPDATE core.job SET state = CASE WHEN next_session IS NULL THEN 'DONE' ELSE 'QUEUED' END,
                                  attempts = CASE WHEN next_session IS NULL THEN attempts ELSE 0 END,
-                                 finished_at = CASE WHEN next_session IS NULL THEN finished_at END
+                                 finished_at = CASE WHEN next_session IS NULL THEN finished_at END,
+                                 retried_at = CASE WHEN next_session IS NULL THEN retried_at ELSE clock_timestamp() END
              WHERE state = 'FAILED' RETURNING state = 'QUEUED'",
             &[],
         )

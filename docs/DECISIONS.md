@@ -2925,3 +2925,287 @@ Three things broke that during the hand-overs of 2026-11-23/24.
   reason, the withdrawal and admission lines, the started line; the pause and the daily stop alert
   as before), `work.rs::a_hand_over_carries_no_pass_its_successor_cannot_run` (a leased verify job
   is not restarted; the admit instruction), `progress.rs` unit tests.
+
+## C-073 The automation debts ride the next release: one release command, re-runnable reference checks, a budget-aware scaler, JOB_THRASHING (owner, 2026-11-24: "if we have to restart phase 1 or otherwise produce a new image, build the automation debt bits into the new release"; budget-aware KEDA approved 2026-11-23)
+Four steps done by hand or noticed only by an agent looking (AGENTS.md: a step done by hand a second
+time is missing automation; an observability gap becomes a notification), from MILESTONES' "Listed,
+not fixed".
+- **One release command.** `deploy/k8s/ops/release.sh <engine-image-tag> "<reason>"` runs the
+  README's worker release (C-068's order), done by hand 9 times on 2026-11-22/23: build identity and
+  inventory from the image; push; `build register` (inventory on stdin, no `kubectl cp`); `queue
+  pause`; `build hand-over --preview` then `--expect <token>` from the old build (the live
+  ScaledJobs' build, which must equal `VYREON_CORE_DAILY_BUILD` where set; an old build with nothing
+  to hand over is withdrawn instead); the evidence JSON (build, image digest, replaced build,
+  hand-over id and token, reason, `--notes` merged) kept locally and sent to `build admit`; 50-keda.yaml
+  with its placeholders; `VYREON_CORE_DAILY_BUILD` set in 20-core.yaml when the daily runs were on
+  the old build and 20-core.yaml applied **with the running core image** read from the live
+  Deployment (never the raw file: that took core down once), its `kubectl diff` printed first; the
+  unfinished worker Jobs of other images deleted (hand-over 5's debt: a withdrawn build's pods compute
+  on with no lease and hold KEDA's slots); `queue resume`; then it waits (20 min) for a lease of the
+  new build. It stops at the first refusal and says which steps were done and that the queue is left
+  paused (the watch alerts that); `--from N` resumes after the cause is fixed; `--dry-run` prints
+  every step and runs only reads. `--core <tag>` deploys a core image the same way (push, diff,
+  apply with the image, rollout, core answers). The registry credential is the DigitalOcean token
+  from `VYREON_DO_TOKEN_FILE` in a temporary docker config (the registry takes the token as user
+  and password, so `docker login -u` would put it on a command line any process can read); never
+  printed, removed on exit. No machine path: `KUBECONFIG`, `VYREON_REGISTRY`, `VYREON_RELEASE_DIR`
+  from the environment. Rehearsed against stubbed `kubectl`/`docker` (dry run, a full release, a
+  refused hand-over, a core deploy); not yet run on the cluster.
+- **Re-runnable reference checks (job kind REFCHECK).** A day's check (C-054) runs in its worker
+  beside the next day and dies with it: hand-over 18 stopped three such workers on 2026-11-23 and
+  only REFCHECK_NOT_RUN said so (the days were recomputed to get their checks). Now core's watch, in
+  its reference-check part, queues one REFCHECK job (one session; `scope`: the day's base and
+  day-local revision) for each published day from `VYREON_CORE_REFCHECK_FROM` whose current
+  revisions have no COMPLETED report, `RERUN_AFTER_HOURS` (6; `VYREON_CORE_REFCHECK_RERUN_HOURS`,
+  `off` restores the old alert) after the day was published **and** once the lease that published it
+  has ended (a live worker's check may still come: it runs beside the next day and is joined after
+  it, up to its 600-minute deadline). It covers a day with no report and one whose check timed out,
+  crashed or did not run. For the day's own build if it runs, else the running build admitted last;
+  none runs: none is queued, and the day is not run. Once per (base, day-local) pair: a unique index
+  (0055) refuses a second, so a re-run that ran is never queued again and two watches never queue one
+  twice; a hand-over cancels and carries it like any job. `max_attempts` 2 (after C-035's free lost
+  leases); out of attempts it pauses nothing, is no JOB_FAILED (one cause, one alert: the day's
+  check not run), and `queue retry-failed` retries it. REFCHECK_NOT_RUN now counts a day only when no
+  re-run is pending (one QUEUED or LEASED under a running build, or none yet while the day is not
+  due): a day alerts only when its re-run also failed to complete (its report TIMEOUT, CRASHED or
+  NOT_RUN, or none), or no build could take it. A re-run's report is stored in `core.refcheck_report`
+  as any other, under its own lease: of its job's one session, bound to its job's revisions (or to
+  none, which judges nothing), of whichever build published them; storing it marks the session done,
+  and the worker then finishes. A re-run that finds a disagreement is REFCHECK_DISAGREES as usual.
+  - **Why it is not "from the stored body alone".** The suite (engine `tools/reference`) recomputes
+    the day from its raw inputs (`h5-acq`, the captures, `h5-act01-auto`) and the surfaces the day
+    computed, and compares the published values with that; the published body is what is judged,
+    not an input. No worker keeps the raws (C-004: Intrinio is the store) and core keeps only the
+    restatable captures (C-043). So the re-run's worker fetches the day's inputs again and computes
+    the day to its surfaces without publishing it; what it judges is the body core holds, read from
+    core, never its own recomputation.
+  - **Core serves the dump** the suite reads, so the judged values are exactly the stored ones:
+    `GET /worker/v1/refcheck/{session}/dump` (a REFCHECK lease only) answers a tar of `store.jsonl`
+    (one line per slot: `profile`, `measurement_id`, `object_id`, `revision_id`, `slot_state`,
+    `method_version`, `science_version`, `body_sha256`, `body_text` (the body file with its final
+    newline, so its SHA-256 is `body_sha256`), `receipt`, `stream` {`root_sha256`, `events_sha256`,
+    `event_count`, `byte_length`} or null), `revisions.jsonl` (the base, then the day-local revision
+    with `base_revision` the base; `date`, `profile`, `state` PUBLISHED, `engine_build`,
+    `snapshot_cutoff`, `slots`) and `streams/<measurement>.<object>.<events_sha256>.jsonl.gz` (the
+    events as core keeps them, gzip): the engine's `refcheck::write_dump` layout, read in one
+    repeatable-read snapshot, written to core's spool row by row and sent from there in 1 MiB chunks
+    (never held whole in memory; the file unlinked once open); refused (422) when a revision the job
+    names is no longer published.
+  - **The worker (engine change, ships in the same release):** `vyreon-worker run refcheck --home
+    DIR [--bin DIR] [--repo DIR]`, claiming kind `refcheck` (`POST /claims {kind: "refcheck"}`; the
+    claim's `sessions` is `[T]`, its `scope` `{base_revision, day_local_revision}`, its manifest as a
+    day block's), heartbeating as any job:
+    1. **Inputs.** Run the day block's fill and compute for T in its own home exactly as `run
+       day-block` does for a one-session block, with three differences: (a) nothing is published:
+       the publish callback writes the bundles to the run directory and returns, `day_done`,
+       `/archives` and `PUT /input-captures` are never called (a re-run keeps nothing; core refuses
+       them under a REFCHECK lease anyway); (b) the restatable captures core keeps for T (`GET
+       /worker/v1/input-captures/{T}`, then for each kind the version whose identity the dump's
+       receipts bind (the capture the published day read, C-043), else the newest; `GET
+       .../{T}/{kind}/{identity}`,
+       a gzip tar as `pack-capture` writes it) are unpacked where the fill puts them
+       (`h5-company-capture-<T>`, `h5-macro`, `h5-carry/<T>`) and the fill takes them as captured
+       (company, macro and carry are fetched again only where core keeps none, and the account says
+       which: `"captures": {"company": "core" | "fetched", ...}`), since a later fetch of a restatable
+       source is not what the day read; (c) the other inputs (`h5-acq`, `h5-act01-auto`) are fetched
+       again from the provider, through core's request budget as every fill. A perishable input the
+       provider no longer serves (option prints after about five sessions) makes the check NOT_RUN
+       with that reason, never a check against a partial input.
+    2. **Dump.** `GET /worker/v1/refcheck/{T}/dump`, unpacked to `<run>/refcheck/dump`; the phase
+       uses it in place of `write_dump` (a `refcheck::Day` with the dump given, e.g. `dump:
+       Option<PathBuf>`; `bundles` empty), so the suite judges the stored body. A 422 (its revisions
+       not held, or no longer published) is a NOT_RUN account with core's message as `why`.
+    3. **Suite.** `refcheck::phase` as for a day block's day, not beside another day (no overlap: the
+       join is immediate), `VYREON_REFCHECK_MINUTES` (600, the ScaledJob's) as its deadline,
+       `REFCHECK_OWN_BUILD` = the base revision's `engine_build` from `revisions.jsonl` (so D-404's
+       rulings are judged by the day's build, as `base_build` reads it).
+    4. **Report.** The account as today (`VYREON-REFCHECK@1`), `revisions` = `[base_revision,
+       day_local_revision]` from the claim's scope (core refuses any other pair), plus `"rerun":
+       {"job_id": <job>, "inputs_fetched_at": <UTC time the fill started>}` (core keeps the document
+       as sent; a disagreement found by a re-run is then read knowing its inputs were fetched later);
+       `PUT /worker/v1/refcheck/{T}`; then `POST /lease/finish` (core marked the session done when it
+       kept the report). Any failure before a report: `fail` with its evidence (D-351), as a day
+       block; core retries once, then the day stands not run.
+    5. **Clean up** the home (inputs, dump, report), as a day block does.
+    The pod (ScaledJob `refcheck`, `50-keda.yaml`) is a day block's: 6 CPUs, 10Gi, the Intrinio and
+    FRED keys, the backfill block's priority, 24-hour deadline, at most one. Until the engine image
+    carrying `run refcheck` is on the cluster, a queued re-run has no pod: `STALLED` (kind REFCHECK)
+    after 15 minutes says so.
+- **A budget-aware scaler.** The caps were tuned by hand from the request ledger (tapes 24 → 12,
+  blocks 12 → 8, ACT01 in flight 2 on 2026-11-23). Now every draw core answers "wait" (the ceiling,
+  `VYREON_CORE_INTRINIO_PER_MINUTE`, reached) is recorded by minute (`core.budget_wait`), and KEDA's
+  triggers ask `core.scaler_count(kind, build, daily)` (0055, `vyreon_scaler`'s only other
+  function): `claimable_count`'s rows, except that the work that calls the provider (tapes, backfill
+  day blocks, re-runs) counts nothing while a draw waited within `budget::PRESSURE_MINUTES` (5, ten
+  polls). A wait means the running workers already ask for more than the ceiling: another pod would
+  only wait in the budget at node cost. The daily session's work (priority 1) and the ordered passes
+  (no provider call) always count; running pods are never touched (KEDA only starts fewer); the
+  claim is not gated; the caps stay the hard limit. The stall check agrees: a provider kind held back
+  while the budget is pressed is not STALLED (its clock starts again when it is quiet).
+  `vyreon-core budget` says whether the budget is pressed. Standard: KEDA's `postgresql` scaler counts
+  what its query returns (KEDA 2.21 `pkg/scalers/postgresql_scaler.go`); the gate is in the query, as
+  C-066's claimability is. The waits table is small (one row a minute at most) and not pruned.
+- **JOB_THRASHING.** On 2026-11-23 11 tapes were OOM-killed 12 times in an hour; each kill was a lost
+  lease re-queued quietly (C-035 forgives two) and nothing alerted. Now a job still to do (QUEUED or
+  LEASED) whose leases that began on the session it is still on (`lease.start_session`) ended lost
+  (EXPIRED) or failed `THRASH_LEASES` (3) times within `THRASH_WINDOW_HOURS` (24: a job retried after
+  its cause was fixed starts clean within a day) is a problem, one per kind of work (key: the kind, the
+  daily session's blocks apart, as STALLED): one alert however many jobs, naming the job that lost
+  most (then the oldest), its session and its last error (its evidence, or the stop core recorded; a
+  lease that expired with none is said as "expired with no stop recorded (the pod killed: out of
+  memory, its deadline, or its node lost)"), the others counted, restated without a post as they
+  change. A lease stopped by the provider's errors (an `HttpStatus(429|5xx)` in its text) is
+  PROVIDER_ERRORS's and not counted here (one cause, one alert); a job set aside is JOB_FAILED's; a
+  job that moves on or finishes resolves it.
+- **Deploy:** migration 0055 (job kind REFCHECK in `job`, `job_evidence`, `claim_miss`,
+  `stall_seen`; the re-run's scope check and unique index; problem kind JOB_THRASHING;
+  `core.budget_wait`; `core.scaler_count` granted to `vyreon_scaler`; `core.build_profile` (backfilled);
+  `job.retried_at`; `lease.job_first`, `job_last`
+  and the grant trigger setting them; `hand_over_job.restarted`; `core.lease_step`; problem kind
+  NO_PROGRESS), under 0054's timeouts. Order:
+  `release.sh --core <tag>` first (the triggers need 0055), then `release.sh <engine-tag>` with the
+  engine image carrying `run refcheck`, within 15 minutes (a re-run queued between them for the old
+  build is carried by the hand-over). 20-core.yaml sets `VYREON_CORE_REFCHECK_RERUN_HOURS` 6;
+  50-keda.yaml adds ScaledJob `refcheck` (pool `day` max 13 still holds 8 blocks, the daily block and
+  a re-run). The old ScaledJobs' queries (`claimable_count`) keep working until 50-keda.yaml is
+  applied again.
+- Tests: `tests/automation.rs`: `a_check_that_never_reported_is_run_again_by_core_and_alerts_only_if_that_fails`
+  (no re-run while the publishing lease lives; queued once at 7 h, never twice; scheduling by hand
+  refused; a re-run out of attempts pauses nothing and is no JOB_FAILED, the day not run; retried, pending
+  again; the dump's slots, digests, streams and revisions against the store; a report bound to other
+  revisions refused, kept once, the session done, finish; a timed-out re-run is the day not run),
+  `the_scaler_starts_no_provider_work_while_the_budget_made_a_draw_wait` (as `vyreon_scaler`: the
+  backfill's tape held back, the daily one not, claimable unchanged, the claim not gated, counted again
+  after 5 quiet minutes; no STALLED while pressed, its clock restarted after),
+  `a_job_that_keeps_losing_its_lease_is_one_alert_with_its_last_error` (3 losses alert once, a
+  worker's stated failure becomes the last error, a provider-stopped attempt not counted, restated
+  without a post, resolved when the job finishes).
+- **Workers say what they are doing; NO_PROGRESS (live investigation, 2026-11-24).** The daily run sat
+  idle about an hour in a deliberate EXQ01 cutoff wait, heartbeating, and nothing could tell it from a
+  stall. **Contract** (the engine's `eng-rel` branch calls it): `POST /worker/v1/lease/step` under the
+  lease token, JSON `{"step": "<1-200 chars>", "waiting_until": "<RFC 3339 instant>"?, "reason":
+  "<1-300 chars>"?}` (a wait states both its end and its reason; its end ahead of now by at most 24 h);
+  answer `{"recorded": true}`; 410 the lease is gone; 422 a malformed report, or one a credential
+  pattern matches (nothing stored). Core keeps the latest per lease (`core.lease_step`); a report whose
+  step or wait differs from the last starts its clock (`step_since`), the same again only says the
+  worker is alive. **The worker reports** at the start of each phase (download, each compute stage, the
+  publish, the archive, the reference check), and declares a wait (`waiting_until` = its expected end)
+  for any phase that makes no provider request for longer than 20 minutes: a cutoff wait, a long
+  computation, the reference suite; a declared wait is cleared by the next report without one. **The
+  watch:** a live lease whose worker has reported a step (an image before the endpoint is not judged:
+  it could not declare a long computation) with no progress for `NO_PROGRESS_MINUTES` (20): no request
+  drawn or reported (`core.budget_lease`, `core.request_usage`, by the lease's worker), no new step or
+  wait, nothing published under the lease, no tape cache or reference check stored, since the latest of
+  those and the grant. A declared wait moves the deadline to its end plus `WAIT_GRACE_MINUTES` (15), so
+  one that overstays alerts too, naming the wait. One problem per job (key `job <id>`), alerted once,
+  resolved when progress resumes or the lease ends; the command is the pod's log.
+- **The C-072 audits' remaining items (r2 and r4, Codex and Gemini; fixed now, before any deploy).**
+  1. A block set aside on the day it resumed was named in progress by its narrowed job ("07-10
+     (attempt 3)"): a lease now records its job's sessions when granted (`lease.job_first`,
+     `job_last`, set with `start_session`), and the started line names the block as it started, from
+     where it resumed.
+  2. A hand-over already stated by a core before 0054 (which recorded only its notice) was posted
+     again on the upgrade, and one whose notice and row fell either side of a window's end was posted
+     twice (its raw "Admit build … now" notice, then its line): a hand-over is stated when its own
+     notice has been, and the hand-overs a window's logged notices name are taken whatever their
+     `handed_at`.
+  3. "Restarted" counted any earlier withdrawal's stopped leases: the hand-over now records which of
+     the jobs it moved its own withdrawal stopped (`hand_over_job.restarted`; older rows as before).
+  4. A successor admitted and withdrawn before the hand-over lost the instruction to admit it: the
+     instruction is kept unless the successor was admitted and not withdrawn by the hand-over's time
+     (one withdrawn after it, deliberately, still gets none: r2-4).
+  5. A build's name went into the progress line unchecked: `build register` takes only the engine's
+     kind of name (`build::build_name`: 1 to 64 letters, digits, `+ . _ -`), and a hand-over's whole
+     line is checked for a credential pattern like any logged line.
+  6. Many retried or resumed starts made one line the post splitter cut, their dates lost: the started
+     line is cut into lines of at most `STARTED_LINE_MAX` (600), and a window records as stated only the
+     events of the lines its posts carried; the rest come with the next window ("… and N more lines
+     (the next window states them …)").
+  7. `vyreon-core log` and `evidence list` printed UTC (a 20:00 MT pause read as 02:00 the next day):
+     they print the owner's clock, "MT" (C-072's fixed UTC−6). 15-backup.yaml's comment: Sunday 09:00
+     UTC is 03:00 MT.
+  8. (Gemini, pre-existing; owner: such an event must alert) A bundle refused, or a job failed for the
+     last time, while the queue was already paused was dropped: no log, no alert, lost at the resume.
+     `work::pause` now adds the cause to the pause's reason (`\nalso: `, the first cause kept, at most
+     5 later ones, the same cause again adds nothing) and alerts it at once in the same transaction
+     ("🔴 Work queue already paused; also: …"), and logs it; the open QUEUE_PAUSED restates "…; also:
+     <latest>" without a second post.
+  9. (r2, pre-existing publish defects) A re-sent bundle was answered `already_published` from its
+     header's body digests alone, so one with a changed reader scalar was acknowledged while the reader
+     kept serving the first: it is now acknowledged only after every slot's files check against its
+     header, the bundle ends where it says, and its reader scalars and unusual scores are bit for bit
+     the stored ones; anything else is refused naming what differs. A day-local bundle stripped of its
+     base fields and `day_local` was taken as a base and superseded the real one: under a lease, a
+     profile revision of a build has one layer (fixed by any revision of it stored before), and a day
+     block's day has one base (a second base of another profile on the same lease and day is refused).
+     By hand (`publish --vouch` of old exports, a profile older than the split) only the old checks hold.
+  10. (r2-3, r4) The migrator waited for another migrator's advisory lock without bound before any
+     timeout applied: `migrate::apply` now waits at most `LOCK_WAIT` (60 s) for the lock and the ledger
+     (`lock_timeout`, the statement's bound twice that), then fails, so the init container exits and
+     is retried visibly; each migration runs without that bound.
+- **Profile layers registered (owner, after the release audit's C13).** The engine's inventory
+  declares each profile revision's layer: `"profiles": {"VYREON-RESEARCH-PROFILE-S64-3.0.0": "base",
+  "VYREON-DLM-DAY-PROFILE-1.0.0": "day-local", "VYREON-DLM-HISTORY-PROFILE-1.0.0": "history"}` (engine
+  change for eng-rel: `bundle::inventory` adds it from `vyreon_sensors::BASE_PROFILE`,
+  `DAY_DERIVED_PROFILE`, `HISTORY_DERIVED_PROFILE`). `build register` keeps it in `core.build_profile`
+  (every slot's profile declared, no other, at most one base and one day-local; a re-registration that
+  declares another layer is refused); release.sh refuses an inventory without it. Under a lease a
+  bundle presented as another layer than its profile's is refused before anything is stored. A build
+  registered before the declaration has its layers from what it published (0055 backfills them; an
+  undeclared profile's first publish fixes its layer). Test:
+  `release_audit.rs::a_bundles_layer_is_its_registered_profiles` (a declared build's first day: the
+  stripped day-local bundle refused with nothing published, then the real base and day-local accepted).
+  The C-072 LATER items r2-2 (second hand-over to one successor) and r2-5 (a hand-typed withdrawal
+  text) were part 2's and are moot since its retirement.
+- **The release audit (2026-11-24, `audits/2026-11-24-release/core`, Codex 19 + 1 suspicion, Gemini 14 +
+  2 suspicions; the only audit of this release, owner's rule: every real finding fixed and tested).**
+  | Finding | Verdict |
+  |---|---|
+  | C1 release.sh resumes a pause it did not make | fixed: refuses to start over another's pause; resumes only if the pause is exactly its own (a cause added while it ran leaves it paused and stops) |
+  | C2 admission without validation evidence | fixed: `--evidence` required, with non-empty `tests` and `checks`, kept under `validation` |
+  | C3, G5.1 a superseded revision occupies the re-run pod | fixed: stale re-runs (revisions superseded, or a build that does not run) cancelled and the current pair queued; the dump refuses a revision no longer published |
+  | C4, G1.1 budget pressure hides a stalled daily tape | fixed: under pressure only the backfill's work is set aside; the daily session's still stalls (DAILY_STALL_MINUTES) |
+  | G1.2 pressure restarts the backfill's stall clock | not a defect: the backfill's provider work is held back by design while pressed (KEDA starts none); its stall is judged once the budget is quiet |
+  | C5, C7, G14.2 `--from` loses state, partial ScaledJob apply | fixed: a run file per build (old build, hand-over id and token, its own pause), written after each step |
+  | C6, G14.1 one lease hides a disabled ScaledJob | fixed: every ScaledJob checked (build, image, no `autoscaling.keda.sh/paused*`, Ready); step 11 waits for a claim of every kind `core.scaler_count` says KEDA should start |
+  | C8, G4, G9.1 re-runs said as ordered passes, left out of hand-over lines | fixed: finished lines name their kind; hand-over lines count re-runs |
+  | C9, G8.3 a dry run writes release records | fixed: a dry run writes to a temporary directory, removed; it diffs the daily-build change on a copy |
+  | C10 the CLI's wait count includes older waits | fixed: counts only whole minutes in the window ("at least") |
+  | C11 a changed body from the same lease supersedes the first | fixed: a lease publishes a day's revision of one profile once; a different one is refused |
+  | C12, G13.2 a resend with other receipt, coordinates, state, stream or cutoff acknowledged | fixed: every stored field compared before `already_published` |
+  | C13, G13.1 a stripped day-local bundle on another lease replaces the base | fixed generally (owner): a bundle's layer is what its registered profile is (`core.build_profile`: the inventory's declared `profiles`, or for a build registered before the declaration what each profile was first published as, backfilled by 0055), checked under every lease before anything is stored, a build's first day included; a second base of another profile for the day is refused too |
+  | C14, G2.1 a re-run queued under a build being handed over | fixed: queueing takes the scheduler's lock (tried, never waited for) and a re-run under a build that does not run is cancelled and queued again |
+  | G2.2 a re-run queued between a hand-over's preview and expect | fixed: nothing is queued while the queue is paused |
+  | C15 empty hand-over fallback strands work queued meanwhile | fixed: after withdrawing, the preview runs again and hands over what appeared |
+  | C16 a reused core tag reports a deployment that never ran | fixed: a tag the Deployment runs is refused; the pod's image digest must be the pushed one |
+  | C17 a base-only completion covers a later day-local revision | fixed: completion is pair-exact |
+  | C18, G10 another job's tape cache resets NO_PROGRESS; verify jobs not credited | fixed: tape caches and verdicts count for tape jobs only; tape checks (by lease), archives (by job and worker) and captures (day blocks) count; all bounded at now |
+  | C19 `kubectl diff` errors ignored | fixed: exit 2 and above stops before any apply |
+  | C20 (suspicion) re-run takes the newest capture | real in the contract's wording: the engine reads the capture version the dump's receipts bind, else the newest; C-073's contract now says exactly that |
+  | G3.1 a lease that reported a non-completed check blocks the re-run for its whole block | fixed: a live lease holds the day back only until it has reported the day's check |
+  | G3.2 pending keyed on the base alone, not bounded by `REFCHECK_FROM` | fixed: pair-keyed and bounded |
+  | G3.3 a base without its day-local revision gets a re-run | fixed: only a complete day (C-070) is due |
+  | G5.2 another build's re-run refuses a hand-over | fixed: re-runs are left out of the overlap refusal (one per revision pair already) |
+  | G6 JOB_THRASHING after `retry-failed`, or of a withdrawn build | fixed: leases after `job.retried_at` only, running builds only |
+  | G7 the registry credential left on INT/TERM/HUP | fixed: traps exit through the cleanup |
+  | G8.1 step 9's delete races KEDA's cleanup | fixed: `--ignore-not-found` |
+  | G8.2 a failure at step 10 omits the pause warning | fixed: the warning follows the run's own pause, whatever the step |
+  | G9.2 day lines use the narrowed block | fixed: the lease's block span |
+  | G9.3 kinds ordered nondeterministically | fixed: the kind breaks ties |
+  | G11 -0 refused on an identical resend | fixed: values compared with -0 as 0 |
+  | G12 step reports: errors as 422, loose instants, skew drops the step | fixed: strict RFC 3339 (never echoed), a past wait kept, database errors as 500 |
+  | G suspicion 1 the dump in memory | real by construction: streamed through the spool (above) |
+  | G suspicion 2 `/dev/stdin` under the pod's user | plausible: `vyreon-core build register` and `build admit` read `-` from fd 0, the script uses it |
+  Tests: `tests/release_audit.rs` (5), the API test `a_reruns_dump_is_streamed_and_leaves_nothing`, the
+  updated automation and worker API tests, `progress.rs` unit tests; release.sh rehearsed against
+  stubbed `kubectl`/`docker` for each of its findings (another's pause, a cause added mid-run, a failed
+  hand-over resumed with `--from 5`, a paused ScaledJob then `--from 7`, a diff error, a reused core
+  tag, a dry run that keeps nothing, an interrupt during the push). The suite: 211 (193 + 18).
+- Tests (added): `tests/automation.rs::a_worker_making_no_progress_is_one_alert_unless_it_declared_its_wait`;
+  `tests/c072_later.rs` (a set-aside block named as it started; a hand-over stated once across a window's
+  end and an upgrade, no restart from an earlier stop, the admit instruction kept; a cause during an
+  open pause alerted once and the log on the owner's clock; a re-sent bundle with a changed scalar
+  refused and a stripped day-local bundle refused as a base; an odd build name refused);
+  `tests/migrate.rs::a_runner_waits_for_anothers_lock_only_so_long`; `progress.rs` unit test
+  `many_retries_read_in_lines_a_post_can_hold`; the worker API test calls `/lease/step`. The suite:
+  204 (193 + 11).

@@ -4,10 +4,14 @@
 //!                                                                          `daily: true` (the daily CronJob's worker) claims
 //!                                                                          only a daily run's job (C-051 amended, round x 13)
 //!   POST /lease/heartbeat                                               -> {expires_at, paused}
+//!   POST /lease/step                 {step, waiting_until?, reason?}    -> {recorded: true} (C-073: the step the worker is on and
+//!                                                                          any deliberate wait, for the watch's NO_PROGRESS)
 //!   POST /lease/finish                                                  -> {job_id}
 //!   POST /lease/fail                 {stage, message, log}              -> {requeued}
 //!   PUT  /evidence                   body: the attempt's failure evidence (application/gzip) -> {new} (C-049)
 //!   PUT  /refcheck/{session}         body: the day's reference-check document (application/gzip) -> {new, report_id} (C-054)
+//!   GET  /refcheck/{session}/dump                                       -> a tar: the reference suite's dump of the revisions
+//!                                                                          a REFCHECK job checks, from what core holds published (C-073)
 //!   POST /days                       body: a day bundle                 -> what was published
 //!   PUT  /tape-caches/{session}/{asset}?method_version=V[&absence=WHY]  body: the packed cache -> {new}
 //!   POST /tape-caches/{session}/done[?method_version=V]                 the tape job's session is complete (under V; without
@@ -68,6 +72,13 @@
 //! answered `new: false` with the first's id. At most `core_db::refcheck::MAX_DOCUMENT_BYTES` (413
 //! above); a document in which a credential pattern survives is refused (422) and nothing is stored.
 //!
+//! C-073: a REFCHECK job (a reference-check re-run, queued by core's watch) is one session; its claim's
+//! `scope` names the revisions it checks (`base_revision`, `day_local_revision`). Its worker reads them
+//! as the suite's dump (`GET /refcheck/{session}/dump`: `store.jsonl`, `revisions.jsonl`, `streams/`, the
+//! layout of the engine's own dump), runs the suite and sends its document as a day block's worker does
+//! (`PUT /refcheck/{session}`, bound to those revisions or to none); core then marks the session done
+//! and the worker finishes the lease.
+//!
 //! A perishable archive (C-052) is one category of a day the job published (`core_db::archive::
 //! CATEGORIES`), packed by the worker. Core decides the object's key and answers with a pre-signed
 //! PUT URL valid for minutes, which signs the archive's length, its `Content-MD5` and its
@@ -109,10 +120,12 @@ pub fn routes() -> Router<Arc<App>> {
     Router::new()
         .route("/claims", post(claim))
         .route("/lease/heartbeat", post(heartbeat))
+        .route("/lease/step", post(step))
         .route("/lease/finish", post(finish))
         .route("/lease/fail", post(fail))
         .route("/evidence", put(evidence_put))
         .route("/refcheck/{session}", put(refcheck_put))
+        .route("/refcheck/{session}/dump", get(refcheck_dump))
         .route("/days", post(publish_day))
         .route("/days/{session}/done", post(day_done))
         .route("/tape-caches/{session}", get(tape_get))
@@ -214,6 +227,22 @@ async fn heartbeat(State(app): Shared, headers: HeaderMap) -> Reply {
     let mut client = app.db().await?;
     let (expires_at, paused) = work::heartbeat(&mut client, bearer(&headers)?, app.config.lease_seconds).await?;
     ok(json!({"expires_at": expires_at, "paused": paused}))
+}
+
+#[derive(Deserialize)]
+struct Step {
+    step: String,
+    #[serde(default)]
+    waiting_until: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+/// C-073: the worker's current step and any deliberate wait (`work::report_step`).
+async fn step(State(app): Shared, headers: HeaderMap, Json(s): Json<Step>) -> Reply {
+    let mut client = app.db().await?;
+    work::report_step(&mut client, bearer(&headers)?, &s.step, s.waiting_until.as_deref(), s.reason.as_deref()).await?;
+    ok(json!({"recorded": true}))
 }
 
 async fn finish(State(app): Shared, headers: HeaderMap) -> Reply {
@@ -463,6 +492,43 @@ async fn refcheck_put(State(app): Shared, headers: HeaderMap, Path(session): Pat
     let mut client = app.db().await?;
     let (new, id) = refcheck::put(&mut client, &token, &checked).await?;
     ok(json!({"new": new, "report_id": id}))
+}
+
+/// C-073: the dump a re-run's suite reads (a tar; tens to a few hundred MB for a day). Written to the
+/// spool as it is read from the database and sent from there in chunks (release audit, Gemini's
+/// suspicion 1: never held whole in memory); the file is unlinked once open, so nothing is left behind.
+async fn refcheck_dump(State(app): Shared, headers: HeaderMap, Path(session): Path<String>) -> Reply {
+    let token = bearer(&headers)?.to_owned();
+    if !core_contract::is_date(&session) {
+        return Err(refused(format!("{session} is not a date written YYYY-MM-DD")));
+    }
+    let n = app.spooled.fetch_add(1, Ordering::SeqCst);
+    let path = app.config.spool.join(format!("refcheck-dump-{}-{n}.tar", std::process::id()));
+    let mut client = app.db().await?;
+    let written = refcheck::dump_to(&mut client, &token, &session, &path).await;
+    drop(client);
+    if let Err(e) = written {
+        let _ = tokio::fs::remove_file(&path).await;
+        let _ = tokio::fs::remove_file(path.with_extension("store")).await;
+        return Err(e.into());
+    }
+    let file = tokio::fs::File::open(&path).await.map_err(|e| failed(e.to_string()));
+    let _ = tokio::fs::remove_file(&path).await;
+    let file = file?;
+    let length = file.metadata().await.map_err(|e| failed(e.to_string()))?.len();
+    let chunks = futures_util::stream::unfold(file, |mut file| async move {
+        use tokio::io::AsyncReadExt;
+        let mut buf = vec![0u8; 1 << 20];
+        match file.read(&mut buf).await {
+            Ok(0) => None,
+            Ok(k) => {
+                buf.truncate(k);
+                Some((Ok::<_, std::io::Error>(axum::body::Bytes::from(buf)), file))
+            }
+            Err(e) => Some((Err(e), file)),
+        }
+    });
+    Ok(([(header::CONTENT_TYPE, "application/x-tar".to_owned()), (header::CONTENT_LENGTH, length.to_string())], Body::from_stream(chunks)).into_response())
 }
 
 #[derive(Deserialize)]

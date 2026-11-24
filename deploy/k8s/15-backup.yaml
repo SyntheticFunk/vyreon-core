@@ -48,7 +48,7 @@ spec:
       - name: AWS_RESPONSE_CHECKSUM_VALIDATION
         value: when_required
 ---
-# The weekly full: Sunday 09:00 UTC (02:00 MT; no daily session is queued on a Sunday, C-051). Six
+# The weekly full: Sunday 09:00 UTC (03:00 MT on the fixed UTC−6 clock, C-072; no daily session is queued on a Sunday, C-051). Six
 # fields, seconds first (robfig/cron, as the CRD says), not a CronJob's five. Online: Postgres keeps
 # serving while it runs. `backupOwnerReference: self`: the Backup records belong to this schedule
 # (deleting it deletes the records, never the objects in the bucket).

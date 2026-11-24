@@ -105,3 +105,27 @@ async fn a_failing_migration_rolls_back_whole_and_stops_the_run() {
     assert_eq!(migrate::apply(&mut client, &fixed).await.unwrap().applied.len(), 2);
     scratch.drop().await;
 }
+
+/// C-073 (audit c072 r2-3, r4): a runner waits for another's lock at most its bound, then fails (the
+/// init container exits and is retried) instead of holding the core pod in `migrate`; the session
+/// keeps no bound afterwards.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_runner_waits_for_anothers_lock_only_so_long() {
+    let scratch = Scratch::new("lockwait").await;
+    let holder = scratch.client().await;
+    holder.execute("SELECT pg_advisory_lock($1)", &[&0x7679_636f_7265_i64]).await.unwrap();
+    let mut client = scratch.client().await;
+    let set = [m(1, "a", "CREATE TABLE core.a (x int)")];
+    let started = std::time::Instant::now();
+    let e = migrate::apply_within(&mut client, &set, std::time::Duration::from_millis(500)).await.unwrap_err();
+    assert!(e.to_string().contains("lock timeout"), "{e}");
+    assert!(started.elapsed() < std::time::Duration::from_secs(5));
+    let bound: String = client.query_one("SHOW lock_timeout", &[]).await.unwrap().get(0);
+    assert_eq!(bound, "0", "the session's bound was reset");
+    holder.execute("SELECT pg_advisory_unlock($1)", &[&0x7679_636f_7265_i64]).await.unwrap();
+    assert_eq!(migrate::apply(&mut client, &set).await.unwrap().applied.len(), 1);
+    let bound: String = client.query_one("SHOW statement_timeout", &[]).await.unwrap().get(0);
+    assert_eq!(bound, "0");
+    scratch.drop().await;
+}

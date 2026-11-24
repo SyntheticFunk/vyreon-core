@@ -408,10 +408,30 @@ With the worker image and its build (`build register` printed it; the build must
 ```sh
 IMG=registry.digitalocean.com/vyreon/vyreon-worker:<tag> BUILD=<commit>+<inventory>
 sed -e "s#VYREON_WORKER_IMAGE#$IMG#" -e "s#VYREON_ENGINE_BUILD#$BUILD#" deploy/k8s/50-keda.yaml | kubectl apply -f -
-kubectl -n vyreon get scaledjob      # READY True for all four; ACTIVE True where work is claimable
+kubectl -n vyreon get scaledjob      # READY True for all five; ACTIVE True where work is claimable
 ```
 
-A new image (C-068), **in this order** (the order is what keeps history in date order):
+**C-073: `deploy/k8s/ops/release.sh <engine-image-tag> "<reason>"` runs all of this** (and the
+push, the evidence file, 20-core.yaml with the running core image, the old image's Jobs, the resume
+and a check that the new pods claim), stopping at the first refusal; `--dry-run` prints every step,
+`--core <tag>` deploys a core image. A release that carries both images: `release.sh --core <tag>`
+first (the triggers ask the database for `core.scaler_count`, migration 0055), then the worker
+release within 15 minutes (a REFCHECK re-run queued for the old build in between is carried by the
+hand-over; longer, and the `refcheck` kind's STALLED alert says so). Example:
+
+```sh
+KUBECONFIG=... VYREON_DO_TOKEN_FILE=... deploy/k8s/ops/release.sh --dry-run --evidence passed.json c9c23ca5 "D-461 rulings"
+KUBECONFIG=... VYREON_DO_TOKEN_FILE=... deploy/k8s/ops/release.sh --evidence passed.json c9c23ca5 "D-461 rulings"
+```
+
+`passed.json` is required: `{"tests": …, "checks": …}`, what the build passed (the suites and their
+counts; the golden comparison and the block-start result). The script refuses to start while the queue
+is paused by anyone else, resumes only its own pause (a cause added during the run leaves it paused
+and stops), keeps a run file per build so `--from N` resumes after a stop, checks that every ScaledJob
+is on the new build and image, unpaused and Ready, and waits for a claim of every kind KEDA should
+start. A dry run keeps nothing.
+
+By hand, a new image (C-068), **in this order** (the order is what keeps history in date order):
 1. `vyreon-core build register <inventory>` for the new build. **Do not admit it yet.** An admitted
    successor's pod could claim a later day's pass while an earlier day's pass still belongs to the
    old build, and publish that day's history one reading short; the hand-over refuses an admitted
@@ -437,7 +457,10 @@ ScaledJob and Job.
 ### 5. The caps, and where to change them
 
 - **KEDA's caps:** `maxReplicaCount` of each ScaledJob in `50-keda.yaml`; apply again (running Jobs
-  stay). Day blocks: raise from 12 only from core's request ledger, the owner's rule (nodes only
+  stay). C-073: the triggers count the work that calls the provider (tapes, backfill blocks,
+  reference-check re-runs) only while no budget draw waited in the last 5 minutes
+  (`core.scaler_count`); `vyreon-core budget` says whether the budget is pressed now. The caps stay
+  the hard limit; the budget only starts fewer pods. Day blocks: raise from 12 only from core's request ledger, the owner's rule (nodes only
   while the request budget has headroom): one node averaged 101 requests a minute over its wall
   time with bursts of 500-760 while a day downloads (2026-11-22); core grants at most 1,900 a minute
   (`VYREON_CORE_INTRINIO_PER_MINUTE`), so more nodes than the budget holds only wait in it, at node

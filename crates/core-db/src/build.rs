@@ -19,8 +19,55 @@ fn db(e: tokio_postgres::Error) -> String {
     e.as_db_error().map_or_else(|| e.to_string(), |d| d.message().to_owned())
 }
 
+/// The longest build name `register` takes.
+pub const BUILD_NAME_MAX: usize = 64;
+
+/// C-073 (audit c072 r4: a build's name is put into progress and alert lines as it is, so one that
+/// could carry a credential reached the progress channel): a build is named as the engine names it,
+/// `<commit>+<inventory digest>`, 1 to `BUILD_NAME_MAX` letters, digits, '+', '.', '_' or '-',
+/// beginning with a letter or digit; anything else is refused before it is stored, without being
+/// repeated.
+pub fn build_name(build: &str) -> Result<(), String> {
+    let mut chars = build.chars();
+    let first_ok = chars.next().is_some_and(|c| c.is_ascii_alphanumeric());
+    if first_ok && build.len() <= BUILD_NAME_MAX && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '_' | '-')) {
+        Ok(())
+    } else {
+        Err(format!(
+            "inventory: an engine build is named with 1 to {BUILD_NAME_MAX} letters, digits, '+', '.', '_' or '-' (the engine's <commit>+<inventory>); \
+             this one is not such a name (not repeated here)"
+        ))
+    }
+}
+
+/// C-073: an inventory's `profiles` (profile revision -> base | day-local | history), checked: every
+/// profile revision of its slots declared, no other, at most one base and one day-local profile. None
+/// when the inventory declares none (an engine before the declaration).
+pub fn declared_profiles(inventory: &Value) -> Result<Option<Vec<(String, String)>>, String> {
+    let Some(map) = inventory.get("profiles") else { return Ok(None) };
+    let map = map.as_object().ok_or("inventory: profiles is an object of profile revision: layer")?;
+    let mut out = Vec::new();
+    for (profile, layer) in map {
+        let layer = layer.as_str().filter(|l| ["base", "day-local", "history"].contains(l)).ok_or_else(|| format!("inventory: profile {profile}'s layer is base, day-local or history"))?;
+        out.push((profile.clone(), layer.to_owned()));
+    }
+    let in_slots: std::collections::BTreeSet<&str> =
+        inventory["slots"].as_array().into_iter().flatten().filter_map(|s| s["profile_revision"].as_str()).collect();
+    let declared: std::collections::BTreeSet<&str> = out.iter().map(|(p, _)| p.as_str()).collect();
+    if in_slots != declared {
+        return Err("inventory: profiles declares exactly the profile revisions of its slots".into());
+    }
+    for layer in ["base", "day-local"] {
+        if out.iter().filter(|(_, l)| l == layer).count() > 1 {
+            return Err(format!("inventory: a build has one {layer} profile"));
+        }
+    }
+    Ok(Some(out))
+}
+
 pub async fn register(client: &mut Client, inventory: &Value) -> Result<Registered, String> {
     let build = inventory["engine_build"].as_str().filter(|b| !b.is_empty()).ok_or("inventory: no engine_build")?.to_owned();
+    build_name(&build)?;
     if inventory["slots"].as_array().is_none_or(Vec::is_empty) {
         return Err("inventory: no slots".into());
     }
@@ -61,6 +108,25 @@ pub async fn register(client: &mut Client, inventory: &Value) -> Result<Register
         )
         .await
         .map_err(db)?;
+    }
+    // C-073: the layer of each profile revision, as the inventory declares it (`profiles`)
+    if let Some(profiles) = declared_profiles(inventory)? {
+        for (profile, layer) in &profiles {
+            let stored: Option<String> = tx
+                .query_opt("SELECT layer FROM core.build_profile WHERE engine_build = $1 AND profile_revision = $2", &[&build, profile])
+                .await
+                .map_err(db)?
+                .map(|r| r.get(0));
+            match stored {
+                Some(l) if &l != layer => return Err(format!("engine build {build}'s profile {profile} is registered as its {l} profile, not {layer}")),
+                Some(_) => {}
+                None => {
+                    tx.execute("INSERT INTO core.build_profile (engine_build, profile_revision, layer) VALUES ($1, $2, $3)", &[&build, profile, layer])
+                        .await
+                        .map_err(db)?;
+                }
+            }
+        }
     }
     let slots: i64 = tx.query_one("SELECT count(*) FROM core.expected_slot WHERE engine_build = $1", &[&build]).await.map_err(db)?.get(0);
     tx.commit().await.map_err(db)?;
@@ -250,9 +316,9 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
     }
     // the old build is withdrawn here when it still runs, in this transaction: nothing of it runs
     // between its withdrawal and the hand-over
-    if from_runs {
-        withdraw_in(&tx, from, &format!("handed over to build {to}: {reason}")).await?;
-    }
+    // the jobs its withdrawal stopped (their leases ended here): the hand-over's "restarted" (C-073,
+    // audit c072 r4: counted from any earlier withdrawal's leases before)
+    let stopped = if from_runs { withdraw_in(&tx, from, &format!("handed over to build {to}: {reason}")).await? } else { Vec::new() };
     let verify_cancelled: Vec<i64> = tx
         .query(
             "UPDATE core.job SET state = 'CANCELLED', finished_at = clock_timestamp()
@@ -323,6 +389,9 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
                 "SELECT job_id, engine_build FROM core.job
                  WHERE kind = $1 AND profile_id = $2 AND engine_build <> $3 AND state IN ('QUEUED', 'LEASED', 'FAILED')
                    AND NOT (kind = 'TAPE' AND COALESCE(scope @> $6::text::jsonb, false))
+                   -- C-073 (release audit, Gemini 5): re-runs of one session's different revisions may stand
+                   -- side by side (one per revision pair, migration 0055's index); they never overlap
+                   AND kind <> 'REFCHECK'
                    AND first_session <= $5::text::date AND last_session >= $4::text::date
                  ORDER BY job_id LIMIT 1",
                 &[&kind, &profile, &from, &next, &last, &crate::tape::VERIFY_SCOPE],
@@ -354,7 +423,7 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
         .map_err(db)?
         .get(0);
     for job in &verify_cancelled {
-        tx.execute("INSERT INTO core.hand_over_job (hand_over_id, old_job, new_job) VALUES ($1, $2, NULL)", &[&hand_over_id, job]).await.map_err(db)?;
+        tx.execute("INSERT INTO core.hand_over_job (hand_over_id, old_job, new_job, restarted) VALUES ($1, $2, NULL, false)", &[&hand_over_id, job]).await.map_err(db)?;
     }
     for c in &mut carried {
         if c.kind == "DAY_BLOCK" {
@@ -382,10 +451,15 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
             .await
             .map_err(db)?
             .get(0);
-        tx.execute("INSERT INTO core.hand_over_job (hand_over_id, old_job, new_job) VALUES ($1, $2, $3)", &[&hand_over_id, &c.old_job, &new]).await.map_err(db)?;
+        tx.execute(
+            "INSERT INTO core.hand_over_job (hand_over_id, old_job, new_job, restarted) VALUES ($1, $2, $3, $4)",
+            &[&hand_over_id, &c.old_job, &new, &stopped.contains(&c.old_job)],
+        )
+        .await
+        .map_err(db)?;
         c.new_job = Some(new);
     }
-    let counts: Vec<String> = ["TAPE", "DAY_BLOCK", "ORDERED_PASS"]
+    let counts: Vec<String> = ["TAPE", "DAY_BLOCK", "ORDERED_PASS", "REFCHECK"]
         .iter()
         .filter_map(|k| {
             let n = carried.iter().filter(|c| c.kind == *k).count();
