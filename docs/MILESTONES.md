@@ -1264,14 +1264,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   nothing hyped; posts only on genuine rare detections. Cadence (owner): the week's top 1-3 unusualness readings spread over
   a few posts per week — the top of the paid report's own unusualness ranking (one computation; posts can never
   disagree with the report). Platform choice and API access decided at the time.
-  **Roadmap beyond launch (owner, same day: "this won't just be launch and pray — we will expand over time"):** (1) after
-  phase 1, research more ways to repurpose the same data (needs the phase-1 database to test anything); (2) after launch,
-  build the full history; (3) research with the full history which measures, for which assets, carry forward-looking
-  information (out of sample, multiple-testing corrected), then build from what holds up. Product intent stays "measurements,
-  not forecasts" unless the owner decides otherwise with that evidence.
-  A "signal service" (owner's idea) would additionally require legal review first (securities rules on investment advice in
-  Canada/US); measurement-first stays the product: "most honest, most defensible, and safest" (owner). Some legal review
-  already done; the full legal research ($2,500 retainer) waits for revenue or a rig hitch — it is only needed for a signal service.
+  **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
+  forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
+  from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
+  full legal research ($2,500 retainer) waits for revenue or a rig hitch.
   **Investigating while it runs (owner's goal, UTC−6 ~11:40):** (1) the request budget is ~half used during downloads (avg
   ~800-1,270/min of 1,900; near the cap only 12 min in 4 h) → downloads are bound by per-worker concurrency, not Intrinio:
   candidate improvement = more in-flight requests per worker (cuts the ~3 h download stage and node-hours); compute is
