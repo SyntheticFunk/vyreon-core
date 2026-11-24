@@ -1078,6 +1078,17 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   further bump. Narrow r3 audits running (`audits/2026-11-24-d460-r3/`). Watch item for the owner: the reference UPATH owner
   now "follows the engine's path logic step for step" — independence of the reference (owner's rule: no circular checks)
   asked of the auditors explicitly.
+  **r3 (04:00 MT):** no numerical discrepancy or over-withholding on ordinary sessions (both). Feed guard still yields edge
+  cases with one root cause: it re-implements the overlay's population/recency rules (D-359 population, D-072 stamped
+  no-quote, prior-session snapshot trade, off-grid strike merge, fractional rounding) → redesign: the guard reads the
+  overlay's own per-contract result (retire the copies). **Reference circularity confirmed:** int_upath.py/evc ported the
+  engine's code and repeat its bin-0 mislabel → rewrite as an independent reading of D-027/D-094/D-118/D-460. Gemini's
+  "12.0 volumes" suspicion checked live: option interval volumes are integers (NOT REAL; accept whole floats anyway).
+  **Hand-over 26 done (04:10 MT): 2dde1132+5f8d87f49bfc admitted, KEDA + DAILY_BUILD on it (core re-applied with image
+  substituted).** Coordinator criterion (owner asleep): strictly better than fc36eefb on wrong numbers (removes the UPATH
+  false zero on every new day). fc36eefb published no day (4.5 h of block progress lost across hand-overs 24-26).
+  **July recompute scheduled:** blocks 2024-07-09..07-12, 07-16..07-19, 07-23 (+ 07-15, 07-22 already queued); passes
+  requeue as days publish. Next: `eng-f4` (feed guard reads the overlay's result; independent reference; r3 items).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
