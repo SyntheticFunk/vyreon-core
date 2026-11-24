@@ -272,8 +272,8 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Option<Item>>, 
             Some(lease)
         }
     };
-    check_layer(&tx, &header, lease.as_ref()).await?;
     let listed = check_header(&tx, &header).await?;
+    check_layer(&tx, &header, lease.as_ref()).await?;
     if header.report.as_ref().is_some_and(|r| !r.is_object()) {
         return refuse("the report is not a JSON object");
     }
@@ -408,10 +408,54 @@ async fn published_before(tx: &Transaction<'_>, header: &Header, lease: &work::H
 /// the stored ones (`published_before`), the bundle ending where its header says, and its reader
 /// scalars and unusual scores exactly the stored ones. Anything else is refused, naming what differs.
 async fn same_as_published(tx: &Transaction<'_>, revision: i64, header: &Header, scalars: &Scalars, items: &mut Receiver<Option<Item>>) -> Result<(), Error> {
+    // release audit (Codex 12, Gemini 13): every field of each slot is the stored one, not its body alone
+    let mut sent = Vec::with_capacity(header.slots.len());
     for slot in &header.slots {
         let name = format!("{}/{}", slot.measurement_id, slot.object_id);
         let Some(Some(Item::Slot(files))) = items.recv().await else { return refuse(format!("{name}: the bundle ends before this slot")) };
-        check_slot(slot, &files).map_err(|e| Error::Refused(format!("{name}: {e}")))?;
+        let staged = check_slot(slot, &files).map_err(|e| Error::Refused(format!("{name}: {e}")))?;
+        sent.push(serde_json::json!({
+            "measurement_id": slot.measurement_id, "object_id": slot.object_id, "slot_state": slot.slot_state,
+            "science_version": slot.science_version, "method_version": slot.method_version, "receipt": staged.receipt_text,
+            "coordinates": staged.coordinates_text, "root_sha256": staged.stream.as_ref().map(|x| x.root_sha256.clone()),
+            "events_sha256": staged.stream.as_ref().map(|x| x.events_sha256.clone()),
+        }));
+    }
+    let differs: Option<String> = tx
+        .query_opt(
+            "SELECT s.measurement_id || '/' || s.object_id FROM jsonb_to_recordset($2::text::jsonb)
+                 AS s(measurement_id text, object_id text, slot_state text, science_version text, method_version text, receipt text, coordinates text,
+                      root_sha256 text, events_sha256 text)
+             LEFT JOIN vyreon.measurement m ON m.revision_id = $1 AND m.measurement_id = s.measurement_id AND m.object_id = s.object_id
+             LEFT JOIN vyreon.measurement_stream t ON t.revision_id = $1 AND t.measurement_id = s.measurement_id AND t.object_id = s.object_id
+             WHERE m.revision_id IS NULL OR m.slot_state <> s.slot_state OR m.science_version <> s.science_version OR m.method_version <> s.method_version
+                OR m.receipt <> s.receipt::jsonb OR m.coordinates IS DISTINCT FROM s.coordinates::jsonb
+                OR t.root_sha256 IS DISTINCT FROM s.root_sha256 OR t.events_sha256 IS DISTINCT FROM s.events_sha256
+             LIMIT 1",
+            &[&revision, &Value::Array(sent).to_string()],
+        )
+        .await
+        .map_err(db)?
+        .map(|r| r.get(0));
+    if let Some(slot) = differs {
+        return refuse(format!(
+            "the bundle sent again for {} is not published revision {revision}: slot {slot} differs (its state, versions, receipt, coordinates or stream)",
+            header.represented_date
+        ));
+    }
+    let head: (bool, bool) = tx
+        .query_one(
+            "SELECT snapshot_cutoff = $2::text::timestamptz, day_local = $3 AND ($4::bigint IS NULL OR base_revision = $4) FROM vyreon.day_revision WHERE revision_id = $1",
+            &[&revision, &header.snapshot_cutoff, &header.day_local, &header.base_revision],
+        )
+        .await
+        .map(|r| (r.get(0), r.get(1)))
+        .map_err(db)?;
+    if head != (true, true) {
+        return refuse(format!(
+            "the bundle sent again for {} is not published revision {revision}: its snapshot cutoff, layer or base differs",
+            header.represented_date
+        ));
     }
     match items.recv().await {
         Some(None) => {}
@@ -424,10 +468,12 @@ async fn same_as_published(tx: &Transaction<'_>, revision: i64, header: &Header,
             .await
             .map_err(db)?
             .iter()
-            .map(|r| ((r.get(0), r.get(1), r.get(2)), r.get::<_, f64>(3).to_bits()))
+            .map(|r| ((r.get(0), r.get(1), r.get(2)), canonical(r.get::<_, f64>(3))))
             .collect();
+        // release audit (Gemini 11): the store keeps numbers through jsonb, where -0 is 0; the
+        // comparison is of the values, every other bit exact
         let sent_set: HashMap<(String, String, String), u64> =
-            sent.iter().map(|x| ((x.object_id.clone(), x.measurement_id.clone(), x.role_id.clone()), x.value.to_bits())).collect();
+            sent.iter().map(|x| ((x.object_id.clone(), x.measurement_id.clone(), x.role_id.clone()), canonical(x.value))).collect();
         if sent_set.len() != sent.len() || sent_set != stored {
             let differs = sent_set
                 .iter()
@@ -442,6 +488,11 @@ async fn same_as_published(tx: &Transaction<'_>, revision: i64, header: &Header,
         }
     }
     Ok(())
+}
+
+/// A value's bits with -0 as 0 (the store's jsonb path keeps no negative zero).
+fn canonical(v: f64) -> u64 {
+    if v == 0.0 { 0 } else { v.to_bits() }
 }
 
 /// A revision's layer: the base, the day-local revision on it, or the history revision (C-031,
@@ -480,20 +531,41 @@ async fn check_layer(tx: &Transaction<'_>, header: &Header, lease: Option<&work:
             header.profile_revision, header.engine_build
         ));
     }
+    // release audit (Codex 11): a lease publishes a day's revision of one profile once; one it already
+    // published that `published_before` did not match is a different bundle, refused (it would
+    // supersede the first, and what read it)
+    let mine: Option<i64> = tx
+        .query_opt(
+            "SELECT d.revision_id FROM core.lease_revision lr JOIN vyreon.day_revision d USING (revision_id)
+             WHERE lr.lease_id = $1 AND d.represented_date = $2::text::date AND d.profile_revision = $3 AND d.state = 'PUBLISHED' LIMIT 1",
+            &[&lease.lease_id, &header.represented_date, &header.profile_revision],
+        )
+        .await
+        .map_err(db)?
+        .map(|r| r.get(0));
+    if let Some(first) = mine {
+        return refuse(format!(
+            "job {} published {}'s {} as revision {first}; this bundle differs from it: a day is published once with one set of numbers",
+            lease.job_id, header.represented_date, header.profile_revision
+        ));
+    }
     if lease.kind == "DAY_BLOCK" && this == "base" {
+        // release audit (Codex 13, Gemini 13): the day's published base of this build, whichever lease
+        // published it
         let other: Option<String> = tx
             .query_opt(
-                "SELECT d.profile_revision FROM core.lease_revision lr JOIN vyreon.day_revision d USING (revision_id)
-                 WHERE lr.lease_id = $1 AND d.represented_date = $2::text::date AND d.base_revision IS NULL AND d.profile_revision <> $3 LIMIT 1",
-                &[&lease.lease_id, &header.represented_date, &header.profile_revision],
+                "SELECT d.profile_revision FROM vyreon.day_revision d
+                 WHERE d.represented_date = $2::text::date AND d.engine_build = $1 AND d.base_revision IS NULL AND d.state = 'PUBLISHED'
+                   AND d.profile_revision <> $3 LIMIT 1",
+                &[&header.engine_build, &header.represented_date, &header.profile_revision],
             )
             .await
             .map_err(db)?
             .map(|r| r.get(0));
         if let Some(other) = other {
             return refuse(format!(
-                "job {} published {}'s base in profile {other}; a second base in profile {} is a day-local or history revision without its base fields",
-                lease.job_id, header.represented_date, header.profile_revision
+                "{}'s base of build {} is published in profile {other}; a second base in profile {} is a day-local or history revision without its base fields",
+                header.represented_date, header.engine_build, header.profile_revision
             ));
         }
     }

@@ -133,11 +133,15 @@ pub async fn release(client: &mut Client, budget_lease_id: i64, worker: &str, us
 pub const PRESSURE_MINUTES: f64 = 5.0;
 
 /// C-073: when the budget last made a draw wait, if within `PRESSURE_MINUTES` of `now` (as text, UTC),
-/// and how many draws waited in that time.
+/// and how many draws waited in the whole minutes inside that time (release audit, Codex 10: a minute
+/// that began before it also held earlier waits; its count is left out, so the number is never more
+/// than the waits in the time, and the CLI says "at least").
 pub async fn pressed(client: &impl tokio_postgres::GenericClient, now: &str) -> Result<Option<(String, i64)>, String> {
     let r = client
         .query_one(
-            "SELECT to_char(max(last_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'), COALESCE(sum(waits), 0)::bigint FROM core.budget_wait
+            "SELECT to_char(max(last_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
+                    COALESCE(sum(waits) FILTER (WHERE minute >= $1::text::timestamptz - make_interval(secs => $2::float8 * 60)), 0)::bigint
+             FROM core.budget_wait
              WHERE last_at > $1::text::timestamptz - make_interval(secs => $2::float8 * 60) AND last_at <= $1::text::timestamptz",
             &[&now, &PRESSURE_MINUTES],
         )

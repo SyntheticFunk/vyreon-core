@@ -131,6 +131,8 @@ pub struct HandOver {
     pub reason: String,
     /// Tapes, day blocks and ordered passes moved to the successor.
     pub moved: [i64; 3],
+    /// C-073 (release audit, Codex 8, Gemini 9): the reference-check re-runs moved.
+    pub refchecks: i64,
     /// The old build's tape verify jobs cancelled, not moved.
     pub verify_cancelled: i64,
     /// The running jobs its withdrawal stopped (moved, to run again under the successor).
@@ -145,9 +147,9 @@ impl HandOver {
     /// One line: its builds, what it moved, the running jobs restarted, its reason cut to
     /// `REASON_MAX`, then its window's steps.
     pub fn line(&self) -> String {
-        let HandOver { id, from, to, reason, moved, verify_cancelled, restarted, admitted } = self;
+        let HandOver { id, from, to, reason, moved, refchecks, verify_cancelled, restarted, admitted } = self;
         let (verify_cancelled, restarted) = (*verify_cancelled, *restarted);
-            let parts: Vec<String> = [(moved[0], "tape", "tapes"), (moved[1], "block", "blocks"), (moved[2], "pass", "passes")]
+            let parts: Vec<String> = [(moved[0], "tape", "tapes"), (moved[1], "block", "blocks"), (moved[2], "pass", "passes"), (*refchecks, "re-run", "re-runs")]
             .iter()
             .filter(|(n, ..)| *n > 0)
             .map(|(n, one, many)| counted(*n, one, many))
@@ -379,7 +381,9 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
                            AND r.stored_at <= $2::text::timestamptz
                          ORDER BY r.stored_at DESC, r.refcheck_report_id DESC LIMIT 1)::text
                  FROM d LEFT JOIN LATERAL (
-                     SELECT l.lease_id, l.job_id, l.worker, l.granted_at, j.first_session, j.last_session
+                     SELECT l.lease_id, l.job_id, l.worker, l.granted_at,
+                            -- the block as its lease began it (release audit, Gemini 9: a block set aside is narrowed)
+                            COALESCE(l.job_first, j.first_session) AS first_session, COALESCE(l.job_last, j.last_session) AS last_session
                      FROM core.lease_revision lr JOIN core.lease l USING (lease_id) JOIN core.job j USING (job_id)
                      WHERE lr.revision_id = d.local AND j.kind = 'DAY_BLOCK') x ON true
                  ORDER BY d.published_at, d.day",
@@ -517,6 +521,7 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
                         count(*) FILTER (WHERE j.kind = 'DAY_BLOCK' AND x.new_job IS NOT NULL),
                         count(*) FILTER (WHERE j.kind = 'ORDERED_PASS' AND x.new_job IS NOT NULL),
                         count(*) FILTER (WHERE x.old_job IS NOT NULL AND x.new_job IS NULL),
+                        count(*) FILTER (WHERE j.kind = 'REFCHECK' AND x.new_job IS NOT NULL),
                         CASE WHEN bool_and(x.restarted IS NOT NULL OR x.old_job IS NULL) THEN count(*) FILTER (WHERE x.restarted AND x.new_job IS NOT NULL)
                              ELSE (SELECT count(DISTINCT l.job_id) FROM core.hand_over_job y JOIN core.lease l ON l.job_id = y.old_job
                                    WHERE y.hand_over_id = h.hand_over_id AND y.new_job IS NOT NULL
@@ -544,8 +549,9 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
             reason: r.get(3),
             moved: [r.get(4), r.get(5), r.get(6)],
             verify_cancelled: r.get(7),
-            restarted: r.get(8),
-            admitted: r.get(9),
+            refchecks: r.get(8),
+            restarted: r.get(9),
+            admitted: r.get(10),
         })
         .collect();
 
@@ -579,7 +585,7 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
              FROM core.job
              LEFT JOIN (SELECT DISTINCT job_id FROM core.lease WHERE outcome = 'DONE' AND ended_at > $1::text::timestamptz AND ended_at <= $2::text::timestamptz) w USING (job_id)
              WHERE state <> 'CANCELLED' AND core.build_runs(engine_build) AND NOT COALESCE(scope @> '{\"verify\": true}', false)
-             GROUP BY kind ORDER BY CASE kind WHEN 'TAPE' THEN 0 WHEN 'DAY_BLOCK' THEN 1 ELSE 2 END",
+             GROUP BY kind ORDER BY CASE kind WHEN 'TAPE' THEN 0 WHEN 'DAY_BLOCK' THEN 1 ELSE 2 END, kind",
             &[&start, &end],
         )
         .await
@@ -799,7 +805,7 @@ mod tests {
     fn a_hand_over_reads_in_one_line() {
         let reason = "D-460 r3 fixes: UPATH bin-0 false zero removed on every new day; strictly better than fc36eefb on wrong numbers";
         let h = |id: i64, from: &str, to: &str, moved: [i64; 3], verify_cancelled: i64, restarted: i64, reason: &str| {
-            HandOver { id, from: from.into(), to: to.into(), reason: reason.into(), moved, verify_cancelled, restarted, admitted: true }.line()
+            HandOver { id, from: from.into(), to: to.into(), reason: reason.into(), moved, refchecks: 0, verify_cancelled, restarted, admitted: true }.line()
         };
         let line = h(26, "fc36eefb+b1c8d00b5d79", "2dde1132+5f8d87f49bfc", [0, 42, 593], 0, 8, reason);
         assert_eq!(
@@ -812,6 +818,8 @@ mod tests {
             "Hand-over 3: 2dde1132+aaa → 2dde1132+bbb, 1 tape + 1 block + 1 pass moved, 2 tape verify jobs cancelled — image rebuilt"
         );
         assert_eq!(h(4, "a", "b", [0, 0, 0], 0, 1, "x"), "Hand-over 4: a → b, nothing moved, 1 running job restarted — x");
+        let only = HandOver { id: 6, from: "a".into(), to: "b".into(), reason: "x".into(), refchecks: 2, admitted: true, ..HandOver::default() };
+        assert_eq!(only.line(), "Hand-over 6: a → b, 2 re-runs moved — x", "a hand-over of re-runs alone moved something");
         // audit c072, 2: a successor not admitted keeps the hand-over's instruction
         let waiting = HandOver { id: 5, from: "a+1".into(), to: "b+2".into(), reason: "x".into(), moved: [0, 3, 0], admitted: false, ..HandOver::default() };
         assert_eq!(waiting.line(), "Hand-over 5: a → b, 3 blocks moved — x · build b+2 is not admitted: admit it now (`vyreon-core build admit b+2 <evidence.json>`)");

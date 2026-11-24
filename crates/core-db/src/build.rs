@@ -345,6 +345,9 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
                 "SELECT job_id, engine_build FROM core.job
                  WHERE kind = $1 AND profile_id = $2 AND engine_build <> $3 AND state IN ('QUEUED', 'LEASED', 'FAILED')
                    AND NOT (kind = 'TAPE' AND COALESCE(scope @> $6::text::jsonb, false))
+                   -- C-073 (release audit, Gemini 5): re-runs of one session's different revisions may stand
+                   -- side by side (one per revision pair, migration 0055's index); they never overlap
+                   AND kind <> 'REFCHECK'
                    AND first_session <= $5::text::date AND last_session >= $4::text::date
                  ORDER BY job_id LIMIT 1",
                 &[&kind, &profile, &from, &next, &last, &crate::tape::VERIFY_SCOPE],

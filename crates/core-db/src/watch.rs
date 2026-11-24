@@ -1073,14 +1073,18 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
         let row = rows.iter().find(|r| r.get::<_, String>(0) == kind);
         let claimable: i64 = row.map_or(0, |r| r.get(1));
         any_claimable |= claimable > 0;
-        // C-073: held back by the scaler while the budget is pressed: the workers that press it are
-        // running, so this is the budget's pace, not a stall (its clock starts again after)
-        if claimable == 0 || leased.iter().any(|l| l == kind) || (pressed && BUDGETED.contains(&kind)) {
+        // C-073: the backfill's work held back by the scaler while the budget is pressed is the
+        // budget's pace, not a stall (its clock starts again after); the daily session's work is
+        // never held back (`core.scaler_count`), so it alone still counts (release audit, Codex 4,
+        // Gemini 1: a daily tape's stall was hidden by backfill pressure)
+        let held_back = pressed && BUDGETED.contains(&kind);
+        let claimable = if held_back { claimable - row.map_or(0, |r| r.get::<_, i64>(2)) } else { claimable };
+        if claimable == 0 || leased.iter().any(|l| l == kind) {
             c.execute("DELETE FROM core.stall_seen WHERE kind = $1", &[&kind]).await.map_err(db)?;
             continue;
         }
         let row = row.expect("a kind with claimable work has its row");
-        let (backfill, queued, admitted): (i64, Option<String>, Option<String>) = (row.get(2), row.get(3), row.get(4));
+        let (backfill, queued, admitted): (i64, Option<String>, Option<String>) = (if held_back { 0 } else { row.get(2) }, row.get(3), row.get(4));
         c.execute("INSERT INTO core.stall_seen (kind, since) VALUES ($1, $2::text::timestamptz) ON CONFLICT (kind) DO NOTHING", &[&kind, &now]).await.map_err(db)?;
         let limit = if backfill == 0 { DAILY_STALL_MINUTES } else { STALL_MINUTES };
         // audit round 2 of core-watch, 7: the clock never starts before the work could be claimed,
@@ -1191,10 +1195,23 @@ async fn no_progress(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) 
                         AND (b.used IS NULL OR b.used > 0)),
                      (SELECT max(u.minute) + interval '1 minute' FROM core.request_usage u
                       WHERE u.worker = live.worker AND u.requests > 0 AND u.minute >= date_trunc('minute', live.granted_at) AND u.minute <= $1::text::timestamptz),
-                     (SELECT max(d.published_at) FROM core.lease_revision lr JOIN vyreon.day_revision d USING (revision_id) WHERE lr.lease_id = live.lease_id),
-                     (SELECT max(r.stored_at) FROM core.refcheck_report r WHERE r.lease_id = live.lease_id),
+                     (SELECT max(d.published_at) FROM core.lease_revision lr JOIN vyreon.day_revision d USING (revision_id)
+                      WHERE lr.lease_id = live.lease_id AND d.published_at <= $1::text::timestamptz),
+                     (SELECT max(r.stored_at) FROM core.refcheck_report r WHERE r.lease_id = live.lease_id AND r.stored_at <= $1::text::timestamptz),
+                     (SELECT max(k.checked_at) FROM core.tape_check k WHERE k.lease_id = live.lease_id AND k.checked_at <= $1::text::timestamptz),
+                     (SELECT max(GREATEST(a.requested_at, a.kept_at)) FROM core.perishable_archive a
+                      WHERE a.job_id = live.job_id AND a.worker = live.worker AND a.requested_at >= live.granted_at AND a.requested_at <= $1::text::timestamptz),
+                     -- release audit (Codex 18, Gemini 10): a tape job's own caches and verdicts only; the
+                     -- day block's captures of its own sessions
                      (SELECT max(t.stored_at) FROM core.tape_cache t
-                      WHERE t.session BETWEEN live.first_session AND live.last_session AND t.stored_at >= live.granted_at AND t.stored_at <= $1::text::timestamptz)
+                      WHERE live.kind = 'TAPE' AND t.session BETWEEN live.first_session AND live.last_session
+                        AND t.stored_at >= live.granted_at AND t.stored_at <= $1::text::timestamptz),
+                     (SELECT max(v.stored_at) FROM core.tape_verdict v
+                      WHERE live.kind = 'TAPE' AND v.session BETWEEN live.first_session AND live.last_session
+                        AND v.stored_at >= live.granted_at AND v.stored_at <= $1::text::timestamptz),
+                     (SELECT max(i.stored_at) FROM core.input_capture i
+                      WHERE live.kind = 'DAY_BLOCK' AND i.session BETWEEN live.first_session AND live.last_session
+                        AND i.stored_at >= live.granted_at AND i.stored_at <= $1::text::timestamptz)
                  ) AS last FROM live)
              SELECT job_id, CASE WHEN kind = 'DAY_BLOCK' AND priority = 1 THEN 'DAILY_BLOCK' ELSE kind END, COALESCE(next_session, last_session)::text, worker, step,
                     to_char(last AT TIME ZONE $2, 'Dy HH24:MI'), to_char(waiting_until AT TIME ZONE $2, 'Dy HH24:MI'), reason,
@@ -1255,10 +1272,11 @@ async fn thrashing(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) ->
                         COALESCE(e.message, COALESCE(l.failed_stage || ': ', '') || COALESCE(l.failure, 'no reason given'))
                  FROM core.job j JOIN core.lease l ON l.job_id = j.job_id
                  LEFT JOIN core.job_evidence e ON e.lease_id = l.lease_id
-                 WHERE j.state IN ('QUEUED', 'LEASED') AND j.next_session IS NOT NULL
+                 WHERE j.state IN ('QUEUED', 'LEASED') AND j.next_session IS NOT NULL AND core.build_runs(j.engine_build)
                    AND l.outcome IN ('EXPIRED', 'FAILED') AND l.start_session = j.next_session
                    AND l.ended_at <= $1::text::timestamptz
                    AND l.granted_at > $1::text::timestamptz - make_interval(secs => $2::float8 * 3600)
+                   AND (j.retried_at IS NULL OR l.granted_at > j.retried_at)
                  ORDER BY 1, j.job_id, l.ended_at DESC, l.lease_id DESC"
             ),
             &[&now, &THRASH_WINDOW_HOURS],
@@ -1976,7 +1994,7 @@ async fn digest_of(c: &mut impl GenericClient, s: &Settings, now: &str, open: &[
     let kinds = c
         .query(
             "SELECT kind, count(*) FILTER (WHERE state = 'QUEUED'), count(*) FILTER (WHERE state = 'LEASED'), count(*) FILTER (WHERE state = 'FAILED')
-             FROM core.job GROUP BY kind ORDER BY CASE kind WHEN 'DAY_BLOCK' THEN 0 WHEN 'TAPE' THEN 1 ELSE 2 END",
+             FROM core.job GROUP BY kind ORDER BY CASE kind WHEN 'DAY_BLOCK' THEN 0 WHEN 'TAPE' THEN 1 ELSE 2 END, kind",
             &[],
         )
         .await

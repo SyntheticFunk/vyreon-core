@@ -4,8 +4,8 @@
 //!   vyreon-core universe load <PROFILE.json> <dir>    store a profile's members and their ticker
 //!                                                     history from saved Intrinio responses
 //!   vyreon-core universe on <profile> <date>          the members and their tickers on a date
-//!   vyreon-core build register <inventory.json>       register an engine build with its slot inventory
-//!   vyreon-core build admit <build> <evidence.json>   let the build's workers claim work (the checks it passed)
+//!   vyreon-core build register <inventory.json>       register an engine build with its slot inventory (`-`: stdin)
+//!   vyreon-core build admit <build> <evidence.json>   let the build's workers claim work (the checks it passed; `-`: stdin)
 //!   vyreon-core build withdraw <build> <reason>       stop them claiming, and stop its running jobs (their
 //!                                                     leases end; the jobs are queued again under it)
 //!   vyreon-core build hand-over (--preview | --expect <token>) <from> <to> <reason...>   C-068: hand a build's
@@ -156,8 +156,20 @@ async fn connect() -> Result<Client, String> {
     connect_to("VYREON_CORE_PG").await
 }
 
+/// A file's text, or with `-` the standard input (C-073, release audit, Gemini's suspicion 2: `kubectl
+/// exec -i` gives the pod's process a pipe it may not reopen as `/dev/stdin` under its own user; fd 0
+/// is read directly).
+fn read_input(file: &str) -> Result<String, String> {
+    if file == "-" {
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut text).map_err(|e| format!("standard input: {e}"))?;
+        return Ok(text);
+    }
+    std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))
+}
+
 async fn build_register(file: &str) -> Result<(), String> {
-    let text = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
+    let text = read_input(file)?;
     let inventory = serde_json::from_str(&text).map_err(|e| format!("{file}: {e}"))?;
     let r = build::register(&mut connect().await?, &inventory).await?;
     println!("{} {}: {} slots", if r.new { "registered" } else { "already registered" }, r.engine_build, r.slots);
@@ -165,7 +177,7 @@ async fn build_register(file: &str) -> Result<(), String> {
 }
 
 fn json_file(file: &str) -> Result<serde_json::Value, String> {
-    let text = std::fs::read_to_string(file).map_err(|e| format!("{file}: {e}"))?;
+    let text = read_input(file)?;
     serde_json::from_str(&text).map_err(|e| format!("{file}: {e}"))
 }
 
@@ -666,7 +678,7 @@ async fn budget_ledger(hours: &str) -> Result<(), String> {
     let now = watch::now(&client).await?;
     match core_db::budget::pressed(&client, &now).await? {
         Some((at, n)) => println!(
-            "pressed: {n} draws waited in the last {:.0} min, the last at {at} UTC: KEDA starts no tape, backfill block or re-run pod until it is quiet that long",
+            "pressed: at least {n} draws waited in the last {:.0} min, the last at {at} UTC: KEDA starts no tape, backfill block or re-run pod until it is quiet that long",
             core_db::budget::PRESSURE_MINUTES
         ),
         None => println!("not pressed: no draw waited in the last {:.0} min (KEDA starts pods for all claimable work)", core_db::budget::PRESSURE_MINUTES),

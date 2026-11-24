@@ -808,8 +808,8 @@ pub const WAIT_MAX_HOURS: f64 = 24.0;
 /// instant, with its `reason`; both or neither), kept per lease (`core.lease_step`). A step or a wait
 /// that differs from the last report starts its clock (`step_since`): the worker's own progress mark
 /// for the watch's NO_PROGRESS; the same report again only says the worker is alive. Refused: an empty
-/// or long text, one a credential pattern matches (never stored), a wait in the past or more than
-/// `WAIT_MAX_HOURS` ahead.
+/// or long text, one a credential pattern matches (never stored), a wait that is not an RFC 3339
+/// instant or is more than `WAIT_MAX_HOURS` ahead (one already over is kept).
 pub async fn report_step(client: &mut Client, token: &str, step: &str, waiting_until: Option<&str>, reason: Option<&str>) -> Result<(), LeaseError> {
     let (step, reason) = (step.trim(), reason.map(str::trim).filter(|r| !r.is_empty()));
     if step.is_empty() || step.chars().count() > 200 {
@@ -826,19 +826,28 @@ pub async fn report_step(client: &mut Client, token: &str, step: &str, waiting_u
             return Err(LeaseError::Refused(format!("{found}: a step report carries no credential; nothing was stored")));
         }
     }
+    // release audit (Gemini 12): an RFC 3339 instant, parsed strictly here (never echoed when it is not
+    // one); a wait already over is kept as reported (the watch's deadline is then the usual one), so a
+    // second of clock skew never loses the step; only one more than `WAIT_MAX_HOURS` ahead is refused
+    let until: Option<String> = match waiting_until {
+        None => None,
+        Some(u) => Some(
+            u.trim()
+                .parse::<jiff::Timestamp>()
+                .map_err(|_| LeaseError::Refused("waiting_until is not an RFC 3339 instant (not repeated here)".into()))?
+                .to_string(),
+        ),
+    };
     let tx = client.transaction().await.map_err(failed)?;
     let lease = held(&tx, token).await?;
-    if let Some(until) = waiting_until {
-        let ok: Option<bool> = tx
-            .query_one(
-                "SELECT $1::text::timestamptz > clock_timestamp() AND $1::text::timestamptz <= clock_timestamp() + make_interval(secs => $2::float8 * 3600)",
-                &[&until, &WAIT_MAX_HOURS],
-            )
+    if let Some(until) = &until {
+        let ok: bool = tx
+            .query_one("SELECT $1::text::timestamptz <= clock_timestamp() + make_interval(secs => $2::float8 * 3600)", &[until, &WAIT_MAX_HOURS])
             .await
-            .map_err(|_| LeaseError::Refused(format!("waiting_until {until} is not an instant (RFC 3339)")))?
+            .map_err(failed)?
             .get(0);
-        if ok != Some(true) {
-            return Err(LeaseError::Refused(format!("waiting_until {until} is not ahead of now by at most {WAIT_MAX_HOURS} h")));
+        if !ok {
+            return Err(LeaseError::Refused(format!("waiting_until {until} is more than {WAIT_MAX_HOURS} h ahead")));
         }
     }
     tx.execute(
@@ -848,7 +857,7 @@ pub async fn report_step(client: &mut Client, token: &str, step: &str, waiting_u
              step_since = CASE WHEN core.lease_step.step = EXCLUDED.step AND core.lease_step.waiting_until IS NOT DISTINCT FROM EXCLUDED.waiting_until
                                THEN core.lease_step.step_since ELSE EXCLUDED.step_since END,
              step = EXCLUDED.step, waiting_until = EXCLUDED.waiting_until, reason = EXCLUDED.reason, reported_at = EXCLUDED.reported_at",
-        &[&lease.lease_id, &step, &waiting_until, &reason],
+        &[&lease.lease_id, &step, &until, &reason],
     )
     .await
     .map_err(failed)?;
@@ -963,8 +972,8 @@ async fn finished(db_client: &impl GenericClient, job: &tokio_postgres::Row, by:
         let minutes = minutes.map_or(String::new(), |m| format!(" in {m:.0} min"));
         notice::log(db_client, &format!("Day block {first} to {last} done{minutes} by {by} ({remaining} blocks to go).")).await
     } else if remaining == 0 {
-        let what = if kind == "TAPE" { "tape" } else { "ordered pass" };
-        notice::log(db_client, &format!("Every scheduled {what} job is done (the last: {last}).")).await
+        // C-073 (release audit, Codex 8, Gemini 4): each kind its own words (a re-run is no pass)
+        notice::log(db_client, &format!("All scheduled {} are done (the last: {last}).", crate::watch::kind_words(&kind))).await
     } else {
         Ok(())
     }
@@ -1067,7 +1076,8 @@ pub async fn retry_failed(db_client: &impl GenericClient) -> Result<u64, String>
         .query(
             "UPDATE core.job SET state = CASE WHEN next_session IS NULL THEN 'DONE' ELSE 'QUEUED' END,
                                  attempts = CASE WHEN next_session IS NULL THEN attempts ELSE 0 END,
-                                 finished_at = CASE WHEN next_session IS NULL THEN finished_at END
+                                 finished_at = CASE WHEN next_session IS NULL THEN finished_at END,
+                                 retried_at = CASE WHEN next_session IS NULL THEN retried_at ELSE clock_timestamp() END
              WHERE state = 'FAILED' RETURNING state = 'QUEUED'",
             &[],
         )

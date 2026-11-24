@@ -494,12 +494,41 @@ async fn refcheck_put(State(app): Shared, headers: HeaderMap, Path(session): Pat
     ok(json!({"new": new, "report_id": id}))
 }
 
-/// C-073: the dump a re-run's suite reads (a tar; tens to a few hundred MB for a day, built in memory:
-/// one re-run at a time, KEDA's cap).
+/// C-073: the dump a re-run's suite reads (a tar; tens to a few hundred MB for a day). Written to the
+/// spool as it is read from the database and sent from there in chunks (release audit, Gemini's
+/// suspicion 1: never held whole in memory); the file is unlinked once open, so nothing is left behind.
 async fn refcheck_dump(State(app): Shared, headers: HeaderMap, Path(session): Path<String>) -> Reply {
+    let token = bearer(&headers)?.to_owned();
+    if !core_contract::is_date(&session) {
+        return Err(refused(format!("{session} is not a date written YYYY-MM-DD")));
+    }
+    let n = app.spooled.fetch_add(1, Ordering::SeqCst);
+    let path = app.config.spool.join(format!("refcheck-dump-{}-{n}.tar", std::process::id()));
     let mut client = app.db().await?;
-    let bytes = refcheck::dump(&mut client, bearer(&headers)?, &session).await?;
-    Ok(([(header::CONTENT_TYPE, "application/x-tar")], bytes).into_response())
+    let written = refcheck::dump_to(&mut client, &token, &session, &path).await;
+    drop(client);
+    if let Err(e) = written {
+        let _ = tokio::fs::remove_file(&path).await;
+        let _ = tokio::fs::remove_file(path.with_extension("store")).await;
+        return Err(e.into());
+    }
+    let file = tokio::fs::File::open(&path).await.map_err(|e| failed(e.to_string()));
+    let _ = tokio::fs::remove_file(&path).await;
+    let file = file?;
+    let length = file.metadata().await.map_err(|e| failed(e.to_string()))?.len();
+    let chunks = futures_util::stream::unfold(file, |mut file| async move {
+        use tokio::io::AsyncReadExt;
+        let mut buf = vec![0u8; 1 << 20];
+        match file.read(&mut buf).await {
+            Ok(0) => None,
+            Ok(k) => {
+                buf.truncate(k);
+                Some((Ok::<_, std::io::Error>(axum::body::Bytes::from(buf)), file))
+            }
+            Err(e) => Some((Err(e), file)),
+        }
+    });
+    Ok(([(header::CONTENT_TYPE, "application/x-tar".to_owned()), (header::CONTENT_LENGTH, length.to_string())], Body::from_stream(chunks)).into_response())
 }
 
 #[derive(Deserialize)]

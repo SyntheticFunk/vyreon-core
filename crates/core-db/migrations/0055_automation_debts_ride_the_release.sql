@@ -97,3 +97,7 @@ ALTER TABLE core.problem ADD CONSTRAINT problem_kind_check
                     'PROVIDER_ERRORS', 'DATABASE_FULL', 'CALENDAR_END', 'NOT_DERIVED', 'DAILY_STOPPED',
                     'ARCHIVE_MISSING', 'REFCHECK_DISAGREES', 'REFCHECK_NOT_RUN', 'STALLED', 'CLAIMS_EMPTY',
                     'WAL_ARCHIVING', 'BACKUP_STALE', 'WATCH_FAILING', 'JOB_THRASHING', 'NO_PROGRESS'));
+
+-- C-073 (release audit, Gemini 6): when `queue retry-failed` last queued a job again; JOB_THRASHING
+-- counts only the leases granted after it (a retried job starts clean).
+ALTER TABLE core.job ADD COLUMN retried_at timestamptz;
