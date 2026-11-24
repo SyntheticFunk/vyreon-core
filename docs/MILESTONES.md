@@ -1250,6 +1250,14 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   16:45 UTC (62/64 assets captured; NVDA and SMH stuck, no requests, no budget waits), worker still heartbeating → core sees
   nothing (observability gap → a 'no progress' watch belongs in the release). Read-only root-cause investigation running;
   process kept alive as evidence (deadlines start 11-30).
+  **Root cause (investigator, read-only): not a hang.** EXQ01 freezes each asset's cutoff at plan creation + 3600 s and,
+  after its last asset (COIN, plan 16:45:10 UTC), sleeps to that cutoff (exq01_cohort_capture.rs:315-317) → exits ~17:45 UTC
+  by itself. Real defect: **NVDA and SMH each failed on a single HTTP 502 with no retry** (:191-195; NVDA at page 1113) → job
+  retry re-captures them and sleeps another hour. Ordinary and daily (every daily run idles ~1 h; each 5xx adds ~1 h and can
+  withhold an asset's EXQ01). Backfill unaffected (prints not retained → EXQ01 skipped). Into the release: EXQ01 defers its
+  cutoff wait to the fill (like ACT01 D-457), bounded retry of transient 5xx/timeouts per page, worker step/wait reporting +
+  core NO_PROGRESS watch (alerts on no progress unless a declared wait covers it). My "hung" call was wrong; the evidence
+  check corrected it.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
