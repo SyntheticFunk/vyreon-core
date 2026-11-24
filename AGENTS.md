@@ -86,6 +86,9 @@ Context is lost over time; the files are the memory. Sessions run for days on th
 - Stopping remote jobs: bracket patterns (`pgrep -f "[v]yreon-day"`), kill whole process trees,
   verify zero survivors before restarting.
 - Discord notices go to the channel only, never phone pings.
+- **An observability gap becomes a notification** (owner, 2026-11-23): whenever something went wrong or stalled and only an
+  agent looking noticed it, add a core watch check that posts it to the relevant Discord channel (problems to the alert
+  channel, progress to the progress channel), so the next occurrence reaches the owner without anyone looking.
 - Production code hard-codes no machine paths.
 - Audits run without being asked: when a step or a merged batch lands (engine or core), start a
   read-only Codex audit **and a read-only Gemini 4 Neon audit** (`tools/audit/run-agy`, same scope) of what it touched,
