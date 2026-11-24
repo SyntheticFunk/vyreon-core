@@ -993,6 +993,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   nodes for pending pods; none ran there), placement reverted (cf93528), **tape ScaledJob paused** until D-459 lands. Waiting
   on it: the 11 tapes 2026-11-06..11-20, the day blocks covering Nov 2026, and the daily run from 2026-11-23 (deadlines
   start 11-30). Three old tapes still run on day nodes.
+  **Coordinator ruling for the owner's morning review (2026-11-23 ~21:30 MT):** the fix necessarily changes the reader's
+  source hash (READER_IDENTITY), which would orphan all ~850 stored tape caches (re-capture: 6-12 h, ~half a day of phase 1).
+  Ruled: **carry the identity over on proof** — bound to the exact new source digest (later edits get a new identity), gated on
+  byte-identical output on the frozen real slice (replay-slice-2026-11-12) AND a cluster verify sample (≥20 real sessions
+  across all eras, D-370) reproducing the stored cache digests exactly; any mismatch voids it → new identity, re-capture all.
+  Reasoning: the identity attests which bytes a reader produces; identical bytes keep it true; reversible.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
