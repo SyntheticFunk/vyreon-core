@@ -697,6 +697,15 @@ Two small blockers, both found by both reviewers: core digest tallies all revisi
 once the passes run) → `core-p2` C-071; engine D-458 fallback mislabels a T−4..T−1 capture gap as ENGINE_FAULT →
 `eng-p1c`. 2024-07-15 (published on d9462aad, refcheck lost in hand-over 20) queued for recompute. Then a narrow third
 audit.
+**Round 3 (narrow, 2026-11-23 18:00 MT):** core C-071 merged (ac6ff43; 189/0) and **deployed 18:05 MT** (no migration;
+strictly better than before). Engine D-458 amendment merged (955d0f82; 1,684/0), image built and pushed, **not handed over**
+(coordinator: it only changes a stated reason in a rare case; a hand-over now would cost ~1 h on 8 blocks; it ships with the
+next engine change that needs one; affected days, if any, found by the census and recomputed). Codex round 3: not
+converged, edges only: core — a tally batch can still wait on a lock past the 15-min liveness, composition has no
+deadline, a moving 24-h window can skip an old revision's tally, recovery mislabel; engine — split + unpublished chain
+behind it still mislabelled (value correctly withheld), one unverified day-refusal suspicion. Planned core round 4:
+statement_timeout/lock_timeout on every tally statement (a slow batch fails visibly as WATCH_FAILING, never hangs) and
+tally untallied revisions instead of a 24-h window. Gemini round 3 pending.
 **Owner, 2026-11-23 ~09:50 MT: D-191 recommendation accepted** (weight kept, text corrected: engine worker commit after f3db692e, docs only). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
