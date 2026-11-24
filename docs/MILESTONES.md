@@ -1251,6 +1251,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   four are bad; weak conversion alone = an offer/pricing fix. **First look early May 2027**, before Intrinio Startup's price
   doubles (~2027-05-24, month 7). Instrumentation exists (GA4: consent mode, engaged_60s, sign_up/generate_lead); Stripe
   retention needs nothing until there are subscribers.
+  **Reporter/web priority (owner, same day): SEO/AEO first — "ads is only a forcing function, it's not a natural draw";
+  the weekly design is the organic engine.** Design requirements, not polish: (1) stable URLs — an evergreen page per asset
+  (latest) plus dated weekly pages that accumulate; (2) answer-first: the plain-language summary leads (what answer engines
+  quote), details/charts below; (3) machine-readable: schema.org structured data per page, sitemap refreshed each Sunday, fast
+  static pages; (4) derived measurements only (Intrinio's "not reproducible" condition); (5) explainer pages and reports linked
+  both ways so the existing search trickle feeds the reports.
   **Investigating while it runs (owner's goal, UTC−6 ~11:40):** (1) the request budget is ~half used during downloads (avg
   ~800-1,270/min of 1,900; near the cap only 12 min in 4 h) → downloads are bound by per-worker concurrency, not Intrinio:
   candidate improvement = more in-flight requests per worker (cuts the ~3 h download stage and node-hours); compute is
