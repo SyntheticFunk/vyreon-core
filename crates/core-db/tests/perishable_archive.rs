@@ -166,7 +166,7 @@ async fn a_published_days_perishables_are_requested_verified_kept_and_frozen() {
     // the watch: counted in the digest; a problem only past the configured age, resolved once kept
     let mut settings = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None };
     settings.archive = Some(ArchiveWatch { expected_from: Some("2025-12-10".into()), alert_days: None });
-    let digest = watch::digest(&client, &settings, &later).await.unwrap();
+    let digest = watch::digest(&mut client, &settings, &later).await.unwrap();
     assert!(digest.contains("Perishable archive: 1 missing (the oldest 2025-12-10 exq01-events, 3 days)"), "{digest}");
     // (the engine-v1 calendar's end is near at `later`: only the archive's problem is looked at)
     let archive_lines = |lines: Vec<String>| lines.into_iter().filter(|l| l.contains("Perishable archive")).collect::<Vec<_>>();
@@ -182,7 +182,7 @@ async fn a_published_days_perishables_are_requested_verified_kept_and_frozen() {
     let t3 = archive::target(&client, &block.token, prints_id).await.unwrap();
     assert!(archive::record(&mut client, &block.token, &t3, &Ok(()), &later).await.unwrap());
     assert_eq!(archive_lines(watch::check(&mut client, &settings, &later).await.unwrap().resolved).len(), 1);
-    assert!(watch::digest(&client, &settings, &later).await.unwrap().contains("Perishable archive: nothing missing"));
+    assert!(watch::digest(&mut client, &settings, &later).await.unwrap().contains("Perishable archive: nothing missing"));
 
     // only the requesting job's live lease reports; a day block's lease ended reports nothing
     // the worker archives after `day_done`: the block's last day done, its lease still asks

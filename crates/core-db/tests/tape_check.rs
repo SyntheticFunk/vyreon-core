@@ -176,7 +176,7 @@ async fn a_sample_check_keeps_the_verdict_only_beside_an_equal_cache_and_a_diffe
     assert_eq!(opened, [problem]);
     let line = "Tape cache code verified by sample (C-059): 0 of 1 sessions passed (0 of 64 asset-sessions recomputed byte for byte with the tape reader agreeing; 1 differ from the stored cache, 63 not compared)";
     assert_eq!(tape::sample_line(&tape::sample(&client).await.unwrap()).as_deref(), Some(line));
-    assert!(watch::digest(&client, &settings, &now).await.unwrap().contains(line));
+    assert!(watch::digest(&mut client, &settings, &now).await.unwrap().contains(line));
     let sample = tape::sample(&client).await.unwrap();
     assert_eq!((sample[0]["tape_bytes"].as_i64(), sample[0]["not_passed"][0]["asset"].as_str()), (Some(19_150_689_784), Some("AAPL")));
 
