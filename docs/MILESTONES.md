@@ -1071,6 +1071,13 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   emptyDir); M/9 listing close equal to the previous price read as a carry (label only; provenance is in the reader).
   Convergence note: D-460's area is the ACT01 feed guard + UPATH carry; each round's findings are narrower; the stopping
   rule (a round with no wrong number, no silent wrong absence, no silent stop) is not yet met.
+  **eng-f3 merged (2dde1132; 1,700/0; pytest 212):** reference UPATH/EVC01 agree with the engine on 3 real carried-bin
+  scenarios (all roles pass compare()); ACT01-family bumps (ACT01@2, ACT01-INTRADAY view @2, TV15@3, EXQ01@2,
+  EXQ01-TEMPORAL@2, M0-PRINT-SIZE@1.1.0); sealed snapshot read; stale EOD volume rule shared with the overlay; refresh budget;
+  read-time faults (two capture-time paths join the reader bundle). @13/@15 never published (af7f09e2 not handed over) → no
+  further bump. Narrow r3 audits running (`audits/2026-11-24-d460-r3/`). Watch item for the owner: the reference UPATH owner
+  now "follows the engine's path logic step for step" — independence of the reference (owner's rule: no circular checks)
+  asked of the auditors explicitly.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
