@@ -1270,6 +1270,9 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   overlay-rules items (0 in 941,100 rows; force re-preparing every option source) join the post-phase-1 bundle with the reader
   items; EWJ reference independence and a BABA2 certification guard fixed now; unreadable retained bar failing UACT/UQTR = honest
   ENGINE_FAULT (not a defect). Then the single release audit of core-auto + eng-rel by both reviewers.
+  **Release audit running (UTC−6 ~12:30):** core-auto @9f18db4f and eng-rel @9cb9f049 (EWJ ledger + BABA2 guard added),
+  Codex + Gemini each (`audits/2026-11-24-release/{core,engine}/`); engine Gemini chained after core Gemini (quota). Then fix
+  every real finding, merge, build, release with release.sh (core first, worker within 15 min).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
