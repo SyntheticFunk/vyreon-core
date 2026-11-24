@@ -1204,6 +1204,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   Applied: **c9c23ca5 hand-over deferred** (its only production effect, BABA's adjusted cohort, is 2025-12 and live-only);
   it ships in the next batched release at a block boundary, before the block covering 2025-12-05..12-26 starts. The running
   blocks on 5f637983 stay untouched → first clean throughput measurement.
+  **Owner, 2026-11-24 ~11:10 UTC−6: "if we have to restart phase 1 for any reason or otherwise produce a new image, build
+  the automation debt bits into the new release."** Standing rule: the next release (any new image, incl. the deferred
+  c9c23ca5 batch) carries the automation debts — release script, re-runnable reference checks, budget-aware KEDA,
+  JOB_THRASHING — so they cost no extra hand-over. Being built now (`core-auto`, C-073); engine side of re-runnable
+  refchecks, if needed, joins the same release.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
