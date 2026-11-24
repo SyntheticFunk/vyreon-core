@@ -10,9 +10,10 @@
 //!   * the reference checks that came in for days published earlier;
 //!   * the day blocks started (leases granted), in one line of their dates (C-072);
 //!   * every line core logged (`notice::log`): blocks done, days set aside with their cause, dates
-//!     omitted, builds admitted or withdrawn, retirements, the queue paused or resumed; a hand-over
-//!     is one line, with its withdrawal, its successor's admission and the operator's pause and
-//!     resume of its window folded into it (C-072);
+//!     omitted, builds admitted or withdrawn, retirements, the queue paused or resumed, each with
+//!     its reason; a hand-over's own notice is its one line (C-072: its builds, what it moved, the
+//!     running jobs restarted, its reason, the instruction to admit its successor while it does not
+//!     run). Nothing else is folded into it: a pause, a withdrawal or an admission keeps its line;
 //!   * the queue's counts by kind: done in the window, done in all, running, waiting, failed.
 //!
 //! A window in which nothing happened posts nothing. A window's posts are queued with the window,
@@ -134,10 +135,9 @@ pub struct HandOver {
     pub verify_cancelled: i64,
     /// The running jobs its withdrawal stopped (moved, to run again under the successor).
     pub restarted: i64,
-    /// The steps of its window folded into its line ("queue paused 03:28").
-    pub folded: Vec<String>,
-    /// Its successor runs (admitted, not withdrawn) as the window is composed; when not, the line
-    /// keeps the hand-over's instruction to admit it (audit c072, 2).
+    /// Its successor has been admitted by the time the window is composed; when not, the line keeps
+    /// the hand-over's instruction to admit it (audit c072, 2; never said of a successor admitted
+    /// and then withdrawn, whose withdrawal is deliberate).
     pub admitted: bool,
 }
 
@@ -145,7 +145,7 @@ impl HandOver {
     /// One line: its builds, what it moved, the running jobs restarted, its reason cut to
     /// `REASON_MAX`, then its window's steps.
     pub fn line(&self) -> String {
-        let HandOver { id, from, to, reason, moved, verify_cancelled, restarted, folded, admitted } = self;
+        let HandOver { id, from, to, reason, moved, verify_cancelled, restarted, admitted } = self;
         let (verify_cancelled, restarted) = (*verify_cancelled, *restarted);
             let parts: Vec<String> = [(moved[0], "tape", "tapes"), (moved[1], "block", "blocks"), (moved[2], "pass", "passes")]
             .iter()
@@ -165,9 +165,6 @@ impl HandOver {
             line.push_str(&format!(", {} cancelled", counted(verify_cancelled, "tape verify job", "tape verify jobs")));
         }
         line.push_str(&format!(" — {}", one_line(reason, REASON_MAX)));
-        if !folded.is_empty() {
-            line.push_str(&format!(" · {}", folded.join(" · ")));
-        }
         if !admitted {
             line.push_str(&format!(" · build {to} is not admitted: admit it now (`vyreon-core build admit {to} <evidence.json>`)"));
         }
@@ -410,7 +407,7 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
                         (SELECT count(DISTINCT l.job_id) FROM core.hand_over_job y JOIN core.lease l ON l.job_id = y.old_job
                          WHERE y.hand_over_id = h.hand_over_id AND y.new_job IS NOT NULL
                            AND l.outcome = 'CANCELLED' AND l.failure = 'its engine build was withdrawn'),
-                        core.build_runs(h.to_build)
+                        (SELECT b.admitted_at IS NOT NULL FROM core.engine_build b WHERE b.engine_build = h.to_build)
                  FROM core.hand_over h LEFT JOIN core.hand_over_job x USING (hand_over_id) LEFT JOIN core.job j ON j.job_id = x.old_job
                  WHERE h.handed_at > $1::text::timestamptz AND h.handed_at <= $2::text::timestamptz AND {fresh}
                  GROUP BY h.hand_over_id ORDER BY h.handed_at, h.hand_over_id",
@@ -420,7 +417,7 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
         )
         .await
         .map_err(db)?;
-    let mut hand_overs: Vec<HandOver> = hand_overs
+    let hand_overs: Vec<HandOver> = hand_overs
         .iter()
         .map(|r| HandOver {
             id: r.get(0),
@@ -430,17 +427,13 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
             moved: [r.get(4), r.get(5), r.get(6)],
             verify_cancelled: r.get(7),
             restarted: r.get(8),
-            folded: Vec::new(),
             admitted: r.get(9),
         })
         .collect();
-    // the time of each one's own notice, where its line goes
-    let mut placed: Vec<Option<String>> = vec![None; hand_overs.len()];
     shown.extend(hand_overs.iter().map(|h| ("hand_over", h.id)));
 
-    // everything core logged in the window, as it logged it, but what belongs to a hand-over of the
-    // window: its withdrawal, its own notice, its successor's admission, and (the operator's steps
-    // around it) the operator's pause, the resume and the planned steps' lines, folded into its line
+    // everything core logged in the window, as it logged it (a pause, a withdrawal, an admission
+    // with its reason: C-072 folds none of them away); a hand-over's own notice is its one line
     let logged = c
         .query(
             &format!(
@@ -452,75 +445,22 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
         )
         .await
         .map_err(db)?;
-    // where each hand-over's line goes among the logged lines (at its own notice), and the lines.
-    // Audit c072, 3: only what is the hand-over's own is folded: its own withdrawal (its reason
-    // "handed over to build …"; a withdrawal of its own keeps its line and reason), its successor's
-    // admission, and the operator's pause the hand-over was made in (paused before its notice and
-    // not resumed before it) with that pause's resume and planned-step lines; any other pause keeps
-    // its line and reason
-    let rows: Vec<(String, String, i64)> = logged.iter().map(|r| (r.get(0), r.get(1), r.get(2))).collect();
-    const OPERATOR_PAUSE: &str = "Queue paused by the operator: ";
-    const PAUSE_END: &str = ". No work is handed out until `vyreon-core queue resume`.";
-    let own_at: Vec<Option<usize>> = hand_overs.iter().map(|h| rows.iter().position(|r| r.1.starts_with(&format!("Hand-over {}: ", h.id)))).collect();
-    // each operator pause of the window: (its row, its resume's row, the hand-over it was made in)
-    let mut pauses: Vec<(usize, Option<usize>, usize, String)> = Vec::new();
-    for (p, row) in rows.iter().enumerate().filter(|(_, r)| r.1.starts_with(OPERATOR_PAUSE)) {
-        let resume = rows.iter().skip(p + 1).position(|r| r.1 == "Queue resumed.").map(|i| i + p + 1);
-        let within = own_at.iter().rposition(|o| o.is_some_and(|o| o > p && resume.is_none_or(|r| r > o)));
-        if let Some(i) = within {
-            let reason = row.1[OPERATOR_PAUSE.len()..].trim_end_matches(PAUSE_END).to_owned();
-            pauses.push((p, resume, i, reason));
-        }
-    }
-    let mut logged_lines: Vec<(Option<usize>, String)> = Vec::new();
-    for (n, (at, message, id)) in rows.iter().enumerate() {
-        shown.push(("notice", *id));
+    let mut said = vec![false; hand_overs.len()];
+    for r in &logged {
+        let (at, message): (String, String) = (r.get(0), r.get(1));
+        shown.push(("notice", r.get(2)));
         happened = true;
-        let step = |what: &str| format!("{what} {at}");
-        let own = own_at.iter().position(|o| *o == Some(n));
-        let withdrawn = hand_overs.iter().position(|h| message.starts_with(&format!("Engine build {} withdrawn: handed over to build {}: ", h.from, h.to)));
-        let admitted = hand_overs.iter().position(|h| message.starts_with(&format!("Engine build {} admitted: ", h.to)));
-        let paused = pauses.iter().find(|p| p.0 == n);
-        let resumed = pauses.iter().find(|p| p.1 == Some(n));
-        // a planned step's line of this hand-over (its daily runs) or of its pause
-        let planned = message.starts_with(watch::PLANNED)
-            && (hand_overs.iter().any(|h| message.contains(&format!("(hand-over {}, with build ", h.id)))
-                || pauses.iter().any(|p| message.contains("Work queue paused by the operator") && message.contains(one_line(&p.3, 40).trim_end_matches('…'))));
-        if let Some(i) = own {
-            placed[i] = Some(at.clone());
-            logged_lines.push((Some(i), String::new()));
-        } else if withdrawn.is_some() {
-            // its own withdrawal's stopped jobs are the line's "restarted"
-        } else if let Some(i) = admitted {
-            let to = build_words(&hand_overs[i].to, &hand_overs[i].from);
-            hand_overs[i].folded.push(step(&format!("{to} admitted")));
-        } else if let Some((_, _, i, reason)) = paused {
-            // the pause's reason, unless it is exactly the hand-over's own (round 3, audit c072-r2,
-            // 6: a reason that only contains it says more, so it is printed)
-            let words = if *reason == hand_overs[*i].reason { String::new() } else { format!(" ({})", one_line(reason, REASON_MAX)) };
-            hand_overs[*i].folded.push(step(&format!("queue paused{words}")));
-        } else if let Some((_, _, i, _)) = resumed {
-            hand_overs[*i].folded.push(step("queue resumed"));
-        } else if planned {
-            // said by its hand-over's line
-        } else {
-            logged_lines.push((None, format!("{at} {}", flat(message))));
-        }
-    }
-    // a hand-over whose own notice was stated before (or not at all) still has its line
-    for (i, at) in placed.iter().enumerate() {
-        if at.is_none() {
-            logged_lines.push((Some(i), String::new()));
-        }
-    }
-    for (i, line) in logged_lines {
-        lines.push(match i {
-            None => line,
+        match hand_overs.iter().position(|h| message.starts_with(&format!("Hand-over {}: ", h.id))) {
             Some(i) => {
-                let line = hand_overs[i].line();
-                placed[i].as_ref().map_or(line.clone(), |at| format!("{at} {line}"))
+                said[i] = true;
+                lines.push(format!("{at} {}", hand_overs[i].line()));
             }
-        });
+            None => lines.push(format!("{at} {}", flat(&message))),
+        }
+    }
+    // a hand-over whose own notice was stated before still has its line
+    for (h, _) in hand_overs.iter().zip(&said).filter(|(_, said)| !**said) {
+        lines.push(h.line());
         happened = true;
     }
 
@@ -740,26 +680,25 @@ mod tests {
     }
 
     /// C-072: hand-over 26 of 2026-11-24 as one line (its builds, what moved, the running jobs its
-    /// withdrawal stopped, its reason cut, its window's steps folded); the counts are hand-over 26's
+    /// withdrawal stopped, its reason cut); the counts are hand-over 26's
     /// shape (blocks and passes), its reason the operator's words that night, cut.
     #[test]
     fn a_hand_over_reads_in_one_line() {
         let reason = "D-460 r3 fixes: UPATH bin-0 false zero removed on every new day; strictly better than fc36eefb on wrong numbers";
-        let folded = ["queue paused 04:28".to_string(), "2dde1132 admitted 04:39".to_string(), "queue resumed 04:41".to_string()];
-        let h = |id: i64, from: &str, to: &str, moved: [i64; 3], verify_cancelled: i64, restarted: i64, reason: &str, folded: &[String]| {
-            HandOver { id, from: from.into(), to: to.into(), reason: reason.into(), moved, verify_cancelled, restarted, folded: folded.to_vec(), admitted: true }.line()
+        let h = |id: i64, from: &str, to: &str, moved: [i64; 3], verify_cancelled: i64, restarted: i64, reason: &str| {
+            HandOver { id, from: from.into(), to: to.into(), reason: reason.into(), moved, verify_cancelled, restarted, admitted: true }.line()
         };
-        let line = h(26, "fc36eefb+b1c8d00b5d79", "2dde1132+5f8d87f49bfc", [0, 42, 593], 0, 8, reason, &folded);
+        let line = h(26, "fc36eefb+b1c8d00b5d79", "2dde1132+5f8d87f49bfc", [0, 42, 593], 0, 8, reason);
         assert_eq!(
             line,
-            "Hand-over 26: fc36eefb → 2dde1132, 42 blocks + 593 passes moved, 8 running jobs restarted — D-460 r3 fixes: UPATH bin-0 false zero removed on every new day; strictly bette… · queue paused 04:28 · 2dde1132 admitted 04:39 · queue resumed 04:41"
+            "Hand-over 26: fc36eefb → 2dde1132, 42 blocks + 593 passes moved, 8 running jobs restarted — D-460 r3 fixes: UPATH bin-0 false zero removed on every new day; strictly bette…"
         );
         // two images of one engine commit are named whole; one of each, nothing restarted
         assert_eq!(
-            h(3, "2dde1132+aaa", "2dde1132+bbb", [1, 1, 1], 2, 0, "image rebuilt", &[]),
+            h(3, "2dde1132+aaa", "2dde1132+bbb", [1, 1, 1], 2, 0, "image rebuilt"),
             "Hand-over 3: 2dde1132+aaa → 2dde1132+bbb, 1 tape + 1 block + 1 pass moved, 2 tape verify jobs cancelled — image rebuilt"
         );
-        assert_eq!(h(4, "a", "b", [0, 0, 0], 0, 1, "x", &[]), "Hand-over 4: a → b, nothing moved, 1 running job restarted — x");
+        assert_eq!(h(4, "a", "b", [0, 0, 0], 0, 1, "x"), "Hand-over 4: a → b, nothing moved, 1 running job restarted — x");
         // audit c072, 2: a successor not admitted keeps the hand-over's instruction
         let waiting = HandOver { id: 5, from: "a+1".into(), to: "b+2".into(), reason: "x".into(), moved: [0, 3, 0], admitted: false, ..HandOver::default() };
         assert_eq!(waiting.line(), "Hand-over 5: a → b, 3 blocks moved — x · build b+2 is not admitted: admit it now (`vyreon-core build admit b+2 <evidence.json>`)");

@@ -235,7 +235,7 @@ async fn queue(change: &[&str]) -> Result<(), String> {
         // the queue's change and its notice are one transaction (C-027's outbox)
         ["pause", reason] => {
             let tx = client.transaction().await.map_err(|e| e.to_string())?;
-            work::pause_by_operator(&tx, reason).await?;
+            work::pause(&tx, reason).await?;
             tx.commit().await.map_err(|e| e.to_string())?
         }
         ["resume"] => {
@@ -609,12 +609,7 @@ async fn problems() -> Result<(), String> {
         println!("no open problem");
     }
     for o in &open {
-        let planned = match (o.quiet, o.overdue) {
-            (true, false) => " (a planned step, not alerted yet: C-072)",
-            (true, true) => " (a planned step past its grace: alerted at the watch's next check)",
-            _ => "",
-        };
-        println!("open {}: {}{planned} · `{}`", watch::age(o.age), o.summary, o.command);
+        println!("open {}: {} · `{}`", watch::age(o.age), o.summary, o.command);
     }
     let rows = client
         .query(
