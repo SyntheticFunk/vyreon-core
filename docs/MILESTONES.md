@@ -1054,6 +1054,14 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   all PASS; 2023-07-19 → 2026-11-10 incl. 5 early closes; the heaviest 81 GB of replay). All 36 tapes on fc36eefb done,
   0 failed, 0 OOM: **the 10 November tapes 2026-11-06..11-20 are in** (daily run's history unblocked). Measured
   replay_capture RSS ≤ ~2.1 GB (request 3Gi, limit 6Gi; tape memory.peak also counts ~2 GB page cache).
+  **D-460 audits (01:55 MT, both):** no wrong number on ordinary data, but **blocking: D-460 changed UPATH/EVC01 values
+  without bumping their method versions (Gemini; D-273 — histories would pool two definitions)** → c897c46b NOT handed
+  over. Also: UPATH loses the specific withholding reason (both), reference UPATH owner still expects the false zero (Codex),
+  feed guard pools refused option attempts (both), strike grammar mismatch and duplicates, HashMap-order summation,
+  listing retry history (D-358), final_rows swallows I/O errors (both), one refresh per stale 403, a possible final-bin
+  over-withhold (Gemini 2). All sent back as `eng-f2`. LATER: stale translated cohort (stateless workers start clean),
+  official-bar I/O fault failing UACT/UQTR (honest for a local fault), early-close boundary bar (suspicion), retried-capture
+  cutoff wait (verify). Next hand-over after eng-f2 + a narrow re-audit, with the July recompute.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
