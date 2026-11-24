@@ -152,6 +152,14 @@ async fn a_check_that_never_reported_is_run_again_by_core_and_alerts_only_if_tha
     { let at = after(&client, base, 9).await; watch::check(&mut client, &settings, &at).await }.unwrap();
     assert!(open(&client, "REFCHECK_NOT_RUN").await.is_empty(), "a re-run under way");
 
+    // a re-run publishes nothing, keeps no capture, archives nothing, marks no day done
+    let (h, sc, f) = parts(BASE);
+    let path = bundle("auto-rerun-publish", &h, &sc, &f);
+    let refused = publish_for_lease(&mut client, &path, &rerun.token).await.unwrap_err().to_string();
+    std::fs::remove_file(&path).unwrap();
+    assert!(refused.contains("a reference-check re-run publishes nothing"), "{refused}");
+    assert!(matches!(work::day_done(&mut client, &rerun.token, DAY).await, Err(LeaseError::Refused(_))));
+
     // the dump: the revisions as the suite reads a store's dump, from what core holds
     let dumped = refcheck::dump(&mut client, &rerun.token, DAY).await.unwrap();
     assert!(matches!(refcheck::dump(&mut client, &rerun.token, "2025-12-11").await, Err(LeaseError::Refused(ref m)) if m.contains("is of 2025-12-10")));
