@@ -2735,12 +2735,13 @@ duration at phase-1 size was not measured.
   whole or absent (`ON CONFLICT DO NOTHING` on `revision_tally`'s key), so a kill loses at most the
   batch running, nothing is counted twice, and the next call goes on from there. Every layer is
   counted alike (base, day-local, history).
-- **A minute's budget.** The digest counts (`watch::tally_recent`) for at most `TALLY_BUDGET` (5
-  minutes) a minute, stopping after the batch that ends past it; what is left is counted the next
-  minute, which composes and queues the digest once nothing is left. At most one batch outlives the
-  budget, so a tick stays well inside 15 minutes while the count still advances every minute. The
-  count runs after the open problems are read, as before, so a problem opened meanwhile still
-  drops that composition (round v, 7; round w, 4).
+- **A minute's budget.** The digest and the weekly check count (`watch::tally_untallied`) for at
+  most `TALLY_BUDGET` (5 minutes) a minute, one budget shared by both, stopping after the batch
+  that ends past it; what is left is counted the next minute, which composes and queues the post
+  once nothing is left. Composing counts only what was published since, within the same budget
+  (`session_tallies` and the digest's own pass take it; past it, nothing is composed). The count
+  runs after the open problems are read, as before, so a problem opened meanwhile still drops that
+  composition (round v, 7; round w, 4).
 - **Elsewhere:** `session_tallies` (digest and weekly check) first counts its sessions' uncounted
   revisions in batches, then reads in one statement as before (round x, 7); progress counts its
   days in the same batches (still inside its window's transaction, its own task). The CLI
@@ -2748,7 +2749,28 @@ duration at phase-1 size was not measured.
 - **Ordinary day:** the same digest at 09:00 (a day's few revisions are one batch). On the passes'
   mornings the digest can come some minutes late (worst case one minute per batch: 597 revisions,
   24 batches); it never posts a partial count.
-- **Deploy:** code only, no migration, no setting. Takes effect with the next core image.
+- **Round 3 (Codex 2026-11-23, `audits/2026-11-23-r3-core`, 4 items): bounded and visible.**
+  1, 2. Every counting statement (the batches, their selection, and `session_tallies`' read) runs
+  in its own transaction under `TALLY_LIMITS` (`SET LOCAL statement_timeout = '60s'`,
+  `lock_timeout = '10s'`), well under `/live`'s 15 minutes: a batch that runs long or waits on a
+  lock rolls back and is the digest's (or weekly check's) WATCH_FAILING problem (C-069), retried
+  the next minute, instead of holding the tick until core is restarted. The worst tick is the
+  budget plus one batch per counting call (each at most 60 s). 3. What is counted is what has no
+  count (`tally_untallied`: every revision of the profile published by then, oldest first,
+  `TALLY_BATCH` per transaction), not "the last 24 hours", so a later minute's moving cutoff never
+  leaves one uncounted. 4. A post left for the next minute (budget spent before or during
+  composing) is a part not run that minute: it neither opens nor resolves its problem; only a
+  composed post resolves it. Not changed: the digest's lines still read the 24 hours to its
+  minute, so a digest composed at 09:06 states nothing published 09:00 to 09:06 the day before
+  (rare: only a late digest; its counts are kept).
+- **Deploy:** code only, no migration, no setting. Takes effect with the next core image. The first
+  digest after it counts every published revision with no count (bases and history revisions of
+  any age, a bare base cheap), a few minutes a minute; how many wait:
+  `SELECT count(*) FROM vyreon.day_revision d WHERE published_at IS NOT NULL AND NOT EXISTS (SELECT FROM core.revision_tally t WHERE t.revision_id = d.revision_id)`.
+- Test: `watch.rs::the_digests_count_fails_within_its_limits_counts_what_is_left_and_resolves_only_on_a_digest`
+  (round 3: a held count fails the tick's digest part in 10 s and the minute completes; a history
+  revision published yesterday 09:02, outside the 09:30 minute's 24 hours, is counted; a minute
+  out of budget leaves the problem open, the composing minute resolves it).
 - Test: `watch.rs::the_digest_counts_the_ordered_passes_in_committed_batches_and_survives_a_kill`
   (597 sessions 2024-07-09..2026-11-20: the slice's real base and derived revisions of 2025-12-10
   with the engine's real faulted XLB body, re-dated as history revisions on bare bases; the count's
