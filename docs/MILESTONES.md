@@ -1285,6 +1285,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   published on 5f637983 at 15:02 just before. **Recompute (values or method changed):** 07-09..07-12, 07-17..07-19, 07-22,
   07-23 are covered by the handed-over blocks; 07-15, 07-16, 08-13, 09-04 scheduled as one-day blocks on 1ae946f7. Then verify
   VS-O04 engine faults → 0 on the republished days.
+  **First live finding on the release (UTC−6 15:36): NO_PROGRESS false alarms** on all 7 day blocks + the refcheck re-run at the
+  download step: workers busy in h2-engine bulk-option-capture (Intrinio bulk files, not counted as API requests; download ~3 h
+  on a block's first day). Nothing stuck. Core hotfix (core-np): download steps are an implicit bounded wait (240 min) + any new
+  step report counts as progress; deploy via release.sh --core. Proper fix next release: engine reports download progress.
+  Leftover: old Job ws65f (07-22) errored after the hand-over ("lease gone") — harmless, 07-22 recompute covered.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
