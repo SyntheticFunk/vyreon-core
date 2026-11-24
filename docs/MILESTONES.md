@@ -1269,6 +1269,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   D-461; 1,744/0, pytest 256/107). Owner: fold the readable Discord digest/alerts into this release, no audit (display-only,
   tested) → `core-digest`. Worker image building. Then release.sh: dry run, then live (core first, worker within 15 min);
   then recompute every day published before the release (method bumps + OVERLAY_RULES), verify VS-O04 engine faults → 0.
+  **Recompute rule (owner, same day):** recompute days where values change OR a method version changes (history continuity,
+  D-273); for this release that is all ~16 published days. **After phase 1 (owner): scoped recompute** — run only the sensors a
+  change touches. The engine already has it (D-104 family republish: recompute set = seed + same-day dependants, copy-forward of
+  every other slot, cascade to later days only where a changed value reaches a history reader); missing: core job kind with a
+  scope, worker path, core accepting copy-forward revisions (D-104's narrowed supersede); check whether inputs can be fetched per
+  family (big saving) or only whole-day (compute saving only).
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
