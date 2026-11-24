@@ -1008,12 +1008,19 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
 /// C-068 round 2 (`round2-core.md` 13): the daily session's blocks (DAY_BLOCK of priority 1) are a
 /// group of their own, as they have a ScaledJob of their own (`day-block-daily`): a backfill block's
 /// lease says nothing of the daily pod.
-const KINDS: [(&str, &str); 5] =
-    [("TAPE", "tape"), ("DAY_BLOCK", "day-block"), ("DAILY_BLOCK", "day-block-daily"), ("ORDERED_PASS", "ordered-pass"), ("REFCHECK", "refcheck")];
+const KINDS: [(&str, &str); 6] = [
+    ("TAPE", "tape"),
+    ("DAY_BLOCK", "day-block"),
+    ("DAILY_BLOCK", "day-block-daily"),
+    ("ORDERED_PASS", "ordered-pass"),
+    ("REFCHECK", "refcheck"),
+    // C-074
+    ("REPUBLISH", "republish"),
+];
 
 /// C-073: the kinds whose pods the scaler holds back while the request budget is pressed
 /// (`core.scaler_count`): a kind waiting for that reason is not stalled.
-const BUDGETED: [&str; 3] = ["TAPE", "DAY_BLOCK", "REFCHECK"];
+const BUDGETED: [&str; 4] = ["TAPE", "DAY_BLOCK", "REFCHECK", "REPUBLISH"];
 
 /// A job's stall group: its kind, or `DAILY_BLOCK` for a daily session's day block (`KINDS`).
 const GROUP: &str = "CASE WHEN j.kind = 'DAY_BLOCK' AND j.priority = 1 THEN 'DAILY_BLOCK' ELSE j.kind END";
@@ -1129,7 +1136,7 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
                                         OR EXISTS (SELECT FROM core.job d WHERE d.kind = 'DAY_BLOCK' AND d.profile_id = j.profile_id
                                                      AND d.state IN ('QUEUED', 'LEASED') AND j.first_session BETWEEN d.next_session AND d.last_session)))))
              SELECT (SELECT count(*) FROM q),
-                    (SELECT string_agg(n || ' ' || CASE kind WHEN 'DAY_BLOCK' THEN 'day blocks' WHEN 'TAPE' THEN 'tape jobs' WHEN 'REFCHECK' THEN 'reference-check re-runs' ELSE 'ordered passes' END, ', ' ORDER BY kind)
+                    (SELECT string_agg(n || ' ' || CASE kind WHEN 'DAY_BLOCK' THEN 'day blocks' WHEN 'TAPE' THEN 'tape jobs' WHEN 'REFCHECK' THEN 'reference-check re-runs' WHEN 'REPUBLISH' THEN 'republishes' ELSE 'ordered passes' END, ', ' ORDER BY kind)
                      FROM (SELECT kind, count(*) AS n FROM q GROUP BY kind) g),
                     (SELECT paused FROM core.queue_control)",
             &[],
@@ -1249,6 +1256,7 @@ async fn no_progress(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) 
             "DAY_BLOCK" => "Day block",
             "ORDERED_PASS" => "Ordered pass",
             "REFCHECK" => "Reference-check re-run",
+            "REPUBLISH" => "Republish",
             _ => "Tape job",
         };
         let wait = match (overstayed, until, reason) {
@@ -1863,6 +1871,7 @@ pub(crate) fn kind_words(kind: &str) -> &'static str {
         "DAY_BLOCK" => "day blocks",
         "ORDERED_PASS" => "ordered passes",
         "REFCHECK" => "reference-check re-runs",
+        "REPUBLISH" => "republishes",
         _ => "tape jobs",
     }
 }

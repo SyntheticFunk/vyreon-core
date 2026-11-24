@@ -496,18 +496,35 @@ pub async fn dump_to(client: &mut Client, token: &str, session: &str, out: &std:
     let io = |e: std::io::Error| LeaseError::Failed(format!("the dump's file: {e}"));
     let tx = client.build_transaction().read_only(true).isolation_level(tokio_postgres::IsolationLevel::RepeatableRead).start().await.map_err(failed)?;
     let lease = work::identify(&tx, token).await?;
-    if lease.kind != "REFCHECK" {
-        return Err(LeaseError::Refused(format!("job {} is not a reference-check re-run", lease.job_id)));
+    if lease.kind != "REFCHECK" && lease.kind != "REPUBLISH" {
+        return Err(LeaseError::Refused(format!("job {} is not a reference-check re-run or a republish", lease.job_id)));
     }
     if session != lease.first_session {
-        return Err(LeaseError::Refused(format!("reference-check re-run job {} is of {}, not of {session}", lease.job_id, lease.first_session)));
+        return Err(LeaseError::Refused(format!("{} job {} is of {}, not of {session}", crate::watch::kind_words(&lease.kind), lease.job_id, lease.first_session)));
     }
-    let scope: Value = tx
-        .query_one("SELECT COALESCE(scope, '{}'::jsonb)::text FROM core.job WHERE job_id = $1", &[&lease.job_id])
-        .await
-        .map_err(failed)
-        .map(|r| serde_json::from_str(r.get::<_, &str>(0)).unwrap_or(Value::Null))?;
-    let (base, local) = scoped(&scope);
+    let (base, local) = if lease.kind == "REPUBLISH" {
+        // C-074: the day's published base and the day-local revision on it, which the republish
+        // carries forward (its bundles name them; a publish since makes them refused)
+        let row = tx
+            .query_opt(
+                "SELECT b.revision_id, (SELECT l.revision_id FROM vyreon.day_revision l WHERE l.base_revision = b.revision_id
+                                         AND l.represented_date = b.represented_date AND l.state = 'PUBLISHED' AND l.day_local)
+                 FROM vyreon.day_revision b
+                 WHERE b.represented_date = $1::text::date AND b.profile_id = $2 AND b.state = 'PUBLISHED' AND b.base_revision IS NULL",
+                &[&session, &lease.profile_id],
+            )
+            .await
+            .map_err(failed)?
+            .ok_or_else(|| LeaseError::Refused(format!("{session} has no published base revision to republish")))?;
+        (Some(row.get::<_, i64>(0)), row.get::<_, Option<i64>>(1))
+    } else {
+        let scope: Value = tx
+            .query_one("SELECT COALESCE(scope, '{}'::jsonb)::text FROM core.job WHERE job_id = $1", &[&lease.job_id])
+            .await
+            .map_err(failed)
+            .map(|r| serde_json::from_str(r.get::<_, &str>(0)).unwrap_or(Value::Null))?;
+        scoped(&scope)
+    };
     let base = base.ok_or_else(|| LeaseError::Failed(format!("re-run job {} names no base revision", lease.job_id)))?;
     let ids: Vec<i64> = std::iter::once(base).chain(local).collect();
     let store_path = out.with_extension("store");

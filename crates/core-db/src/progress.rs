@@ -479,7 +479,8 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
     let days = c
         .query(
             &format!(
-                "WITH d AS (SELECT b.represented_date AS day, b.revision_id AS base, l.revision_id AS local, l.published_at
+                "WITH d AS (SELECT b.represented_date AS day, b.revision_id AS base, l.revision_id AS local, l.published_at,
+                                   l.republish_scope AS local_scope, b.republish_scope AS base_scope
                             FROM vyreon.day_revision l JOIN vyreon.day_revision b ON b.revision_id = l.base_revision AND b.represented_date = l.represented_date
                             WHERE l.day_local AND l.profile_id = $3 AND l.published_at > $1::text::timestamptz AND l.published_at <= $2::text::timestamptz
                               AND {fresh})
@@ -491,7 +492,9 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
                          FROM core.refcheck_report r
                          WHERE r.base_revision = d.base AND (r.day_local_revision IS NULL OR r.day_local_revision = d.local)
                            AND r.stored_at <= $2::text::timestamptz
-                         ORDER BY r.stored_at DESC, r.refcheck_report_id DESC LIMIT 1)::text
+                         ORDER BY r.stored_at DESC, r.refcheck_report_id DESC LIMIT 1)::text,
+                        -- C-074: a republish's scopes (the day-local revision's, and its base's when the job republished it)
+                        d.local_scope::text, CASE WHEN d.base_scope->>'job' = d.local_scope->>'job' THEN d.base_scope::text END
                  FROM d LEFT JOIN LATERAL (
                      SELECT l.lease_id, l.granted_at FROM core.lease_revision lr JOIN core.lease l USING (lease_id) JOIN core.job j USING (job_id)
                      WHERE lr.revision_id = d.local AND j.kind = 'DAY_BLOCK') x ON true
@@ -526,7 +529,9 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
             watch_flag |= tally.engine_faults > 0 || check.as_ref().and_then(refcheck_flag).is_some();
             let mut said: Shown = vec![("revision", local)];
             said.extend(check_id.map(|id| ("refcheck", id)));
-            lines.push((day_line(&date, tally, check.as_ref(), minutes), said));
+            let line = day_line(&date, tally, check.as_ref(), minutes);
+            let scopes: Vec<Value> = [r.get::<_, Option<String>>(5), r.get::<_, Option<String>>(6)].into_iter().flatten().filter_map(|t| serde_json::from_str(&t).ok()).collect();
+            lines.push((if scopes.is_empty() { line } else { republished_line(&line, &scopes) }, said));
         }
     }
     let news_days = lines.len();
@@ -941,8 +946,45 @@ pub async fn tick_as(client: &mut Client, profile: &str, label: &str, now: &str)
     Ok(Some(Window { start, end: now.to_owned(), lines: n_lines, posts: posts.len() }))
 }
 
+/// C-074: a republished day's line: the day's, then that it was republished (its job, scope and
+/// reason), how many sensors it recomputed and which values changed.
+fn republished_line(line: &str, scopes: &[Value]) -> String {
+    let names = |k: &str| -> Vec<String> {
+        let mut v: Vec<String> = scopes.iter().flat_map(|s| s[k].as_array().cloned().unwrap_or_default()).filter_map(|x| x.as_str().map(str::to_owned)).collect();
+        v.sort();
+        v.dedup();
+        v
+    };
+    let first = &scopes[0];
+    let asked: Vec<String> = names("families").into_iter().chain(names("measurements")).collect();
+    let changed = names("value_changed");
+    format!(
+        "{line} · republished (job {}, [{}]: {}): {} sensors recomputed, the rest carried; {}",
+        first["job"],
+        asked.join(","),
+        one_line(first["reason"].as_str().unwrap_or_default(), 120),
+        names("recomputed").len(),
+        if changed.is_empty() { "no value changed".to_owned() } else { format!("values changed in [{}]", changed.join(",")) }
+    )
+}
+
 #[cfg(test)]
 mod tests {
+    /// C-074: a republished day says so, with its job, scope and reason, how many sensors it recomputed
+    /// and which values changed.
+    #[test]
+    fn a_republished_days_line_names_its_scope_and_its_changes() {
+        let base = serde_json::json!({"job": 41, "families": ["DLM-CHAIN"], "measurements": [], "recomputed": [], "value_changed": [], "reason": "D-999 max pain"});
+        let local = serde_json::json!({"job": 41, "families": ["DLM-CHAIN"], "measurements": [], "recomputed": ["DLM-MAX-PAIN", "DLM-ZERO-DTE"], "value_changed": ["DLM-MAX-PAIN"], "reason": "D-999 max pain"});
+        assert_eq!(
+            republished_line("Dec 10, 2025 ✓ 99.1% of readings", &[local.clone(), base]),
+            "Dec 10, 2025 ✓ 99.1% of readings · republished (job 41, [DLM-CHAIN]: D-999 max pain): 2 sensors recomputed, the rest carried; values changed in [DLM-MAX-PAIN]"
+        );
+        let mut same = local;
+        same["value_changed"] = serde_json::json!([]);
+        assert!(republished_line("Dec 10, 2025 ✓ 100% of readings", &[same]).ends_with("the rest carried; no value changed"));
+    }
+
     use super::*;
     use serde_json::json;
 

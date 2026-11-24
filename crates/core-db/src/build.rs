@@ -128,6 +128,19 @@ pub async fn register(client: &mut Client, inventory: &Value) -> Result<Register
             }
         }
     }
+    // C-074: the engine's republish plans (engine D-462), kept as the build declared them; a build
+    // registered again keeps its first (its inventory is the same: checked above)
+    if let Some(plans) = inventory.get("republish").filter(|p| !p.is_null()) {
+        if !plans["seeds"].is_object() {
+            return Err("inventory: republish has no seeds".into());
+        }
+        tx.execute(
+            "INSERT INTO core.build_republish (engine_build, plans) VALUES ($1, $2::text::jsonb) ON CONFLICT (engine_build) DO NOTHING",
+            &[&build, &plans.to_string()],
+        )
+        .await
+        .map_err(db)?;
+    }
     let slots: i64 = tx.query_one("SELECT count(*) FROM core.expected_slot WHERE engine_build = $1", &[&build]).await.map_err(db)?.get(0);
     tx.commit().await.map_err(db)?;
     Ok(Registered { engine_build: build, slots, new: !known })
@@ -457,9 +470,23 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
         )
         .await
         .map_err(db)?;
+        if c.kind == "REPUBLISH" {
+            // C-074: the recompute set is the successor's graph's (its worker checks it against its own)
+            let old: serde_json::Value = tx
+                .query_one("SELECT scope::text FROM core.job WHERE job_id = $1", &[&c.old_job])
+                .await
+                .map_err(db)
+                .map(|r| serde_json::from_str(r.get::<_, &str>(0)).unwrap_or_default())?;
+            let names = |k: &str| old[k].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect::<Vec<_>>();
+            let plans = crate::republish::plans(&tx, to).await.map_err(|e| format!("republish job {} cannot move to build {to}: {e}; cancel it first; nothing was moved", c.old_job))?;
+            let work = crate::republish::compose(&plans, &names("families"), &names("measurements"))
+                .map_err(|e| format!("republish job {} cannot move to build {to}: {e}; cancel it first; nothing was moved", c.old_job))?;
+            let scope = work.scope(old["reason"].as_str().unwrap_or_default()).to_string();
+            tx.execute("UPDATE core.job SET scope = $2::text::jsonb WHERE job_id = $1", &[&new, &scope]).await.map_err(db)?;
+        }
         c.new_job = Some(new);
     }
-    let counts: Vec<String> = ["TAPE", "DAY_BLOCK", "ORDERED_PASS", "REFCHECK"]
+    let counts: Vec<String> = ["TAPE", "DAY_BLOCK", "ORDERED_PASS", "REFCHECK", "REPUBLISH"]
         .iter()
         .filter_map(|k| {
             let n = carried.iter().filter(|c| c.kind == *k).count();

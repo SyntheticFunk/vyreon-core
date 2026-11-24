@@ -21,6 +21,8 @@ pub enum Kind {
     /// C-073: a published day's reference check run again, against the revisions core holds
     /// published; queued by the watch (`refcheck::queue_reruns`), never scheduled by hand.
     Refcheck,
+    /// C-074: one session's scoped recompute (engine D-462), scheduled by `republish::schedule`.
+    Republish,
 }
 
 impl Kind {
@@ -30,6 +32,7 @@ impl Kind {
             Kind::DayBlock => "DAY_BLOCK",
             Kind::OrderedPass => "ORDERED_PASS",
             Kind::Refcheck => "REFCHECK",
+            Kind::Republish => "REPUBLISH",
         }
     }
 
@@ -39,7 +42,8 @@ impl Kind {
             "DAY_BLOCK" => Ok(Kind::DayBlock),
             "ORDERED_PASS" => Ok(Kind::OrderedPass),
             "REFCHECK" => Ok(Kind::Refcheck),
-            other => Err(format!("unknown job kind {other} (tape, day-block, ordered-pass, refcheck)")),
+            "REPUBLISH" => Ok(Kind::Republish),
+            other => Err(format!("unknown job kind {other} (tape, day-block, ordered-pass, refcheck, republish)")),
         }
     }
 }
@@ -102,6 +106,9 @@ pub struct Scheduled {
 pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &str, first: &str, last: &str, block: i32) -> Result<Scheduled, String> {
     if kind == Kind::Refcheck {
         return Err("reference-check re-runs are queued by core's watch (C-073), not scheduled".into());
+    }
+    if kind == Kind::Republish {
+        return Err("a republish is scheduled with its scope and reason: `vyreon-core republish` (C-074)".into());
     }
     if kind == Kind::DayBlock && block < 1 {
         return Err("a day block holds at least one session".into());
@@ -391,6 +398,17 @@ pub const FAILED_DAYS_PAUSE: i64 = 3;
 /// stays FAILED without a pause; a tape job pauses the queue at once (the day blocks wait on it).
 /// Returns true when the job was queued again.
 async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<bool, String> {
+    // C-074: a republish's base waits STAGED for its day-local revision; an attempt that ends without
+    // it leaves the day as it was, and its staged revisions are rejected
+    db_client
+        .execute(
+            "UPDATE vyreon.day_revision d SET state = 'REJECTED', rejection = 'its republish attempt ended before the day was published: ' || left($2, 500)
+             FROM core.lease_revision lr JOIN core.lease l USING (lease_id) JOIN core.job j USING (job_id)
+             WHERE d.revision_id = lr.revision_id AND d.state = 'STAGED' AND l.job_id = $1 AND j.kind = 'REPUBLISH'",
+            &[&job, &why],
+        )
+        .await
+        .map_err(db)?;
     if let Some(done) = db_client
         .query_opt(
             &format!("UPDATE core.job SET state = 'DONE', finished_at = now() WHERE job_id = $1 AND state = 'LEASED' AND next_session IS NULL RETURNING {FINISHED}"),
@@ -461,6 +479,13 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
     if kind == "TAPE" && crate::tape::is_verify(db_client, job).await? {
         // C-059: a sample check holds nothing back (no day block waits on it, no cache is stored)
         notice::log(db_client, &format!("Tape verify job {job} failed for the last time: {why}. Nothing waits on it.")).await?;
+        return Ok(false);
+    }
+    if kind == "REPUBLISH" {
+        // C-074: the day keeps the revisions it had (a republish replaces a day whole or not at all);
+        // nothing waits on it but the passes after it, which it no longer holds (FAILED); JOB_FAILED says so
+        let day: String = db_client.query_one("SELECT first_session::text FROM core.job WHERE job_id = $1", &[&job]).await.map_err(db)?.get(0);
+        notice::log(db_client, &format!("Republish of {day} failed for the last time (job {job}): {why}. The day keeps its revisions.")).await?;
         return Ok(false);
     }
     if kind == "REFCHECK" {
@@ -911,6 +936,24 @@ pub async fn session_done(db_client: &impl GenericClient, lease: &Held, session:
 pub async fn day_done(client: &mut Client, token: &str, session: &str) -> Result<(), LeaseError> {
     let tx = client.transaction().await.map_err(failed)?;
     let lease = held(&tx, token).await?;
+    if lease.kind == "REPUBLISH" {
+        // C-074: done once this lease published the day's day-local revision (with its staged base,
+        // promoted in the same transaction, when the scope held base sensors)
+        let published: bool = tx
+            .query_one(
+                "SELECT EXISTS (SELECT FROM core.lease_revision lr JOIN vyreon.day_revision d USING (revision_id)
+                                WHERE lr.lease_id = $1 AND d.represented_date = $2::text::date AND d.day_local AND d.state = 'PUBLISHED')",
+                &[&lease.lease_id, &session],
+            )
+            .await
+            .map_err(failed)?
+            .get(0);
+        if !published {
+            return Err(LeaseError::Refused(format!("republish job {} has not published {session}'s day-local revision", lease.job_id)));
+        }
+        session_done(&tx, &lease, session).await?;
+        return tx.commit().await.map_err(failed);
+    }
     if lease.kind != "DAY_BLOCK" {
         return Err(LeaseError::Refused(format!("job {} is not a day block", lease.job_id)));
     }

@@ -13,6 +13,7 @@ pub mod notice;
 pub mod progress;
 pub mod publish;
 pub mod refcheck;
+pub mod republish;
 pub mod tape;
 pub mod universe;
 pub mod watch;

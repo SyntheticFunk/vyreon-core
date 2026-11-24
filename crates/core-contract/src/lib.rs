@@ -97,7 +97,33 @@ pub struct Header {
     /// without it.
     #[serde(default, rename = "listed_members", skip_serializing_if = "Option::is_none")]
     pub listed_members: Option<Vec<String>>,
+    /// D-104 / core C-074: present only on a copy-forward revision (absent from every other bundle,
+    /// which therefore reads and writes as before).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub republish: Option<Republish>,
     pub slots: Vec<Slot>,
+}
+
+/// D-104 / core C-074: a copy-forward revision of a day's layer, published by a REPUBLISH job.
+/// The bundle carries the slots of the `recomputed` measurements only; core copies every other slot
+/// of the layer, byte for byte, from the revision it `replaces` (the day's published revision of the
+/// same profile revision), with `carried_from_revision` naming where each was computed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Republish {
+    /// The REPUBLISH job the revision belongs to.
+    pub job: i64,
+    /// The day's published revision of this layer the new one replaces.
+    pub replaces: i64,
+    /// What the job was asked to recompute.
+    pub families: Vec<String>,
+    pub measurements: Vec<String>,
+    /// The measurements of this layer the bundle carries (the recompute set's), sorted.
+    pub recomputed: Vec<String>,
+    /// Of `recomputed`, those whose value (the engine's provenance-free view) or science or method
+    /// version differs from the replaced revision's on some slot: the engine's statement.
+    pub value_changed: Vec<String>,
+    pub reason: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
