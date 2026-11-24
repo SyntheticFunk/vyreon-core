@@ -996,6 +996,9 @@ async fn a_hand_over_carries_no_pass_its_successor_cannot_run() {
     // a verify sample of the old build, as C-059 schedules one, over a stored cache
     assert!(core_db::tape::put(&client, "AAPL", day, "engine-v1", &core_db::tape::Cache::Body(test_support::TAPE_AAPL.to_vec())).await.unwrap());
     let verify = work::schedule_verify(&mut client, PROFILE, &old, &[day]).await.unwrap();
+    // its worker running when the hand-over withdraws the build
+    let verifying = work::claim(&mut client, Kind::Tape, &old, "v1", HOUR).await.unwrap().unwrap();
+    assert_eq!(verifying.job_id, verify[0]);
     // the successor reads the base but no day-local profile
     let mut base_only = inventories()[0].clone();
     base_only["engine_build"] = json!("slice-new-base-only");
@@ -1007,10 +1010,14 @@ async fn a_hand_over_carries_no_pass_its_successor_cannot_run() {
     let preview = build::hand_over(&mut client, &old, &new, "a new image", true, None).await.unwrap();
     assert!(preview.withdrew);
     assert_eq!((preview.carried.len(), preview.verify_cancelled.clone()), (1, verify.clone()));
-    assert_eq!(job_state(&client, verify[0]).await, "QUEUED", "a preview changes nothing");
+    assert_eq!(job_state(&client, verify[0]).await, "LEASED", "a preview changes nothing");
     let handed = build::hand_over(&mut client, &old, &new, "a new image", false, Some(&preview.token)).await.unwrap();
     assert!(handed.withdrew);
     assert_eq!(job_state(&client, verify[0]).await, "CANCELLED");
+    // C-072 round 2 (audit c072, 6): the verify job's lease ended by the withdrawal is no restart
+    let now = watch::now(&client).await.unwrap();
+    let post = core_db::progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
+    assert!(post.contains(&format!("Hand-over {}: {old} → {new}, 1 pass moved, 1 tape verify job cancelled — a new image ·", handed.hand_over_id.unwrap())), "{post}");
     let withdrawn: bool = client.query_one("SELECT withdrawn_at IS NOT NULL FROM core.engine_build WHERE engine_build = $1", &[&old]).await.unwrap().get(0);
     assert!(withdrawn);
     // the successor's tapes are scheduled over the verified session
@@ -2605,6 +2612,126 @@ async fn a_hand_over_is_progress_unless_it_overstays() {
         ours(alerts(&client).await).last().unwrap(),
         "🔴 Work queue paused, nothing is handed out: job 1 failed for the last time: tape\nTo see more: `vyreon-core queue`"
     );
+    scratch.drop().await;
+}
+
+/// C-072 round 2 (audit 2026-11-24-core-c072): a planned step is the hand-over's own and hides no
+/// problem. 1: a bundle refused during the operator's pause is alerted at once (the pause becomes
+/// core's). 4: a pause open at its grace's end is alerted though resumed before a check saw it
+/// overdue; a check that cannot read the queue keeps a planned pause quiet (C-069). 5: the daily
+/// queueing's own error during a hand-over is said and alerted. 2: a successor left unadmitted
+/// keeps the instruction in progress and is a stall after the grace. 3: a withdrawal of its own,
+/// after a re-admission, alerts at once and keeps its line and reason in progress.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_planned_step_is_the_hand_overs_own_and_hides_no_problem() {
+    use core_db::daily::Daily;
+    use core_db::progress;
+    use core_db::watch::Settings;
+    let (scratch, mut client, _, _) = ready("c072_round2").await;
+    let old = whole_build_named(&mut client, "slice-old-image").await;
+    let days = ["2025-12-08", "2025-12-09", "2025-12-10", "2025-12-11", "2025-12-12"];
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &old, days[0], days[4], 1).await.unwrap();
+    let settings = |build: &str| Settings {
+        profile: PROFILE.into(),
+        deadlines_from: None,
+        volume_bytes: None,
+        deadline_hour: watch::DEADLINE_HOUR,
+        daily: Some(Daily { profile: PROFILE.into(), build: build.into(), from: "2099-01-02".into() }),
+        archive: None,
+        refcheck_from: None,
+        backup_days: None,
+    };
+    let ours = |posts: Vec<String>, what: &str| posts.into_iter().filter(|p| p.contains(what)).collect::<Vec<_>>();
+
+    // 1. a refusal during the operator's pause
+    work::pause_by_operator(&client, "rolling out a new image").await.unwrap();
+    let t0 = watch::now(&client).await.unwrap();
+    let quiet = "Work queue paused by the operator, nothing is handed out: rolling out a new image";
+    assert_eq!(watch::check(&mut client, &settings(&old), &t0).await.unwrap().opened, [quiet]);
+    let tx = client.transaction().await.unwrap();
+    work::pause(&tx, "job 7 (w1): bundle refused: unreadable bundle").await.unwrap();
+    tx.commit().await.unwrap();
+    let refused = "Work queue paused, nothing is handed out: job 7 (w1): bundle refused: unreadable bundle (during the operator's pause: rolling out a new image)";
+    let t = later(&client, &t0, 1).await;
+    assert_eq!(watch::check(&mut client, &settings(&old), &t).await.unwrap().alerted, [refused]);
+    assert_eq!(ours(alerts(&client).await, "Work queue paused"), [format!("🔴 {refused}\nTo see more: `vyreon-core queue`")]);
+    work::resume(&client).await.unwrap();
+    let t = later(&client, &t0, 2).await;
+    watch::check(&mut client, &settings(&old), &t).await.unwrap();
+    assert!(ours(alerts(&client).await, "Work queue paused").last().unwrap().starts_with(&format!("✅ Resolved: {refused}")));
+
+    // 4. open at its grace's end, resumed before a check saw it: alerted, then resolved
+    work::pause_by_operator(&client, "a short look").await.unwrap();
+    let t1 = watch::now(&client).await.unwrap();
+    watch::check(&mut client, &settings(&old), &t1).await.unwrap();
+    work::resume(&client).await.unwrap();
+    let t = later(&client, &t1, 33).await;
+    watch::check(&mut client, &settings(&old), &t).await.unwrap();
+    let short = "Work queue paused by the operator, nothing is handed out: a short look";
+    assert_eq!(
+        ours(alerts(&client).await, short),
+        [format!("🔴 {short} (a planned step, still open after 33 min)\nTo see more: `vyreon-core queue`"), format!("✅ Resolved: {short} (it was open 33 min)")]
+    );
+    // a check that cannot read the queue keeps a planned pause as it was: quiet within its grace
+    work::pause_by_operator(&client, "another look").await.unwrap();
+    let t2 = watch::now(&client).await.unwrap();
+    watch::check(&mut client, &settings(&old), &t2).await.unwrap();
+    client.batch_execute("ALTER TABLE core.queue_control RENAME TO queue_control_away").await.unwrap();
+    let t = later(&client, &t2, 5).await;
+    let change = watch::check(&mut client, &settings(&old), &t).await.unwrap();
+    client.batch_execute("ALTER TABLE core.queue_control_away RENAME TO queue_control").await.unwrap();
+    assert!(change.alerted.is_empty() && !change.failing.is_empty(), "{change:?}");
+    assert!(ours(alerts(&client).await, "another look").is_empty());
+    work::resume(&client).await.unwrap();
+    let t = later(&client, &t2, 6).await;
+    watch::check(&mut client, &settings(&old), &t).await.unwrap();
+    assert!(ours(alerts(&client).await, "another look").is_empty(), "over within its grace");
+
+    // the hand-over, its successor not admitted
+    let new = registered_whole_build(&mut client, "slice-new-image").await;
+    let preview = build::hand_over(&mut client, &old, &new, "the rulings image", true, None).await.unwrap();
+    let id = build::hand_over(&mut client, &old, &new, "the rulings image", false, Some(&preview.token)).await.unwrap().hand_over_id.unwrap();
+    let t3 = watch::now(&client).await.unwrap();
+    let stopped = format!("Daily runs stopped: build {old} was withdrawn (hand-over {id}, with build {new}), so no new session is queued");
+    assert_eq!(watch::check(&mut client, &settings(&old), &t3).await.unwrap().opened, std::slice::from_ref(&stopped));
+    assert!(ours(alerts(&client).await, "Daily runs stopped").is_empty());
+
+    // 5. the daily runs' queueing fails on its own table during the hand-over: said, alerted
+    client.batch_execute("ALTER TABLE core.daily_session RENAME TO daily_session_away").await.unwrap();
+    let t = later(&client, &t3, 1).await;
+    let change = watch::tick(&mut client, &settings(&old), &t).await.unwrap();
+    client.batch_execute("ALTER TABLE core.daily_session_away RENAME TO daily_session").await.unwrap();
+    let failed = format!("{}; queueing failed: relation \"core.daily_session\" does not exist", stopped.trim_end_matches('.'));
+    assert_eq!(change.alerted, std::slice::from_ref(&failed), "{change:?}");
+    assert_eq!(ours(alerts(&client).await, "Daily runs stopped"), [format!("🔴 {failed}\nTo see more: `vyreon-core daily`")]);
+
+    // 2. the successor not admitted: progress keeps the instruction; after the grace it is a stall
+    let t = later(&client, &t3, 2).await;
+    let post = progress::preview(&mut client, PROFILE, &t).await.unwrap().join("\n");
+    assert!(post.contains(&format!("Hand-over {id}: {old} → {new}, 5 blocks moved — the rulings image · build {new} is not admitted: admit it now")), "{post}");
+    let t = later(&client, &t3, 29).await;
+    assert!(!watch::check(&mut client, &settings(&old), &t).await.unwrap().opened.iter().any(|o| o.contains("does not run")));
+    let t = later(&client, &t3, 31).await;
+    let change = watch::check(&mut client, &settings(&old), &t).await.unwrap();
+    assert!(change.opened.iter().any(|o| o.contains(&format!("hand-over {id} moved 5 jobs to build {new}, which does not run: admit it"))), "{change:?}");
+    admit(&client, &new).await;
+    let t = later(&client, &t3, 32).await;
+    assert!(watch::check(&mut client, &settings(&old), &t).await.unwrap().resolved.iter().any(|o| o.contains("which does not run")));
+
+    // 3. the old build re-admitted, then withdrawn for a reason of its own: no hand-over's step
+    admit(&client, &old).await;
+    let t = later(&client, &t3, 33).await;
+    assert!(watch::check(&mut client, &settings(&old), &t).await.unwrap().resolved.iter().any(|o| o.starts_with("Daily runs stopped")));
+    build::withdraw(&mut client, &old, "a wrong number on 2025-12-10").await.unwrap();
+    let t = later(&client, &t3, 34).await;
+    let own = format!("Daily runs stopped: build {old} was withdrawn, so no new session is queued");
+    assert_eq!(watch::check(&mut client, &settings(&old), &t).await.unwrap().opened, std::slice::from_ref(&own));
+    assert_eq!(ours(alerts(&client).await, "Daily runs stopped").last().unwrap(), &format!("🔴 {own}\nTo see more: `vyreon-core daily`"));
+    let now = watch::now(&client).await.unwrap();
+    let post = progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
+    assert!(post.contains(&format!("Engine build {old} withdrawn: a wrong number on 2025-12-10.")), "{post}");
+    assert!(post.contains(" Queue paused by the operator: a short look."), "a pause of no hand-over keeps its line and reason: {post}");
     scratch.drop().await;
 }
 
