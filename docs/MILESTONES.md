@@ -1308,6 +1308,14 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   established only with a second witness (D-079, as D-454 rule 6); unwitnessed rows are excluded from OI/volume totals.
   → eng-rel (OVERLAY_RULES bump, fixture requote). Phase-1 effect before the fix: ~28 five-session-change + ~146 path-efficiency
   asset-days withheld, 22 assets' CAP126 percentiles at the eligibility floor until ~2025-01.
+  **eng-rel all audit fixes in (c397cc00; 1,742/0; pytest 255/107)** incl. VS-O04 validator, inventory profiles, 7 method bumps
+  (EXPECTED-MOVE 2.4.0, MAX-PAIN 1.4.0, UNUSUAL-CONTRACTS 2.2.0, OI-CENTROID 1.2.0, ZERO-DTE 1.2.0, TECHNICAL 1.10.0, VWAP 3.2.8),
+  witness rule (either quote side). **Verified on the cluster archive (ghost_verify.py, 2024-04-08..07-18):** 51 false faults
+  removed, 97 real kept (e.g. AMZN 06-10/11). **My ruling corrected:** unwitnessed rows are 16,812 asset-session rows / 2,178
+  codes (many real unquoted series) → excluding them from OI totals would remove real open interest; the witness rule stays
+  for "established" only, totals unchanged (ghost OI on 05-20..06-03 recorded under P-28; outside phase 1's windows). New
+  ordinary finding: split ex-dates key adjusted series at strike ÷100 (AVGO 2024-07-15, NVDA 2024-06-10) → ~21 sessions of
+  false OI withholding after every 10-for-1 split → fixed in this release (P-29). Overlay items 26/27 ride the same bump.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
