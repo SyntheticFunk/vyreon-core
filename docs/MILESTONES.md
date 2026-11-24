@@ -1232,6 +1232,13 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   Reporter/web: public pages carry derived measurements only — never raw Intrinio values (chains, quotes, prices, volumes)
   or enough raw detail to reconstruct them.** To check: the order form's grant (public display, AI, LLM processing) and its
   term (quarterly vs 12-month).
+  **Next release being assembled (owner's release rule):** core branch `core-auto` (C-073: release.sh, REFCHECK re-runs, budget-
+  aware KEDA, JOB_THRASHING; 196/0; migration 0055) + all core LATER items; engine branch `eng-rel` (from c9c23ca5:
+  `vyreon-worker run refcheck` per C-073, every engine LATER item not needing READER_SOURCES, D-461). Then ONE audit of both
+  branches by Codex + Gemini, fix everything found, merge, release with release.sh (core first, worker within 15 min).
+  Note: a reference re-run re-fetches the day's inputs (the suite recomputes from raw inputs), capped at 1 concurrent.
+  Owner deciding Intrinio Startup by Thursday: asked Intrinio whether the term is quarterly-cancellable or 12-month
+  (quarterly ~$934 fits the US$5k Vyreon cap; 12-month ~$5.9k breaks it); wants to see database progress first.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
