@@ -12,7 +12,7 @@
 //! retried that then succeeds, a provider absence the engine states, a build admitted, a block
 //! done. Those go to the log (`notice::log`) and into the digest's counts.
 //!
-//! Times are computed by PostgreSQL in `ZONE` (Mountain Time, with its daylight saving), from a
+//! Times are computed by PostgreSQL in `ZONE` (the owner's clock, UTC−6 all year: C-072), from a
 //! `now` the caller passes, so a check can be run for any moment.
 //!
 //! Not here (C-065): spend against the ceiling needs DigitalOcean's billing, which core cannot
@@ -26,8 +26,15 @@ use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 use tokio_postgres::{Client, GenericClient};
 
-/// The owner's zone: Calgary, Mountain Time (UTC−7, UTC−6 in summer).
-pub const ZONE: &str = "America/Edmonton";
+/// The owner's clock (C-072): UTC−6 all year, the one zone for every time core shows the owner
+/// ("MT") and every deadline it computes for them. The owner keeps Alberta on UTC−6 year-round
+/// (corrected 2026-11-11); tz-database 'America/Edmonton' falls back to UTC−7 in winter, so it put
+/// every owner time an hour behind the owner's clock from November to March. 'Etc/GMT+6' is the
+/// tz database's fixed UTC−6 zone (POSIX sign: "GMT+6" is six hours behind Greenwich), valid both
+/// ways in PostgreSQL's AT TIME ZONE (timestamptz to local, and local to timestamptz) and in `TZ=`;
+/// a bare '-06:00' string is not (PostgreSQL reads it as a POSIX zone, UTC+6). Market times stay
+/// in New York's zone (`daily::READY_ZONE`).
+pub const ZONE: &str = "Etc/GMT+6";
 /// What a post may hold: Discord's limit is 2,000 characters; this leaves a margin.
 pub const LIMIT: usize = 1900;
 /// The provider is failing when more than this many attempts stop on a provider error (HTTP 429
@@ -1634,11 +1641,11 @@ fn median(mut v: Vec<f64>) -> Option<f64> {
 }
 
 /// A session's date as the owner reads it: "Mon Nov 16" (with the year when it is not this year's).
-const DAY: &str = "CASE WHEN extract(year FROM $D) = extract(year FROM ($1::text::timestamptz AT TIME ZONE 'America/Edmonton'))
+const DAY: &str = "CASE WHEN extract(year FROM $D) = extract(year FROM ($1::text::timestamptz AT TIME ZONE '$Z'))
                         THEN to_char($D, 'Dy Mon FMDD') ELSE to_char($D, 'Dy Mon FMDD, YYYY') END";
 
 fn day_of(expr: &str) -> String {
-    DAY.replace("$D", expr)
+    DAY.replace("$D", expr).replace("$Z", ZONE)
 }
 
 /// The daily digest at `now`, from the problems as last checked.
@@ -1836,8 +1843,8 @@ async fn digest_of(c: &mut impl GenericClient, s: &Settings, now: &str, open: &[
                 let at: String = c
                     .query_one(
                         "SELECT CASE WHEN $2::float8 - extract(epoch FROM $1::text::timestamptz) <= 144 * 3600 THEN to_char(t, 'Dy HH24:MI') || ' MT' ELSE to_char(t, 'Mon FMDD') END
-                         FROM (SELECT to_timestamp($2::float8) AT TIME ZONE 'America/Edmonton' AS t) x",
-                        &[&now, &finish],
+                         FROM (SELECT to_timestamp($2::float8) AT TIME ZONE $3 AS t) x",
+                        &[&now, &finish, &ZONE],
                     )
                     .await
                     .map_err(db)?
@@ -1929,12 +1936,12 @@ async fn weekly_of(c: &mut impl GenericClient, s: &Settings, now: &str, open: &[
                 "SELECT s.session::text, {}, $3::text IS NOT NULL AND s.session >= $3::text::date,
                         EXISTS (SELECT FROM vyreon.day_revision d WHERE d.represented_date = s.session AND d.profile_id = $2
                                 AND d.state = 'PUBLISHED' AND d.base_revision IS NULL),
-                        ((s.session + 1) + make_time($4, 0, 0)) AT TIME ZONE 'America/Edmonton' <= $1::text::timestamptz,
+                        ((s.session + 1) + make_time($4, 0, 0)) AT TIME ZONE '{ZONE}' <= $1::text::timestamptz,
                         to_char(s.session + 1, 'Dy'),
                         EXISTS (SELECT FROM vyreon.day_revision d WHERE d.represented_date = s.session AND d.profile_id = $2
                                 AND d.state = 'PUBLISHED' AND d.base_revision IS NOT NULL AND NOT d.day_local)
                  FROM core.session s,
-                      (SELECT ($1::text::timestamptz AT TIME ZONE 'America/Edmonton')::date AS today) t
+                      (SELECT ($1::text::timestamptz AT TIME ZONE '{ZONE}')::date AS today) t
                  WHERE s.session >= date_trunc('week', t.today)::date AND s.session < t.today
                  ORDER BY 1",
                 day_of("s.session")
@@ -2065,8 +2072,8 @@ async fn due_posts(c: &impl GenericClient, now: &str) -> Result<(String, bool, b
     let row = c
         .query_one(
             "SELECT to_char(t, 'YYYY-MM-DD'), extract(hour FROM t) >= 9, extract(isodow FROM t) = 6
-             FROM (SELECT $1::text::timestamptz AT TIME ZONE 'America/Edmonton' AS t) x",
-            &[&now],
+             FROM (SELECT $1::text::timestamptz AT TIME ZONE $2 AS t) x",
+            &[&now, &ZONE],
         )
         .await
         .map_err(db)?;
