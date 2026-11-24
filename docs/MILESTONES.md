@@ -734,6 +734,11 @@ reviews of untouched scopes (Gemini on overlay, surface, optsensors) after phase
 the untallied whatever their age, only a composed digest resolves its problem; 190/0; code only). LATER: the digest's 24-hour
 window should start where the previous digest ended (contiguous windows). Gemini round 3 re-runs scheduled ~20:16 MT
 (after its quota reset); engine 955d0f82 still held for the next hand-over.
+**20:05 MT: quote-era tapes OOM-killed.** The last 11 tapes (2026-11-06..11-20, 13 GB replay files) were killed 12 times:
+tape pods requested 3Gi with no limit and KEDA packed three per 16 GB node. Fix 6926f1e: tape pods request 12Gi (one per
+node); old pods drain as their leases expire and new ones start with the new request. All 11 still on attempt 1 of 3 (OOM =
+lost lease, free twice). Real-run fault: due a failure-surface check of the other pods' memory (day block, pass, daily) as
+their data grows.
 **Owner, 2026-11-23 ~09:50 MT: D-191 recommendation accepted** (weight kept, text corrected: engine worker commit after f3db692e, docs only). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
