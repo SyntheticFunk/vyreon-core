@@ -444,12 +444,17 @@ full build: 12 nodes (two thirds of the ~18 the average allows), proven on 2 nod
 
 ## Resume here if the session is lost (written 2026-11-22 04:55 UTC)
 
-**Resume pointer (2026-11-23 ~17:50 MT):** PHASE 1 RUNNING on engine build `2a8f8c4f+5bbbf36545c0` (hand-over 20;
-KEDA and VYREON_CORE_DAILY_BUILD on it). Caps: tapes 12, day blocks 8, ACT01 in-flight 2. Core runs image 4eda341;
-core 474a229 (C-069/C-070) waits for its audit, then deploy with the queue paused (migrations 0052/0053). Watch:
-refused days, reference checks on new days, Intrinio 429s, ETHA 2024-07-23..29 labels (D-458). Next: triage the repeat
-audits; deploy core; automation debts (release script, budget-aware KEDA, re-runnable refchecks) before Reporter
-polish; Reporter beside the build once the earliest days have passes. Restart the loop with
+**Resume pointer (2026-11-23 ~20:55 MT) — OVERNIGHT PLAN (owner, asleep): "do engine fix, audit it, remediate any audit
+findings, start the tapes, and monitor for success or more work".** Phase 1 runs on engine build `2a8f8c4f+5bbbf36545c0`,
+core image 6a4b59f. **Tape ScaledJob is PAUSED** (quote-era tapes OOM-killed; owner: no stopgap). Steps: (1) `eng-tape`
+fixer (D-459, bounded-memory replay reduction, byte-identical caches) — wait for its report; (2) merge into `worker`, run
+Codex (`tools/audit/run`) and Gemini (`run-agy`, xhigh; if its quota is exhausted, record and schedule after the reset) on
+the replay scope (`tape`) with a self-contained note; (3) triage, fix every REAL finding that blocks (wrong number/absence,
+memory not bounded, cache bytes changed), LATER the rest; (4) build image, register, hand-over from 2a8f8c4f (also carries
+955d0f82's D-458 amendment), admit, KEDA + DAILY_BUILD on it; (5) set the tape memory request from the fix's measured
+peak, unpause tapes (`kubectl -n vyreon annotate scaledjob tape autoscaling.keda.sh/paused-`), confirm the 11 tapes
+2026-11-06..11-20 finish without OOM (cgroup memory.peak per pod); retry-failed any FAILED tape; (6) monitor blocks and the
+daily run. Caps: tapes 12, day blocks 8, ACT01 in-flight 2. Restart the loop with
 `/loop follow docs/MILESTONES.md under the rules in AGENTS.md`.
 Run every step with `KUBECONFIG=~/claude-artifacts/cluster-scratch/kubeconfig` and
 `VYREON_DOKS_CLUSTER=5f56e6e0-1c74-4dc9-bfdb-962ee55ebff3` (refresh the kubeconfig from DO before
