@@ -200,6 +200,10 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Option<Item>>, 
             if lease.kind == "TAPE" {
                 return refuse("a tape job publishes no days");
             }
+            // C-073: a re-run judges what is published; it never publishes
+            if lease.kind == "REFCHECK" {
+                return refuse("a reference-check re-run publishes nothing");
+            }
             // a day block's current day stays its next until the worker says it is done, so a
             // bundle of it sent again is answered like one of an earlier day
             if lease.engine_build == header.engine_build
