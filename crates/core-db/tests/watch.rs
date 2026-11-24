@@ -101,7 +101,7 @@ async fn deadlines_follow_the_calendar_over_a_weekend_and_a_holiday() {
     assert_eq!(check(&mut client, &s, "2025-09-03 10:31:00-06").await, watch::Change::default());
     let said = posts(&client).await;
     assert_eq!(said.len(), 6, "three alerts, three resolutions: {said:?}");
-    assert_eq!(said[0], "🔴 Fri Aug 29 not published by its Sat 10:00 MT deadline\nTo see more: `vyreon-core queue`");
+    assert_eq!(said[0], watch::alert_for("SESSION_LATE", "Fri Aug 29 not published by its Sat 10:00 MT deadline", "vyreon-core queue"));
     assert_eq!(said[3], "✅ Resolved: Fri Aug 29 not published by its Sat 10:00 MT deadline (it was open 4 days)");
     assert_eq!(said[5], "✅ Resolved: Tue Sep 2 not published by its Wed 10:00 MT deadline (it was open 30 min)");
     scratch.drop().await;
@@ -173,7 +173,7 @@ async fn a_last_failure_and_a_provider_burst_are_problems_from_the_evidence() {
     let now = watch::now(&client).await.unwrap();
     let summary = format!("Day 2024-07-16 failed for the last time (job {job}): {stop}");
     assert_eq!(check(&mut client, &s, &now).await, opened(&[&summary]));
-    assert_eq!(posts(&client).await, [format!("🔴 {summary}\nTo see more: `vyreon-core evidence show {job}`")]);
+    assert_eq!(posts(&client).await, [watch::alert_for("JOB_FAILED", &summary, &format!("vyreon-core evidence show {job}"))]);
     assert_eq!(work::retry_failed(&client).await.unwrap(), 1);
     assert_eq!(check(&mut client, &s, &now).await.resolved, [summary]);
     work::cancel(&mut client, &[job]).await.unwrap();
@@ -653,7 +653,7 @@ async fn claimable_work_with_no_worker_for_a_quarter_hour_is_a_stall() {
     let since: String = client.query_one("SELECT to_char(since AT TIME ZONE $1, 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'TAPE'", &[&watch::ZONE]).await.unwrap().get(0);
     let stalled = format!("Tape jobs stalled since {since} MT: 3 claimable and none leased, so no `tape` pod is running");
     assert_eq!(check_after(&mut client, &s, &t0, 15).await, opened(&[&stalled]));
-    assert_eq!(posts(&client).await, [format!("🔴 {stalled}\nTo see more: `vyreon-core queue`")]);
+    assert_eq!(posts(&client).await, [watch::alert_for("STALLED", &stalled, "vyreon-core queue")]);
     // a worker claims: resolved, and the clock is gone
     let claim = work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();
     assert_eq!(check_after(&mut client, &s, &t0, 16).await.resolved, [stalled]);

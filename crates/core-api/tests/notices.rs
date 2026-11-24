@@ -72,7 +72,7 @@ async fn problems_are_posted_once_in_order_silently_and_events_only_logged() {
     assert_eq!(logged[3], "Queue resumed.");
     let queued: Vec<String> = notice::unsent(&client, 20).await.unwrap().into_iter().map(|(_, m)| m).collect();
     assert_eq!(queued.len(), 2, "{queued:?}");
-    assert_eq!(queued[0], "🔴 Work queue paused, nothing is handed out: a check failed on 2025-12-11\nTo see more: `vyreon-core queue`");
+    assert_eq!(queued[0], watch::alert_for("QUEUE_PAUSED", "Work queue paused, nothing is handed out: a check failed on 2025-12-11", "vyreon-core queue"));
     assert!(queued[1].starts_with("✅ Resolved: Work queue paused, nothing is handed out: a check failed on 2025-12-11 (it was open "), "{}", queued[1]);
 
     // the sender
