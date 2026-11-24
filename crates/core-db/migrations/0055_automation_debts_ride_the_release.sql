@@ -77,3 +77,23 @@ BEGIN
     RETURN NEW;
 END
 $$;
+
+-- C-073 (live investigation, 2026-11-24: the daily run sat idle about an hour in a deliberate EXQ01
+-- cutoff wait, its worker heartbeating, and nobody could tell it from a stall). A worker reports the
+-- step it is on and any deliberate wait (`POST /worker/v1/lease/step`); the latest per lease is kept.
+-- `step_since`: when this step (or this wait) began, the worker's own progress mark.
+CREATE TABLE core.lease_step (
+    lease_id      bigint      PRIMARY KEY REFERENCES core.lease,
+    step          text        NOT NULL CHECK (length(step) BETWEEN 1 AND 200),
+    waiting_until timestamptz,
+    reason        text        CHECK (length(reason) BETWEEN 1 AND 300),
+    step_since    timestamptz NOT NULL,
+    reported_at   timestamptz NOT NULL,
+    CHECK ((waiting_until IS NULL) = (reason IS NULL))
+);
+ALTER TABLE core.problem DROP CONSTRAINT problem_kind_check;
+ALTER TABLE core.problem ADD CONSTRAINT problem_kind_check
+    CHECK (kind IN ('SESSION_LATE', 'REPORT_AT_RISK', 'QUEUE_PAUSED', 'JOB_FAILED', 'PROVIDER_AUTH',
+                    'PROVIDER_ERRORS', 'DATABASE_FULL', 'CALENDAR_END', 'NOT_DERIVED', 'DAILY_STOPPED',
+                    'ARCHIVE_MISSING', 'REFCHECK_DISAGREES', 'REFCHECK_NOT_RUN', 'STALLED', 'CLAIMS_EMPTY',
+                    'WAL_ARCHIVING', 'BACKUP_STALE', 'WATCH_FAILING', 'JOB_THRASHING', 'NO_PROGRESS'));

@@ -4,6 +4,8 @@
 //!                                                                          `daily: true` (the daily CronJob's worker) claims
 //!                                                                          only a daily run's job (C-051 amended, round x 13)
 //!   POST /lease/heartbeat                                               -> {expires_at, paused}
+//!   POST /lease/step                 {step, waiting_until?, reason?}    -> {recorded: true} (C-073: the step the worker is on and
+//!                                                                          any deliberate wait, for the watch's NO_PROGRESS)
 //!   POST /lease/finish                                                  -> {job_id}
 //!   POST /lease/fail                 {stage, message, log}              -> {requeued}
 //!   PUT  /evidence                   body: the attempt's failure evidence (application/gzip) -> {new} (C-049)
@@ -118,6 +120,7 @@ pub fn routes() -> Router<Arc<App>> {
     Router::new()
         .route("/claims", post(claim))
         .route("/lease/heartbeat", post(heartbeat))
+        .route("/lease/step", post(step))
         .route("/lease/finish", post(finish))
         .route("/lease/fail", post(fail))
         .route("/evidence", put(evidence_put))
@@ -224,6 +227,22 @@ async fn heartbeat(State(app): Shared, headers: HeaderMap) -> Reply {
     let mut client = app.db().await?;
     let (expires_at, paused) = work::heartbeat(&mut client, bearer(&headers)?, app.config.lease_seconds).await?;
     ok(json!({"expires_at": expires_at, "paused": paused}))
+}
+
+#[derive(Deserialize)]
+struct Step {
+    step: String,
+    #[serde(default)]
+    waiting_until: Option<String>,
+    #[serde(default)]
+    reason: Option<String>,
+}
+
+/// C-073: the worker's current step and any deliberate wait (`work::report_step`).
+async fn step(State(app): Shared, headers: HeaderMap, Json(s): Json<Step>) -> Reply {
+    let mut client = app.db().await?;
+    work::report_step(&mut client, bearer(&headers)?, &s.step, s.waiting_until.as_deref(), s.reason.as_deref()).await?;
+    ok(json!({"recorded": true}))
 }
 
 async fn finish(State(app): Shared, headers: HeaderMap) -> Reply {

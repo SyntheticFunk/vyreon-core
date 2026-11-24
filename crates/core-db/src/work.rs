@@ -801,6 +801,60 @@ pub async fn heartbeat(client: &mut Client, token: &str, lease_seconds: f64) -> 
     Ok((row.get(0), row.get(1)))
 }
 
+/// C-073: the longest a declared wait may reach ahead of now.
+pub const WAIT_MAX_HOURS: f64 = 24.0;
+
+/// C-073: a worker's report of the step it is on and of any deliberate wait (`waiting_until`, an
+/// instant, with its `reason`; both or neither), kept per lease (`core.lease_step`). A step or a wait
+/// that differs from the last report starts its clock (`step_since`): the worker's own progress mark
+/// for the watch's NO_PROGRESS; the same report again only says the worker is alive. Refused: an empty
+/// or long text, one a credential pattern matches (never stored), a wait in the past or more than
+/// `WAIT_MAX_HOURS` ahead.
+pub async fn report_step(client: &mut Client, token: &str, step: &str, waiting_until: Option<&str>, reason: Option<&str>) -> Result<(), LeaseError> {
+    let (step, reason) = (step.trim(), reason.map(str::trim).filter(|r| !r.is_empty()));
+    if step.is_empty() || step.chars().count() > 200 {
+        return Err(LeaseError::Refused("a step is named in 1 to 200 characters".into()));
+    }
+    if reason.is_some_and(|r| r.chars().count() > 300) {
+        return Err(LeaseError::Refused("a wait's reason is at most 300 characters".into()));
+    }
+    if waiting_until.is_some() != reason.is_some() {
+        return Err(LeaseError::Refused("a wait states both its end (waiting_until) and its reason".into()));
+    }
+    for text in std::iter::once(step).chain(reason) {
+        if let Some(found) = crate::evidence::unredacted(text) {
+            return Err(LeaseError::Refused(format!("{found}: a step report carries no credential; nothing was stored")));
+        }
+    }
+    let tx = client.transaction().await.map_err(failed)?;
+    let lease = held(&tx, token).await?;
+    if let Some(until) = waiting_until {
+        let ok: Option<bool> = tx
+            .query_one(
+                "SELECT $1::text::timestamptz > clock_timestamp() AND $1::text::timestamptz <= clock_timestamp() + make_interval(secs => $2::float8 * 3600)",
+                &[&until, &WAIT_MAX_HOURS],
+            )
+            .await
+            .map_err(|_| LeaseError::Refused(format!("waiting_until {until} is not an instant (RFC 3339)")))?
+            .get(0);
+        if ok != Some(true) {
+            return Err(LeaseError::Refused(format!("waiting_until {until} is not ahead of now by at most {WAIT_MAX_HOURS} h")));
+        }
+    }
+    tx.execute(
+        "INSERT INTO core.lease_step (lease_id, step, waiting_until, reason, step_since, reported_at)
+         VALUES ($1, $2, $3::text::timestamptz, $4, clock_timestamp(), clock_timestamp())
+         ON CONFLICT (lease_id) DO UPDATE SET
+             step_since = CASE WHEN core.lease_step.step = EXCLUDED.step AND core.lease_step.waiting_until IS NOT DISTINCT FROM EXCLUDED.waiting_until
+                               THEN core.lease_step.step_since ELSE EXCLUDED.step_since END,
+             step = EXCLUDED.step, waiting_until = EXCLUDED.waiting_until, reason = EXCLUDED.reason, reported_at = EXCLUDED.reported_at",
+        &[&lease.lease_id, &step, &waiting_until, &reason],
+    )
+    .await
+    .map_err(failed)?;
+    tx.commit().await.map_err(failed)
+}
+
 /// Marks the lease's next session done and moves the job to the following one. The sessions of a
 /// job are done strictly in order: `session` must be the job's next. A session of the job already
 /// done is accepted and changes nothing: the call was sent again after its answer was lost.

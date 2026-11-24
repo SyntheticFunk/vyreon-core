@@ -265,6 +265,7 @@ const CLAIMS: Part = Part { key: "claims", what: "check for workers leaving whil
 const DAILY: Part = Part { key: "daily", what: "check the daily runs", kinds: &["DAILY_STOPPED"] };
 const ARCHIVE: Part = Part { key: "archive", what: "check the perishable archive", kinds: &["ARCHIVE_MISSING"] };
 const REFCHECK: Part = Part { key: "refcheck", what: "check the reference checks (and queue their re-runs)", kinds: &["REFCHECK_DISAGREES", "REFCHECK_NOT_RUN"] };
+const PROGRESS: Part = Part { key: "progress", what: "check for workers making no progress", kinds: &["NO_PROGRESS"] };
 const THRASHING: Part = Part { key: "thrashing", what: "check for jobs losing their leases", kinds: &["JOB_THRASHING"] };
 const STORAGE: Part = Part { key: "storage", what: "check the database volume and its WAL", kinds: &["DATABASE_FULL", "WAL_ARCHIVING"] };
 const BACKUPS: Part = Part { key: "backups", what: "check the backups", kinds: &["BACKUP_STALE", "WAL_ARCHIVING"] };
@@ -367,6 +368,13 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
         .part(c, &STALLS, async {
             let mut found = Vec::new();
             stalled(c, now, &mut found).await?;
+            Ok(found)
+        })
+        .await?;
+    checked
+        .part(c, &PROGRESS, async {
+            let mut found = Vec::new();
+            no_progress(c, now, &mut found).await?;
             Ok(found)
         })
         .await?;
@@ -1148,6 +1156,75 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
                 kinds.unwrap_or_default()
             ),
             command: "vyreon-core queue".into(),
+            detail: None,
+        });
+    }
+    Ok(())
+}
+
+/// C-073: how long a worker may show no progress before NO_PROGRESS.
+pub const NO_PROGRESS_MINUTES: f64 = 20.0;
+/// C-073: how long past its declared end a wait may run before NO_PROGRESS.
+pub const WAIT_GRACE_MINUTES: f64 = 15.0;
+
+/// C-073 (live investigation, 2026-11-24: the daily run's worker heartbeated through an hour's
+/// deliberate EXQ01 cutoff wait, indistinguishable from a stall): a live lease whose worker reports
+/// its steps (`work::report_step`; a worker that never reported one, an image before it, is not
+/// judged: it could not declare a long computation or a wait) and shows no progress for
+/// `NO_PROGRESS_MINUTES`: no request drawn or reported (`core.budget_lease`, `core.request_usage`), no
+/// new step or wait, nothing published, no tape cache or reference check stored, since the later of
+/// those and its grant. A declared wait covers its time: the deadline is then the later of the above
+/// and the wait's end plus `WAIT_GRACE_MINUTES`, so a wait that overstays alerts too. One problem per
+/// job (key: the job), alerted once, resolved when progress resumes or the lease ends.
+async fn no_progress(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> Result<(), String> {
+    let rows = c
+        .query(
+            "WITH live AS (
+                 SELECT l.lease_id, l.job_id, l.worker, l.granted_at, j.kind, j.priority, j.next_session, j.first_session, j.last_session,
+                        s.step, s.step_since, s.waiting_until, s.reason
+                 FROM core.lease l JOIN core.job j USING (job_id) JOIN core.lease_step s USING (lease_id)
+                 WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz AND l.granted_at <= $1::text::timestamptz),
+             p AS (
+                 SELECT live.*, GREATEST(live.granted_at, live.step_since,
+                     (SELECT max(b.granted_at) FROM core.budget_lease b
+                      WHERE b.worker = live.worker AND b.granted_at >= live.granted_at AND b.granted_at <= $1::text::timestamptz
+                        AND (b.used IS NULL OR b.used > 0)),
+                     (SELECT max(u.minute) + interval '1 minute' FROM core.request_usage u
+                      WHERE u.worker = live.worker AND u.requests > 0 AND u.minute >= date_trunc('minute', live.granted_at) AND u.minute <= $1::text::timestamptz),
+                     (SELECT max(d.published_at) FROM core.lease_revision lr JOIN vyreon.day_revision d USING (revision_id) WHERE lr.lease_id = live.lease_id),
+                     (SELECT max(r.stored_at) FROM core.refcheck_report r WHERE r.lease_id = live.lease_id),
+                     (SELECT max(t.stored_at) FROM core.tape_cache t
+                      WHERE t.session BETWEEN live.first_session AND live.last_session AND t.stored_at >= live.granted_at AND t.stored_at <= $1::text::timestamptz)
+                 ) AS last FROM live)
+             SELECT job_id, CASE WHEN kind = 'DAY_BLOCK' AND priority = 1 THEN 'DAILY_BLOCK' ELSE kind END, COALESCE(next_session, last_session)::text, worker, step,
+                    to_char(last AT TIME ZONE $2, 'Dy HH24:MI'), to_char(waiting_until AT TIME ZONE $2, 'Dy HH24:MI'), reason,
+                    waiting_until IS NOT NULL AND waiting_until + make_interval(secs => $4::float8 * 60) < $1::text::timestamptz
+             FROM p
+             WHERE $1::text::timestamptz > GREATEST(last + make_interval(secs => $3::float8 * 60), waiting_until + make_interval(secs => $4::float8 * 60))
+             ORDER BY job_id",
+            &[&now, &ZONE, &NO_PROGRESS_MINUTES, &WAIT_GRACE_MINUTES],
+        )
+        .await
+        .map_err(db)?;
+    for r in &rows {
+        let (job, kind, session, worker, step, since, until, reason, overstayed): (i64, String, String, String, String, String, Option<String>, Option<String>, bool) =
+            (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6), r.get(7), r.get(8));
+        let what = match kind.as_str() {
+            "DAILY_BLOCK" => "Daily day block",
+            "DAY_BLOCK" => "Day block",
+            "ORDERED_PASS" => "Ordered pass",
+            "REFCHECK" => "Reference-check re-run",
+            _ => "Tape job",
+        };
+        let wait = match (overstayed, until, reason) {
+            (true, Some(u), Some(why)) => format!("; its declared wait ({}) was to end {u} MT", one_line(&why, 120)),
+            _ => String::new(),
+        };
+        found.push(Found {
+            kind: "NO_PROGRESS",
+            key: format!("job {job}"),
+            summary: format!("{what} job {job} ({session}) on {worker}: no progress since {since} MT, at step \"{}\"{wait}", one_line(&step, 120)),
+            command: format!("kubectl -n vyreon logs {worker}"),
             detail: None,
         });
     }
