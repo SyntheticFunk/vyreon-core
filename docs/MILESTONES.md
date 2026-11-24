@@ -1243,6 +1243,13 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   (before phase 1) → phase 1 so far ≈ $89 + ~11 h ≈ $100 of the $500 ceiling; burn ≈ $1.25/h (10 nodes) → ~11-13 days of
   cluster left. Projected total to be computed from the first measured days/hour; warn the owner before passing $500.
   Owner: the audits' value is avoided rebuilds (each rebuild costs cluster dollars), so one thorough audit per release stays.
+  **Investigating while it runs (owner's goal, UTC−6 ~11:40):** (1) the request budget is ~half used during downloads (avg
+  ~800-1,270/min of 1,900; near the cap only 12 min in 4 h) → downloads are bound by per-worker concurrency, not Intrinio:
+  candidate improvement = more in-flight requests per worker (cuts the ~3 h download stage and node-hours); compute is
+  CPU-bound (7.7-8.1 of 8 cores) as it should be. (2) **The daily run 2026-11-23 is hung:** exq01_cohort_capture idle since
+  16:45 UTC (62/64 assets captured; NVDA and SMH stuck, no requests, no budget waits), worker still heartbeating → core sees
+  nothing (observability gap → a 'no progress' watch belongs in the release). Read-only root-cause investigation running;
+  process kept alive as evidence (deadlines start 11-30).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
