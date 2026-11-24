@@ -206,8 +206,8 @@ async fn a_failed_queueing_is_a_problem_before_the_digest() {
         )
         .await
         .unwrap();
-    // 09:00 Mountain on 2025-12-11 (UTC−7): the digest's minute
-    let nine = "2025-12-11 16:00:00+00";
+    // 09:00 MT on 2025-12-11 (the owner's UTC−6, C-072): the digest's minute
+    let nine = "2025-12-11 15:00:00+00";
     let change = watch::tick(&mut client, &s, nine).await.unwrap();
     assert!(change.failing.is_empty(), "{change:?}");
     let stopped = "Daily runs stopped: a session due is not queued (the oldest 2025-12-10): queueing failed: partitions refused (test)";
@@ -233,16 +233,17 @@ async fn the_deadline_leaves_two_days_of_work_after_the_inputs_are_ready() {
     let row = client
         .query_one(
             "SELECT min(deadline - ready)::text, max(deadline - ready)::text FROM (
-                 SELECT ((session + 1) + make_time($1, 0, 0)) AT TIME ZONE 'America/Edmonton' AS deadline,
+                 SELECT ((session + 1) + make_time($1, 0, 0)) AT TIME ZONE $4 AS deadline,
                         ((session + 1) + $2::text::time) AT TIME ZONE $3 AS ready
                  FROM core.session) x",
-            &[&watch::DEADLINE_HOUR, &daily::READY_AT, &daily::READY_ZONE],
+            &[&watch::DEADLINE_HOUR, &daily::READY_AT, &daily::READY_ZONE, &watch::ZONE],
         )
         .await
         .unwrap();
     let (min, max): (String, String) = (row.get(0), row.get(1));
-    // 14 h 30 min while Mountain time is two hours behind New York; 13 h 30 min in New York's
-    // winters from November 2026, when Alberta stays on UTC−6 (the zone database PostgreSQL reads)
+    // 14 h 30 min while New York is on summer time (two hours ahead of the owner's UTC−6); 13 h
+    // 30 min in New York's winters (C-072: the owner's clock is UTC−6 all year, whatever tz
+    // database a PostgreSQL image carries)
     assert_eq!((min.as_str(), max.as_str()), ("13:30:00", "14:30:00"));
     scratch.drop().await;
 }

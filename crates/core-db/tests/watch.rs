@@ -109,10 +109,11 @@ async fn deadlines_follow_the_calendar_over_a_weekend_and_a_holiday() {
 
 /// Good Friday 2025 (2025-04-18, no session): Thursday is the week's last session, due Friday 10:00
 /// and Sunday's report at risk from Saturday 12:00. A Friday a week before is late but its Sunday
-/// is past: no report-at-risk for it. In winter time (UTC−7) 10:00 MT is 17:00 UTC.
+/// is past: no report-at-risk for it. C-072: the owner's clock is UTC−6 in winter too, so 10:00
+/// MT is 16:00 UTC all year (tz-database America/Edmonton, read before, made it 17:00 in winter).
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
-async fn the_weeks_last_session_carries_sundays_report_and_winter_time_is_followed() {
+async fn the_weeks_last_session_carries_sundays_report_and_the_owners_clock_stays_on_utc_minus_6() {
     let (scratch, mut client, b) = ready("good_friday").await;
     let s = settings(Some("2025-04-07"));
     for day in ["2025-04-07", "2025-04-08", "2025-04-09", "2025-04-10", "2025-04-14", "2025-04-15", "2025-04-16"] {
@@ -128,13 +129,13 @@ async fn the_weeks_last_session_carries_sundays_report_and_winter_time_is_follow
     published(&client, &b, "2025-04-17", "2025-04-21 08:30:00-06").await;
     assert_eq!(check(&mut client, &s, "2025-04-21 09:00:00-06").await.resolved.len(), 2);
 
-    // winter: Friday 2025-12-12 is due Saturday 10:00 MST, 17:00 UTC
+    // winter: Friday 2025-12-12 is due Saturday 10:00 MT, 16:00 UTC (not 17:00, as under UTC−7)
     let s = settings(Some("2025-12-08"));
     for day in ["2025-12-08", "2025-12-09", "2025-12-10", "2025-12-11"] {
-        published(&client, &b, day, &format!("{day} 20:00-07")).await;
+        published(&client, &b, day, &format!("{day} 20:00-06")).await;
     }
-    assert_eq!(check(&mut client, &s, "2025-12-13 16:59:59+00").await.opened, Vec::<String>::new());
-    assert_eq!(check(&mut client, &s, "2025-12-13 17:00:00+00").await, opened(&["Fri Dec 12 not published by its Sat 10:00 MT deadline"]));
+    assert_eq!(check(&mut client, &s, "2025-12-13 15:59:59+00").await.opened, Vec::<String>::new());
+    assert_eq!(check(&mut client, &s, "2025-12-13 16:00:00+00").await, opened(&["Fri Dec 12 not published by its Sat 10:00 MT deadline"]));
     scratch.drop().await;
 }
 
@@ -304,7 +305,7 @@ async fn the_digest_leads_with_its_verdict() {
         .await
         .unwrap();
     let now = watch::now(&client).await.unwrap();
-    let today: String = client.query_one("SELECT to_char(now() AT TIME ZONE 'America/Edmonton', 'Dy Mon FMDD')", &[]).await.unwrap().get(0);
+    let today: String = client.query_one("SELECT to_char(now() AT TIME ZONE $1, 'Dy Mon FMDD')", &[&watch::ZONE]).await.unwrap().get(0);
 
     // round x, 7: the tallies in one statement: counted the first time (and kept), read the next,
     // the same either way
@@ -356,7 +357,7 @@ async fn the_digest_leads_with_its_verdict() {
 
     // the digest at 09:00 MT, once; the weekly check on Saturdays
     let at = |t: &str| t.to_owned();
-    for (t, digests) in [(at("2025-12-12 08:59:00-07"), 0), (at("2025-12-12 09:00:00-07"), 1), (at("2025-12-12 15:00:00-07"), 1), (at("2025-12-13 09:00:00-07"), 2)] {
+    for (t, digests) in [(at("2025-12-12 08:59:00-06"), 0), (at("2025-12-12 09:00:00-06"), 1), (at("2025-12-12 15:00:00-06"), 1), (at("2025-12-13 09:00:00-06"), 2)] {
         watch::tick(&mut client, &s, &t).await.unwrap();
         let n: i64 = client.query_one("SELECT count(*) FROM core.notice WHERE once LIKE 'digest %'", &[]).await.unwrap().get(0);
         assert_eq!(n, digests, "at {t}");
@@ -372,7 +373,7 @@ async fn the_digest_leads_with_its_verdict() {
         "Thu Dec 11: not published",
         "Fri Dec 12: not published"
     ]);
-    let watched = watch::weekly(&mut client, &settings(Some("2025-12-08")), "2025-12-13 09:00:00-07").await.unwrap();
+    let watched = watch::weekly(&mut client, &settings(Some("2025-12-08")), "2025-12-13 09:00:00-06").await.unwrap();
     // C-051: Friday's deadline (Saturday 10:00 here) is still ahead at 09:00: due, not missing
     assert!(watched.starts_with("🔴 Weekly check: Sunday's report at risk, 2 of 5 sessions not published (Mon Dec 8, Thu Dec 11)\n"), "{watched}");
     assert!(watched.contains("\nFri Dec 12: not published yet, due by Sat 10:00 MT\n"), "{watched}");
@@ -405,12 +406,12 @@ async fn the_weekly_check_needs_the_history_pass_and_no_open_problem() {
     let s = settings(Some("2025-12-08"));
     let days = ["2025-12-08", "2025-12-09", "2025-12-10", "2025-12-11", "2025-12-12"];
     for day in days {
-        published(&client, &b, day, &format!("{day} 20:00-07")).await;
+        published(&client, &b, day, &format!("{day} 20:00-06")).await;
     }
     for day in &days[..4] {
-        history_published(&client, day, &format!("{day} 22:00-07")).await;
+        history_published(&client, day, &format!("{day} 22:00-06")).await;
     }
-    let saturday = "2025-12-13 11:00:00-07";
+    let saturday = "2025-12-13 11:00:00-06";
     check(&mut client, &s, saturday).await;
     let weekly = watch::weekly(&mut client, &s, saturday).await.unwrap();
     let lines: Vec<&str> = weekly.lines().collect();
@@ -419,7 +420,7 @@ async fn the_weekly_check_needs_the_history_pass_and_no_open_problem() {
         "Thu Dec 11: published · no measurements · 0 engine faults · history pass published",
         "Fri Dec 12: published · no measurements · 0 engine faults · history pass not published"
     ]);
-    history_published(&client, days[4], "2025-12-13 10:30:00-07").await;
+    history_published(&client, days[4], "2025-12-13 10:30:00-06").await;
     let weekly = watch::weekly(&mut client, &s, saturday).await.unwrap();
     assert!(weekly.starts_with("🟢 Weekly check: all 5 of this week's sessions published with their history pass; Sunday's report has what it needs\n"), "{weekly}");
     // a problem open (the queue paused): never green
@@ -446,7 +447,7 @@ async fn a_digest_never_says_nothing_is_open_after_an_alert() {
     let tx = publishing.transaction().await.unwrap();
     watch::not_derived(&tx, &[("2025-12-11".into(), PROFILE.into(), false)], "A republish left").await.unwrap();
     let mut watching = scratch.client().await;
-    let (s2, nine) = (s.clone(), "2025-12-12 09:30:00-07");
+    let (s2, nine) = (s.clone(), "2025-12-12 09:30:00-06");
     let minute = tokio::spawn(async move {
         watch::tick(&mut watching, &s2, nine).await.unwrap();
         watching
@@ -473,12 +474,12 @@ async fn the_weekly_headline_agrees_with_its_lines() {
     let s = settings(Some("2025-12-08"));
     let days = ["2025-12-08", "2025-12-09", "2025-12-10", "2025-12-11", "2025-12-12"];
     for day in days {
-        published(&client, &b, day, &format!("{day} 20:00-07")).await;
+        published(&client, &b, day, &format!("{day} 20:00-06")).await;
     }
     for day in &days[..4] {
-        history_published(&client, day, &format!("{day} 22:00-07")).await;
+        history_published(&client, day, &format!("{day} 22:00-06")).await;
     }
-    let nine = "2025-12-13 09:00:00-07";
+    let nine = "2025-12-13 09:00:00-06";
     check(&mut client, &s, nine).await;
     let weekly = watch::weekly(&mut client, &s, nine).await.unwrap();
     let lines: Vec<&str> = weekly.lines().collect();
@@ -511,13 +512,13 @@ async fn a_failed_check_posts_no_digest() {
         )
         .await
         .unwrap();
-    let why = watch::tick(&mut client, &s, "2025-12-12 09:00:00-07").await.unwrap_err();
+    let why = watch::tick(&mut client, &s, "2025-12-12 09:00:00-06").await.unwrap_err();
     assert!(why.contains("problem refused (test)"), "{why}");
     let said = posts(&client).await;
     assert_eq!(said.len(), 1, "the failed check is said, and no digest from a list the check could not bring up to date: {said:?}");
     assert!(said[0].starts_with("🔴 Watch failing: cannot run its checks, so no problem opens or resolves (problem refused (test))"), "{said:?}");
     client.batch_execute("DROP TRIGGER refuse_pause ON core.problem").await.unwrap();
-    let change = watch::tick(&mut client, &s, "2025-12-12 09:01:00-07").await.unwrap();
+    let change = watch::tick(&mut client, &s, "2025-12-12 09:01:00-06").await.unwrap();
     assert_eq!(change.resolved.len(), 1, "{change:?}");
     let said = posts(&client).await;
     assert_eq!(said.len(), 4, "{said:?}");
@@ -538,29 +539,29 @@ async fn a_failing_part_of_the_check_stops_only_itself() {
     let (scratch, mut client, b) = ready("failing_part").await;
     let s = settings(Some("2025-12-10"));
     work::pause(&client, "checking the watch's parts").await.unwrap();
-    watch::tick(&mut client, &s, "2025-12-12 08:00:00-07").await.unwrap();
+    watch::tick(&mut client, &s, "2025-12-12 08:00:00-06").await.unwrap();
     let kinds = |open: Vec<watch::Open>| open.into_iter().map(|o| (o.kind, o.key)).collect::<Vec<_>>();
-    let before = kinds(watch::open(&client, "2025-12-12 08:00:00-07").await.unwrap());
+    let before = kinds(watch::open(&client, "2025-12-12 08:00:00-06").await.unwrap());
     assert_eq!(before.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(), ["SESSION_LATE", "QUEUE_PAUSED"], "{before:?}");
     // the queue's part cannot read its table; the deadlines' part still resolves what was published
     client.batch_execute("ALTER TABLE core.queue_control RENAME TO queue_control_away").await.unwrap();
-    published(&client, &b, "2025-12-10", "2025-12-12 08:30:00-07").await;
-    let change = watch::tick(&mut client, &s, "2025-12-12 09:00:00-07").await.unwrap();
+    published(&client, &b, "2025-12-10", "2025-12-12 08:30:00-06").await;
+    let change = watch::tick(&mut client, &s, "2025-12-12 09:00:00-06").await.unwrap();
     let missing = "relation \"core.queue_control\" does not exist";
     assert_eq!(change.failing, [format!("queue: {missing}"), format!("stalls: {missing}")], "{change:?}");
     assert_eq!(change.resolved, ["Wed Dec 10 not published by its Thu 10:00 MT deadline"], "{change:?}");
     let failing = format!("Watch failing: cannot check whether the work queue is paused ({missing})");
     let stalls = format!("Watch failing: cannot check for stalled work ({missing})");
     assert_eq!(change.opened, [failing.clone(), stalls.clone()], "{change:?}");
-    let open = watch::open(&client, "2025-12-12 09:00:00-07").await.unwrap();
+    let open = watch::open(&client, "2025-12-12 09:00:00-06").await.unwrap();
     assert_eq!(open.iter().map(|o| o.kind.as_str()).collect::<Vec<_>>(), ["QUEUE_PAUSED", "WATCH_FAILING", "WATCH_FAILING"], "the pause stays open, not resolved by a part that could not look");
     let said = posts(&client).await;
     let digest = said.last().unwrap();
     assert!(digest.starts_with("🔴 Needs you: Work queue paused") && digest.contains(&failing), "the digest is posted and names the failure: {said:?}");
     client.batch_execute("ALTER TABLE core.queue_control_away RENAME TO queue_control").await.unwrap();
-    let change = watch::tick(&mut client, &s, "2025-12-12 09:01:00-07").await.unwrap();
+    let change = watch::tick(&mut client, &s, "2025-12-12 09:01:00-06").await.unwrap();
     assert_eq!((change.resolved, change.opened.len(), change.failing.len()), (vec![failing, stalls], 0, 0));
-    let open = watch::open(&client, "2025-12-12 09:01:00-07").await.unwrap();
+    let open = watch::open(&client, "2025-12-12 09:01:00-06").await.unwrap();
     assert_eq!(open.iter().map(|o| o.kind.as_str()).collect::<Vec<_>>(), ["QUEUE_PAUSED"]);
     scratch.drop().await;
 }
@@ -575,14 +576,14 @@ async fn a_problem_opens_while_the_digest_counts() {
     let (scratch, client, b) = ready("digest_counting").await;
     let s = settings(None);
     // a published revision not yet counted: the digest's count reads its measurements
-    published(&client, &b, "2025-12-10", "2025-12-11 20:00-07").await;
+    published(&client, &b, "2025-12-10", "2025-12-11 20:00-06").await;
     let mut holder = scratch.client().await;
     let hold = holder.transaction().await.unwrap();
     hold.batch_execute("LOCK TABLE vyreon.measurement IN ACCESS EXCLUSIVE MODE").await.unwrap();
     let mut watching = scratch.client().await;
     let s2 = s.clone();
     let minute = tokio::spawn(async move {
-        let r = watch::tick(&mut watching, &s2, "2025-12-12 09:30:00-07").await;
+        let r = watch::tick(&mut watching, &s2, "2025-12-12 09:30:00-06").await;
         (watching, r)
     });
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
@@ -598,7 +599,7 @@ async fn a_problem_opens_while_the_digest_counts() {
     r.unwrap();
     let said = posts(&client).await;
     assert_eq!(said.len(), 1, "the digest composed before the problem opened is not queued: {said:?}");
-    watch::tick(&mut watching, &s, "2025-12-12 09:31:00-07").await.unwrap();
+    watch::tick(&mut watching, &s, "2025-12-12 09:31:00-06").await.unwrap();
     let said = posts(&client).await;
     assert_eq!(said.len(), 2, "{said:?}");
     assert!(said[1].starts_with("🔴 Needs you: A republish left 1 days"), "{said:?}");
@@ -649,7 +650,7 @@ async fn claimable_work_with_no_worker_for_a_quarter_hour_is_a_stall() {
     let t0 = watch::now(&client).await.unwrap();
     assert_eq!(check(&mut client, &s, &t0).await, opened(&[]));
     assert_eq!(check_after(&mut client, &s, &t0, 14).await, opened(&[]));
-    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'TAPE'", &[]).await.unwrap().get(0);
+    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE $1, 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'TAPE'", &[&watch::ZONE]).await.unwrap().get(0);
     let stalled = format!("Tape jobs stalled since {since} MT: 3 claimable and none leased, so no `tape` pod is running");
     assert_eq!(check_after(&mut client, &s, &t0, 15).await, opened(&[&stalled]));
     assert_eq!(posts(&client).await, [format!("🔴 {stalled}\nTo see more: `vyreon-core queue`")]);
@@ -692,7 +693,7 @@ async fn a_stall_is_per_kind_and_a_waiting_chain_is_one() {
     work::claim(&mut client, Kind::DayBlock, &b, "day-1", 4.0 * 3600.0).await.unwrap().unwrap();
     let t0 = watch::now(&client).await.unwrap();
     assert_eq!(check(&mut client, &s, &t0).await, opened(&[]));
-    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'TAPE'", &[]).await.unwrap().get(0);
+    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE $1, 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'TAPE'", &[&watch::ZONE]).await.unwrap().get(0);
     let tapes = format!("Tape jobs stalled since {since} MT: 2 claimable and none leased, so no `tape` pod is running");
     assert_eq!(check_after(&mut client, &s, &t0, 15).await, opened(&[&tapes]), "the block's lease hides no tape stall");
     // a tape pod claims: that kind resolves
@@ -720,7 +721,7 @@ async fn a_stall_is_per_kind_and_a_waiting_chain_is_one() {
     let t2 = watch::now(&client).await.unwrap();
     let failed = check(&mut client, &s, &t2).await.opened;
     assert!(failed.len() == 1 && failed[0].starts_with("Ordered pass for 2025-12-08 failed for the last time"), "{failed:?}");
-    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'CHAIN'", &[]).await.unwrap().get(0);
+    let since: String = client.query_one("SELECT to_char(since AT TIME ZONE $1, 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'CHAIN'", &[&watch::ZONE]).await.unwrap().get(0);
     let chain = format!(
         "Work stalled since {since} MT: 1 jobs queued (1 day blocks), none claimable and none leased: they wait for work that is not running (a withdrawn build's? `build hand-over`)"
     );
@@ -812,7 +813,7 @@ async fn a_stall_counts_from_when_the_queue_was_resumed() {
     let resumed = minutes_after(&client, &t0, 20).await;
     client.execute("UPDATE core.queue_control SET changed_at = $1::text::timestamptz", &[&resumed]).await.unwrap();
     assert_eq!(check_after(&mut client, &s, &t0, 30).await, opened(&[]), "10 minutes since the resume, not 30");
-    let since: String = client.query_one("SELECT to_char(changed_at AT TIME ZONE 'America/Edmonton', 'Dy HH24:MI') FROM core.queue_control", &[]).await.unwrap().get(0);
+    let since: String = client.query_one("SELECT to_char(changed_at AT TIME ZONE $1, 'Dy HH24:MI') FROM core.queue_control", &[&watch::ZONE]).await.unwrap().get(0);
     let stalled = format!("Tape jobs stalled since {since} MT: 2 claimable and none leased, so no `tape` pod is running");
     assert_eq!(check_after(&mut client, &s, &t0, 35).await, opened(&[&stalled]));
     // a live lease: resolved, the claimability view not read
@@ -1001,7 +1002,7 @@ async fn the_digest_counts_the_ordered_passes_in_committed_batches_and_survives_
 }
 
 /// The digest's minute of the ordered passes (Friday 2026-11-20 09:30 MT).
-const PASSES_DIGEST: &str = "2026-11-20 09:30:00-07";
+const PASSES_DIGEST: &str = "2026-11-20 09:30:00-06";
 
 /// The revisions of the profile published by `now` with no count, oldest first.
 async fn uncounted(client: &Client, now: &str) -> Vec<i64> {
@@ -1047,11 +1048,11 @@ async fn ordered_passes(test: &str) -> (Scratch, Client, Vec<i64>) {
         .unwrap();
     // Friday 2026-11-20 09:30 MT: the passes published over the last 15 hours, the bases days before
     let now = PASSES_DIGEST;
-    client.execute("UPDATE vyreon.day_revision SET published_at = '2026-11-20 09:00:00-07'", &[]).await.unwrap();
+    client.execute("UPDATE vyreon.day_revision SET published_at = '2026-11-20 09:00:00-06'", &[]).await.unwrap();
     client
         .execute(
             "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, state, published_at, listed_members)
-             SELECT s.session, b.profile_id, b.profile_revision, b.engine_build, b.snapshot_cutoff, 'PUBLISHED', '2026-11-17 20:00:00-07', b.listed_members
+             SELECT s.session, b.profile_id, b.profile_revision, b.engine_build, b.snapshot_cutoff, 'PUBLISHED', '2026-11-17 20:00:00-06', b.listed_members
              FROM core.session s, vyreon.day_revision b
              WHERE b.revision_id = $1 AND s.session BETWEEN '2024-07-09' AND '2026-11-20' AND s.session <> '2025-12-10' ORDER BY s.session",
             &[&base],
@@ -1110,7 +1111,7 @@ async fn the_digests_count_fails_within_its_limits_counts_what_is_left_and_resol
     let now = PASSES_DIGEST;
     let late: i64 = client
         .query_one(
-            "UPDATE vyreon.day_revision SET published_at = '2026-11-19 09:02:00-07'
+            "UPDATE vyreon.day_revision SET published_at = '2026-11-19 09:02:00-06'
              WHERE revision_id = (SELECT min(revision_id) FROM vyreon.day_revision WHERE base_revision IS NOT NULL AND represented_date <> '2025-12-10')
              RETURNING revision_id",
             &[],
