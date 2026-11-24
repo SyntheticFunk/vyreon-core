@@ -1128,6 +1128,14 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   2024-06-11..14 if the build goes deeper). Independent reference vs engine on 5 UNMODIFIED real caches (AAPL 2025-12-10, NVDA
   2024-06-13, SPY 2025-04-11, QQQ 2026-05-06, SPY 2026-11-12), all gates on: 25/25 UPATH roles, 78/78 EVC01 cells agree.
   Waiting: eng-f5a (feed area), then one round-5 audit by both, then hand-over.
+  **eng-f5a merged (UTC−6 07:20; 5f637983 = f8029c81 + f5b + f5a; f5a alone 1,714/0, pytest 231/107):** D-079 conflict
+  decided from the rule texts — EOD witness = the chain's own count (a null is no EOD reference even when D-125 fills it);
+  source admitted as the sensors admit it, bound to asset and session; provider_cut kept; overlay hardening (fractional
+  snapshot volume no count, unreadable in-session volume never a dead listing, merge keeps trade time) — prevalence in
+  941,100 real snapshot rows: 0 / 0 / 0; D-125 fills 1,143 rows (ETHA Oct 2026 only); OVERLAY_RULES D-460; ACT01 reference
+  from provider rows. INDA 2026-08-27 real intervals: complete before (357/357, 357/357) and after (256/256, 357/357).
+  Shared fixture etha-first-chain requoted (old kept as .pre-d460). Combined cargo test running; round-5 audit by both
+  running (`audits/2026-11-24-d460-r5/`, briefed with the owner's stopping rule).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
