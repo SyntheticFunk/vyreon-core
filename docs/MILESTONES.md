@@ -1148,6 +1148,8 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   **Core C-072 Codex: hold deploy** — refusal during an operator pause silenced; unadmitted successor silent; planned-ness
   not tied to the hand-over event; pause overstaying between ticks; masked queue_due error; digest counts; 0054 lock
   timeout → `core-clock2`. Clock arithmetic verified correct.
+  **core-clock2 merged (b56c3db; 194/0):** all 7 fixed; 0054 edited in place (live DB at migration 53, verified). Both
+  reviewers on it (`audits/2026-11-24-core-c072-r2/`); then core build + deploy.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
