@@ -1213,6 +1213,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   on their branches first (commits stay on branches — the audit runner checks out a commit); ONE audit by both of the combined
   release (branch tips, ORDINARY/RARE rule); fix ordinary findings; then merge to main/worker and release once. No more
   merge → audit → fix → re-audit per piece.
+  **Owner refinement: "fix everything the audits find … repeated audits is not helping. Time is not a valid reason to half ass
+  things."** So: ONE audit by both per release; EVERY real finding fixed (ordinary and rare) in that release, verified by tests
+  and real data; no second audit round. "Rare = converged" means rare findings trigger no further audit round — not that they
+  are skipped. The next release therefore also carries today's LATER lists (D-459/D-460 rare items, C-072 display/rare items,
+  reference edge cases), except the three tape-reader items (any reader change orphans every tape cache → full re-capture):
+  those stay after phase 1 unless the owner says otherwise.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
