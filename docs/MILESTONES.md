@@ -979,6 +979,7 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   hour; each kill was a lost lease, re-queued quietly, and nothing alerted (no stall: the jobs kept being leased). Proposed:
   core's watch raises JOB_THRASHING when a job loses its lease ≥3 times (naming the job and, where readable, the pods'
   exit reasons), so an operator learns of a resource limit from the channel, not by looking.
+  **Built (C-073, core-auto, not deployed).**
 - **Tape memory (2026-11-23, measured):** replay capture memory climbs steadily as the file streams (old 3Gi pods at 1.8-3.5
   GB mid-replay and rising): the fetch is streamed, the reduction accumulates the day. Now: 12Gi request (one per node);
   after the 11 quote-era tapes finish, set request = measured peak + 25% with a matching limit (two per node if ≤7Gi).
@@ -1207,27 +1208,37 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   **Owner, 2026-11-24 ~11:10 UTC−6: "if we have to restart phase 1 for any reason or otherwise produce a new image, build
   the automation debt bits into the new release."** Standing rule: the next release (any new image, incl. the deferred
   c9c23ca5 batch) carries the automation debts — release script, re-runnable reference checks, budget-aware KEDA,
-  JOB_THRASHING — so they cost no extra hand-over. Being built now (`core-auto`, C-073); engine side of re-runnable
-  refchecks, if needed, joins the same release.
+  JOB_THRASHING — so they cost no extra hand-over. **Built on branch `core-auto` (C-073), not merged, not deployed;
+  waits for one audit of the whole release by both reviewers.** Core: 880a343, 5d44e9a (code), a4e778b, 5fc70fe (tests),
+  407fe29 (deploy), 9f922e7 (C-073); migration 0055; suite 196 passed. **Engine side needed** (re-runs recompute from
+  raws, which no worker keeps): `vyreon-worker run refcheck`, spec in C-073 ("The worker"), ships in the same release.
+  Release order: `release.sh --core <tag>`, then `release.sh <engine-tag>` within 15 min.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
-  three days on d9462aad. Proposed: core queues a REFCHECK job for a published day with no report after N hours, run
-  by a small worker from the stored body (no download).
+  three days on d9462aad. **Built (C-073, core-auto):** core's watch queues a REFCHECK job 6 h after publishing once the
+  publishing lease ended and no check completed; core serves the stored body as the suite's dump; REFCHECK_NOT_RUN only
+  if the re-run fails too. "No download" did not hold: the suite recomputes from the raws (engine spec in C-073).
 - **Automation debt (2026-11-23): the release sequence is hand-run.** Each new image took the same ~8 manual steps
   (build, push, inventory, register, queue pause, hand-over preview + expect, evidence file + admit, ScaledJobs apply,
   delete the old build's Jobs, resume): done 9 times on 11-22/23. Proposed: one script `deploy/k8s/ops/release.sh
   <engine commit> "<reason>"` that runs them in order, stops on any refusal, and prints the evidence it recorded.
+  **Built (C-073, core-auto):** `deploy/k8s/ops/release.sh [--dry-run] <engine-image-tag> "<reason>"`, `--core <tag>`;
+  rehearsed against stubs only, first real run with this release.
 - **Automation debt (2026-11-23): concurrency caps tuned by hand from the budget** (tapes 24 → 12, blocks 12 → 8,
   ACT01 in-flight 2). Proposed: KEDA's trigger counts claimable work only while core's request budget has headroom
   (e.g. `core.claimable_count` returns 0 for a kind when the last minutes ran at the ceiling), so the system backs
   off by itself instead of an operator lowering caps. **Owner, 2026-11-23: approved ("a good idea"); to build after
-  phase 1's current run, before the two-weeks-unattended test.**
+  phase 1's current run, before the two-weeks-unattended test.** **Built (C-073, core-auto):** draws that wait are
+  recorded; `core.scaler_count` (the triggers') counts no tape, backfill block or re-run within 5 min of a wait.
+- **Automation debt (2026-11-23, tape OOM loop), JOB_THRASHING: built (C-073, core-auto):** 3 leases lost on the
+  session a job is still on, in 24 h → one alert per kind with the job and its last error.
 - **Automation debt (2026-11-23, hand-over 5):** a withdrawn build's running block workers keep computing
   (their leases are gone; they find out only at publish) and KEDA counts their Jobs as running, so the
   successor's blocks wait. Operator deleted the two Jobs by hand. Proposed: the worker checks its lease
   between days (and on each heartbeat) and exits when it is gone; or the hand-over runbook deletes the
   old build's Jobs (`kubectl delete jobs -l scaledjob.keda.sh/name=day-block` for pods of the old image).
+  **Built (C-073):** `release.sh` step 9 deletes every unfinished worker Job of another image.
 - D-412 left by reason: halted-ETP close (the tapes carry no halt messages), zero-volume `9`, S1–S3
   (need cluster data); ETP TWAP/T-WAM fallback tiers not computed (reach the tape only via `M`/`9`);
   Network-B listing taken from the provider's current record.
