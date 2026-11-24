@@ -1302,6 +1302,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   change; republish VS-O04 on the 9 affected days). **Separate question opened:** OI marked faulted for 10-51/64 assets on
   every session 2024-05-20..07-03 (clean from 07-05); only 06-10/11 are known faults (P-27) → true provider incompleteness or
   an over-firing gate? Read-only investigation with Intrinio spot checks running.
+  **Answer: mostly an over-firing gate.** ~700 of ~760 false OI-fault asset-sessions came from Intrinio EOD ghost rows (38 deep-
+  ITM LEAPS calls, 1-4 sessions each, never quoted/traded/in the snapshot) that D-453 treated as established series → P-28;
+  real non-deliveries only 2024-05-20 (added to P-27) and 06-10/11. Coordinator rulings (owner may overrule): a series is
+  established only with a second witness (D-079, as D-454 rule 6); unwitnessed rows are excluded from OI/volume totals.
+  → eng-rel (OVERLAY_RULES bump, fixture requote). Phase-1 effect before the fix: ~28 five-session-change + ~146 path-efficiency
+  asset-days withheld, 22 assets' CAP126 percentiles at the eligibility floor until ~2025-01.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
