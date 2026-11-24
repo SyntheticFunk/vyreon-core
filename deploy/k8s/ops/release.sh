@@ -298,6 +298,9 @@ PY
 # 50-keda.yaml's triggers ask core.scaler_count (migration 0055): a core without it leaves KEDA unable to count
 [[ $(sql "SELECT to_regprocedure('core.scaler_count(text,text,boolean)') IS NOT NULL") == t ]] \
   || fail "core's database has no core.scaler_count (migration 0055): deploy the core image first (release.sh --core <tag>)"
+# C-074 (release-2 audit, Gemini 10): a build registers its republish plans only with a core that keeps them (0057)
+[[ $(sql "SELECT to_regclass('core.build_republish') IS NOT NULL") == t ]] \
+  || fail "core's database has no core.build_republish (migration 0057): deploy the core image first (release.sh --core <tag>)"
 
 step 1 "build identity and inventory from $LOCAL; the old build, the queue, the file's daily build"
 BUILD=$(docker run --rm --entrypoint /opt/vyreon/bin/vyreon-worker "$LOCAL" build-identity /opt/vyreon/bin /opt/vyreon/bin | tail -1)
@@ -313,6 +316,9 @@ assert d.get("engine_build") == sys.argv[2] and d.get("slots"), "no engine_build
 p = d.get("profiles") or {}
 assert sorted(p) == sorted({s["profile_revision"] for s in d["slots"]}) and set(p.values()) <= {"base", "day-local", "history"}, \
     "the inventory does not declare every profile's layer (profiles: base | day-local | history)"
+# C-074: the engine's republish plans (engine D-462), which core keeps at registration
+r = d.get("republish") or {}
+assert isinstance(r.get("seeds"), dict) and r["seeds"], "the inventory declares no republish plans (an engine before D-462)"
 PY
 mv "$INVENTORY.part" "$INVENTORY"
 if ((FROM > 1)); then
