@@ -983,3 +983,32 @@ REPOINT=(-e "s#$LOST-rw#$NEW-rw#g" -e "s#$LOST-app#$NEW-app#g" -e "s#value: $LOS
    change); commit; record in MILESTONES the time of the loss, the recovery's duration, the last WAL
    recovered, and the names (the next loss starts from `LOST=$NEW`). Delete the lost Cluster object
    and its PVC only then, previewed (`kubectl -n vyreon get pvc`), on the owner's word.
+
+### 11. The first scoped recompute: scoped against full, byte for byte (C-074, engine D-462; the coordinator, after the release)
+What it proves on a real day, which no laptop can: the copy-forward keeps every other slot byte for byte, and a
+scoped recompute computes its sensors exactly as a full recompute of the same day does. About 4 node-hours
+(one scoped day of DLM-CHAIN about 2.4 node-hours, one full day 3.8), about $1.
+1. **The day.** A recent session published by the released build, within the prints' five sessions, with a
+   COMPLETED reference check, not the daily run's today (`vyreon-core refcheck list <date>`): call it D. Note its
+   base and day-local revisions: `SELECT revision_id, day_local FROM vyreon.day_revision WHERE represented_date = 'D'
+   AND state = 'PUBLISHED' AND base_revision IS NULL OR (represented_date = 'D' AND state = 'PUBLISHED' AND day_local)`.
+2. **Plan, then the scoped run.** `vyreon-core republish FREE_REPORT_64 <build> DLM-CHAIN D D "D-462 first scoped
+   run: scoped against full" --plan` (read the set: day-local DLM-CHAIN's seven sensors, no base; stages derive and
+   surfaces; inputs without company or ACT01; SCOPED). Then the same without `--plan`. Watch: a `republish` pod
+   starts (`kubectl -n vyreon get pods -l work=republish`), its steps and download progress reach core (`vyreon-core
+   queue`; no NO_PROGRESS), the progress post says "republished (job …, [DLM-CHAIN]: …)", and the job is DONE.
+3. **Check the copy.** `scoped-check.sql` with `scoped_base` the day's base (unchanged: the scope has no base
+   sensor) and `scoped_local` the new day-local revision: part 1 shows the scope and `value_changed` (expected
+   empty: no method changed); part 2 must print **no row**, and its counts equal pairwise.
+4. **The full recompute of the same day.** `vyreon-core schedule day-block FREE_REPORT_64 <build> D D 1`. If core
+   answers its bundles `already_published`, every digest of both layers equals the scoped day's: done, the
+   strongest result. Otherwise note the new revisions and run `scoped-check.sql` again with `full_base`,
+   `full_local`: part 3 lists each recomputed slot whose digest differs, with the body keys that differ. A
+   difference only in provenance (retrieval stamps, input manifest digests of what the provider served again) is
+   expected (the two runs fetched the backbone at different times); a value key differing is a defect: stop and
+   bring it (the scoped day stays published; republish D whole to replace it).
+5. **A base scope, once 3 and 4 pass.** The same with `CDD-FND01` (the company-only path: company capture and
+   daily bars, no intents) and then `M0-GAMMA-CHANGE` (intents and a restricted intent B; its feeds are checked
+   against the published bodies). Part 2 for both layers; for a base scope part 1 also names the new base.
+6. **Afterwards:** the republished day's reference re-run (C-074: scoped to the recomputed measurements) queues
+   6 hours on; it should complete. Record the outcome in MILESTONES and engine D-462 ("Not verified" → verified).
