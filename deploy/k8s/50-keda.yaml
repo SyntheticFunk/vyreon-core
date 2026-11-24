@@ -168,7 +168,7 @@ spec:
               - name: VYREON_WORKER_NAME
                 valueFrom: {fieldRef: {fieldPath: metadata.name}}
             resources:
-              requests: {cpu: "2", memory: 3Gi}
+              requests: {cpu: "2", memory: 12Gi}   # 3Gi → 12Gi 2026-11-23: quote-era tapes (13 GB replay files, 2025-09+) were OOM-killed three to a node
             volumeMounts:
               - {name: work, mountPath: /work}
               - {name: secrets, mountPath: /secrets, readOnly: true}
