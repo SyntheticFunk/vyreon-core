@@ -505,6 +505,8 @@ async fn refcheck_dump(State(app): Shared, headers: HeaderMap, Path(session): Pa
     if !core_contract::is_date(&session) {
         return Err(refused(format!("{session} is not a date written YYYY-MM-DD")));
     }
+    // one dump at a time: the spool holds its store and its tar until the worker has read it
+    let _one = app.dumping.lock().await;
     let n = app.spooled.fetch_add(1, Ordering::SeqCst);
     let path = app.config.spool.join(format!("refcheck-dump-{}-{n}.tar", std::process::id()));
     let mut client = app.db().await?;

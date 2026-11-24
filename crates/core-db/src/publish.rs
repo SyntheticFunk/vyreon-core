@@ -216,18 +216,41 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Option<Item>>, 
                 (false, true) => return refuse(format!("a {} job publishes no copy-forward revision: that is a republish job's (C-074)", lease.kind)),
                 _ => {}
             }
+            // C-074 (release-2 audit, Codex 4, Gemini 2): a republish's bundle sent again after its answer was
+            // lost is answered as published (or staged) when it is that revision's recomputed part, every file
+            // and number of it; a different one goes on to the full checks
+            let compare = compare_only(&tx, &lease).await?;
+            if ((header.republish.is_some() && lease.kind == "REPUBLISH") || compare)
+                && let Some((revision_id, staged)) = republished_before(&tx, &header, &lease).await?
+            {
+                same_as_published(&tx, revision_id, &header, &scalars, items, header.republish.as_ref().map(|r| r.recomputed.as_slice())).await?;
+                return Ok(Published {
+                    revision_id,
+                    represented_date: header.represented_date.clone(),
+                    profile_revision: header.profile_revision.clone(),
+                    slots: header.slots.len() as u64,
+                    streams: 0,
+                    stream_bytes: 0,
+                    reader_scalars: 0,
+                    unusual_scores: 0,
+                    superseded: 0,
+                    already_published: true,
+                    staged,
+                });
+            }
             // a day block's current day stays its next until the worker says it is done, so a
             // bundle of it sent again is answered like one of an earlier day
             if lease.engine_build == header.engine_build
                 && lease.profile_id == header.profile_id
                 && lease.kind != "REPUBLISH"
+                && !compare
                 && (lease.kind == "DAY_BLOCK" || lease.next_session.as_deref() != Some(date))
                 && let Some(revision_id) = published_before(&tx, &header, &lease).await?
             {
                 // C-073 (audit c072 r2, pre-existing): acknowledged only once the bundle is what was
                 // published, every file and number of it; one that differs is refused, never answered
                 // `already_published` while the reader keeps serving the first
-                same_as_published(&tx, revision_id, &header, &scalars, items).await?;
+                same_as_published(&tx, revision_id, &header, &scalars, items, None).await?;
                 return Ok(Published {
                     revision_id,
                     represented_date: header.represented_date.clone(),
@@ -298,16 +321,40 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Option<Item>>, 
         (Some(r), Some(lease)) => Some(republish_checks(&tx, &header, r, lease, &listed).await?),
         _ => None,
     };
-    let base = match copy.as_ref().and_then(|c| c.staged_base) {
-        Some(staged) => Some(staged),
-        None => bind_base(&tx, &header).await?,
+    // C-074 (release-2 audit, Codex 13): a compare-only day block's revisions stay STAGED, its day-local on
+    // the base it staged: what the cluster check compares, never what readers see
+    let compare = match lease.as_ref() {
+        Some(l) => compare_only(&tx, l).await?,
+        None => false,
+    };
+    let base = match (copy.as_ref().and_then(|c| c.staged_base), compare && header.base_profile_revision.is_some()) {
+        (Some(staged), _) => Some(staged),
+        (None, true) => {
+            let lease_id = lease.as_ref().map(|l| l.lease_id);
+            let staged: Option<i64> = tx
+                .query_opt(
+                    "SELECT d.revision_id FROM core.lease_revision lr JOIN vyreon.day_revision d USING (revision_id)
+                     WHERE lr.lease_id = $1 AND d.represented_date = $2::text::date AND d.state = 'STAGED' AND d.base_revision IS NULL
+                       AND d.profile_revision = $3 ORDER BY d.revision_id DESC LIMIT 1",
+                    &[&lease_id, &date, &header.base_profile_revision],
+                )
+                .await
+                .map_err(db)?
+                .map(|r| r.get(0));
+            match (staged, header.base_revision) {
+                (Some(b), None) => Some(b),
+                (Some(b), Some(n)) if n == b => Some(b),
+                _ => return refuse("a compare-only day block's day-local revision stands on the base it staged for the day; send that base first"),
+            }
+        }
+        (None, false) => bind_base(&tx, &header).await?,
     };
     if copy.is_some() && header.base_profile_revision.is_none() {
         // the same base sent again (its answer lost), or one an ended lease left staged (a withdrawal
         // ends leases without `work::requeue`): the earlier staged one gives way
         tx.execute(
             "UPDATE vyreon.day_revision d SET state = 'REJECTED', rejection = 'replaced by a later attempt of a republish'
-             FROM core.lease_revision lr JOIN core.lease l USING (lease_id)
+             FROM core.lease_revision lr JOIN core.lease l USING (lease_id) JOIN core.job j ON j.job_id = l.job_id AND j.kind = 'REPUBLISH'
              WHERE lr.revision_id = d.revision_id AND (lr.lease_id = $1 OR l.ended_at IS NOT NULL) AND d.state = 'STAGED'
                AND d.represented_date = $2::text::date AND d.profile_revision = $3",
             &[&lease.as_ref().map(|l| l.lease_id), &date, &header.profile_revision],
@@ -380,7 +427,23 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Option<Item>>, 
         copy_forward(&tx, revision, date, c.replaces, &c.recomputed).await?;
     }
     let (streams, stream_bytes) = read_back(&tx, revision, date).await?;
+    // (release-2 audit, Codex 17) a copy-forward revision's counts are of the whole revision, as its streams'
+    let (slots_stored, reader_scalars, unusual_scores) = match &copy {
+        None => (header.slots.len() as u64, reader_scalars, unusual_scores),
+        Some(_) => {
+            let r = tx
+                .query_one(
+                    "SELECT (SELECT count(*) FROM vyreon.measurement WHERE revision_id = $1), (SELECT count(*) FROM vyreon.reader_scalar WHERE revision_id = $1),
+                            (SELECT count(*) FROM vyreon.unusual_score WHERE revision_id = $1)",
+                    &[&revision],
+                )
+                .await
+                .map_err(db)?;
+            (r.get::<_, i64>(0) as u64, r.get::<_, i64>(1) as u64, r.get::<_, i64>(2) as u64)
+        }
+    };
     let (superseded, staged) = match &copy {
+        _ if compare => (0, true),
         // C-074: a republish's base waits STAGED for its day-local revision
         Some(_) if header.base_profile_revision.is_none() => (0, true),
         Some(c) => {
@@ -408,7 +471,7 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Option<Item>>, 
         revision_id: revision,
         represented_date: header.represented_date.clone(),
         profile_revision: header.profile_revision.clone(),
-        slots: header.slots.len() as u64,
+        slots: slots_stored,
         streams,
         stream_bytes,
         reader_scalars,
@@ -461,11 +524,52 @@ async fn published_before(tx: &Transaction<'_>, header: &Header, lease: &work::H
     Ok(row.filter(|r| r.get::<_, i64>(1) == n && r.get::<_, i64>(2) == n).map(|r| r.get(0)))
 }
 
+/// C-074 (release-2 audit, Codex 13): whether the lease's job is a compare-only day block (`republish::
+/// schedule_compare`): it computes a day whole for the cluster check and publishes nothing.
+pub(crate) async fn compare_only(tx: &impl GenericClient, lease: &work::Held) -> Result<bool, Error> {
+    if lease.kind != "DAY_BLOCK" {
+        return Ok(false);
+    }
+    Ok(tx
+        .query_one("SELECT COALESCE(scope @> '{\"compare_only\": true}', false) FROM core.job WHERE job_id = $1", &[&lease.job_id])
+        .await
+        .map_err(db)?
+        .get(0))
+}
+
+/// C-074 (release-2 audit, Codex 4, Gemini 2): the revision of the bundle's day and profile revision this
+/// republish lease already wrote (published, or a base still staged), when its recomputed slots are exactly
+/// the bundle's (each slot once, every body digest equal): (revision, whether it is staged).
+async fn republished_before(tx: &Transaction<'_>, header: &Header, lease: &work::Held) -> Result<Option<(i64, bool)>, Error> {
+    let distinct: HashSet<(&str, &str)> = header.slots.iter().map(|s| (s.measurement_id.as_str(), s.object_id.as_str())).collect();
+    if distinct.len() != header.slots.len() {
+        return Ok(None);
+    }
+    let slots: Vec<Value> = header.slots.iter().map(|s| serde_json::json!({"measurement_id": s.measurement_id, "object_id": s.object_id, "body_sha256": s.body_sha256})).collect();
+    let row = tx
+        .query_opt(
+            "SELECT d.revision_id, d.state = 'STAGED',
+                    (SELECT count(*) FROM vyreon.measurement m WHERE m.revision_id = d.revision_id AND m.carried_from_revision IS NULL),
+                    (SELECT count(*) FROM vyreon.measurement m
+                         JOIN jsonb_to_recordset($4::text::jsonb) AS s(measurement_id text, object_id text, body_sha256 text)
+                         USING (measurement_id, object_id, body_sha256)
+                     WHERE m.revision_id = d.revision_id AND m.carried_from_revision IS NULL)
+             FROM core.lease_revision lr JOIN vyreon.day_revision d USING (revision_id)
+             WHERE lr.lease_id = $1 AND d.represented_date = $2::text::date AND d.profile_revision = $3 AND d.state IN ('PUBLISHED', 'STAGED')
+             ORDER BY d.revision_id DESC LIMIT 1",
+            &[&lease.lease_id, &header.represented_date, &header.profile_revision, &Value::Array(slots).to_string()],
+        )
+        .await
+        .map_err(db)?;
+    let n = header.slots.len() as i64;
+    Ok(row.filter(|r| r.get::<_, i64>(2) == n && r.get::<_, i64>(3) == n).map(|r| (r.get(0), r.get(1))))
+}
+
 /// C-073 (audit c072 r2, pre-existing): a bundle sent again is acknowledged as published only when it
 /// is that revision: every slot's files as its header states them (`check_slot`) and its body digests
 /// the stored ones (`published_before`), the bundle ending where its header says, and its reader
 /// scalars and unusual scores exactly the stored ones. Anything else is refused, naming what differs.
-async fn same_as_published(tx: &Transaction<'_>, revision: i64, header: &Header, scalars: &Scalars, items: &mut Receiver<Option<Item>>) -> Result<(), Error> {
+async fn same_as_published(tx: &Transaction<'_>, revision: i64, header: &Header, scalars: &Scalars, items: &mut Receiver<Option<Item>>, only: Option<&[String]>) -> Result<(), Error> {
     // release audit (Codex 12, Gemini 13): every field of each slot is the stored one, not its body alone
     let mut sent = Vec::with_capacity(header.slots.len());
     for slot in &header.slots {
@@ -522,7 +626,11 @@ async fn same_as_published(tx: &Transaction<'_>, revision: i64, header: &Header,
     }
     for (table, column, sent, what) in [("reader_scalar", "value", &scalars.reader_scalar, "reader scalars"), ("unusual_score", "z", &scalars.unusual_score, "unusual scores")] {
         let stored: HashMap<(String, String, String), u64> = tx
-            .query(&format!("SELECT object_id, measurement_id, role_id, {column} FROM vyreon.{table} WHERE revision_id = $1"), &[&revision])
+            // (C-074: a copy-forward revision's resent part is its recomputed measurements')
+            .query(
+                &format!("SELECT object_id, measurement_id, role_id, {column} FROM vyreon.{table} WHERE revision_id = $1 AND ($2::text[] IS NULL OR measurement_id = ANY($2))"),
+                &[&revision, &only.map(|o| o.to_vec())],
+            )
             .await
             .map_err(db)?
             .iter()
@@ -781,12 +889,16 @@ async fn republish_checks(tx: &Transaction<'_>, header: &Header, r: &core_contra
     }
     // a day-local revision of a scope with base sensors stands on the base this lease staged
     let (staged_base, base_unchanged) = if this == "day-local" {
+        // (release-2 audit, Gemini 15) the staged base of the profile the bundle names, which replaced the
+        // base the replaced day-local revision stands on
         let staged: Option<(i64, Option<String>)> = tx
             .query_opt(
                 "SELECT d.revision_id, d.republish_scope::text FROM core.lease_revision lr JOIN vyreon.day_revision d USING (revision_id)
                  WHERE lr.lease_id = $1 AND d.represented_date = $2::text::date AND d.state = 'STAGED' AND d.base_revision IS NULL
+                   AND d.profile_revision = $3
+                   AND (d.republish_scope->>'replaces')::bigint = (SELECT x.base_revision FROM vyreon.day_revision x WHERE x.revision_id = $4)
                  ORDER BY d.revision_id DESC LIMIT 1",
-                &[&lease.lease_id, &date],
+                &[&lease.lease_id, &date, &header.base_profile_revision, &id],
             )
             .await
             .map_err(db)?
@@ -805,9 +917,15 @@ async fn republish_checks(tx: &Transaction<'_>, header: &Header, r: &core_contra
     };
     let scope_json = serde_json::json!({
         "job": r.job, "replaces": id, "families": r.families, "measurements": r.measurements, "recomputed": got,
-        "value_changed": r.value_changed, "reason": r.reason, "carried_cutoff": cutoff, "carried_build": build,
+        "value_changed": r.value_changed, "reason": r.reason,
     });
-    Ok(Copy { replaces: id, recomputed: got, scope: scope_json, staged_base, unchanged: base_unchanged && r.value_changed.is_empty() })
+    // (release-2 audit, Codex 7: a carried slot's build and cutoff are those of the revision it names,
+    // `carried_from_revision`, through any number of republishes; the scope states none of its own)
+    let _ = (cutoff, build);
+    // (release-2 audit, Codex 1) a scope that asks for a history sensor changes the history layer whatever
+    // the worker's layers' values: its day's history and every later day's are derived again
+    let asks_history = !names(&scope["seed_history"]).is_empty();
+    Ok(Copy { replaces: id, recomputed: got, scope: scope_json, staged_base, unchanged: base_unchanged && r.value_changed.is_empty() && !asks_history })
 }
 
 /// C-074: every slot of `replaces` whose measurement is not recomputed, into `revision`, byte for
@@ -996,7 +1114,7 @@ async fn bind_base(tx: &Transaction<'_>, header: &Header) -> Result<Option<i64>,
     let published: Option<i64> = tx
         .query_opt(
             "SELECT revision_id FROM vyreon.day_revision
-             WHERE represented_date = $1::text::date AND profile_revision = $2 AND state = 'PUBLISHED' FOR SHARE",
+             WHERE represented_date = $1::text::date AND profile_revision = $2 AND state = 'PUBLISHED' AND base_revision IS NULL FOR SHARE",
             &[&header.represented_date, base_profile],
         )
         .await
@@ -1594,10 +1712,13 @@ pub async fn retire(client: &mut Client, reason: &str, dates: &[&str], preview: 
                     EXISTS (SELECT FROM core.session s WHERE s.session BETWEEN j.first_session AND j.last_session
                               AND NOT s.session = ANY($1::text[]::date[]))
              FROM core.job j
-             WHERE j.kind IN ('DAY_BLOCK', 'ORDERED_PASS') AND j.state IN ('QUEUED', 'LEASED', 'FAILED')
-               AND EXISTS (SELECT FROM vyreon.day_revision d
-                           WHERE d.represented_date = ANY($1::text[]::date[]) AND d.represented_date BETWEEN j.first_session AND j.last_session
-                             AND d.profile_id = j.profile_id AND d.engine_build = j.engine_build AND d.published_at IS NOT NULL)
+             WHERE j.state IN ('QUEUED', 'LEASED', 'FAILED')
+               AND ((j.kind IN ('DAY_BLOCK', 'ORDERED_PASS')
+                     AND EXISTS (SELECT FROM vyreon.day_revision d
+                                 WHERE d.represented_date = ANY($1::text[]::date[]) AND d.represented_date BETWEEN j.first_session AND j.last_session
+                                   AND d.profile_id = j.profile_id AND d.engine_build = j.engine_build AND d.published_at IS NOT NULL))
+                    -- C-074 (release-2 audit, Gemini 8): a republish of a retired day, whatever build published it
+                    OR (j.kind = 'REPUBLISH' AND j.first_session = ANY($1::text[]::date[])))
              ORDER BY j.job_id",
             &[&dates],
         )

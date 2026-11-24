@@ -35,16 +35,25 @@ CREATE TABLE core.build_republish (
     plans        jsonb NOT NULL CHECK (jsonb_typeof(plans->'seeds') = 'object')
 );
 
+-- C-074 (release-2 audit, Codex 2, Gemini 6): whether a session's EXQ01 option prints are gone: a session
+-- the prints' capture covers (`core.source_coverage` 'option_prints'; before it no day read any) older than
+-- the provider's `p_keep` latest sessions before `p_today`. The planner and the claim of a republish read it.
+CREATE FUNCTION core.prints_perished(p_session date, p_today date, p_keep integer DEFAULT 5) RETURNS boolean LANGUAGE sql STABLE AS $$
+    SELECT p_session >= COALESCE((SELECT first_date FROM core.source_coverage WHERE source = 'option_prints'), 'infinity'::date)
+       AND p_session < COALESCE((SELECT session FROM core.session WHERE session < p_today ORDER BY session DESC OFFSET p_keep - 1 LIMIT 1), '-infinity'::date)
+$$;
+
 -- The ordered pass waits for the republishes of its day and every earlier day, as it waits for the
 -- day blocks: what they publish supersedes what it would read (C-037), so the passes after a range
--- of republishes run once, after them. Otherwise 0040's view.
+-- of republishes run once, after them. A republish that reads the tapes waits for them. Otherwise 0040's view.
 CREATE OR REPLACE VIEW core.claimable_job AS
     SELECT j.*
     FROM core.job j JOIN core.engine_build b USING (engine_build)
     WHERE j.state = 'QUEUED' AND j.next_session IS NOT NULL
       AND b.admitted_at IS NOT NULL AND b.withdrawn_at IS NULL
       AND NOT (SELECT paused FROM core.queue_control)
-      AND (j.kind <> 'DAY_BLOCK' OR NOT EXISTS (
+      -- (C-074, release-2 audit, Codex 9: a republish that reads the tapes waits for them as a day block does)
+      AND ((j.kind <> 'DAY_BLOCK' AND NOT (j.kind = 'REPUBLISH' AND COALESCE(j.scope->'categories' ? 'consolidated', false))) OR NOT EXISTS (
               SELECT FROM core.job t
               WHERE t.kind = 'TAPE' AND t.first_session <= j.last_session AND t.state NOT IN ('DONE', 'CANCELLED')
                 AND NOT COALESCE(t.scope @> '{"verify": true}', false)))

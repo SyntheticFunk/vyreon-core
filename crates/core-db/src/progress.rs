@@ -155,6 +155,8 @@ pub struct HandOver {
     pub moved: [i64; 3],
     /// C-073 (release audit, Codex 8, Gemini 9): the reference-check re-runs moved.
     pub refchecks: i64,
+    /// C-074 (release-2 audit, Gemini 12): the republishes moved.
+    pub republishes: i64,
     /// The old build's tape verify jobs cancelled, not moved.
     pub verify_cancelled: i64,
     /// The running jobs its withdrawal stopped (moved, to run again under the successor).
@@ -169,9 +171,9 @@ impl HandOver {
     /// One line: its builds, what it moved, the running jobs restarted, its reason cut to
     /// `REASON_MAX`, then its window's steps.
     pub fn line(&self) -> String {
-        let HandOver { id, from, to, reason, moved, refchecks, verify_cancelled, restarted, admitted } = self;
+        let HandOver { id, from, to, reason, moved, refchecks, republishes, verify_cancelled, restarted, admitted } = self;
         let (verify_cancelled, restarted) = (*verify_cancelled, *restarted);
-            let parts: Vec<String> = [(moved[0], "tape", "tapes"), (moved[1], "block", "blocks"), (moved[2], "pass", "passes"), (*refchecks, "re-run", "re-runs")]
+            let parts: Vec<String> = [(moved[0], "tape", "tapes"), (moved[1], "block", "blocks"), (moved[2], "pass", "passes"), (*refchecks, "re-run", "re-runs"), (*republishes, "republish", "republishes")]
             .iter()
             .filter(|(n, ..)| *n > 0)
             .map(|(n, one, many)| counted(*n, one, many))
@@ -640,7 +642,8 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
                                    WHERE y.hand_over_id = h.hand_over_id AND y.new_job IS NOT NULL
                                      AND l.outcome = 'CANCELLED' AND l.failure = 'its engine build was withdrawn') END,
                         (SELECT b.admitted_at IS NOT NULL AND (b.withdrawn_at IS NULL OR b.withdrawn_at > h.handed_at)
-                         FROM core.engine_build b WHERE b.engine_build = h.to_build)
+                         FROM core.engine_build b WHERE b.engine_build = h.to_build),
+                        count(*) FILTER (WHERE j.kind = 'REPUBLISH' AND x.new_job IS NOT NULL)
                  FROM core.hand_over h LEFT JOIN core.hand_over_job x USING (hand_over_id) LEFT JOIN core.job j ON j.job_id = x.old_job
                  WHERE ((h.handed_at > $1::text::timestamptz AND h.handed_at <= $2::text::timestamptz) OR h.hand_over_id = ANY($3))
                    AND {fresh}
@@ -663,6 +666,7 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
             moved: [r.get(4), r.get(5), r.get(6)],
             verify_cancelled: r.get(7),
             refchecks: r.get(8),
+            republishes: r.get(11),
             restarted: r.get(9),
             admitted: r.get(10),
         })
@@ -1044,7 +1048,7 @@ mod tests {
     fn a_hand_over_reads_in_one_line() {
         let reason = "D-460 r3 fixes: UPATH bin-0 false zero removed on every new day; strictly better than fc36eefb on wrong numbers";
         let h = |id: i64, from: &str, to: &str, moved: [i64; 3], verify_cancelled: i64, restarted: i64, reason: &str| {
-            HandOver { id, from: from.into(), to: to.into(), reason: reason.into(), moved, refchecks: 0, verify_cancelled, restarted, admitted: true }.line()
+            HandOver { id, from: from.into(), to: to.into(), reason: reason.into(), moved, refchecks: 0, republishes: 0, verify_cancelled, restarted, admitted: true }.line()
         };
         let line = h(26, "fc36eefb+b1c8d00b5d79", "2dde1132+5f8d87f49bfc", [0, 42, 593], 0, 8, reason);
         assert_eq!(
@@ -1059,6 +1063,9 @@ mod tests {
         assert_eq!(h(4, "a", "b", [0, 0, 0], 0, 1, "x"), "Hand-over 4: a → b, nothing moved, 1 running job restarted — x");
         let only = HandOver { id: 6, from: "a".into(), to: "b".into(), reason: "x".into(), refchecks: 2, admitted: true, ..HandOver::default() };
         assert_eq!(only.line(), "Hand-over 6: a → b, 2 re-runs moved — x", "a hand-over of re-runs alone moved something");
+        // C-074 (release-2 audit, Gemini 12): republishes are moved work too
+        let republishes = HandOver { id: 7, from: "a".into(), to: "b".into(), reason: "x".into(), republishes: 3, admitted: true, ..HandOver::default() };
+        assert_eq!(republishes.line(), "Hand-over 7: a → b, 3 republishes moved — x");
         // audit c072, 2: a successor not admitted keeps the hand-over's instruction
         let waiting = HandOver { id: 5, from: "a+1".into(), to: "b+2".into(), reason: "x".into(), moved: [0, 3, 0], admitted: false, ..HandOver::default() };
         assert_eq!(waiting.line(), "Hand-over 5: a → b, 3 blocks moved — x · b not admitted yet");

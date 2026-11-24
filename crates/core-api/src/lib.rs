@@ -53,6 +53,8 @@ pub struct App {
     /// One publish at a time: a day's bundle is large in memory while it is checked (measured
     /// ~0.7 GB here and ~0.6 GB in its database backend), and takes seconds.
     publishing: tokio::sync::Mutex<()>,
+    /// C-074 (release-2 audit, Gemini S1): one dump at a time on the spool (re-runs and republishes)
+    pub(crate) dumping: tokio::sync::Mutex<()>,
     spooled: AtomicU64,
     /// When the watch last completed a tick (the service's start before its first; C-069).
     watched: std::sync::Mutex<Instant>,
@@ -60,7 +62,7 @@ pub struct App {
 
 impl App {
     pub fn new(pool: Pool, config: Config) -> Arc<App> {
-        Arc::new(App { pool, config, publishing: tokio::sync::Mutex::new(()), spooled: AtomicU64::new(0), watched: std::sync::Mutex::new(Instant::now()) })
+        Arc::new(App { pool, config, publishing: tokio::sync::Mutex::new(()), dumping: tokio::sync::Mutex::new(()), spooled: AtomicU64::new(0), watched: std::sync::Mutex::new(Instant::now()) })
     }
 
     /// The watch completed a tick: its checks ran and what failed is recorded (C-069).

@@ -33,6 +33,9 @@ pub struct Work {
     pub stages: BTreeSet<String>,
     /// The input categories the day needs, in the engine's order.
     pub categories: Vec<String>,
+    /// The history sensors the scope itself asks for (release-2 audit, Codex 1): their method changes, so
+    /// the history layer is derived again whatever the worker's values.
+    pub seed_history: BTreeSet<String>,
 }
 
 impl Work {
@@ -48,7 +51,7 @@ impl Work {
         serde_json::json!({
             "families": self.families, "measurements": self.measurements, "reason": reason,
             "recompute": {"base": self.base, "day_local": self.day_local, "history": self.history},
-            "feeds": self.feeds, "stages": self.stages, "categories": self.categories,
+            "feeds": self.feeds, "stages": self.stages, "categories": self.categories, "seed_history": self.seed_history,
         })
     }
 }
@@ -112,6 +115,13 @@ pub fn compose(plans: &Value, families: &[String], measurements: &[String]) -> R
         }
     }
     w.feeds = feeds.difference(&w.base).cloned().collect();
+    // the history sensors asked for: named, or members of a family named
+    for (id, m) in plans["measurements"].as_object().into_iter().flatten() {
+        let asked = measurements.contains(id) || m["family"].as_str().is_some_and(|f| families.iter().any(|x| x == f));
+        if asked && m["layer"] == "history" {
+            w.seed_history.insert(id.clone());
+        }
+    }
     let order: Vec<String> = set_ordered(&plans["categories"]);
     w.categories = order.into_iter().filter(|c| categories.contains(c)).collect();
     Ok(w)
@@ -203,15 +213,27 @@ pub async fn measured(client: &impl GenericClient, plans: &Value, profile: &str)
             overlaid.push("stages");
         }
     }
-    for (k, v) in fill {
-        if let Some(x) = median(v) {
-            m.fill.insert(k, x);
-            overlaid.push("download by category");
+    // (release-2 audit, Gemini 13b) a category's share of its reports' download, applied to a first day's
+    // whole download: reports of a block's later days (shorter, the window shared) never mix with it
+    let totals: Vec<f64> = reports.iter().map(|rep| rep["fill_seconds"].as_object().map_or(0.0, |o| o.values().filter_map(Value::as_f64).sum())).filter(|t| *t > 0.0).collect();
+    if let Some(total) = median(totals) {
+        for (k, v) in fill {
+            if let Some(x) = median(v) {
+                m.fill.insert(k, m.download_first * (x / total).min(1.0));
+                overlaid.push("download by category (as shares)");
+            }
         }
     }
     if !tasks.is_empty() {
-        m.task_minutes = tasks.into_iter().map(|(k, v)| (k, (median(v.iter().map(|x| x.0).collect()).unwrap_or(0.0), median(v.iter().map(|x| x.1).collect()).unwrap_or(0.0)))).collect();
+        // (release-2 audit, Gemini 13c) merged by measurement: one a report omits keeps its reference figure
+        for (k, v) in tasks {
+            m.task_minutes.insert(k, (median(v.iter().map(|x| x.0).collect()).unwrap_or(0.0), median(v.iter().map(|x| x.1).collect()).unwrap_or(0.0)));
+        }
         overlaid.push("intent B task-minutes");
+    }
+    // (release-2 audit, Gemini 13a) the publish as measured
+    if let Some(p) = m.stages.get("publish") {
+        m.publish = *p;
     }
     if !reports.is_empty() && !overlaid.is_empty() {
         overlaid.dedup();
@@ -330,6 +352,8 @@ pub struct Plan {
     pub sessions: Vec<String>,
     /// Sessions of the range with no published day (nothing to republish).
     pub unpublished: Vec<String>,
+    /// Published sessions whose revisions are of profile revisions the build does not publish.
+    pub stale: Vec<String>,
     /// The slots the recompute set holds, base and day-local, and the day's base and day-local slots
     /// (all members listed), from the build's inventory.
     pub slots: (i64, i64),
@@ -346,6 +370,25 @@ pub struct Plan {
 }
 
 impl Plan {
+    /// (release-2 audit, Codex 6, Gemini 5) the published sessions in runs of consecutive sessions of the
+    /// range: what FULL and the ordered passes schedule, an unpublished or omitted session left as it is.
+    pub fn runs(&self) -> Vec<(String, String)> {
+        let mut all: Vec<&String> = self.sessions.iter().chain(&self.unpublished).collect();
+        all.sort();
+        let mut runs: Vec<(String, String)> = Vec::new();
+        let mut open: Option<(String, String)> = None;
+        for s in all {
+            match (self.sessions.contains(s), open.take()) {
+                (true, None) => open = Some((s.clone(), s.clone())),
+                (true, Some((a, _))) => open = Some((a, s.clone())),
+                (false, Some(run)) => runs.push(run),
+                (false, None) => {}
+            }
+        }
+        runs.extend(open);
+        runs
+    }
+
     pub fn scoped_total(&self) -> f64 {
         self.scoped.total() * self.sessions.len() as f64
     }
@@ -369,8 +412,9 @@ pub async fn plan(client: &impl GenericClient, profile: &str, build: &str, names
     let work = compose(&plans, &families, &measurements)?;
     let rows = client
         .query(
-            "SELECT s.session::text, core.day_published(s.session, $1) FROM core.session s WHERE s.session BETWEEN $2::text::date AND $3::text::date ORDER BY 1",
-            &[&profile, &first, &last],
+            "SELECT s.session::text, core.day_published(s.session, $1), core.day_published(s.session, $1, $4), core.prints_perished(s.session, $5::text::date, $6)
+             FROM core.session s WHERE s.session BETWEEN $2::text::date AND $3::text::date ORDER BY 1",
+            &[&profile, &first, &last, &build, &today, &(plans["perishable_sessions"].as_i64().unwrap_or(5) as i32)],
         )
         .await
         .map_err(db)?;
@@ -379,6 +423,12 @@ pub async fn plan(client: &impl GenericClient, profile: &str, build: &str, names
     }
     let sessions: Vec<String> = rows.iter().filter(|r| r.get::<_, bool>(1)).map(|r| r.get(0)).collect();
     let unpublished: Vec<String> = rows.iter().filter(|r| !r.get::<_, bool>(1)).map(|r| r.get(0)).collect();
+    // (release-2 audit, Gemini 3) published, but not in the profile revisions this build publishes: a
+    // copy-forward cannot cross a profile revision; those days are recomputed whole
+    let stale: Vec<String> = rows.iter().filter(|r| r.get::<_, bool>(1) && !r.get::<_, bool>(2)).map(|r| r.get(0)).collect();
+    // (release-2 audit, Gemini 6) the prints' capture covers a session from its first date only: an earlier
+    // day never read prints, so none perished there
+    let perished_days: BTreeSet<String> = rows.iter().filter(|r| r.get::<_, bool>(1) && r.get::<_, bool>(3)).map(|r| r.get(0)).collect();
     let recomputed: Vec<&String> = work.base.iter().chain(&work.day_local).collect();
     let slots = client
         .query_one(
@@ -391,21 +441,25 @@ pub async fn plan(client: &impl GenericClient, profile: &str, build: &str, names
         .map_err(db)?;
     let slots: (i64, i64) = (slots.get(0), slots.get(1));
     let measured = measured(client, &plans, profile).await?;
-    // the perishable inputs (engine D-103, D-360): the provider serves a session's for this many sessions
-    let keep = plans["perishable_sessions"].as_i64().unwrap_or(5);
-    let served_from: Option<String> = client
-        .query_one("SELECT (SELECT session::text FROM core.session WHERE session < $1::text::date ORDER BY session DESC OFFSET $2 LIMIT 1)", &[&today, &(keep - 1)])
-        .await
-        .map_err(db)?
-        .get(0);
-    let perished: Vec<String> = sessions.iter().filter(|s| served_from.as_deref().is_some_and(|f| s.as_str() < f)).cloned().collect();
+    // the perishable inputs (engine D-103, D-360): `core.prints_perished`, as the claim reads it
+    let perished: Vec<String> = sessions.iter().filter(|s| perished_days.contains(*s)).cloned().collect();
     let scoped = scoped_day(&measured, &work, &plans);
     let (full_first, full_next) = (full_day(&measured, true), full_day(&measured, false));
-    let mut p = Plan { work, sessions, unpublished, slots, scoped, full_first, full_next, block: block.max(1), measured, perished, choice: Choice::Full, why: String::new() };
+    let mut p = Plan { work, sessions, unpublished, stale, slots, scoped, full_first, full_next, block: block.max(1), measured, perished, choice: Choice::Full, why: String::new() };
     let (s, f) = (p.scoped_total(), p.full_total());
     let perishable: Vec<String> = set(&plans["perishable"]).into_iter().filter(|c| p.work.categories.contains(c)).collect();
     (p.choice, p.why) = if !p.work.worker() {
         (Choice::Passes, "the recompute set holds history sensors only: the ordered pass derives them again from the store, with no input fetched".into())
+    } else if !p.stale.is_empty() {
+        (
+            Choice::Full,
+            format!(
+                "{} of the sessions are published in profile revisions build {build} does not publish ({}…): a copy-forward cannot cross a profile \
+                 revision, so they are recomputed whole",
+                p.stale.len(),
+                p.stale[0]
+            ),
+        )
     } else if !perishable.is_empty() && !p.perished.is_empty() {
         (
             Choice::Full,
@@ -476,6 +530,9 @@ pub fn describe(p: &Plan) -> Vec<String> {
     if !p.perished.is_empty() {
         out.push(format!("past the perishable inputs' retention: {} of the sessions ({}…)", p.perished.len(), p.perished[0]));
     }
+    if !p.stale.is_empty() {
+        out.push(format!("published in other profile revisions than the build's: {} of the sessions ({}…)", p.stale.len(), p.stale[0]));
+    }
     let parts = |e: &Estimate| e.parts.iter().map(|(k, s)| format!("{k} {:.0} s", s)).collect::<Vec<_>>().join(", ");
     out.push(format!("scoped, per day: {} ({})", hours(p.scoped.total()), parts(&p.scoped)));
     out.push(format!("full, per day: {} first of a block ({}); {} a later day", hours(p.full_first.total()), parts(&p.full_first), hours(p.full_next.total())));
@@ -499,6 +556,10 @@ pub async fn schedule(client: &mut Client, profile: &str, build: &str, work: &Wo
     if reason.trim().is_empty() {
         return Err("a republish states its reason".into());
     }
+    // (release-2 audit, Codex 20) a reason is stored, logged and posted: never a credential
+    if let Some(found) = crate::evidence::unredacted(reason) {
+        return Err(format!("{found}: a republish's reason carries no credential; nothing was scheduled"));
+    }
     if !work.worker() {
         return Err("the scope has no base or day-local member: schedule the ordered pass instead".into());
     }
@@ -507,9 +568,28 @@ pub async fn schedule(client: &mut Client, profile: &str, build: &str, work: &Wo
     }
     let tx = client.transaction().await.map_err(db)?;
     tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.map_err(db)?;
+    // (release-2 audit, Codex 19) a build no worker claims for would strand the job
+    let runs: bool = tx.query_one("SELECT core.build_runs($1)", &[&build]).await.map_err(db)?.get(0);
+    if !runs {
+        return Err(format!("engine build {build} is not admitted, or withdrawn: no worker would claim its republishes; nothing was scheduled"));
+    }
     let scope = work.scope(reason).to_string();
     let mut jobs = Vec::new();
     for s in sessions {
+        // (release-2 audit, Gemini 3; Codex 2) published in this build's profile revisions, and the prints it reads still served
+        let row = tx
+            .query_one(
+                "SELECT core.day_published($1::text::date, $2, $3), core.prints_perished($1::text::date, (now() AT TIME ZONE 'UTC')::date)",
+                &[s, &profile, &build],
+            )
+            .await
+            .map_err(db)?;
+        if !row.get::<_, bool>(0) {
+            return Err(format!("{s} is not published in the profile revisions build {build} publishes: recompute it whole; nothing was scheduled"));
+        }
+        if row.get::<_, bool>(1) && work.categories.iter().any(|c| c == "exq01") {
+            return Err(format!("{s}'s option prints are no longer served and the scope reads them: no faithful recompute; nothing was scheduled"));
+        }
         let clash: Option<(i64, String)> = tx
             .query_opt(
                 "SELECT job_id, kind FROM core.job WHERE kind IN ('DAY_BLOCK', 'REPUBLISH') AND profile_id = $1 AND state IN ('QUEUED', 'LEASED', 'FAILED')
@@ -554,6 +634,43 @@ pub async fn schedule(client: &mut Client, profile: &str, build: &str, work: &Wo
     .await?;
     tx.commit().await.map_err(db)?;
     Ok(Scheduled { jobs, sessions: sessions.to_vec() })
+}
+
+/// C-074 (release-2 audit, Codex 13): a compare-only day block of `day` (the cluster check's full
+/// recompute, `deploy/k8s/README.md` 11): a day block that stages its base and day-local revisions and
+/// publishes neither, so the comparison is judged before anything replaces the day. Refused over an
+/// unfinished day block or republish of the day, or under a build that does not run.
+pub async fn schedule_compare(client: &mut Client, profile: &str, build: &str, day: &str) -> Result<i64, String> {
+    let tx = client.transaction().await.map_err(db)?;
+    tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.map_err(db)?;
+    let runs: bool = tx.query_one("SELECT core.build_runs($1)", &[&build]).await.map_err(db)?.get(0);
+    if !runs {
+        return Err(format!("engine build {build} is not admitted, or withdrawn"));
+    }
+    if let Some(r) = tx
+        .query_opt(
+            "SELECT job_id, kind FROM core.job WHERE kind IN ('DAY_BLOCK', 'REPUBLISH') AND profile_id = $1 AND state IN ('QUEUED', 'LEASED', 'FAILED')
+               AND $2::text::date BETWEEN first_session AND last_session LIMIT 1",
+            &[&profile, &day],
+        )
+        .await
+        .map_err(db)?
+    {
+        return Err(format!("{day} has unfinished {} job {}", r.get::<_, String>(1), r.get::<_, i64>(0)));
+    }
+    let job: i64 = tx
+        .query_one(
+            "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope)
+             SELECT 'DAY_BLOCK', $1, $2, s.session, s.session, s.session, '{\"compare_only\": true}'::jsonb FROM core.session s WHERE s.session = $3::text::date
+             RETURNING job_id",
+            &[&profile, &build, &day],
+        )
+        .await
+        .map_err(|e| format!("{day}: {}", db(e)))?
+        .get(0);
+    crate::notice::log(&tx, &format!("Compare-only day block of {day} queued (job {job}): it stages the day whole and publishes nothing (C-074's cluster check).")).await?;
+    tx.commit().await.map_err(db)?;
+    Ok(job)
 }
 
 #[cfg(test)]

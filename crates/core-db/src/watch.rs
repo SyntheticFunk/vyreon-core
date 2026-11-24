@@ -919,6 +919,8 @@ async fn failed_jobs(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(
             "DAY_BLOCK" if first == last => format!("Day {first}"),
             "DAY_BLOCK" => format!("Days {first} to {last}"),
             "TAPE" => format!("Tape job for {first}"),
+            // C-074 (release-2 audit, Codex 16, Gemini 9): the day keeps the revisions it had
+            "REPUBLISH" => format!("Republish of {first} (its revisions stay as they were)"),
             _ => format!("Ordered pass for {first}"),
         };
         let why = evidence.or(lease).unwrap_or_else(|| "no reason recorded".into());
@@ -1204,7 +1206,7 @@ async fn no_progress(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) 
         .query(
             "WITH live AS (
                  SELECT l.lease_id, l.job_id, l.worker, l.granted_at, j.kind, j.priority, j.next_session, j.first_session, j.last_session,
-                        s.step, s.step_since, s.reason,
+                        s.step, s.step_since, s.reason, s.progress,
                         -- a download step is a wait of its own bound (`DOWNLOAD_STEP_MAX_MINUTES`), the later of it and a declared one
                         -- (engine D-462: a download that reports its progress is judged by it, 20 minutes without a new
                         -- report, so a hung one alerts within them; the implicit bound is only for one that reports none)
@@ -1214,7 +1216,10 @@ async fn no_progress(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) 
                  FROM core.lease l JOIN core.job j USING (job_id) JOIN core.lease_step s USING (lease_id)
                  WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz AND l.granted_at <= $1::text::timestamptz),
              p AS (
-                 SELECT live.*, GREATEST(live.granted_at, live.step_since,
+                 -- (C-074, release-2 audit, Codex 8) a download that reports its progress is judged by its progress
+                 -- alone: request traffic never hides a counter that stopped
+                 SELECT live.*, CASE WHEN live.progress IS NOT NULL AND (lower(ltrim(live.step)) LIKE 'download%' OR lower(ltrim(live.step)) LIKE 'fill%')
+                                     THEN GREATEST(live.granted_at, live.step_since) ELSE GREATEST(live.granted_at, live.step_since,
                      (SELECT max(b.granted_at) FROM core.budget_lease b
                       WHERE b.worker = live.worker AND b.granted_at >= live.granted_at AND b.granted_at <= $1::text::timestamptz
                         AND (b.used IS NULL OR b.used > 0)),
@@ -1237,7 +1242,7 @@ async fn no_progress(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) 
                      (SELECT max(i.stored_at) FROM core.input_capture i
                       WHERE live.kind = 'DAY_BLOCK' AND i.session BETWEEN live.first_session AND live.last_session
                         AND i.stored_at >= live.granted_at AND i.stored_at <= $1::text::timestamptz)
-                 ) AS last FROM live)
+                 ) END AS last FROM live)
              SELECT job_id, CASE WHEN kind = 'DAY_BLOCK' AND priority = 1 THEN 'DAILY_BLOCK' ELSE kind END, COALESCE(next_session, last_session)::text, worker, step,
                     to_char(last AT TIME ZONE $2, 'Dy HH24:MI'), to_char(waiting_until AT TIME ZONE $2, 'Dy HH24:MI'),
                     CASE WHEN implicit AND (lower(ltrim(step)) LIKE 'download%' OR lower(ltrim(step)) LIKE 'fill%')
@@ -1450,7 +1455,7 @@ pub fn consequence(kind: &str) -> (&'static str, Option<&'static str>) {
         "REPORT_AT_RISK" => ("Sunday's report may go out with this week incomplete.", Some("See what is still missing:")),
         "QUEUE_PAUSED" => ("No new days are computed while paused; nothing published changes.", Some("Find the cause; once it is fixed, `vyreon-core queue resume`. Details:")),
         "JOB_FAILED" => (
-            "That day stays unpublished (shown to readers as missing, with its cause); published days are not affected.",
+            "A failed day block or pass leaves its day unpublished (shown to readers as missing, with its cause); a failed republish leaves its day as it was; published days are not affected.",
             Some("After a fix, `vyreon-core queue retry-failed`; why it failed:"),
         ),
         "PROVIDER_AUTH" => ("No new data can be fetched; published numbers are not affected.", Some("Check the Intrinio key and account:")),
