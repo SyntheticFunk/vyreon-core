@@ -101,3 +101,19 @@ ALTER TABLE core.problem ADD CONSTRAINT problem_kind_check
 -- C-073 (release audit, Gemini 6): when `queue retry-failed` last queued a job again; JOB_THRASHING
 -- counts only the leases granted after it (a retried job starts clean).
 ALTER TABLE core.job ADD COLUMN retried_at timestamptz;
+
+-- C-073 (owner, after the release audit's C13): a bundle's layer is what its registered profile is,
+-- never inferred from rows stored before. The engine's inventory declares each profile revision's
+-- layer (`profiles`: base | day-local | history); registered with the build. A build registered before
+-- the declaration has its profiles' layers from what it published (each profile's first revision).
+CREATE TABLE core.build_profile (
+    engine_build     text NOT NULL REFERENCES core.engine_build,
+    profile_revision text NOT NULL,
+    layer            text NOT NULL CHECK (layer IN ('base', 'day-local', 'history')),
+    PRIMARY KEY (engine_build, profile_revision)
+);
+INSERT INTO core.build_profile (engine_build, profile_revision, layer)
+SELECT DISTINCT ON (engine_build, profile_revision) engine_build, profile_revision,
+       CASE WHEN base_revision IS NULL THEN 'base' WHEN day_local THEN 'day-local' ELSE 'history' END
+FROM vyreon.day_revision WHERE state <> 'REJECTED'
+ORDER BY engine_build, profile_revision, revision_id;

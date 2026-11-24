@@ -516,6 +516,28 @@ fn layer(header: &Header) -> &'static str {
 async fn check_layer(tx: &Transaction<'_>, header: &Header, lease: Option<&work::Held>) -> Result<(), Error> {
     let Some(lease) = lease else { return Ok(()) };
     let this = layer(header);
+    // C-073: what the build registered its profile as (the inventory's declaration, or for a build
+    // registered before it, what the profile was first published as): decisive, first day included
+    let registered: Option<String> = tx
+        .query_opt("SELECT layer FROM core.build_profile WHERE engine_build = $1 AND profile_revision = $2", &[&header.engine_build, &header.profile_revision])
+        .await
+        .map_err(db)?
+        .map(|r| r.get(0));
+    if registered.is_none() {
+        // an undeclared profile (an engine before the declaration) is fixed by its first publish
+        tx.execute(
+            "INSERT INTO core.build_profile (engine_build, profile_revision, layer) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING",
+            &[&header.engine_build, &header.profile_revision, &this],
+        )
+        .await
+        .map_err(db)?;
+    }
+    if let Some(registered) = registered.filter(|r| r != this) {
+        return refuse(format!(
+            "profile {} of build {} is registered as its {registered} profile; this bundle is presented as a {this} revision (its base fields and day_local say what it is)",
+            header.profile_revision, header.engine_build
+        ));
+    }
     let before: Option<String> = tx
         .query_opt(
             "SELECT CASE WHEN base_revision IS NULL THEN 'base' WHEN day_local THEN 'day-local' ELSE 'history' END FROM vyreon.day_revision

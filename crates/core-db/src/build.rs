@@ -40,6 +40,31 @@ pub fn build_name(build: &str) -> Result<(), String> {
     }
 }
 
+/// C-073: an inventory's `profiles` (profile revision -> base | day-local | history), checked: every
+/// profile revision of its slots declared, no other, at most one base and one day-local profile. None
+/// when the inventory declares none (an engine before the declaration).
+pub fn declared_profiles(inventory: &Value) -> Result<Option<Vec<(String, String)>>, String> {
+    let Some(map) = inventory.get("profiles") else { return Ok(None) };
+    let map = map.as_object().ok_or("inventory: profiles is an object of profile revision: layer")?;
+    let mut out = Vec::new();
+    for (profile, layer) in map {
+        let layer = layer.as_str().filter(|l| ["base", "day-local", "history"].contains(l)).ok_or_else(|| format!("inventory: profile {profile}'s layer is base, day-local or history"))?;
+        out.push((profile.clone(), layer.to_owned()));
+    }
+    let in_slots: std::collections::BTreeSet<&str> =
+        inventory["slots"].as_array().into_iter().flatten().filter_map(|s| s["profile_revision"].as_str()).collect();
+    let declared: std::collections::BTreeSet<&str> = out.iter().map(|(p, _)| p.as_str()).collect();
+    if in_slots != declared {
+        return Err("inventory: profiles declares exactly the profile revisions of its slots".into());
+    }
+    for layer in ["base", "day-local"] {
+        if out.iter().filter(|(_, l)| l == layer).count() > 1 {
+            return Err(format!("inventory: a build has one {layer} profile"));
+        }
+    }
+    Ok(Some(out))
+}
+
 pub async fn register(client: &mut Client, inventory: &Value) -> Result<Registered, String> {
     let build = inventory["engine_build"].as_str().filter(|b| !b.is_empty()).ok_or("inventory: no engine_build")?.to_owned();
     build_name(&build)?;
@@ -83,6 +108,25 @@ pub async fn register(client: &mut Client, inventory: &Value) -> Result<Register
         )
         .await
         .map_err(db)?;
+    }
+    // C-073: the layer of each profile revision, as the inventory declares it (`profiles`)
+    if let Some(profiles) = declared_profiles(inventory)? {
+        for (profile, layer) in &profiles {
+            let stored: Option<String> = tx
+                .query_opt("SELECT layer FROM core.build_profile WHERE engine_build = $1 AND profile_revision = $2", &[&build, profile])
+                .await
+                .map_err(db)?
+                .map(|r| r.get(0));
+            match stored {
+                Some(l) if &l != layer => return Err(format!("engine build {build}'s profile {profile} is registered as its {l} profile, not {layer}")),
+                Some(_) => {}
+                None => {
+                    tx.execute("INSERT INTO core.build_profile (engine_build, profile_revision, layer) VALUES ($1, $2, $3)", &[&build, profile, layer])
+                        .await
+                        .map_err(db)?;
+                }
+            }
+        }
     }
     let slots: i64 = tx.query_one("SELECT count(*) FROM core.expected_slot WHERE engine_build = $1", &[&build]).await.map_err(db)?.get(0);
     tx.commit().await.map_err(db)?;
