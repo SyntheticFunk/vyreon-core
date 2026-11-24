@@ -1286,6 +1286,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   (Gemini ordinary); reference ledger images break on real reverse splits; Retry-After lost across layers / mislabelled.
   All being fixed on eng-rel (no re-audit). The absence fixes bump method versions → the few days built before the release
   are recomputed (cheap while the DB is small).
+  **core-auto fixes done (210/0):** release.sh hardened (own-pause only, evidence required, --from run file, all ScaledJobs
+  verified, claims per kind, dry-run writes nothing, diff errors stop, tag reuse refused, token file trapped); re-run
+  queueing exact; dump streamed; alert accuracy; resend compares every field. G1.2 kept by design (KEDA starts no backfill
+  work under budget pressure). Last item: the C13 first-day residual, closed by profile layer.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
