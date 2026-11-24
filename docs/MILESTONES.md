@@ -999,6 +999,14 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   byte-identical output on the frozen real slice (replay-slice-2026-11-12) AND a cluster verify sample (≥20 real sessions
   across all eras, D-370) reproducing the stored cache digests exactly; any mismatch voids it → new identity, re-capture all.
   Reasoning: the identity attests which bytes a reader produces; identical bytes keep it true; reversible.
+  **D-459 landed (22:00 MT):** merged 61d5b4f5 (1,686/0; pytest 205): 436 files byte-identical on the real slice; heap
+  growth for 2x input 48 → 5 MiB. Image vyreon-worker:61d5b4f5 built and pushed, NOT handed over. Audits (both,
+  `audits/2026-11-23-d459/triage.md`): byte identity clean; **blocking: Python tape-verdict still whole-day in memory (now
+  the pod's peak), spill error livelock/fail-fast, malformed-archive acceptance must equal the old reader's** → `eng-tape2`.
+  Pre-existing engine findings (UPATH zero count, ACT01 feed guard x3, tape-id, sync prefix, mislabel, identity inputs)
+  → a separate verify-and-fix batch after the tapes run.
+  Noted: core's STALLED alert fired for the intentional tape pause; a paused ScaledJob should read "paused", not "stalled"
+  (small core watch fix, LATER).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
