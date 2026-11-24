@@ -3243,3 +3243,106 @@ not fixed".
   may repeat, and any report whose step, wait, reason or progress differs from the last is progress
   (`step_since`); the same report again only says the worker is alive. Migration 0056
   (`lease_step.progress`). Test: `automation.rs::a_download_step_is_its_own_wait_and_any_new_report_is_progress`.
+
+## C-074 Scoped recompute: a REPUBLISH job, copy-forward revisions core copies, a planner that chooses by measured cost (owner, 2026-11-24: "build scoped recompute now, while the cluster runs; we're gonna need it"; engine D-104, D-462)
+A correction or a method change (MILESTONES' recompute rule: values or a method version change) used
+to mean recomputing whole days. Engine D-104 recomputes only what a change touches: the seed
+families or measurements and their transitive same-day dependants, every other slot of the day
+copied forward byte for byte. This is that mechanism on the cluster.
+- **Job kind REPUBLISH** (0057): one session, its scope the families, measurements and reason it was
+  scheduled with and the recompute set (`recompute.base`, `.day_local`, `.history`, with the feeds,
+  stages and input categories). One unfinished republish per day and profile (index), none over an
+  unfinished day block of the day (`republish::schedule`). Claimed like any job (`vyreon-worker run
+  republish`, engine D-462), heartbeating and reporting its steps and waits (C-073's NO_PROGRESS reads
+  it like any lease), budget-aware: the scaler holds it back while the request budget is pressed, as
+  the backfill (`core.scaler_count`, unchanged); STALLED, JOB_THRASHING and JOB_FAILED read it as any
+  kind; a hand-over carries it with its recompute set composed again from the successor's plans
+  (refused, naming the job, when the successor has none). ScaledJob `republish` (50-keda.yaml): a day
+  block's pod, at most 4 at once in the same pools, whose maxima stay the cost cap (owner's to change);
+  release.sh checks it as the others.
+- **The plans** come from the build's inventory (`republish`, engine D-462: every family's and every
+  measurement's recompute set, feeds, stages and categories from the engine's sensor graph, and its
+  reference timings), kept in `core.build_republish` at `build register`. Core unites a scope's seeds
+  exactly as the engine does (`republish::compose`; the engine pins the union to the united plan); the
+  worker computes its own and refuses a difference. A build registered without plans cannot republish.
+- **Copy-forward, core's side** (`publish`): only a REPUBLISH lease publishes a bundle with `republish`,
+  and it publishes nothing else. The bundle carries the recomputed measurements' slots; core checks it
+  against its job (the same families, measurements and reason; `recomputed` the job's set for the
+  layer), against the day's published revision of the layer it `replaces` (the same profile revision,
+  the same listed members, and holding exactly the build's inventory for every measurement it does not
+  recompute: a measurement a new build added is recomputed, never copied from nothing) and against the
+  versions (a recomputed slot whose science or method version differs from the replaced one must be
+  stated in `value_changed`, engine D-273). It then writes the recomputed slots as any bundle's and
+  copies every other row of the replaced revision in SQL, byte for byte: body text and JSONB, receipt,
+  coordinates, state, versions, event stream, reader scalars and unusual scores, each with
+  `carried_from_revision` (where it was first computed) and the revision's `republish_scope` (job,
+  replaces, scope, recomputed, value_changed, reason, and the carried slots' cutoff and build). The read
+  back then checks the whole revision as any day's.
+- **A day is replaced whole or not at all.** A republish's base revision is written, read back and kept
+  STAGED; its day-local revision (always sent after a new base: the old one read the old base) binds to
+  it, and the two are published in the day-local's transaction. An attempt that ends before that (a
+  failure, a lost lease) rejects its staged base (`work::requeue`; a later attempt also rejects what an
+  ended lease left), so the day keeps the revisions it had. The day is done (`day_done`) only once the
+  lease published the day-local revision; out of attempts, the day keeps its revisions, JOB_FAILED says
+  so and nothing pauses.
+- **Narrowed supersede, cascade by value** (D-104 items 3 and 4). When neither layer changed a value
+  (the engine's `value_changed` empty, its versions checked by core), only the day's day-local revision
+  falls with its base and is replaced in the same transaction: the day's and later days' history
+  revisions stand (they read the same values). When a value changed, what read the day falls and the
+  ordered pass derives it again, as after any republish (C-037). Narrower windows were considered and
+  not built: DLM-UNUSUALNESS reads every reader scalar of 63 sessions and its own scores of 252, so a
+  changed scalar reaches every later day within 63 sessions, and the pass's own publish supersedes
+  every later history revision anyway; the passes read the store and fetch nothing. **The ordered pass
+  waits for the republishes of its day and every earlier day** (0057's view, as it waits for day blocks),
+  so after a range of republishes the passes run once.
+- **The planner** (`vyreon-core republish <profile> <build> <scope> <first> <last> "<reason>" --plan`):
+  the recompute set by layer and its share of the day's base and day-local slots, the feeds, the input
+  categories and stages, the estimated node-time of the range scoped (one job a day: core's dump, the
+  download less the categories not fetched where that was measured, the plan, the stages its work runs,
+  intent B by the computed owners' share of its measured task-minutes, its bundles) and full (day blocks
+  of `--block` days: a block's first day and its later days, whose download shares the window), and the
+  choice. Measured figures: the medians of the latest 20 ordinary base revisions' run reports core
+  keeps (stages, and from D-462 the task-minutes and the download by category), else the inventory's
+  reference (cluster job 1423, 2026-11-21). **The rule is the measurement:** SCOPED when its estimate for
+  the range is below FULL's; ORDERED PASSES when the set holds history sensors only; and two
+  standing cases from priority 1 (no wrong numbers outranks cost): on a day whose EXQ01 prints the
+  provider no longer serves (engine D-103), a scope that does not read them is SCOPED (a full recompute
+  would publish EXQ01, M0-PRINT-SIZE and EXQ01-TEMPORAL withheld where the day holds readings; the scoped
+  one carries them), and a scope that reads them has no faithful recompute: nothing is scheduled without
+  `--full`. Without `--plan` the choice is scheduled (REPUBLISH jobs, day blocks, or ordered passes);
+  `--scoped`/`--full` override it. Unpublished sessions in the range are named and left alone.
+- **What the reference measurements give** (one day, 8 vCPU): a full day 3.8 node-hours as a block's
+  first day, 2.8 as a later day. Scoped: a company sensor (CDD-FND01) 1.3 (its download counted whole
+  but ACT01's until per-category download times are measured); a day-local family (DLM-CHAIN) 2.4 (its
+  surfaces counted at intent A's time, their measured upper bound); M0-GAMMA-CHANGE 3.4; the price
+  family P 3.7. So a day-local or company correction is SCOPED over any range; P (whose closure is
+  nearly the whole day) is SCOPED alone and FULL over two days or more, where the blocks share their
+  download.
+- **Progress** (C-072): a republished day's line reads "Republished …" with its job, scope, reason, how
+  many sensors it recomputed and which values changed; finished jobs say "republishes".
+- **Owner decisions this raises** (not decided here): (1) a republished day's current revisions have no
+  completed reference check, so C-073's watch queues a REFCHECK re-run for each (a whole day's download
+  and suite, about 4 to 6 hours a day); accept, or have the republish worker run the suite itself
+  (it would then need the whole day's inputs); (2) the ScaledJob's 4 at once; (3) a copy-forward
+  revision's `snapshot_cutoff` is its recompute's; the carried slots' own is in `republish_scope`
+  (`carried_cutoff`): the reader API states the revision's.
+- **Deploy:** migration 0057 (the kind in `job`, `job_evidence`, `claim_miss`, `stall_seen`; the scope
+  check and unique index; `core.build_republish`; the pass's claim waiting for republishes) before the
+  engine image carrying `run republish` and the inventory's plans; `build register` of that image
+  keeps its plans; 50-keda.yaml adds ScaledJob `republish`. Builds registered before keep working; they
+  cannot republish.
+- Tests (real slice of 2025-12-10, the engine's real plans `test_support::REPUBLISH_PLANS`):
+  `republish.rs::a_scoped_recompute_is_the_full_days_slots_and_carries_every_other_byte_for_byte` (the
+  plan from the engine's graph; the dump names the day's revisions; refusals: a measurement not
+  recomputed, a set not the job's, another revision replaced, a version changed unsaid; the staged base
+  holds every slot byte for byte with three carried; the day is not done before its day-local revision;
+  both published at once; no value changed: the history revision stands and no pass is queued; a full
+  recompute of the day sending the same bodies is answered `already_published` by the copy-forward
+  revisions), `a_changed_value_cascades_and_a_failed_attempt_leaves_the_day_whole` (a failed attempt's
+  staged base rejected, the day as it was; a value change supersedes the day's history revision; the
+  pass waits for the republish; a history-only scope is ordered passes),
+  `the_planner_chooses_by_the_measured_cost_of_the_range` (five scopes: SCOPED exactly when cheaper; a
+  day-local family runs no intent; a company sensor fetches its capture and the daily bars; P alone and
+  over three days; the prints' retention both ways; core's reports overlaying the reference), and
+  `a_hand_over_carries_a_republish_on_the_successors_plans` (recomposed on the successor's plans; refused
+  with nothing moved when it has none), and `progress.rs`'s republished line. The suite: 217 (211 + 6).
