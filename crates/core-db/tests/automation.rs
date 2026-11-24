@@ -385,14 +385,14 @@ async fn a_worker_making_no_progress_is_one_alert_unless_it_declared_its_wait() 
     let t25 = later(&client, 25).await;
     watch::check(&mut client, &settings, &t25).await.unwrap();
     assert!(open(&client, "NO_PROGRESS").await.is_empty());
-    work::report_step(&mut client, &block.token, "download 2025-12-10", None, None).await.unwrap();
+    work::report_step(&mut client, &block.token, "day 2025-12-10: plan and surfaces", None, None).await.unwrap();
     let t10 = later(&client, 10).await;
     watch::check(&mut client, &settings, &t10).await.unwrap();
     assert!(open(&client, "NO_PROGRESS").await.is_empty(), "within its minutes");
     let t25 = later(&client, 25).await;
     let change = watch::check(&mut client, &settings, &t25).await.unwrap();
     assert_eq!(change.opened.len(), 1, "{change:?}");
-    assert!(change.opened[0].starts_with(&format!("Day block job {} (2025-12-10) on day-1: no progress since ", block.job_id)) && change.opened[0].ends_with("MT, at step \"download 2025-12-10\""), "{change:?}");
+    assert!(change.opened[0].starts_with(&format!("Day block job {} (2025-12-10) on day-1: no progress since ", block.job_id)) && change.opened[0].ends_with("MT, at step \"day 2025-12-10: plan and surfaces\""), "{change:?}");
     assert!(watch::check(&mut client, &settings, &t25).await.unwrap().opened.is_empty(), "alerted once");
     // a deliberate wait declared: covered (resolved), until its end plus the grace
     let until = later(&client, 60).await;
@@ -422,3 +422,59 @@ async fn a_worker_making_no_progress_is_one_alert_unless_it_declared_its_wait() 
     assert!(matches!(work::report_step(&mut client, &block.token, "x api_key=OmRlYWRiZWVm", None, None).await, Err(LeaseError::Refused(_))));
     scratch.drop().await;
 }
+
+/// C-073 hotfix (live, 2026-11-24: seven blocks and a re-run alerted "no progress" in their bulk option
+/// download, which makes no request core counts): a download step is a wait of its own, alerted only
+/// past `DOWNLOAD_STEP_MAX_MINUTES` and the grace; a report whose progress changed is progress, the same
+/// report again is not.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_download_step_is_its_own_wait_and_any_new_report_is_progress() {
+    let (scratch, mut client, build) = ready("auto_download").await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &build, DAY, DAY, 30).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &build, "day-1", 48.0 * HOUR).await.unwrap().unwrap();
+    let settings = Settings {
+        profile: PROFILE.into(),
+        deadlines_from: None,
+        volume_bytes: None,
+        deadline_hour: watch::DEADLINE_HOUR,
+        daily: None,
+        archive: None,
+        refcheck_from: None,
+        backup_days: None,
+        refcheck_rerun_hours: None,
+    };
+    async fn at(client: &Client, minutes: f64) -> String {
+        client.query_one("SELECT (now() + make_interval(secs => $1::float8 * 60))::text", &[&minutes]).await.unwrap().get(0)
+    }
+    // the worker's own step names (engine 1ae946f7): the download, mirrored with its fill's step
+    work::report_step(&mut client, &block.token, "download 2025-12-10: fill 2025-12-10: options", None, None).await.unwrap();
+    let bound = watch::DOWNLOAD_STEP_MAX_MINUTES + watch::WAIT_GRACE_MINUTES;
+    for minutes in [25.0, 180.0, bound - 1.0] {
+        let t = at(&client, minutes).await;
+        watch::check(&mut client, &settings, &t).await.unwrap();
+        assert!(open(&client, "NO_PROGRESS").await.is_empty(), "within the download's bound at {minutes} min");
+    }
+    let t = at(&client, bound + 1.0).await;
+    let change = watch::check(&mut client, &settings, &t).await.unwrap();
+    assert_eq!(change.opened.len(), 1, "{change:?}");
+    assert!(change.opened[0].contains(&format!("its declared wait (a download step is allowed {} min) was to end", watch::DOWNLOAD_STEP_MAX_MINUTES as i64)), "{change:?}");
+    // the same step reporting how far it is: progress
+    work::report_step_with(&mut client, &block.token, "download 2025-12-10: fill 2025-12-10: options", None, None, Some("chains 41 of 64")).await.unwrap();
+    let since: String = client.query_one("SELECT step_since::text FROM core.lease_step", &[]).await.unwrap().get(0);
+    work::report_step_with(&mut client, &block.token, "download 2025-12-10: fill 2025-12-10: options", None, None, Some("chains 41 of 64")).await.unwrap();
+    let again: String = client.query_one("SELECT step_since::text FROM core.lease_step", &[]).await.unwrap().get(0);
+    assert_eq!(since, again, "the same report again is no progress");
+    work::report_step_with(&mut client, &block.token, "download 2025-12-10: fill 2025-12-10: options", None, None, Some("chains 42 of 64")).await.unwrap();
+    let moved: String = client.query_one("SELECT step_since::text FROM core.lease_step", &[]).await.unwrap().get(0);
+    assert_ne!(since, moved, "a changed progress is progress");
+    // a step that is no download keeps the 20 minutes
+    work::report_step(&mut client, &block.token, "day 2025-12-10: plan and surfaces", None, None).await.unwrap();
+    let t = at(&client, 25.0).await;
+    watch::check(&mut client, &settings, &t).await.unwrap();
+    assert_eq!(open(&client, "NO_PROGRESS").await.len(), 1);
+    assert!(watch::is_download_step("fill 2025-12-10: carry") && watch::is_download_step("download 2025-12-11") && !watch::is_download_step("day 2025-12-10: plan"));
+    assert!(matches!(work::report_step_with(&mut client, &block.token, "x", None, None, Some("api_key=OmRlYWRiZWVm")).await, Err(LeaseError::Refused(_))));
+    scratch.drop().await;
+}
+
