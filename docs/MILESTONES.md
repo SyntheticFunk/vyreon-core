@@ -1014,6 +1014,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   (`audits/2026-11-24-d459-r2/`). Then: hand-over to 009feb78 (carries D-458 amendment), tape request 3Gi/6Gi, unpause,
   verify sample ≥20 sessions (`vyreon-core tape verify`), watch 2026-11-12/-20 memory.peak.
   Disk: `/home/diggz/wt/target-worker` (image build dir, reused by deploy/worker/build.sh) is 90 GB.
+  **Re-audit r2 (00:40 MT, `audits/2026-11-24-d459-r2/triage.md`):** valid-input bytes, verdicts and memory clean; a
+  reader panic on a damaged archive (both), a spill failure mislabelled as provider refusal, spill name after a crash, an
+  invalid kind dropped by the Python verdict, an fd leak → small batch `eng-tape3`. Image 009feb78 built, not handed over
+  (the batch changes the reader digest again).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
