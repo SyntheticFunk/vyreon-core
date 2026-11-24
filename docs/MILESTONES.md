@@ -1187,6 +1187,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   2025-12-10..15); worker image ships OVERLAY_RULES; reference strikes/duplicates/renamed roots/ambiguous archive. Narrow
   audits by both running (`audits/2026-11-24-d460-r6/`). **Hand-over timing:** must precede the block covering
   2025-12-05..12-26 (BABA's adjusted cohort days); planned right after the first July recompute days publish (least lost).
+  eng-f6 audits: Codex and Gemini both find no blocker on ordinary phase-1 data (EXQ01 keeps BABA/BABA1/BABA2 distinct;
+  ETHA1 prints = EOD volume); reference items rare, one ordinary only for phase-2 META-under-FB dates (2022) → LATER with
+  the deeper build. **D-460 closed.** Image c9c23ca5 built; hand-over when the first 5f637983 days publish (days published by
+  5f637983 stay valid: c9c23ca5 changes no published value outside adjusted cohorts).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
