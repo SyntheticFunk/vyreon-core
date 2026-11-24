@@ -8,9 +8,11 @@
 //!     engine fault: the engine's own convention, `watch::COUNTED`), its reference check when it
 //!     has come, the minutes the day took in its block, the block and its worker;
 //!   * the reference checks that came in for days published earlier;
-//!   * each day block started (a lease granted), with its worker;
+//!   * the day blocks started (leases granted), in one line of their dates (C-072);
 //!   * every line core logged (`notice::log`): blocks done, days set aside with their cause, dates
-//!     omitted, builds admitted or withdrawn, retirements, the queue paused or resumed;
+//!     omitted, builds admitted or withdrawn, retirements, the queue paused or resumed; a hand-over
+//!     is one line, with its withdrawal, its successor's admission and the operator's pause and
+//!     resume of its window folded into it (C-072);
 //!   * the queue's counts by kind: done in the window, done in all, running, waiting, failed.
 //!
 //! A window in which nothing happened posts nothing. A window's posts are queued with the window,
@@ -101,6 +103,111 @@ pub fn day_line(words: &str, t: watch::Tally, refcheck: Option<&Value>, minutes:
         format!(" · block {span} on {worker} (job {job})")
     });
     format!("Published {words}: {} slots, {} with a value, {withheld} · {check}{minutes}{block}", thousands(t.slots), thousands(with_value))
+}
+
+/// A hand-over's reason is cut to this many characters in its line (C-072).
+pub const REASON_MAX: usize = 80;
+/// The started blocks' line names at most this many blocks; the rest are counted.
+pub const STARTED_MAX: usize = 24;
+
+/// A build as a hand-over's line names it: its engine commit (before the `+` of its inventory), or
+/// the whole name when the two builds share it.
+fn build_words(build: &str, other: &str) -> String {
+    let commit = |b: &str| b.split('+').next().unwrap_or(b).to_owned();
+    if commit(build) == commit(other) { build.to_owned() } else { commit(build) }
+}
+
+fn counted(n: i64, one: &str, many: &str) -> String {
+    format!("{} {}", thousands(n), if n == 1 { one } else { many })
+}
+
+/// A hand-over as the progress channel says it (C-072).
+#[derive(Debug, Clone, Default)]
+pub struct HandOver {
+    pub id: i64,
+    pub from: String,
+    pub to: String,
+    pub reason: String,
+    /// Tapes, day blocks and ordered passes moved to the successor.
+    pub moved: [i64; 3],
+    /// The old build's tape verify jobs cancelled, not moved.
+    pub verify_cancelled: i64,
+    /// The running jobs its withdrawal stopped (moved, to run again under the successor).
+    pub restarted: i64,
+    /// The steps of its window folded into its line ("queue paused 03:28").
+    pub folded: Vec<String>,
+}
+
+impl HandOver {
+    /// One line: its builds, what it moved, the running jobs restarted, its reason cut to
+    /// `REASON_MAX`, then its window's steps.
+    pub fn line(&self) -> String {
+        let HandOver { id, from, to, reason, moved, verify_cancelled, restarted, folded } = self;
+        let (verify_cancelled, restarted) = (*verify_cancelled, *restarted);
+            let parts: Vec<String> = [(moved[0], "tape", "tapes"), (moved[1], "block", "blocks"), (moved[2], "pass", "passes")]
+            .iter()
+            .filter(|(n, ..)| *n > 0)
+            .map(|(n, one, many)| counted(*n, one, many))
+            .collect();
+        let mut line = format!(
+            "Hand-over {id}: {} → {}, {}",
+            build_words(from, to),
+            build_words(to, from),
+            if parts.is_empty() { "nothing moved".to_string() } else { format!("{} moved", parts.join(" + ")) }
+        );
+        if restarted > 0 {
+            line.push_str(&format!(", {} restarted", counted(restarted, "running job", "running jobs")));
+        }
+        if verify_cancelled > 0 {
+            line.push_str(&format!(", {} cancelled", counted(verify_cancelled, "tape verify job", "tape verify jobs")));
+        }
+        line.push_str(&format!(" — {}", one_line(reason, REASON_MAX)));
+        if !folded.is_empty() {
+            line.push_str(&format!(" · {}", folded.join(" · ")));
+        }
+        line
+    }
+}
+
+/// "07-09" when the year is the line's, else the whole date.
+fn day_words(date: &str, year: Option<&str>) -> String {
+    match year {
+        Some(y) if date.starts_with(y) && date.len() == 10 => date[5..].to_owned(),
+        _ => date.to_owned(),
+    }
+}
+
+/// One started block: (first session, last session, its attempt, the session it resumed from).
+pub type Started = (String, String, i64, Option<String>);
+
+/// The day blocks started in a window, in one line (C-072): "Started 8 blocks (2024): 07-09–07-12,
+/// 07-15, …", a block resumed or retried saying so (a retry is worth a look); at most
+/// `STARTED_MAX` named, the rest counted.
+pub fn started_line(blocks: &[Started]) -> String {
+    let years: Vec<&str> = blocks.iter().flat_map(|(f, l, ..)| [f.get(..4).unwrap_or(""), l.get(..4).unwrap_or("")]).collect();
+    let year = years.first().filter(|y| years.iter().all(|x| x == *y)).copied();
+    let spans: Vec<String> = blocks
+        .iter()
+        .take(STARTED_MAX)
+        .map(|(first, last, attempt, from)| {
+            let mut span = if first == last { day_words(first, year) } else { format!("{}–{}", day_words(first, year), day_words(last, year)) };
+            let mut notes = Vec::new();
+            if let Some(f) = from.as_deref().filter(|f| f != first) {
+                notes.push(format!("from {}", day_words(f, year)));
+            }
+            if *attempt > 1 {
+                notes.push(format!("attempt {attempt}"));
+            }
+            if !notes.is_empty() {
+                span.push_str(&format!(" ({})", notes.join(", ")));
+            }
+            span
+        })
+        .collect();
+    let more = blocks.len().saturating_sub(STARTED_MAX);
+    let more = if more > 0 { format!(", … and {more} more") } else { String::new() };
+    let year = year.map_or(String::new(), |y| format!(" ({y})"));
+    format!("Started {}{year}: {}{more}", counted(blocks.len() as i64, "block", "blocks"), spans.join(", "))
 }
 
 /// A logged line as a post holds it: one line (its own line breaks as " / "), cut to `LINE_MAX`,
@@ -249,7 +356,7 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
 
     shown.extend(stated.iter().map(|id| ("refcheck", *id)));
 
-    // day blocks started: a lease granted, with its worker
+    // day blocks started: leases granted, in one line (C-072)
     let started = c
         .query(
             &format!(
@@ -265,16 +372,54 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
         )
         .await
         .map_err(db)?;
-    for r in &started {
-        let (first, last, worker, job, from, attempt): (String, String, String, i64, Option<String>, i64) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5));
-        let span = if first == last { first.clone() } else { format!("{first} to {last}") };
-        let from = from.filter(|f| *f != first).map_or(String::new(), |f| format!(", from {f}"));
-        lines.push(format!("Started block {span} on {worker} (job {job}, attempt {attempt}{from})"));
-        shown.push(("lease", r.get(6)));
+    if !started.is_empty() {
+        let blocks: Vec<Started> = started.iter().map(|r| (r.get(0), r.get(1), r.get(5), r.get(4))).collect();
+        lines.push(started_line(&blocks));
+        shown.extend(started.iter().map(|r| ("lease", r.get::<_, i64>(6))));
         happened = true;
     }
 
-    // everything core logged in the window, as it logged it
+    // the hand-overs of the window (C-072), each in one line: what it moved, the running jobs its
+    // withdrawal stopped (carried to the successor, to run again)
+    let hand_overs = c
+        .query(
+            &format!(
+                "SELECT h.hand_over_id, h.from_build, h.to_build, h.reason,
+                        count(*) FILTER (WHERE j.kind = 'TAPE' AND x.new_job IS NOT NULL),
+                        count(*) FILTER (WHERE j.kind = 'DAY_BLOCK' AND x.new_job IS NOT NULL),
+                        count(*) FILTER (WHERE j.kind = 'ORDERED_PASS' AND x.new_job IS NOT NULL),
+                        count(*) FILTER (WHERE x.old_job IS NOT NULL AND x.new_job IS NULL),
+                        (SELECT count(DISTINCT l.job_id) FROM core.hand_over_job y JOIN core.lease l ON l.job_id = y.old_job
+                         WHERE y.hand_over_id = h.hand_over_id AND l.outcome = 'CANCELLED' AND l.failure = 'its engine build was withdrawn')
+                 FROM core.hand_over h LEFT JOIN core.hand_over_job x USING (hand_over_id) LEFT JOIN core.job j ON j.job_id = x.old_job
+                 WHERE h.handed_at > $1::text::timestamptz AND h.handed_at <= $2::text::timestamptz AND {fresh}
+                 GROUP BY h.hand_over_id ORDER BY h.handed_at, h.hand_over_id",
+                fresh = not_shown("hand_over", "h.hand_over_id")
+            ),
+            &[&from, &end],
+        )
+        .await
+        .map_err(db)?;
+    let mut hand_overs: Vec<HandOver> = hand_overs
+        .iter()
+        .map(|r| HandOver {
+            id: r.get(0),
+            from: r.get(1),
+            to: r.get(2),
+            reason: r.get(3),
+            moved: [r.get(4), r.get(5), r.get(6)],
+            verify_cancelled: r.get(7),
+            restarted: r.get(8),
+            folded: Vec::new(),
+        })
+        .collect();
+    // the time of each one's own notice, where its line goes
+    let mut placed: Vec<Option<String>> = vec![None; hand_overs.len()];
+    shown.extend(hand_overs.iter().map(|h| ("hand_over", h.id)));
+
+    // everything core logged in the window, as it logged it, but what belongs to a hand-over of the
+    // window: its withdrawal, its own notice, its successor's admission, and (the operator's steps
+    // around it) the operator's pause, the resume and the planned steps' lines, folded into its line
     let logged = c
         .query(
             &format!(
@@ -286,10 +431,50 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
         )
         .await
         .map_err(db)?;
+    // where each hand-over's line goes among the logged lines (at its own notice), and the lines
+    let mut logged_lines: Vec<(Option<usize>, String)> = Vec::new();
     for r in &logged {
         let (at, message): (String, String) = (r.get(0), r.get(1));
-        lines.push(format!("{at} {}", flat(&message)));
         shown.push(("notice", r.get(2)));
+        happened = true;
+        let own = hand_overs.iter().position(|h| message.starts_with(&format!("Hand-over {}: ", h.id)));
+        let withdrawn = hand_overs.iter().position(|h| message.starts_with(&format!("Engine build {} withdrawn: ", h.from)));
+        let admitted = hand_overs.iter().position(|h| message.starts_with(&format!("Engine build {} admitted: ", h.to)));
+        // the operator's steps go with the window's last hand-over
+        let last = hand_overs.len().checked_sub(1);
+        let step = |what: &str| format!("{what} {at}");
+        if let Some(i) = own {
+            placed[i] = Some(at.clone());
+            logged_lines.push((Some(i), String::new()));
+        } else if withdrawn.is_some() {
+            // its withdrawal's stopped jobs are the line's "restarted"
+        } else if let Some(i) = admitted {
+            let to = build_words(&hand_overs[i].to, &hand_overs[i].from);
+            hand_overs[i].folded.push(step(&format!("{to} admitted")));
+        } else if let Some(i) = last.filter(|_| message.starts_with("Queue paused by the operator: ")) {
+            hand_overs[i].folded.push(step("queue paused"));
+        } else if let Some(i) = last.filter(|_| message == "Queue resumed.") {
+            hand_overs[i].folded.push(step("queue resumed"));
+        } else if last.is_some() && message.starts_with(watch::PLANNED) {
+            // the planned steps of a hand-over: said by its line
+        } else {
+            logged_lines.push((None, format!("{at} {}", flat(&message))));
+        }
+    }
+    // a hand-over whose own notice was stated before (or not at all) still has its line
+    for (i, at) in placed.iter().enumerate() {
+        if at.is_none() {
+            logged_lines.push((Some(i), String::new()));
+        }
+    }
+    for (i, line) in logged_lines {
+        lines.push(match i {
+            None => line,
+            Some(i) => {
+                let line = hand_overs[i].line();
+                placed[i].as_ref().map_or(line.clone(), |at| format!("{at} {line}"))
+            }
+        });
         happened = true;
     }
 
@@ -506,6 +691,46 @@ mod tests {
             "reference check DISAGREES: 12 unexplained failures of 91,066; 9 reference errors not judged"
         );
         assert_eq!(refcheck_words(&json!({"outcome": "COMPLETED", "checked": 91066, "failed": 0, "reference_errors": 0})), "reference check agrees (91,066 comparisons)");
+    }
+
+    /// C-072: hand-over 26 of 2026-11-24 as one line (its builds, what moved, the running jobs its
+    /// withdrawal stopped, its reason cut, its window's steps folded); the counts are hand-over 26's
+    /// shape (blocks and passes), its reason the operator's words that night, cut.
+    #[test]
+    fn a_hand_over_reads_in_one_line() {
+        let reason = "D-460 r3 fixes: UPATH bin-0 false zero removed on every new day; strictly better than fc36eefb on wrong numbers";
+        let folded = ["queue paused 04:28".to_string(), "2dde1132 admitted 04:39".to_string(), "queue resumed 04:41".to_string()];
+        let h = |id: i64, from: &str, to: &str, moved: [i64; 3], verify_cancelled: i64, restarted: i64, reason: &str, folded: &[String]| {
+            HandOver { id, from: from.into(), to: to.into(), reason: reason.into(), moved, verify_cancelled, restarted, folded: folded.to_vec() }.line()
+        };
+        let line = h(26, "fc36eefb+b1c8d00b5d79", "2dde1132+5f8d87f49bfc", [0, 42, 593], 0, 8, reason, &folded);
+        assert_eq!(
+            line,
+            "Hand-over 26: fc36eefb → 2dde1132, 42 blocks + 593 passes moved, 8 running jobs restarted — D-460 r3 fixes: UPATH bin-0 false zero removed on every new day; strictly bette… · queue paused 04:28 · 2dde1132 admitted 04:39 · queue resumed 04:41"
+        );
+        // two images of one engine commit are named whole; one of each, nothing restarted
+        assert_eq!(
+            h(3, "2dde1132+aaa", "2dde1132+bbb", [1, 1, 1], 2, 0, "image rebuilt", &[]),
+            "Hand-over 3: 2dde1132+aaa → 2dde1132+bbb, 1 tape + 1 block + 1 pass moved, 2 tape verify jobs cancelled — image rebuilt"
+        );
+        assert_eq!(h(4, "a", "b", [0, 0, 0], 0, 1, "x", &[]), "Hand-over 4: a → b, nothing moved, 1 running job restarted — x");
+    }
+
+    /// C-072: the blocks started in a window, in one line; a resumed or retried block says so.
+    #[test]
+    fn the_blocks_started_read_in_one_line() {
+        let b = |f: &str, l: &str, a: i64, from: Option<&str>| (f.to_string(), l.to_string(), a, from.map(str::to_string));
+        let july = [
+            b("2024-07-09", "2024-07-12", 1, None),
+            b("2024-07-15", "2024-07-15", 1, None),
+            b("2024-07-16", "2024-07-19", 2, Some("2024-07-17")),
+            b("2024-07-22", "2024-07-22", 1, None),
+        ];
+        assert_eq!(started_line(&july), "Started 4 blocks (2024): 07-09–07-12, 07-15, 07-16–07-19 (from 07-17, attempt 2), 07-22");
+        assert_eq!(started_line(&[b("2024-12-30", "2025-01-03", 1, None)]), "Started 1 block: 2024-12-30–2025-01-03");
+        let many: Vec<Started> = (1..=30).map(|d| b(&format!("2024-08-{d:02}"), &format!("2024-08-{d:02}"), 1, None)).collect();
+        let line = started_line(&many);
+        assert!(line.starts_with("Started 30 blocks (2024): 08-01, 08-02,") && line.ends_with("08-24, … and 6 more"), "{line}");
     }
 
     /// Posts stay under Discord's limit, continue under the header, stop at `MAX_POSTS`, and count
