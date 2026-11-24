@@ -1163,6 +1163,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   production), worker image ships OVERLAY_RULES for the reference, reference strike rounding / pagination coalesce / renamed
   roots. core-clock3 merged (9a0ed8f, 194/0, migration 0055): refusal alerted in its own transaction; narrow Codex check
   running; core image building; deploy after.
+  **Core C-072 decision (UTC−6 ~09:30):** the quiet planned-step mechanism (part 2) failed three audit rounds (each found a
+  new way to silence or duplicate a real alert) → RETIRED (prefer retiring a rule): every pause/stop alerts as before; keep
+  the UTC−6 clock (part 1) and the terse digest (part 3). Hand-over alert noise goes away via the release-script automation
+  (pause → hand-over → admit → resume in one command), not quiet alerts. `core-clock4` doing it; 0054 rewritten, 0055
+  dropped (never deployed; live DB at 53). Then core deploy.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
