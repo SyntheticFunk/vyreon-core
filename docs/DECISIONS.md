@@ -2777,7 +2777,7 @@ duration at phase-1 size was not measured.
   connection terminated while its third batch waits, two batches kept, the rest counted once by the
   09:30 tick, each history revision 3 slots, 1 withheld for an engine fault).
 
-## C-072 The owner's clock is fixed UTC−6; planned operator steps are progress; progress is terse (2026-11-24; owner's Discord)
+## C-072 The owner's clock is fixed UTC−6; progress is terse (2026-11-24; owner's Discord; part 2, planned steps, retired the same day: see its last item)
 What the owner reads in Discord must answer "go look or running ok" at a glance (C-050, C-065).
 Three things broke that during the hand-overs of 2026-11-23/24.
 - **One owner zone, fixed UTC−6.** The owner's clock is UTC−6 all year (corrected 2026-11-11).
@@ -2898,3 +2898,30 @@ Three things broke that during the hand-overs of 2026-11-23/24.
   pause resumed within its grace and checked after it is quiet, one resumed past it is alerted),
   `work.rs::a_hand_over_is_progress_unless_it_overstays` (a pause reason other than the hand-over's
   is printed).
+- **Part 2 retired (2026-11-24, before any deploy; owner's rule: prefer retiring a rule to adding
+  one).** Three audit rounds (Codex `2026-11-24-core-c072`, `-r2`, `-r3`; Gemini on r2) each found
+  new ways the quiet planned-step mechanism lost or duplicated a real alert: a bundle refused, or a
+  job failed for the last time, during the operator's pause swallowed by the pause or by an alert
+  already posted; an operator's resume before the watch's next minute; a failed check firing the
+  grace alert early; a grace judged at check time or by a resume read in a race; a transport retry
+  posting a refusal twice; an alert write that rolled back the pause itself. Every pause and every
+  daily stop now alerts as before C-072 (removed: `queue_control.by_operator` and `resumed_at`,
+  `problem.quiet_until`, `PLANNED_GRACE_MINUTES`, the overdue and planned-step texts,
+  `daily::handed_over`, the refusal's alert in its transaction, the successor stall). The noise a
+  hand-over makes in the alerts channel will go with the release-script automation (pause →
+  hand-over → admit → resume as one operator command, MILESTONES' automation debt), not with quiet
+  alerts. The Round 2 and Round 3 items above and their LATER list are moot where they concern part
+  2; the two publish defects stay LATER.
+  **Kept:** part 1 (the owner's zone `Etc/GMT+6`) and part 3, now without folding: a hand-over's own
+  notice is its one line ("Hand-over 26: fc36eefb → 2dde1132, 42 blocks + 593 passes moved, 8
+  running jobs restarted — <reason ≤80>", "· build X is not admitted: admit it now (`vyreon-core
+  build admit X <evidence.json>`)" while its successor has never been admitted); restarted counts
+  only moved jobs (a cancelled tape verify job is not one); the blocks started are one line, every
+  resumed or retried start named. No pause, withdrawal or admission line is folded or matched
+  away: each keeps its line and reason. Migration 0054 was rewritten (never deployed; the live
+  database is at 0053) to hold only part 3's `progress_shown` source `hand_over`, under
+  `lock_timeout` 10 s and `statement_timeout` 60 s; 0055 was deleted.
+  Tests: `work.rs::a_hand_over_is_one_progress_line_and_hides_no_reason` (the line, the pause's
+  reason, the withdrawal and admission lines, the started line; the pause and the daily stop alert
+  as before), `work.rs::a_hand_over_carries_no_pass_its_successor_cannot_run` (a leased verify job
+  is not restarted; the admit instruction), `progress.rs` unit tests.
