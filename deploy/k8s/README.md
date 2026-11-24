@@ -420,9 +420,16 @@ release within 15 minutes (a REFCHECK re-run queued for the old build in between
 hand-over; longer, and the `refcheck` kind's STALLED alert says so). Example:
 
 ```sh
-KUBECONFIG=... VYREON_DO_TOKEN_FILE=... deploy/k8s/ops/release.sh --dry-run c9c23ca5 "D-461 rulings"
-KUBECONFIG=... VYREON_DO_TOKEN_FILE=... deploy/k8s/ops/release.sh --notes tests.json c9c23ca5 "D-461 rulings"
+KUBECONFIG=... VYREON_DO_TOKEN_FILE=... deploy/k8s/ops/release.sh --dry-run --evidence passed.json c9c23ca5 "D-461 rulings"
+KUBECONFIG=... VYREON_DO_TOKEN_FILE=... deploy/k8s/ops/release.sh --evidence passed.json c9c23ca5 "D-461 rulings"
 ```
+
+`passed.json` is required: `{"tests": …, "checks": …}`, what the build passed (the suites and their
+counts; the golden comparison and the block-start result). The script refuses to start while the queue
+is paused by anyone else, resumes only its own pause (a cause added during the run leaves it paused
+and stops), keeps a run file per build so `--from N` resumes after a stop, checks that every ScaledJob
+is on the new build and image, unpaused and Ready, and waits for a claim of every kind KEDA should
+start. A dry run keeps nothing.
 
 By hand, a new image (C-068), **in this order** (the order is what keeps history in date order):
 1. `vyreon-core build register <inventory>` for the new build. **Do not admit it yet.** An admitted
