@@ -899,3 +899,156 @@ async fn workers_leaving_while_work_waits_are_a_problem() {
     assert_eq!(client.query_one("SELECT count(*) FROM core.claim_miss", &[]).await.unwrap().get::<_, i64>(0), 0);
     scratch.drop().await;
 }
+
+/// C-071 (triage 2026-11-23 r2, C4 = G1, BLOCKS the ordered passes): the passes publish a history
+/// revision for each of phase 1's 597 sessions (2024-07-09..2026-11-20) within hours, and the 09:00
+/// digest counts every revision of the last 24 hours not counted yet. It counts them in batches of
+/// `TALLY_BATCH`, each committed, for at most `TALLY_BUDGET` a minute, so no statement grows with
+/// the passes, and a core killed mid-count (here: its connection terminated while a batch waits)
+/// loses only that batch: the next minute goes on from there and counts each revision once.
+///
+/// The slice's real base and derived revisions of 2025-12-10 are published, the engine's real
+/// faulted XLB body added to the derived one; each other session has a bare base header and a
+/// history revision holding the derived revision's three bodies re-dated to its session (every
+/// "2025-12-10" in a body replaced by the session's date: a stated edit, so each body's own
+/// engine-fault result id names its day as the engine writes it).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn the_digest_counts_the_ordered_passes_in_committed_batches_and_survives_a_kill() {
+    let (scratch, mut client, _) = ready("tally_batches").await;
+    client.query_one("SELECT vyreon.ensure_months('2024-07-01', '2026-11-30')", &[]).await.unwrap();
+    let s = settings(None);
+    let mut revision = Vec::new();
+    for (name, (h, sc, f)) in [("tally-base", parts(BASE)), ("tally-derived", parts(DERIVED))] {
+        let path = bundle(name, &h, &sc, &f);
+        revision.push(core_db::publish::publish_file_vouched(&mut client, &path).await.unwrap().revision_id);
+        std::fs::remove_file(&path).unwrap();
+    }
+    let (base, derived) = (revision[0], revision[1]);
+    let body = ENGINE_FAULT_BODY_XLB.trim_end();
+    let body_json: Value = serde_json::from_str(body).unwrap();
+    client
+        .execute(
+            "INSERT INTO vyreon.measurement (revision_id, measurement_id, object_id, represented_date, slot_state, science_version, method_version,
+                                             body_sha256, body_text, body, receipt)
+             VALUES ($1, 'SAI-EXQ01', 'XLB', '2025-12-10', 'DELIVERED', 'engine-fault', 'engine-fault', $2, $3, $4::text::jsonb, '{}')",
+            &[&derived, &core_contract::sha256_hex(ENGINE_FAULT_BODY_XLB.as_bytes()), &body, &body_json.to_string()],
+        )
+        .await
+        .unwrap();
+    // Friday 2026-11-20 09:30 MT: the passes published over the last 15 hours, the bases days before
+    let now = "2026-11-20 09:30:00-07";
+    client.execute("UPDATE vyreon.day_revision SET published_at = '2026-11-20 09:00:00-07'", &[]).await.unwrap();
+    client
+        .execute(
+            "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, state, published_at, listed_members)
+             SELECT s.session, b.profile_id, b.profile_revision, b.engine_build, b.snapshot_cutoff, 'PUBLISHED', '2026-11-17 20:00:00-07', b.listed_members
+             FROM core.session s, vyreon.day_revision b
+             WHERE b.revision_id = $1 AND s.session BETWEEN '2024-07-09' AND '2026-11-20' AND s.session <> '2025-12-10' ORDER BY s.session",
+            &[&base],
+        )
+        .await
+        .unwrap();
+    let passes = client
+        .execute(
+            "INSERT INTO vyreon.day_revision (represented_date, profile_id, profile_revision, engine_build, snapshot_cutoff, state, published_at, listed_members, base_revision)
+             SELECT b.represented_date, h.profile_id, h.profile_revision, h.engine_build, h.snapshot_cutoff, 'PUBLISHED',
+                    $2::text::timestamptz - make_interval(secs => 90 * row_number() OVER (ORDER BY b.represented_date DESC)), h.listed_members, b.revision_id
+             FROM vyreon.day_revision b, vyreon.day_revision h
+             WHERE h.revision_id = $1 AND b.base_revision IS NULL AND b.represented_date <> '2025-12-10' ORDER BY b.represented_date",
+            &[&derived, &now],
+        )
+        .await
+        .unwrap();
+    assert_eq!(passes, 596, "phase 1's sessions less the slice's own");
+    client
+        .execute(
+            "INSERT INTO vyreon.measurement (revision_id, measurement_id, object_id, represented_date, slot_state, science_version, method_version,
+                                             body_sha256, body_text, body, receipt)
+             SELECT d.revision_id, m.measurement_id, m.object_id, d.represented_date, m.slot_state, m.science_version, m.method_version,
+                    encode(sha256(convert_to(replace(m.body_text, '2025-12-10', d.represented_date::text) || E'\n', 'UTF8')), 'hex'),
+                    replace(m.body_text, '2025-12-10', d.represented_date::text), replace(m.body::text, '2025-12-10', d.represented_date::text)::jsonb, m.receipt
+             FROM vyreon.day_revision d JOIN vyreon.measurement m ON m.revision_id = $1
+             WHERE d.base_revision IS NOT NULL AND d.revision_id <> $1",
+            &[&derived],
+        )
+        .await
+        .unwrap();
+    let fresh: Vec<i64> = client
+        .query("SELECT revision_id FROM vyreon.day_revision WHERE published_at > $1::text::timestamptz - interval '24 hours' ORDER BY revision_id", &[&now])
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    assert_eq!(fresh.len(), 598, "596 passes and the slice's two revisions");
+    let tallied = async |c: &Client| c.query_one("SELECT count(*) FROM core.revision_tally", &[]).await.unwrap().get::<_, i64>(0);
+
+    // a core killed mid-count: its third batch waits on a revision another transaction holds, and
+    // its connection is terminated there; the two batches before stay counted, the third is gone
+    let held = fresh[2 * watch::TALLY_BATCH + 3];
+    let mut other = scratch.client().await;
+    let tx = other.transaction().await.unwrap();
+    tx.execute("INSERT INTO core.revision_tally (revision_id, slots, withheld, provider_withheld, engine_faults) VALUES ($1, 0, 0, 0, 0)", &[&held]).await.unwrap();
+    let killed = scratch.client().await;
+    let pid: i32 = killed.query_one("SELECT pg_backend_pid()", &[]).await.unwrap().get(0);
+    let counting = tokio::spawn(async move { watch::tally_recent(&killed, PROFILE, now, None).await });
+    let waits = async || {
+        client
+            .query_one("SELECT count(*) FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock'", &[&pid])
+            .await
+            .unwrap()
+            .get::<_, i64>(0)
+    };
+    for _ in 0..600 {
+        if waits().await == 1 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(waits().await, 1, "the third batch waits on the held revision");
+    assert!(client.query_one("SELECT pg_terminate_backend($1)", &[&pid]).await.unwrap().get::<_, bool>(0));
+    assert!(counting.await.unwrap().is_err(), "the killed count fails");
+    tx.rollback().await.unwrap();
+    assert_eq!(tallied(&client).await, 2 * watch::TALLY_BATCH as i64, "two batches committed, the killed one rolled back");
+    let first: Vec<(i64, String)> = client
+        .query("SELECT revision_id, counted_at::text FROM core.revision_tally ORDER BY 1", &[])
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+    assert_eq!(first.iter().map(|(r, _)| *r).collect::<Vec<_>>(), fresh[..2 * watch::TALLY_BATCH]);
+
+    // a minute whose budget is spent counts one more batch and composes nothing yet
+    assert!(!watch::tally_recent(&client, PROFILE, now, Some(std::time::Instant::now())).await.unwrap());
+    assert_eq!(tallied(&client).await, 3 * watch::TALLY_BATCH as i64);
+
+    // the 09:30 minute goes on from there, counts the rest and queues the digest
+    watch::tick(&mut client, &s, now).await.unwrap();
+    let digest: String = client.query_one("SELECT message FROM core.notice WHERE once = 'digest 2026-11-20'", &[]).await.unwrap().get(0);
+    let counted = client
+        .query(
+            "SELECT d.revision_id, d.base_revision IS NULL, t.slots, t.withheld, t.provider_withheld, t.engine_faults, t.counted_at::text
+             FROM vyreon.day_revision d JOIN core.revision_tally t USING (revision_id) WHERE d.revision_id = ANY($1) ORDER BY 1",
+            &[&fresh],
+        )
+        .await
+        .unwrap();
+    assert_eq!(counted.len(), 598, "every revision of the last 24 hours counted, each once");
+    for r in &counted {
+        let (id, is_base): (i64, bool) = (r.get(0), r.get(1));
+        let t: (i32, i32, i32, i32) = (r.get(2), r.get(3), r.get(4), r.get(5));
+        // the base: four delivered slots; each history revision: two delivered and the engine's
+        // faulted slot, withheld whole for its engine fault (never the held row's zeros)
+        assert_eq!(t, if is_base { (4, 0, 0, 0) } else { (3, 1, 0, 1) }, "revision {id}");
+    }
+    // what the killed count committed was not counted again
+    let kept: Vec<(i64, String)> = counted.iter().filter(|r| first.iter().any(|(id, _)| *id == r.get::<_, i64>(0))).map(|r| (r.get(0), r.get(6))).collect();
+    assert_eq!(kept, first);
+    let lines: Vec<&str> = digest.lines().collect();
+    assert_eq!(lines[1], "Latest session stored: Fri Nov 20 · 66.7% of its measurements have a value (typical 66.7%) · 1 engine fault", "{digest}");
+    assert_eq!(lines[2], "Sessions published in the last 24 hours: 1 (2025-12-10)", "{digest}");
+    assert_eq!(lines[3], "Provider gaps recorded in the last 24 hours: none", "{digest}");
+    scratch.drop().await;
+}

@@ -23,6 +23,7 @@ use crate::daily::{self, Daily};
 use crate::{archive, evidence, notice, refcheck};
 use serde_json::{Value, json};
 use std::collections::BTreeMap;
+use std::time::{Duration, Instant};
 use tokio_postgres::{Client, GenericClient};
 
 /// The owner's zone: Calgary, Mountain Time (UTC−7, UTC−6 in summer).
@@ -1290,7 +1291,16 @@ const COUNTED: &str = "SELECT d.revision_id, count(m.measurement_id)::int AS slo
          WHERE d.published_at IS NOT NULL AND $WHERE
          GROUP BY d.revision_id";
 
-/// Counts what each published revision holds, once (a published revision never changes).
+/// C-071: the revisions one statement counts. A statement counts its revisions' bodies whole, so
+/// its time grows with them; this bounds it (a day's history revision holds every slot of the 64).
+pub const TALLY_BATCH: usize = 25;
+
+/// C-071: how long one minute of the watch counts for the digest before it leaves the rest to the
+/// next minute, well inside `/live`'s 15 minutes (`core_api::LIVE_WITHIN`).
+pub const TALLY_BUDGET: Duration = Duration::from_secs(300);
+
+/// Counts what each published revision holds, once (a published revision never changes): one
+/// statement, so at most `TALLY_BATCH` revisions (`tally_batches`).
 pub(crate) async fn tally(c: &impl GenericClient, revisions: &[i64]) -> Result<(), String> {
     if revisions.is_empty() {
         return Ok(());
@@ -1306,6 +1316,41 @@ pub(crate) async fn tally(c: &impl GenericClient, revisions: &[i64]) -> Result<(
     .await
     .map_err(db)?;
     Ok(())
+}
+
+/// C-071: counts `revisions` `TALLY_BATCH` at a time, each batch one statement, so on a client
+/// (not inside a transaction) each batch commits on its own: what is counted stays counted when
+/// the process dies or is restarted, a revision is counted once (`ON CONFLICT DO NOTHING`, a
+/// batch whole or not at all), and the next call goes on from there. With `until`, it stops after
+/// the first batch that ends past it. True when every revision is counted.
+pub async fn tally_batches(c: &impl GenericClient, revisions: &[i64], until: Option<Instant>) -> Result<bool, String> {
+    let batches = revisions.chunks(TALLY_BATCH).count();
+    for (i, batch) in revisions.chunks(TALLY_BATCH).enumerate() {
+        tally(c, batch).await?;
+        if i + 1 < batches && until.is_some_and(|t| Instant::now() >= t) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
+}
+
+/// C-071: counts the revisions of the profile published in the 24 hours to `now` and not counted
+/// yet (every layer: base, day-local and the ordered passes' history revisions alike), in batches
+/// (`tally_batches`). True when none is left.
+pub async fn tally_recent(c: &impl GenericClient, profile: &str, now: &str, until: Option<Instant>) -> Result<bool, String> {
+    let fresh: Vec<i64> = c
+        .query(
+            "SELECT d.revision_id FROM vyreon.day_revision d WHERE d.profile_id = $2 AND d.published_at > $1::text::timestamptz - interval '24 hours'
+               AND d.published_at <= $1::text::timestamptz AND NOT EXISTS (SELECT FROM core.revision_tally t WHERE t.revision_id = d.revision_id)
+             ORDER BY d.revision_id",
+            &[&now, &profile],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    tally_batches(c, &fresh, until).await
 }
 
 /// A session's published revisions of the profile, counted: slots, withheld whole, withheld for
@@ -1330,6 +1375,22 @@ impl Tally {
 /// ones, and the ones counted here for the first time, which are kept for the next time). A
 /// revision replaced between two reads can no longer drop its session's count to nothing.
 pub async fn session_tallies(c: &impl GenericClient, profile: &str, sessions: &[String]) -> Result<BTreeMap<String, Tally>, String> {
+    // C-071: the revisions not counted yet, counted first in batches; the statement below then
+    // counts only one published since (round x, 7 holds: one snapshot)
+    let uncounted: Vec<i64> = c
+        .query(
+            "SELECT d.revision_id FROM vyreon.day_revision d
+             WHERE d.profile_id = $1 AND d.state = 'PUBLISHED' AND d.represented_date = ANY($2::text[]::date[])
+               AND NOT EXISTS (SELECT FROM core.revision_tally t WHERE t.revision_id = d.revision_id)
+             ORDER BY d.revision_id",
+            &[&profile, &sessions],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    tally_batches(c, &uncounted, None).await?;
     // a session counts once its base revision is published; its derived revisions add their slots
     let rows = c
         .query(
@@ -1597,19 +1658,10 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
         (n, _, _) => format!("Sessions published in the last 24 hours: {n}"),
     });
 
-    // what was handled: provider gaps the engine or the workers stated, attempts retried
-    let fresh: Vec<i64> = c
-        .query(
-            "SELECT d.revision_id FROM vyreon.day_revision d WHERE d.profile_id = $2 AND d.published_at > $1::text::timestamptz - interval '24 hours'
-               AND d.published_at <= $1::text::timestamptz AND NOT EXISTS (SELECT FROM core.revision_tally t WHERE t.revision_id = d.revision_id)",
-            &[&now, &s.profile],
-        )
-        .await
-        .map_err(db)?
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
-    tally(c, &fresh).await?;
+    // what was handled: provider gaps the engine or the workers stated, attempts retried. C-071:
+    // the day's revisions counted in batches (the watch's digest has counted them already, a
+    // minute at a time; only one published since is left)
+    tally_recent(c, &s.profile, now, None).await?;
     let gaps: Vec<(String, String)> = c
         .query(
             "SELECT session::text, 'tapes' FROM core.tape_cache
@@ -2006,6 +2058,11 @@ async fn post_once(client: &mut Client, key: &str, s: &Settings, now: &str, week
         return Ok(());
     }
     let read = open(&*client, now).await?;
+    // C-071: the digest counts the day's revisions first, in committed batches, for at most
+    // `TALLY_BUDGET` a minute; what is left is counted the next minute, which then composes it
+    if !weekly_check && !tally_recent(&*client, &s.profile, now, Some(Instant::now() + TALLY_BUDGET)).await? {
+        return Ok(());
+    }
     let text = if weekly_check { weekly_of(&*client, s, now, &read).await? } else { digest_of(&*client, s, now, &read).await? };
     let ids = |o: &[Open]| o.iter().map(|p| p.id).collect::<Vec<_>>();
     let tx = client.transaction().await.map_err(db)?;

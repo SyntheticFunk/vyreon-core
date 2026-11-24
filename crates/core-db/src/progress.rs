@@ -186,7 +186,7 @@ async fn compose(c: &impl GenericClient, profile: &str, start: &str, end: &str) 
     let mut stated: Vec<i64> = Vec::new();
     if !days.is_empty() {
         let revisions: Vec<i64> = days.iter().flat_map(|r| [r.get::<_, i64>(1), r.get::<_, i64>(2)]).collect();
-        watch::tally(c, &revisions).await?;
+        watch::tally_batches(c, &revisions, None).await?;
         for r in &days {
             let (words, base, local): (String, i64, i64) = (r.get(0), r.get(1), r.get(2));
             let t = c
