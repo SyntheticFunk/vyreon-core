@@ -2988,7 +2988,9 @@ not fixed".
     with `base_revision` the base; `date`, `profile`, `state` PUBLISHED, `engine_build`,
     `snapshot_cutoff`, `slots`) and `streams/<measurement>.<object>.<events_sha256>.jsonl.gz` (the
     events as core keeps them, gzip): the engine's `refcheck::write_dump` layout, read in one
-    repeatable-read snapshot, built in memory (one re-run at a time: ScaledJob `refcheck`, cap 1).
+    repeatable-read snapshot, written to core's spool row by row and sent from there in 1 MiB chunks
+    (never held whole in memory; the file unlinked once open); refused (422) when a revision the job
+    names is no longer published.
   - **The worker (engine change, ships in the same release):** `vyreon-worker run refcheck --home
     DIR [--bin DIR] [--repo DIR]`, claiming kind `refcheck` (`POST /claims {kind: "refcheck"}`; the
     claim's `sessions` is `[T]`, its `scope` `{base_revision, day_local_revision}`, its manifest as a
@@ -2998,7 +3000,9 @@ not fixed".
        the publish callback writes the bundles to the run directory and returns, `day_done`,
        `/archives` and `PUT /input-captures` are never called (a re-run keeps nothing; core refuses
        them under a REFCHECK lease anyway); (b) the restatable captures core keeps for T (`GET
-       /worker/v1/input-captures/{T}`, then each kind's newest version, `GET .../{T}/{kind}/{identity}`,
+       /worker/v1/input-captures/{T}`, then for each kind the version whose identity the dump's
+       receipts bind (the capture the published day read, C-043), else the newest; `GET
+       .../{T}/{kind}/{identity}`,
        a gzip tar as `pack-capture` writes it) are unpacked where the fill puts them
        (`h5-company-capture-<T>`, `h5-macro`, `h5-carry/<T>`) and the fill takes them as captured
        (company, macro and carry are fetched again only where core keeps none, and the account says
@@ -3010,7 +3014,7 @@ not fixed".
     2. **Dump.** `GET /worker/v1/refcheck/{T}/dump`, unpacked to `<run>/refcheck/dump`; the phase
        uses it in place of `write_dump` (a `refcheck::Day` with the dump given, e.g. `dump:
        Option<PathBuf>`; `bundles` empty), so the suite judges the stored body. A 422 (its revisions
-       no longer held) is a NOT_RUN account with core's message as `why`.
+       not held, or no longer published) is a NOT_RUN account with core's message as `why`.
     3. **Suite.** `refcheck::phase` as for a day block's day, not beside another day (no overlap: the
        join is immediate), `VYREON_REFCHECK_MINUTES` (600, the ScaledJob's) as its deadline,
        `REFCHECK_OWN_BUILD` = the base revision's `engine_build` from `revisions.jsonl` (so D-404's
@@ -3140,6 +3144,50 @@ not fixed".
      is retried visibly; each migration runs without that bound.
   The C-072 LATER items r2-2 (second hand-over to one successor) and r2-5 (a hand-typed withdrawal
   text) were part 2's and are moot since its retirement.
+- **The release audit (2026-11-24, `audits/2026-11-24-release/core`, Codex 19 + 1 suspicion, Gemini 14 +
+  2 suspicions; the only audit of this release, owner's rule: every real finding fixed and tested).**
+  | Finding | Verdict |
+  |---|---|
+  | C1 release.sh resumes a pause it did not make | fixed: refuses to start over another's pause; resumes only if the pause is exactly its own (a cause added while it ran leaves it paused and stops) |
+  | C2 admission without validation evidence | fixed: `--evidence` required, with non-empty `tests` and `checks`, kept under `validation` |
+  | C3, G5.1 a superseded revision occupies the re-run pod | fixed: stale re-runs (revisions superseded, or a build that does not run) cancelled and the current pair queued; the dump refuses a revision no longer published |
+  | C4, G1.1 budget pressure hides a stalled daily tape | fixed: under pressure only the backfill's work is set aside; the daily session's still stalls (DAILY_STALL_MINUTES) |
+  | G1.2 pressure restarts the backfill's stall clock | not a defect: the backfill's provider work is held back by design while pressed (KEDA starts none); its stall is judged once the budget is quiet |
+  | C5, C7, G14.2 `--from` loses state, partial ScaledJob apply | fixed: a run file per build (old build, hand-over id and token, its own pause), written after each step |
+  | C6, G14.1 one lease hides a disabled ScaledJob | fixed: every ScaledJob checked (build, image, no `autoscaling.keda.sh/paused*`, Ready); step 11 waits for a claim of every kind `core.scaler_count` says KEDA should start |
+  | C8, G4, G9.1 re-runs said as ordered passes, left out of hand-over lines | fixed: finished lines name their kind; hand-over lines count re-runs |
+  | C9, G8.3 a dry run writes release records | fixed: a dry run writes to a temporary directory, removed; it diffs the daily-build change on a copy |
+  | C10 the CLI's wait count includes older waits | fixed: counts only whole minutes in the window ("at least") |
+  | C11 a changed body from the same lease supersedes the first | fixed: a lease publishes a day's revision of one profile once; a different one is refused |
+  | C12, G13.2 a resend with other receipt, coordinates, state, stream or cutoff acknowledged | fixed: every stored field compared before `already_published` |
+  | C13, G13.1 a stripped day-local bundle on another lease replaces the base | fixed: a second base of another profile for the day and build is refused whichever lease published the first; residual: a build's very first day with no base at all (an engine that sends day-local first, which it never does) |
+  | C14, G2.1 a re-run queued under a build being handed over | fixed: queueing takes the scheduler's lock (tried, never waited for) and a re-run under a build that does not run is cancelled and queued again |
+  | G2.2 a re-run queued between a hand-over's preview and expect | fixed: nothing is queued while the queue is paused |
+  | C15 empty hand-over fallback strands work queued meanwhile | fixed: after withdrawing, the preview runs again and hands over what appeared |
+  | C16 a reused core tag reports a deployment that never ran | fixed: a tag the Deployment runs is refused; the pod's image digest must be the pushed one |
+  | C17 a base-only completion covers a later day-local revision | fixed: completion is pair-exact |
+  | C18, G10 another job's tape cache resets NO_PROGRESS; verify jobs not credited | fixed: tape caches and verdicts count for tape jobs only; tape checks (by lease), archives (by job and worker) and captures (day blocks) count; all bounded at now |
+  | C19 `kubectl diff` errors ignored | fixed: exit 2 and above stops before any apply |
+  | C20 (suspicion) re-run takes the newest capture | real in the contract's wording: the engine reads the capture version the dump's receipts bind, else the newest; C-073's contract now says exactly that |
+  | G3.1 a lease that reported a non-completed check blocks the re-run for its whole block | fixed: a live lease holds the day back only until it has reported the day's check |
+  | G3.2 pending keyed on the base alone, not bounded by `REFCHECK_FROM` | fixed: pair-keyed and bounded |
+  | G3.3 a base without its day-local revision gets a re-run | fixed: only a complete day (C-070) is due |
+  | G5.2 another build's re-run refuses a hand-over | fixed: re-runs are left out of the overlap refusal (one per revision pair already) |
+  | G6 JOB_THRASHING after `retry-failed`, or of a withdrawn build | fixed: leases after `job.retried_at` only, running builds only |
+  | G7 the registry credential left on INT/TERM/HUP | fixed: traps exit through the cleanup |
+  | G8.1 step 9's delete races KEDA's cleanup | fixed: `--ignore-not-found` |
+  | G8.2 a failure at step 10 omits the pause warning | fixed: the warning follows the run's own pause, whatever the step |
+  | G9.2 day lines use the narrowed block | fixed: the lease's block span |
+  | G9.3 kinds ordered nondeterministically | fixed: the kind breaks ties |
+  | G11 -0 refused on an identical resend | fixed: values compared with -0 as 0 |
+  | G12 step reports: errors as 422, loose instants, skew drops the step | fixed: strict RFC 3339 (never echoed), a past wait kept, database errors as 500 |
+  | G suspicion 1 the dump in memory | real by construction: streamed through the spool (above) |
+  | G suspicion 2 `/dev/stdin` under the pod's user | plausible: `vyreon-core build register` and `build admit` read `-` from fd 0, the script uses it |
+  Tests: `tests/release_audit.rs` (5), the API test `a_reruns_dump_is_streamed_and_leaves_nothing`, the
+  updated automation and worker API tests, `progress.rs` unit tests; release.sh rehearsed against
+  stubbed `kubectl`/`docker` for each of its findings (another's pause, a cause added mid-run, a failed
+  hand-over resumed with `--from 5`, a paused ScaledJob then `--from 7`, a diff error, a reused core
+  tag, a dry run that keeps nothing, an interrupt during the push). The suite: 210 (193 + 17).
 - Tests (added): `tests/automation.rs::a_worker_making_no_progress_is_one_alert_unless_it_declared_its_wait`;
   `tests/c072_later.rs` (a set-aside block named as it started; a hand-over stated once across a window's
   end and an upgrade, no restart from an earlier stop, the admit instruction kept; a cause during an
