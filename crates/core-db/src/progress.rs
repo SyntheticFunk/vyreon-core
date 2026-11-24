@@ -495,8 +495,9 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
             let to = build_words(&hand_overs[i].to, &hand_overs[i].from);
             hand_overs[i].folded.push(step(&format!("{to} admitted")));
         } else if let Some((_, _, i, reason)) = paused {
-            // the pause's reason, unless it is the hand-over's own words
-            let words = if reason.contains(&hand_overs[*i].reason) { String::new() } else { format!(" ({})", one_line(reason, 60)) };
+            // the pause's reason, unless it is exactly the hand-over's own (round 3, audit c072-r2,
+            // 6: a reason that only contains it says more, so it is printed)
+            let words = if *reason == hand_overs[*i].reason { String::new() } else { format!(" ({})", one_line(reason, REASON_MAX)) };
             hand_overs[*i].folded.push(step(&format!("queue paused{words}")));
         } else if let Some((_, _, i, _)) = resumed {
             hand_overs[*i].folded.push(step("queue resumed"));
