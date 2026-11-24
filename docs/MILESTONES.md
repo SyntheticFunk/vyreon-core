@@ -1110,6 +1110,13 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   guard binding, ACT01 reference), `eng-f5b` the rest (M0 print split days + affected sessions, EVC01 reference, unmodified-
   day evidence, ops items). **For the owner: D-460's ACT01 feed-guard area has not converged in 4 rounds** (each round fixes
   real defects and exposes older ones in the overlay beneath it).
+  **Owner, 2026-11-24 ~05:40 MT: "if it's rare that is converged."** Stopping rule refined: an audit round whose remaining
+  findings are only rare cases (damaged or contrived inputs, no occurrence in real data) closes the area; those findings are
+  recorded and fixed later, not chased round after round. Findings on ordinary real data still block. Applied: **tape area
+  CLOSED** (the three reader items — UTP message in a CTA file, short prefix before damage, identity-hash inputs — go to the
+  next deliberate tape-method change; no re-capture now). ACT01 feed area: closes after round 5 if what remains is rare.
+  Owner approved deleting stale worktrees: 54 merged worktrees + 23 logs removed from /home/diggz/wt (~28 GB; reporter-d397
+  kept, unmerged Reporter work; VHDX only shrinks by export/import).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
