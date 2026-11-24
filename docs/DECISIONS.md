@@ -2860,3 +2860,41 @@ Three things broke that during the hand-overs of 2026-11-23/24.
   Tests: `work.rs::a_planned_step_is_the_hand_overs_own_and_hides_no_problem` (1–5 and 3's progress
   line), `work.rs::a_hand_over_carries_no_pass_its_successor_cannot_run` (6: a leased verify job is
   not restarted), `progress.rs` unit tests (2's line, 6's retried start at place 27).
+- **Round 3 (Codex audit `2026-11-24-core-c072-r2`; owner's stopping rule: findings in ordinary
+  operation block, rare ones are recorded LATER).** Fixed:
+  1. (blocking) A bundle refused is alerted in the refusal's own transaction
+     (`watch::refused`, called by the worker API after its `work::pause`), whatever then happens to
+     the pause: the pause's problem opens there with its alert when none is open (the watch's
+     next minute finds it open and posts nothing again); an open quiet one (the operator's pause,
+     now core's) is alerted there; one alerted long before is followed by an alert of the refusal
+     itself ("… (the queue was paused already)"). An operator's resume before the watch's next
+     minute, or a pause whose grace alert cleared `quiet_until`, no longer silences it.
+  6. A pause folded into a hand-over's progress line drops its reason only when it is exactly the
+     hand-over's reason; any other reason is printed (cut to `REASON_MAX`).
+  7. A planned pause is judged against its grace at its resume (`queue_control.resumed_at`,
+     migration 0055, set by `work::resume`), not at the check that sees it over: resumed at 10:29:50
+     with the check at 10:30:10 is quiet; resumed past the deadline is alerted though no check saw
+     it overdue. (The daily runs' planned stop has no recorded end: judged at the check, as before.)
+  **LATER** (recorded, not fixed now; none occurs in ordinary operation):
+  - r2-2: a second hand-over to the same unadmitted successor restarts the successor-stall grace
+    (`max(handed_at)`): the first hand-over's jobs are alerted up to 30 minutes late, and a stall
+    alerted before can resolve while they still wait. Needs two hand-overs to one unadmitted build.
+  - r2-3: the runner takes its blocking advisory lock and reads the ledger before 0054/0055 set
+    their timeouts: a second migrator stuck holding that lock keeps the pod in `migrate`. Needs a
+    stuck concurrent `vyreon-core migrate` (one replica, `Recreate`).
+  - r2-4: progress says "build B is not admitted: admit it now" for a successor admitted and then
+    withdrawn (or one that handed its work on), where admitting it would clear a deliberate
+    withdrawal. Needs a successor withdrawn within its hand-over's progress window.
+  - r2-5: a standalone withdrawal whose reason is literally "handed over to build B: <r>", followed
+    within the hour by a hand-over A→B with reason <r>, reads as the hand-over's own (planned).
+    Needs an operator to type a hand-over's withdrawal text by hand.
+  - Pre-existing publish defects (C-024/C-028/C-031/C-070), each **needs a malformed or
+    nondeterministic worker bundle; the engine is deterministic**: a day-local bundle that omits
+    its base fields and `day_local` is accepted by a day block as a base (supersedes the real base);
+    a resend with the same listed members and body digests but one changed reader scalar is
+    acknowledged `already_published` and `detail=headline` keeps serving the first value.
+  Tests: `work.rs::a_planned_step_is_the_hand_overs_own_and_hides_no_problem` (refusals alerted
+  before any check, during the operator's pause, with none open and during an alerted pause; a
+  pause resumed within its grace and checked after it is quiet, one resumed past it is alerted),
+  `work.rs::a_hand_over_is_progress_unless_it_overstays` (a pause reason other than the hand-over's
+  is printed).
