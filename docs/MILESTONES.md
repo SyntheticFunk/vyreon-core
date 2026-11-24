@@ -711,6 +711,10 @@ tally untallied revisions instead of a 24-h window. **Gemini round 3: not run â€
 wrong absence and no silent stop on a reachable path (the lock-wait case restarts core visibly; the label case withholds
 correctly). Remaining: the cheap core change (statement/lock timeouts on tally statements) and the rest LATER. Fresh-eyes
 reviews of untouched scopes (Gemini on overlay, surface, optsensors) after phase 1 are expected to pay more than round 4.
+**Core 6a4b59f deployed 2026-11-23 18:32 MT** (C-071 amended: 60 s statement / 10 s lock limits on every tally statement, tally
+the untallied whatever their age, only a composed digest resolves its problem; 190/0; code only). LATER: the digest's 24-hour
+window should start where the previous digest ended (contiguous windows). Gemini round 3 re-runs scheduled ~20:16 MT
+(after its quota reset); engine 955d0f82 still held for the next hand-over.
 **Owner, 2026-11-23 ~09:50 MT: D-191 recommendation accepted** (weight kept, text corrected: engine worker commit after f3db692e, docs only). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
