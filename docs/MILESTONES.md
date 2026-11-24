@@ -1122,6 +1122,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   behind the owner's clock (e.g. hand-over 26 at 03:30 "MT" = 04:30 owner time). Core fix `core-clock` (C-072): one fixed
   UTC−6 owner zone (deadlines included), planned operator actions (hand-over pause/withdraw) to progress not alerts unless
   open > 30 min, terse progress digest. From now on my times are UTC−6.
+  **eng-f5b merged (UTC−6 06:45; 1,710/0; pytest 235/107):** all 8 non-feed findings REAL and fixed. **Live wrong absence
+  since D-162 (11-14): M0-PRINT-SIZE ENGINE_FAULT on split-translated cohort days** → recompute after the next hand-over:
+  AVGO 2024-07-16..07-19, MSTR 2024-08-09/12/13/14, XLB XLE XLK XLU XLY 2025-12-08..12-11 (28 asset-sessions; NVDA
+  2024-06-11..14 if the build goes deeper). Independent reference vs engine on 5 UNMODIFIED real caches (AAPL 2025-12-10, NVDA
+  2024-06-13, SPY 2025-04-11, QQQ 2026-05-06, SPY 2026-11-12), all gates on: 25/25 UPATH roles, 78/78 EVC01 cells agree.
+  Waiting: eng-f5a (feed area), then one round-5 audit by both, then hand-over.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
