@@ -1279,6 +1279,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   pass.** Scoped vs full day: a planner computes the recompute set (seed + dependants, D-104) and estimated cost from measured
   per-family timings and picks; thresholds from measurements, not a guessed %; scoped output must be byte-identical to a
   full-day recompute for its families. Building on eng-scope/core-scope (D-462/C-074) for the next release.
+  **RELEASED (UTC−6 ~15:00), first runs of release.sh:** core a6bb572 (`--core`, dry run then live; migration 55; readable
+  digest) and worker 1ae946f7+715623e13454 (dry run then live; hand-over 30; admitted with validation evidence; ScaledJobs
+  verified; 8 old Jobs deleted; new build claimed day-block, day-block-daily and refcheck re-runs within minutes). 07-22
+  published on 5f637983 at 15:02 just before. **Recompute (values or method changed):** 07-09..07-12, 07-17..07-19, 07-22,
+  07-23 are covered by the handed-over blocks; 07-15, 07-16, 08-13, 09-04 scheduled as one-day blocks on 1ae946f7. Then verify
+  VS-O04 engine faults → 0 on the republished days.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
