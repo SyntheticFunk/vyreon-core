@@ -1257,6 +1257,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   quote), details/charts below; (3) machine-readable: schema.org structured data per page, sitemap refreshed each Sunday, fast
   static pages; (4) derived measurements only (Intrinio's "not reproducible" condition); (5) explainer pages and reports linked
   both ways so the existing search trickle feeds the reports.
+  **Post-launch (owner, same day): automated social posting of unusual detections — teasers for the paid report, "same data,
+  larger surface".** Constraints: deterministic templates (no LLM in the production path); a teaser names that a flag fired
+  and links to the report, never gives the paid reading away; derived measurements only (Intrinio's condition); plain voice,
+  nothing hyped; posts only on genuine rare detections. Platform choice and API access decided at the time.
   **Investigating while it runs (owner's goal, UTC−6 ~11:40):** (1) the request budget is ~half used during downloads (avg
   ~800-1,270/min of 1,900; near the cap only 12 min in 4 h) → downloads are bound by per-worker concurrency, not Intrinio:
   candidate improvement = more in-flight requests per worker (cuts the ~3 h download stage and node-hours); compute is
