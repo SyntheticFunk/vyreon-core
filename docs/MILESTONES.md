@@ -1050,6 +1050,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   hand-over's July recompute:** 07-12's refcheck on the new build — VS-O04 same-day fields must publish (if they are still
   withheld, the fallback over-withholds: a defect, not a label). D-460 audits re-run with scope `tape` (the `d460` scope
   did not exist and both runs aborted silently — runner should refuse an unknown scope loudly: small LATER).
+  **D-459 carry-over gate PASSED (01:43 MT):** 26/26 verify sessions MATCH (1,653 asset-sessions byte for byte, 0 differ,
+  all PASS; 2023-07-19 → 2026-11-10 incl. 5 early closes; the heaviest 81 GB of replay). All 36 tapes on fc36eefb done,
+  0 failed, 0 OOM: **the 10 November tapes 2026-11-06..11-20 are in** (daily run's history unblocked). Measured
+  replay_capture RSS ≤ ~2.1 GB (request 3Gi, limit 6Gi; tape memory.peak also counts ~2 GB page cache).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
