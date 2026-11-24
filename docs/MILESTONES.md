@@ -1239,6 +1239,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   Note: a reference re-run re-fetches the day's inputs (the suite recomputes from raw inputs), capped at 1 concurrent.
   Owner deciding Intrinio Startup by Thursday: asked Intrinio whether the term is quarterly-cancellable or 12-month
   (quarterly ~$934 fits the US$5k Vyreon cap; 12-month ~$5.9k breaks it); wants to see database progress first.
+  **Spend (running total):** DigitalOcean month-to-date $269.04 at 2026-11-24 06:42 UTC vs $180.41 at 11-21 06:09 UTC
+  (before phase 1) → phase 1 so far ≈ $89 + ~11 h ≈ $100 of the $500 ceiling; burn ≈ $1.25/h (10 nodes) → ~11-13 days of
+  cluster left. Projected total to be computed from the first measured days/hour; warn the owner before passing $500.
+  Owner: the audits' value is avoided rebuilds (each rebuild costs cluster dollars), so one thorough audit per release stays.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
