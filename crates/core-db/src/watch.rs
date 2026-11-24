@@ -331,10 +331,16 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
             Ok(paused
                 .map(|row| {
                     let reason: String = row.get(0);
+                    // C-073: the first cause, and the latest added while paused (`work::pause`)
+                    let causes: Vec<&str> = reason.split(crate::work::ALSO).collect();
+                    let also = match causes.len() {
+                        1 => String::new(),
+                        n => format!("; also{}: {}", if n > 2 { format!(" ({} more causes)", n - 1) } else { String::new() }, one_line(causes[n - 1], 160)),
+                    };
                     Found {
                         kind: "QUEUE_PAUSED",
                         key: row.get(1),
-                        summary: format!("Work queue paused, nothing is handed out: {}", one_line(&reason, 160)),
+                        summary: format!("Work queue paused, nothing is handed out: {}{also}", one_line(causes[0], 160)),
                         command: "vyreon-core queue".into(),
                         detail: None,
                     }

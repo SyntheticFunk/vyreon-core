@@ -106,10 +106,30 @@ pub fn embedded() -> Result<Vec<Migration>, Error> {
     }))
 }
 
-/// Brings the database to `migrations`, under the advisory lock.
+/// C-073 (audit c072 r2-3, r4): how long a runner waits for another runner's advisory lock, and for
+/// the ledger, before it gives up. Before, it waited without bound: a stuck migrator holding the lock
+/// kept the new core pod in `migrate` (the old pod already stopped: `Recreate`) past the workers'
+/// 10-minute leases. Now `vyreon-core migrate` fails, the init container exits non-zero and Kubernetes
+/// retries it with its back-off, visibly. A whole fresh database migrates in about a second.
+pub const LOCK_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// Brings the database to `migrations`, under the advisory lock (waited for at most `LOCK_WAIT`).
 pub async fn apply(client: &mut Client, migrations: &[Migration]) -> Result<Report, Error> {
-    client.execute("SELECT pg_advisory_lock($1)", &[&LOCK_KEY]).await?;
+    apply_within(client, migrations, LOCK_WAIT).await
+}
+
+/// `apply`, waiting at most `wait` for the lock and the ledger. Each migration then runs without
+/// this bound (one that needs one sets its own `SET LOCAL`, as 0054 and 0055 do).
+pub async fn apply_within(client: &mut Client, migrations: &[Migration], wait: std::time::Duration) -> Result<Report, Error> {
+    let ms = wait.as_millis().max(1);
+    // the statement's bound past the lock's, so a lock not had is said as such
+    client.batch_execute(&format!("SET lock_timeout = '{ms}ms'; SET statement_timeout = '{}ms'", ms * 2)).await?;
+    if let Err(e) = client.execute("SELECT pg_advisory_lock($1)", &[&LOCK_KEY]).await {
+        let _ = client.batch_execute("RESET lock_timeout; RESET statement_timeout").await;
+        return Err(e.into());
+    }
     let result = apply_locked(client, migrations).await;
+    let _ = client.batch_execute("RESET lock_timeout; RESET statement_timeout").await;
     // the lock also ends with the session; a failed unlock must not hide the run's result
     let _ = client.execute("SELECT pg_advisory_unlock($1)", &[&LOCK_KEY]).await;
     result
@@ -128,6 +148,7 @@ async fn apply_locked(client: &mut Client, migrations: &[Migration]) -> Result<R
         )
         .await?;
     let ledger = client.query("SELECT version, name, sha256 FROM core.schema_migration ORDER BY version", &[]).await?;
+    client.batch_execute("RESET lock_timeout; RESET statement_timeout").await?;
     for row in &ledger {
         let (version, name, recorded): (i32, String, String) = (row.get(0), row.get(1), row.get(2));
         match migrations.iter().find(|m| m.version == version) {

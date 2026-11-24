@@ -176,8 +176,9 @@ pub async fn list(client: &Client, job: Option<i64>, limit: i64) -> Result<Vec<V
             &format!(
                 "SELECT job_id, attempt, kind, session::text, worker, engine_build, stage, message,
                         CASE WHEN jsonb_typeof(refusals) = 'array' THEN jsonb_array_length(refusals) END, excerpt_bytes,
-                        to_char(stored_at AT TIME ZONE 'UTC', {TIME})
-                 FROM core.job_evidence WHERE $1::bigint IS NULL OR job_id = $1 ORDER BY stored_at DESC, job_evidence_id DESC LIMIT $2"
+                        to_char(stored_at AT TIME ZONE 'UTC', {TIME}), to_char(stored_at AT TIME ZONE '{zone}', 'YYYY-MM-DD HH24:MI:SS \"MT\"')
+                 FROM core.job_evidence WHERE $1::bigint IS NULL OR job_id = $1 ORDER BY stored_at DESC, job_evidence_id DESC LIMIT $2",
+                zone = crate::watch::ZONE
             ),
             &[&job, &limit],
         )
@@ -190,6 +191,8 @@ pub async fn list(client: &Client, job: Option<i64>, limit: i64) -> Result<Vec<V
                 "job_id": r.get::<_, i64>(0), "attempt": r.get::<_, i32>(1), "kind": r.get::<_, String>(2), "session": r.get::<_, Option<String>>(3),
                 "worker": r.get::<_, String>(4), "engine_build": r.get::<_, String>(5), "stage": r.get::<_, String>(6), "message": r.get::<_, String>(7),
                 "refusals": r.get::<_, Option<i32>>(8), "excerpt_bytes": r.get::<_, i64>(9), "stored_at": r.get::<_, String>(10),
+                // C-073 (audit c072 r4): what the owner reads, on the owner's clock (C-072)
+                "stored_mt": r.get::<_, String>(11),
             })
         })
         .collect())

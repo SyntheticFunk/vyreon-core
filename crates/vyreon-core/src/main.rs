@@ -804,7 +804,7 @@ async fn evidence_list(job: Option<&str>) -> Result<(), String> {
         let refusals = r["refusals"].as_i64().map_or(String::new(), |n| format!(", {n} refusals"));
         println!(
             "{} job {} attempt {} {} {} by {}: {}: {} ({} bytes of log{refusals})",
-            r["stored_at"].as_str().unwrap_or_default(),
+            r["stored_mt"].as_str().unwrap_or_default(),
             r["job_id"],
             r["attempt"],
             r["kind"].as_str().unwrap_or_default(),

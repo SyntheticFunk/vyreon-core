@@ -964,9 +964,35 @@ pub async fn pause(db_client: &impl GenericClient, reason: &str) -> Result<(), S
         .map_err(db)?;
     if paused == 1 {
         notice::log(db_client, &format!("Queue paused: {reason}. No work is handed out until `vyreon-core queue resume`.")).await?;
+        return Ok(());
     }
+    // C-073 (audit c072 r4, Gemini 2; pre-existing): a cause that comes while the queue is already
+    // paused (a bundle refused, a job failed for the last time, during the operator's pause) was
+    // dropped: no log, no alert, and a resume before anyone looked lost it. It is added to the pause's
+    // reason (`also:`, the first reason kept first, at most `PAUSE_CAUSES_KEPT` added, the oldest
+    // dropped first) and alerted at once, in this transaction (an outbox row, as the log's): the
+    // watch's QUEUE_PAUSED problem is already open and only restates. The same cause again (a
+    // worker's retried call) adds nothing and posts nothing.
+    let was: Option<String> = db_client.query_one("SELECT reason FROM core.queue_control WHERE paused", &[]).await.map_err(db)?.get(0);
+    let Some(was) = was else { return Ok(()) };
+    let mut causes: Vec<&str> = was.split(ALSO).collect();
+    if causes.iter().any(|c| *c == reason.as_str()) {
+        return Ok(());
+    }
+    causes.push(reason);
+    while causes.len() > PAUSE_CAUSES_KEPT + 1 {
+        causes.remove(1);
+    }
+    db_client.execute("UPDATE core.queue_control SET reason = $1 WHERE paused", &[&causes.join(ALSO)]).await.map_err(db)?;
+    notice::log(db_client, &format!("Queue already paused; also: {reason}.")).await?;
+    notice::alert(db_client, &crate::watch::alert_text(&format!("Work queue already paused; also: {}", crate::watch::one_line(reason, 300)), "vyreon-core queue")).await?;
     Ok(())
 }
+
+/// C-073: how a pause's later causes follow its first in `queue_control.reason`.
+pub const ALSO: &str = "\nalso: ";
+/// C-073: the later causes a pause's reason keeps (the first cause is always kept).
+pub const PAUSE_CAUSES_KEPT: usize = 5;
 
 /// Lets work be claimed again. Returns the reason the queue was paused for, if it was. Call it in
 /// a transaction, as `pause`.

@@ -19,8 +19,30 @@ fn db(e: tokio_postgres::Error) -> String {
     e.as_db_error().map_or_else(|| e.to_string(), |d| d.message().to_owned())
 }
 
+/// The longest build name `register` takes.
+pub const BUILD_NAME_MAX: usize = 64;
+
+/// C-073 (audit c072 r4: a build's name is put into progress and alert lines as it is, so one that
+/// could carry a credential reached the progress channel): a build is named as the engine names it,
+/// `<commit>+<inventory digest>`, 1 to `BUILD_NAME_MAX` letters, digits, '+', '.', '_' or '-',
+/// beginning with a letter or digit; anything else is refused before it is stored, without being
+/// repeated.
+pub fn build_name(build: &str) -> Result<(), String> {
+    let mut chars = build.chars();
+    let first_ok = chars.next().is_some_and(|c| c.is_ascii_alphanumeric());
+    if first_ok && build.len() <= BUILD_NAME_MAX && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '_' | '-')) {
+        Ok(())
+    } else {
+        Err(format!(
+            "inventory: an engine build is named with 1 to {BUILD_NAME_MAX} letters, digits, '+', '.', '_' or '-' (the engine's <commit>+<inventory>); \
+             this one is not such a name (not repeated here)"
+        ))
+    }
+}
+
 pub async fn register(client: &mut Client, inventory: &Value) -> Result<Registered, String> {
     let build = inventory["engine_build"].as_str().filter(|b| !b.is_empty()).ok_or("inventory: no engine_build")?.to_owned();
+    build_name(&build)?;
     if inventory["slots"].as_array().is_none_or(Vec::is_empty) {
         return Err("inventory: no slots".into());
     }
@@ -250,9 +272,9 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
     }
     // the old build is withdrawn here when it still runs, in this transaction: nothing of it runs
     // between its withdrawal and the hand-over
-    if from_runs {
-        withdraw_in(&tx, from, &format!("handed over to build {to}: {reason}")).await?;
-    }
+    // the jobs its withdrawal stopped (their leases ended here): the hand-over's "restarted" (C-073,
+    // audit c072 r4: counted from any earlier withdrawal's leases before)
+    let stopped = if from_runs { withdraw_in(&tx, from, &format!("handed over to build {to}: {reason}")).await? } else { Vec::new() };
     let verify_cancelled: Vec<i64> = tx
         .query(
             "UPDATE core.job SET state = 'CANCELLED', finished_at = clock_timestamp()
@@ -354,7 +376,7 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
         .map_err(db)?
         .get(0);
     for job in &verify_cancelled {
-        tx.execute("INSERT INTO core.hand_over_job (hand_over_id, old_job, new_job) VALUES ($1, $2, NULL)", &[&hand_over_id, job]).await.map_err(db)?;
+        tx.execute("INSERT INTO core.hand_over_job (hand_over_id, old_job, new_job, restarted) VALUES ($1, $2, NULL, false)", &[&hand_over_id, job]).await.map_err(db)?;
     }
     for c in &mut carried {
         if c.kind == "DAY_BLOCK" {
@@ -382,7 +404,12 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
             .await
             .map_err(db)?
             .get(0);
-        tx.execute("INSERT INTO core.hand_over_job (hand_over_id, old_job, new_job) VALUES ($1, $2, $3)", &[&hand_over_id, &c.old_job, &new]).await.map_err(db)?;
+        tx.execute(
+            "INSERT INTO core.hand_over_job (hand_over_id, old_job, new_job, restarted) VALUES ($1, $2, $3, $4)",
+            &[&hand_over_id, &c.old_job, &new, &stopped.contains(&c.old_job)],
+        )
+        .await
+        .map_err(db)?;
         c.new_job = Some(new);
     }
     let counts: Vec<String> = ["TAPE", "DAY_BLOCK", "ORDERED_PASS", "REFCHECK"]

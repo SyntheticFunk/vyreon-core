@@ -211,6 +211,10 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Option<Item>>, 
                 && (lease.kind == "DAY_BLOCK" || lease.next_session.as_deref() != Some(date))
                 && let Some(revision_id) = published_before(&tx, &header, &lease).await?
             {
+                // C-073 (audit c072 r2, pre-existing): acknowledged only once the bundle is what was
+                // published, every file and number of it; one that differs is refused, never answered
+                // `already_published` while the reader keeps serving the first
+                same_as_published(&tx, revision_id, &header, &scalars, items).await?;
                 return Ok(Published {
                     revision_id,
                     represented_date: header.represented_date.clone(),
@@ -268,6 +272,7 @@ async fn publish_items(client: &mut Client, items: &mut Receiver<Option<Item>>, 
             Some(lease)
         }
     };
+    check_layer(&tx, &header, lease.as_ref()).await?;
     let listed = check_header(&tx, &header).await?;
     if header.report.as_ref().is_some_and(|r| !r.is_object()) {
         return refuse("the report is not a JSON object");
@@ -396,6 +401,103 @@ async fn published_before(tx: &Transaction<'_>, header: &Header, lease: &work::H
         .map_err(db)?;
     let n = header.slots.len() as i64;
     Ok(row.filter(|r| r.get::<_, i64>(1) == n && r.get::<_, i64>(2) == n).map(|r| r.get(0)))
+}
+
+/// C-073 (audit c072 r2, pre-existing): a bundle sent again is acknowledged as published only when it
+/// is that revision: every slot's files as its header states them (`check_slot`) and its body digests
+/// the stored ones (`published_before`), the bundle ending where its header says, and its reader
+/// scalars and unusual scores exactly the stored ones. Anything else is refused, naming what differs.
+async fn same_as_published(tx: &Transaction<'_>, revision: i64, header: &Header, scalars: &Scalars, items: &mut Receiver<Option<Item>>) -> Result<(), Error> {
+    for slot in &header.slots {
+        let name = format!("{}/{}", slot.measurement_id, slot.object_id);
+        let Some(Some(Item::Slot(files))) = items.recv().await else { return refuse(format!("{name}: the bundle ends before this slot")) };
+        check_slot(slot, &files).map_err(|e| Error::Refused(format!("{name}: {e}")))?;
+    }
+    match items.recv().await {
+        Some(None) => {}
+        Some(Some(_)) => return refuse("the bundle holds more than its header lists"),
+        None => return refuse("the bundle could not be read to its end"),
+    }
+    for (table, column, sent, what) in [("reader_scalar", "value", &scalars.reader_scalar, "reader scalars"), ("unusual_score", "z", &scalars.unusual_score, "unusual scores")] {
+        let stored: HashMap<(String, String, String), u64> = tx
+            .query(&format!("SELECT object_id, measurement_id, role_id, {column} FROM vyreon.{table} WHERE revision_id = $1"), &[&revision])
+            .await
+            .map_err(db)?
+            .iter()
+            .map(|r| ((r.get(0), r.get(1), r.get(2)), r.get::<_, f64>(3).to_bits()))
+            .collect();
+        let sent_set: HashMap<(String, String, String), u64> =
+            sent.iter().map(|x| ((x.object_id.clone(), x.measurement_id.clone(), x.role_id.clone()), x.value.to_bits())).collect();
+        if sent_set.len() != sent.len() || sent_set != stored {
+            let differs = sent_set
+                .iter()
+                .find(|(k, v)| stored.get(*k) != Some(*v))
+                .map(|(k, _)| k)
+                .or_else(|| stored.keys().find(|k| !sent_set.contains_key(*k)))
+                .map_or_else(|| "a value sent twice".to_owned(), |(o, m, r)| format!("{m}/{o}/{r}"));
+            return refuse(format!(
+                "the bundle sent again for {} is not published revision {revision}: its {what} differ ({differs}); a day is published once with one set of numbers",
+                header.represented_date
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// A revision's layer: the base, the day-local revision on it, or the history revision (C-031,
+/// C-070).
+fn layer(header: &Header) -> &'static str {
+    match (header.base_profile_revision.is_some(), header.day_local) {
+        (false, _) => "base",
+        (true, true) => "day-local",
+        (true, false) => "history",
+    }
+}
+
+/// C-073 (audit c072 r2, pre-existing): a bundle's layer is what its header says (a day-local bundle
+/// that omitted its base fields and `day_local` read as a base, and its promotion superseded the
+/// real base). Two checks the header cannot escape: a profile revision of a build has one layer (any
+/// revision of it stored before, in any state, fixes it), and a day block's day has one base (a
+/// second base of another profile revision on the same lease and day is refused).
+///
+/// Under a lease only: by hand an operator may publish an engine's exported bundles of a profile
+/// that predates the split into layers (C-031; `publish --vouch`), and says what it is.
+async fn check_layer(tx: &Transaction<'_>, header: &Header, lease: Option<&work::Held>) -> Result<(), Error> {
+    let Some(lease) = lease else { return Ok(()) };
+    let this = layer(header);
+    let before: Option<String> = tx
+        .query_opt(
+            "SELECT CASE WHEN base_revision IS NULL THEN 'base' WHEN day_local THEN 'day-local' ELSE 'history' END FROM vyreon.day_revision
+             WHERE engine_build = $1 AND profile_revision = $2 AND state <> 'REJECTED' ORDER BY revision_id LIMIT 1",
+            &[&header.engine_build, &header.profile_revision],
+        )
+        .await
+        .map_err(db)?
+        .map(|r| r.get(0));
+    if let Some(before) = before.filter(|b| b != this) {
+        return refuse(format!(
+            "profile {} of build {} is published as a {before} revision; this bundle is presented as a {this} revision (its base fields and day_local say what it is)",
+            header.profile_revision, header.engine_build
+        ));
+    }
+    if lease.kind == "DAY_BLOCK" && this == "base" {
+        let other: Option<String> = tx
+            .query_opt(
+                "SELECT d.profile_revision FROM core.lease_revision lr JOIN vyreon.day_revision d USING (revision_id)
+                 WHERE lr.lease_id = $1 AND d.represented_date = $2::text::date AND d.base_revision IS NULL AND d.profile_revision <> $3 LIMIT 1",
+                &[&lease.lease_id, &header.represented_date, &header.profile_revision],
+            )
+            .await
+            .map_err(db)?
+            .map(|r| r.get(0));
+        if let Some(other) = other {
+            return refuse(format!(
+                "job {} published {}'s base in profile {other}; a second base in profile {} is a day-local or history revision without its base fields",
+                lease.job_id, header.represented_date, header.profile_revision
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// How many slots a stored revision is expected to hold: its build's inventory rows for the field

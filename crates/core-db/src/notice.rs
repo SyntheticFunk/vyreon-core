@@ -169,12 +169,14 @@ pub async fn mark_all_sent(db_client: &impl GenericClient) -> Result<u64, String
         .map_err(db)
 }
 
-/// The newest `limit` logged events, newest first: (when, in UTC, and what).
+/// The newest `limit` logged events, newest first: (when, on the owner's clock (C-072's fixed
+/// UTC−6, "MT"; C-073, audit c072 r4: it was UTC, a day off from the progress channel at night), and
+/// what).
 pub async fn recent_log(db_client: &impl GenericClient, limit: i64) -> Result<Vec<(String, String)>, String> {
     let rows = db_client
         .query(
-            "SELECT to_char(created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'), message FROM core.notice WHERE NOT post ORDER BY notice_id DESC LIMIT $1",
-            &[&limit],
+            "SELECT to_char(created_at AT TIME ZONE $2, 'YYYY-MM-DD HH24:MI:SS \"MT\"'), message FROM core.notice WHERE NOT post ORDER BY notice_id DESC LIMIT $1",
+            &[&limit, &crate::watch::ZONE],
         )
         .await
         .map_err(db)?;

@@ -61,3 +61,19 @@ CREATE FUNCTION core.scaler_count(p_kind text, p_build text, p_daily boolean DEF
 $$;
 REVOKE ALL ON FUNCTION core.scaler_count(text, text, boolean) FROM PUBLIC;
 GRANT EXECUTE ON FUNCTION core.scaler_count(text, text, boolean) TO vyreon_scaler;
+
+-- C-073, the C-072 audit's remaining items (r4):
+-- A hand-over records which of the jobs it moved its own withdrawal stopped (the progress line's
+-- "restarted"); NULL on a hand-over before this (counted as before).
+ALTER TABLE core.hand_over_job ADD COLUMN restarted boolean;
+-- A lease records its job's sessions when it was granted: a block set aside narrows its job to the
+-- day it failed on, and the progress line of a start must still name the block it started (and
+-- where it resumed). Set with `start_session`, by the database; NULL on a lease before this.
+ALTER TABLE core.lease ADD COLUMN job_first date, ADD COLUMN job_last date;
+CREATE OR REPLACE FUNCTION core.lease_start_session() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    SELECT next_session, first_session, last_session INTO NEW.start_session, NEW.job_first, NEW.job_last
+    FROM core.job WHERE job_id = NEW.job_id;
+    RETURN NEW;
+END
+$$;
