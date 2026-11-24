@@ -1262,7 +1262,8 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   UNUSUALNESS), never Intrinio data reposted (owner: "we don't need to, nor want to, repost intrinio data"). Constraints: deterministic templates (no LLM in the production path); a teaser names that a flag fired
   and links to the report, never gives the paid reading away; derived measurements only (Intrinio's condition); plain voice,
   nothing hyped; posts only on genuine rare detections. Cadence (owner): the week's top 1-3 unusualness readings spread over
-  a few posts per week. Platform choice and API access decided at the time.
+  a few posts per week — the top of the paid report's own unusualness ranking (one computation; posts can never
+  disagree with the report). Platform choice and API access decided at the time.
   **Investigating while it runs (owner's goal, UTC−6 ~11:40):** (1) the request budget is ~half used during downloads (avg
   ~800-1,270/min of 1,900; near the cap only 12 min in 4 h) → downloads are bound by per-worker concurrency, not Intrinio:
   candidate improvement = more in-flight requests per worker (cuts the ~3 h download stage and node-hours); compute is
