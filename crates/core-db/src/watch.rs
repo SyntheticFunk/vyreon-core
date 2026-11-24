@@ -332,6 +332,59 @@ impl Checked {
     }
 }
 
+/// The queue's pause as a problem, if it is paused.
+async fn queue_paused(c: &impl GenericClient) -> Result<Option<Found>, String> {
+    let paused = c
+        .query_opt(
+            "SELECT reason, to_char(changed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'), by_operator, changed_at::text FROM core.queue_control WHERE paused",
+            &[],
+        )
+        .await
+        .map_err(db)?;
+    Ok(paused.map(|row| {
+        let reason: String = row.get(0);
+        // C-072: the operator's pause is a planned step
+        let by_operator: bool = row.get(2);
+        Found {
+            kind: "QUEUE_PAUSED",
+            key: row.get(1),
+            summary: format!("Work queue paused{}, nothing is handed out: {}", if by_operator { " by the operator" } else { "" }, one_line(&reason, 160)),
+            command: "vyreon-core queue".into(),
+            detail: None,
+            planned: by_operator.then(|| row.get(3)),
+        }
+    }))
+}
+
+/// C-072 round 3 (audit c072-r2, 1): a bundle refused is alerted in the refusal's own transaction
+/// (after its `work::pause`), whatever then happens to the pause (an operator's resume before the
+/// watch's next minute, a pause whose alert was posted long ago). The pause's problem opens here
+/// with its alert when none is open; an open one still quiet (the operator's pause, now core's) is
+/// alerted now; one alerted already does not say this refusal, so the refusal is alerted itself.
+/// `what`: the refusal as the pause states it.
+pub async fn refused(c: &impl GenericClient, what: &str) -> Result<(), String> {
+    c.execute(PROBLEM_LOCK, &[]).await.map_err(db)?;
+    let Some(f) = queue_paused(c).await? else {
+        // not paused (it cannot be: the caller paused it); the refusal is said all the same
+        return notice::alert(c, &alert_text(&format!("Bundle refused: {}", one_line(what, 240)), "vyreon-core queue")).await;
+    };
+    let open = c
+        .query_opt("SELECT problem_id, quiet_until IS NOT NULL FROM core.problem WHERE kind = $1 AND key = $2 AND resolved_at IS NULL", &[&f.kind, &f.key])
+        .await
+        .map_err(db)?;
+    match open.map(|r| (r.get::<_, i64>(0), r.get::<_, bool>(1))) {
+        None => {
+            open_one(c, &f, None).await?;
+        }
+        Some((id, true)) => {
+            c.execute("UPDATE core.problem SET quiet_until = NULL, summary = $2, command = $3 WHERE problem_id = $1", &[&id, &f.summary, &f.command]).await.map_err(db)?;
+            notice::alert(c, &alert_text(&f.summary, &f.command)).await?;
+        }
+        Some(_) => notice::alert(c, &alert_text(&format!("{} (the queue was paused already)", one_line(what, 240)), "vyreon-core queue")).await?,
+    }
+    Ok(())
+}
+
 /// Every problem that holds at `now`, each part of the check on its own (C-069): a part that fails
 /// is a WATCH_FAILING problem, and the problems of its kinds that are open stay open as they are.
 /// `queueing`: the daily runs' queueing error of this minute, if it failed.
@@ -347,31 +400,7 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
             .await?;
     }
     checked
-        .part(c, &QUEUE, async {
-            let paused = c
-                .query_opt(
-                    "SELECT reason, to_char(changed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'), by_operator, changed_at::text FROM core.queue_control WHERE paused",
-                    &[],
-                )
-                .await
-                .map_err(db)?;
-            Ok(paused
-                .map(|row| {
-                    let reason: String = row.get(0);
-                    // C-072: the operator's pause is a planned step
-                    let by_operator: bool = row.get(2);
-                    Found {
-                        kind: "QUEUE_PAUSED",
-                        key: row.get(1),
-                        summary: format!("Work queue paused{}, nothing is handed out: {}", if by_operator { " by the operator" } else { "" }, one_line(&reason, 160)),
-                        command: "vyreon-core queue".into(),
-                        detail: None,
-                        planned: by_operator.then(|| row.get(3)),
-                    }
-                })
-                .into_iter()
-                .collect())
-        })
+        .part(c, &QUEUE, async { Ok(queue_paused(c).await?.into_iter().collect()) })
         .await?;
     checked
         .part(c, &FAILED_JOBS, async {
@@ -1360,8 +1389,21 @@ async fn resolve(c: &impl GenericClient, o: &Open, now: &str) -> Result<(), Stri
     c.execute("UPDATE core.problem SET resolved_at = GREATEST($2::text::timestamptz, opened_at) WHERE problem_id = $1", &[&o.id, &now]).await.map_err(db)?;
     // C-072: never alerted and over within its grace, it is over where it was said; past its grace
     // (open at its deadline, cleared before a check saw it overdue: audit c072, 4) its alert is
-    // posted now, then its resolution
-    if o.quiet && !o.overdue {
+    // posted now, then its resolution. Round 3 (audit c072-r2, 7): a pause's grace is judged at
+    // its resume (`queue_control.resumed_at`, the first instant it was over), not at this check
+    let overdue = o.quiet
+        && c.query_one(
+            "SELECT p.quiet_until <= LEAST($2::text::timestamptz,
+                                         COALESCE(CASE WHEN p.kind = 'QUEUE_PAUSED'
+                                                       THEN (SELECT q.resumed_at FROM core.queue_control q WHERE q.resumed_at >= p.key::timestamptz) END,
+                                                  $2::text::timestamptz))
+             FROM core.problem p WHERE p.problem_id = $1",
+            &[&o.id, &now],
+        )
+        .await
+        .map_err(db)?
+        .get::<_, bool>(0);
+    if o.quiet && !overdue {
         return notice::log(c, &planned_over_text(&o.summary, o.age)).await;
     }
     if o.quiet {

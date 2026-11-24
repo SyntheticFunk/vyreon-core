@@ -987,7 +987,7 @@ async fn pause_as(db_client: &impl GenericClient, reason: &str, by_operator: boo
 /// a transaction, as `pause`.
 pub async fn resume(db_client: &impl GenericClient) -> Result<Option<String>, String> {
     let was: Option<String> = db_client.query_one("SELECT reason FROM core.queue_control", &[]).await.map_err(db)?.get(0);
-    let resumed = db_client.execute("UPDATE core.queue_control SET paused = false, reason = NULL, by_operator = false, changed_at = clock_timestamp() WHERE paused", &[]).await.map_err(db)?;
+    let resumed = db_client.execute("UPDATE core.queue_control SET paused = false, reason = NULL, by_operator = false, changed_at = clock_timestamp(), resumed_at = clock_timestamp() WHERE paused", &[]).await.map_err(db)?;
     if resumed == 1 {
         notice::log(db_client, "Queue resumed.").await?;
     }
