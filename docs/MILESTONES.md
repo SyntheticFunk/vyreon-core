@@ -1270,7 +1270,8 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   information (out of sample, multiple-testing corrected), then build from what holds up. Product intent stays "measurements,
   not forecasts" unless the owner decides otherwise with that evidence.
   A "signal service" (owner's idea) would additionally require legal review first (securities rules on investment advice in
-  Canada/US); measurement-first stays the product: "most honest, most defensible, and safest" (owner).
+  Canada/US); measurement-first stays the product: "most honest, most defensible, and safest" (owner). Some legal review
+  already done; the full legal research ($2,500 retainer) waits for revenue or a rig hitch — it is only needed for a signal service.
   **Investigating while it runs (owner's goal, UTC−6 ~11:40):** (1) the request budget is ~half used during downloads (avg
   ~800-1,270/min of 1,900; near the cap only 12 min in 4 h) → downloads are bound by per-worker concurrency, not Intrinio:
   candidate improvement = more in-flight requests per worker (cuts the ~3 h download stage and node-hours); compute is
