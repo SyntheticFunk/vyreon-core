@@ -1156,6 +1156,13 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   advisory lock before timeouts, admitted-then-withdrawn successor wording, text-matched withdrawal, and two pre-existing
   publish defects that need a malformed/nondeterministic worker bundle (day-local accepted as base; changed reader scalar
   on a resend acknowledged). Deadline arithmetic verified again.
+  **Engine round 5 CONVERGED under the owner's rule (UTC−6 ~09:00):** Gemini r5 found no engine defect on ordinary data;
+  its ordinary items are reference-side (3-decimal strike rounding — also Codex; META/FB root, phase-2 dates only; paginated
+  duplicate EOD rows not coalesced in the reference); one rare engine item (duplicate snapshot rows 0/blank + blank/in-session)
+  LATER. → build 5f637983, hand over, recompute. Follow-up batch `eng-f6`: EXQ01 adjusted contract ids (BABA 2025-12-19,
+  production), worker image ships OVERLAY_RULES for the reference, reference strike rounding / pagination coalesce / renamed
+  roots. core-clock3 merged (9a0ed8f, 194/0, migration 0055): refusal alerted in its own transaction; narrow Codex check
+  running; core image building; deploy after.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
