@@ -1306,6 +1306,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   (223/0; migration 0057): scoped recompute (REPUBLISH), scoped reference re-runs, download progress reports with the 20-min
   rule for reporting downloads. Codex + Gemini (`audits/2026-11-24-release2/`); then fix every real finding, merge, release.sh;
   then the cluster test (deploy/k8s/README.md §11, ops/scoped-check.sql: scoped vs full byte identity on one recent day, ~$1).
+  **Release-2 audit in (UTC−6 ~17:00):** core Codex 17 ordinary + 3 rare, Gemini 16; engine Codex 13 ordinary + Gemini. Nothing
+  live is affected (release 2 not deployed) except one PRE-EXISTING wrong reading found on the way: DLM-CANDLESTICK misses two
+  real UUP patterns (2025-05-21 hammer, 2025-05-22 inverted hammer) through float boundary comparisons — not yet built (phase 1
+  is in mid-2024), so fixing it in release 2 means no published day carries it. All findings being fixed on core-scope/eng-scope.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
