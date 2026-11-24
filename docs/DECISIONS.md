@@ -3320,7 +3320,7 @@ copied forward byte for byte. This is that mechanism on the cluster.
   download.
 - **Progress** (C-072): a republished day's line reads "Republished …" with its job, scope, reason, how
   many sensors it recomputed and which values changed; finished jobs say "republishes".
-- **Owner decisions this raises** (not decided here): (1) a republished day's current revisions have no
+- **Owner decisions this raised** (coordinator's rulings below): (1) a republished day's current revisions have no
   completed reference check, so C-073's watch queues a REFCHECK re-run for each (a whole day's download
   and suite, about 4 to 6 hours a day); accept, or have the republish worker run the suite itself
   (it would then need the whole day's inputs); (2) the ScaledJob's 4 at once; (3) a copy-forward
@@ -3345,4 +3345,17 @@ copied forward byte for byte. This is that mechanism on the cluster.
   day-local family runs no intent; a company sensor fetches its capture and the daily bars; P alone and
   over three days; the prints' retention both ways; core's reports overlaying the reference), and
   `a_hand_over_carries_a_republish_on_the_successors_plans` (recomposed on the successor's plans; refused
-  with nothing moved when it has none), and `progress.rs`'s republished line. The suite: 217 (211 + 6).
+  with nothing moved when it has none), and `progress.rs`'s republished line. 
+- **Coordinator's additions (2026-11-24, same release).** (1) *The re-run of a republished day is scoped*
+  (`refcheck::queue_reruns`, `SCOPED_MEASUREMENTS`): its REFCHECK job's scope names the measurements the
+  republish recomputed (both layers' `recomputed`) when the revisions it replaced had a COMPLETED check
+  (every carried slot was judged there); otherwise none, and the whole day is checked. The engine's suite
+  then checks those measurements alone (D-462). (2) *Migration renumbered 0057* (main's 0056 is the
+  NO_PROGRESS hotfix); the branch is rebased on it, and the republished day's line is written in the
+  readable progress format ("… · republished (job …, [scope]: reason): N sensors recomputed, …").
+  (3) *A download that reports progress is judged by it*: the hotfix's implicit 240-minute wait applies only
+  to a download step with no `progress`; one that reports progress (engine D-462: at least every minute
+  while it advances) alerts after 20 minutes without a new report. (4) *The first cluster run's plan*:
+  `deploy/k8s/README.md` "11. The first scoped recompute" and `ops/scoped-check.sql` (validated on a
+  migrated database). Tests: `republish.rs::a_republished_days_reference_rerun_checks_what_was_recomputed`,
+  `a_download_reporting_its_progress_is_judged_by_it`. The suite: 223 (main's 215 + 8).
