@@ -2823,3 +2823,40 @@ Three things broke that during the hand-overs of 2026-11-23/24.
   quiet at 29 min, alerted at 31, once, resolved at 33; core's own pause alerted at once);
   `watch.rs::the_weeks_last_session_carries_sundays_report_and_the_owners_clock_stays_on_utc_minus_6`
   (a winter Saturday 10:00 MT deadline is 16:00 UTC); `progress.rs` unit tests of both lines.
+- **Round 2 (Codex audit `2026-11-24-core-c072`, held the rollout at d728b04; all fixed before any
+  deploy, so 0054 is amended in place: it was applied to no database but tests').**
+  1. A bundle refused (or any pause of core's) during the operator's pause was swallowed by
+     `pause`'s `WHERE NOT paused`. Now core's pause takes the operator's over: its reason first, the
+     operator's after it, `by_operator` cleared, same pause (same `changed_at`, same problem), so
+     the watch alerts it at once. During a pause of core's, a later reason of core's is logged
+     ("Queue already paused; also: …"), never dropped.
+  2. A successor left unadmitted was silent: the hand-over line keeps the instruction ("· build X
+     is not admitted: admit it now (`vyreon-core build admit X <evidence.json>`)") while it does
+     not run, and queued work of a hand-over's successor that does not run is a STALLED problem
+     (key `successor <build>`) once `PLANNED_GRACE_MINUTES` have passed since the hand-over (the
+     other stall checks count running builds' work only).
+  3. Planned-ness is the hand-over's own: the daily runs' stop is planned only while the build's
+     current withdrawal is that hand-over's (its reason "handed over to build <to>: <reason>",
+     stamped in its transaction) or the build is its never-admitted successor; a re-admitted build
+     withdrawn later for its own reason alerts at once. Progress folds only the hand-over's own
+     withdrawal, its successor's admission, and the operator's pause it was made in (paused before
+     its notice, not resumed before it; the pause's reason kept when it is not the hand-over's),
+     that pause's resume and planned-step lines; any other withdrawal or pause keeps its line.
+  4. A planned problem still quiet when resolved after its grace (open at its deadline, cleared
+     before a check saw it) posts its overdue alert then its resolution; one overdue and not yet
+     reconciled is red in the digest and weekly check. A failed check (C-069) holds a planned
+     problem as it was: its stored grace decides, the failure never alerts it early.
+  5. A daily queueing error other than the stopped build's own refusal (a table that cannot be
+     read) is said in DAILY_STOPPED ("; queueing failed: …") and makes it no planned step (C-069).
+  6. "Restarted" counts only moved jobs (a leased tape verify job, cancelled, is not); a resumed or
+     retried block start is always named in the started line, whatever its place (only plain starts
+     are capped at `STARTED_MAX`).
+  7. 0054 sets `SET LOCAL lock_timeout = '10s'` and `statement_timeout = '60s'`: a lock wait fails
+     it fast instead of holding the core pod in `migrate` past the workers' leases. The runner
+     applies a migration and its ledger row in one transaction, so a timeout rolls it back whole;
+     `vyreon-core migrate` exits non-zero, the init container fails and Kubernetes retries it with
+     its back-off until the lock holder is gone (core does not serve meanwhile, as before; the
+     failure is now visible in the pod's status and log instead of a silent wait).
+  Tests: `work.rs::a_planned_step_is_the_hand_overs_own_and_hides_no_problem` (1–5 and 3's progress
+  line), `work.rs::a_hand_over_carries_no_pass_its_successor_cannot_run` (6: a leased verify job is
+  not restarted), `progress.rs` unit tests (2's line, 6's retried start at place 27).
