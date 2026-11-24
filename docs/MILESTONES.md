@@ -1221,6 +1221,17 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   those stay after phase 1 unless the owner says otherwise.
   Owner: a rule **for this stage** (pre-launch; repeated reviews demonstrably stopped paying off), not a general law; revisit
   after launch. "Every finding that we validate with our data is one less bug to go live."
+  **Intrinio Startup tier (owner buying 2026-11-24, Black Friday deal):** same APIs/endpoints/datasets as Individual — only
+  commercial display/use rights (no data change for the build). Price: $999/qtr months 1-6 ($934 due today after credit),
+  $1,998/qtr months 7-12, $2,997/qtr month 13+ (Individual is $150/mo). General terms (about.intrinio.com/terms, 2026-09-03):
+  12-month auto-renewal +5%, cancel any time but liable for the term, no refunds; display/redistribution "subject to an
+  executed Order Form" (2.2b); AI outputs to end users and data sent to LLM APIs count as display/redistribution (2.3); on
+  termination delete raw Intrinio data within 30 days, derived works may be kept (2.4). Intrinio (A. Carpenter, 2026-09-30):
+  order form is on the account page; third-party AI may read and cite our public derived measurements **"so long as our
+  data isn't reproducible"**; one dated sample issue during the trial is fine; billing is quarterly. **Design rule for
+  Reporter/web: public pages carry derived measurements only — never raw Intrinio values (chains, quotes, prices, volumes)
+  or enough raw detail to reconstruct them.** To check: the order form's grant (public display, AI, LLM processing) and its
+  term (quarterly vs 12-month).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
