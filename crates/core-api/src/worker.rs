@@ -4,7 +4,7 @@
 //!                                                                          `daily: true` (the daily CronJob's worker) claims
 //!                                                                          only a daily run's job (C-051 amended, round x 13)
 //!   POST /lease/heartbeat                                               -> {expires_at, paused}
-//!   POST /lease/step                 {step, waiting_until?, reason?}    -> {recorded: true} (C-073: the step the worker is on and
+//!   POST /lease/step                 {step, waiting_until?, reason?, progress?} -> {recorded: true} (C-073: the step the worker is on and
 //!                                                                          any deliberate wait, for the watch's NO_PROGRESS)
 //!   POST /lease/finish                                                  -> {job_id}
 //!   POST /lease/fail                 {stage, message, log}              -> {requeued}
@@ -236,12 +236,15 @@ struct Step {
     waiting_until: Option<String>,
     #[serde(default)]
     reason: Option<String>,
+    /// C-073 hotfix: how far the step is ("chains 41 of 64"); a change is progress
+    #[serde(default)]
+    progress: Option<String>,
 }
 
 /// C-073: the worker's current step and any deliberate wait (`work::report_step`).
 async fn step(State(app): Shared, headers: HeaderMap, Json(s): Json<Step>) -> Reply {
     let mut client = app.db().await?;
-    work::report_step(&mut client, bearer(&headers)?, &s.step, s.waiting_until.as_deref(), s.reason.as_deref()).await?;
+    work::report_step_with(&mut client, bearer(&headers)?, &s.step, s.waiting_until.as_deref(), s.reason.as_deref(), s.progress.as_deref()).await?;
     ok(json!({"recorded": true}))
 }
 
