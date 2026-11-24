@@ -2335,7 +2335,7 @@ async fn the_progress_channel_says_what_moved_every_half_hour() {
             claim.job_id
         )
     );
-    assert_eq!(lines[2], format!("Started block 2025-12-10 to 2025-12-11 on day-7f2c (job {}, attempt 1)", claim.job_id));
+    assert_eq!(lines[2], "Started 1 block (2025): 12-10–12-11", "C-072: the blocks started, in one line");
     assert!(lines[3].ends_with(&format!("Engine build {b} admitted: its workers may claim work.")), "{post}");
     assert_eq!(lines[4], "Day blocks: 0 done in this window · 0 of 1 done · 1 running");
     assert_eq!(lines.len(), 5, "{post}");
@@ -2494,6 +2494,117 @@ async fn a_pass_done_then_queued_again_counts_as_done_in_its_window() {
     let now = watch::now(&client).await.unwrap();
     let posts = progress::preview(&mut client, PROFILE, &now).await.unwrap();
     assert!(posts[0].lines().any(|l| l == "Ordered passes: 1 done in this window · 0 of 1 done · 1 waiting"), "{}", posts[0]);
+    scratch.drop().await;
+}
+
+/// The owner's channel's posts (alerts, resolutions, digests), oldest first.
+async fn alerts(client: &Client) -> Vec<String> {
+    client.query("SELECT message FROM core.notice WHERE post AND channel = 'alerts' ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect()
+}
+
+/// C-072: a hand-over as the owner reads it in Discord. The operator pauses the queue, hands the
+/// running build's work to its successor (two of its blocks running), admits the successor and
+/// resumes: the pause and the daily runs stopped by the withdrawal are planned steps, said on the
+/// progress channel only (they were two alerts and two resolutions); the progress window says the
+/// hand-over in one line, its steps folded in, and the blocks started in one line. A pause the
+/// operator forgets is alerted once its grace ends; a pause core makes itself is alerted at once.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_hand_over_is_progress_unless_it_overstays() {
+    use core_db::daily::Daily;
+    use core_db::progress;
+    use core_db::watch::Settings;
+    let (scratch, mut client, _, _) = ready("c072_hand_over").await;
+    let old = whole_build_named(&mut client, "slice-old-image").await;
+    let days = ["2025-12-08", "2025-12-09", "2025-12-10", "2025-12-11", "2025-12-12"];
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &old, days[0], days[4], 1).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &old, days[0], days[4], 1).await.unwrap();
+    for worker in ["w1", "w2"] {
+        work::claim(&mut client, Kind::DayBlock, &old, worker, HOUR).await.unwrap().unwrap();
+    }
+    let settings = |build: &str| Settings {
+        profile: PROFILE.into(),
+        deadlines_from: None,
+        volume_bytes: None,
+        deadline_hour: watch::DEADLINE_HOUR,
+        // no session due: the daily runs are judged on their build alone
+        daily: Some(Daily { profile: PROFILE.into(), build: build.into(), from: "2099-01-02".into() }),
+        archive: None,
+        refcheck_from: None,
+        backup_days: None,
+    };
+    let reason = "hand-over to slice-new-image: the rulings image removes a false zero on every new day, strictly better on wrong numbers";
+    work::pause_by_operator(&client, reason).await.unwrap();
+    let new = registered_whole_build(&mut client, "slice-new-image").await;
+    let preview = build::hand_over(&mut client, &old, &new, "the rulings image", true, None).await.unwrap();
+    let id = build::hand_over(&mut client, &old, &new, "the rulings image", false, Some(&preview.token)).await.unwrap().hand_over_id.unwrap();
+
+    // the watch's minute during the hand-over: two problems, quiet, said on the progress channel
+    let t0 = watch::now(&client).await.unwrap();
+    let paused = format!("Work queue paused by the operator, nothing is handed out: {}", watch::one_line(reason, 160));
+    let stopped = format!("Daily runs stopped: build {old} was withdrawn (hand-over {id}, with build {new}), so no new session is queued");
+    let change = watch::check(&mut client, &settings(&old), &t0).await.unwrap();
+    assert!(change.opened.contains(&paused) && change.opened.contains(&stopped), "{change:?}");
+    let ours = |posts: Vec<String>| posts.into_iter().filter(|p| p.contains("Work queue paused") || p.contains("Daily runs stopped")).collect::<Vec<_>>();
+    assert_eq!(ours(alerts(&client).await), Vec::<String>::new(), "a planned step is no alert");
+    let open: Vec<watch::Open> = watch::open(&client, &t0).await.unwrap().into_iter().filter(|o| o.kind == "QUEUE_PAUSED" || o.kind == "DAILY_STOPPED").collect();
+    assert!(open.len() == 2 && open.iter().all(|o| o.quiet && !o.overdue), "{open:?}");
+    assert!(watch::verdict(&open, &[], &[]).starts_with("🟡 Running; planned step under way: Work queue paused by the operator"), "the digest is not red");
+    let planned = notices(&client).await.into_iter().filter(|n| n.starts_with(watch::PLANNED)).collect::<Vec<_>>();
+    assert_eq!(planned.len(), 2, "{planned:?}");
+    assert!(planned.iter().all(|n| n.ends_with(" MT)") && n.contains("(alerted if still so at ")), "{planned:?}");
+
+    // the successor admitted, the queue resumed, the daily runs on the successor: both resolve
+    // within their grace, quietly
+    admit(&client, &new).await;
+    work::resume(&client).await.unwrap();
+    let t1 = later(&client, &t0, 10).await;
+    let change = watch::check(&mut client, &settings(&new), &t1).await.unwrap();
+    assert!(change.resolved.contains(&paused) && change.resolved.contains(&stopped), "{change:?}");
+    assert_eq!(ours(alerts(&client).await), Vec::<String>::new(), "nor is its end");
+    assert_eq!(notices(&client).await.iter().filter(|n| n.starts_with(&format!("{}over after 10 min: ", watch::PLANNED))).count(), 2);
+
+    // the progress window: the hand-over in one line, its steps folded in; the blocks started in one
+    let post = progress::preview(&mut client, PROFILE, &t1).await.unwrap().join("\n");
+    let lines: Vec<&str> = post.lines().collect();
+    let hand_over: Vec<&str> = lines.iter().copied().filter(|l| l.contains("Hand-over")).collect();
+    assert_eq!(hand_over.len(), 1, "{post}");
+    let (at, line) = hand_over[0].split_once(' ').unwrap();
+    assert_eq!(at.len(), 5, "{post}");
+    let rest = line.strip_prefix(&format!("Hand-over {id}: {old} → {new}, 5 blocks + 5 passes moved, 2 running jobs restarted — the rulings image · queue paused ")).unwrap_or_else(|| panic!("{post}"));
+    assert!(rest.contains(&format!(" · {new} admitted ")) && rest.contains(" · queue resumed "), "{post}");
+    assert!(lines.contains(&"Started 2 blocks (2025): 12-08, 12-09"), "{post}");
+    for folded in ["withdrawn", "Queue paused", "Queue resumed", watch::PLANNED, &format!("Engine build {new} admitted")] {
+        assert!(!post.contains(folded), "{folded} is folded into the hand-over's line: {post}");
+    }
+
+    // a pause the operator forgets: quiet for its grace, then one alert, then resolved as any
+    work::pause_by_operator(&client, "checking the new image's first day").await.unwrap();
+    let t2 = watch::now(&client).await.unwrap();
+    let mut at = Vec::new();
+    for minutes in [29, 31, 32, 33, 34] {
+        at.push(later(&client, &t2, minutes).await);
+    }
+    let forgotten = "Work queue paused by the operator, nothing is handed out: checking the new image's first day";
+    assert_eq!(watch::check(&mut client, &settings(&new), &t2).await.unwrap().opened, [forgotten]);
+    assert_eq!(watch::check(&mut client, &settings(&new), &at[0]).await.unwrap().alerted, Vec::<String>::new());
+    assert_eq!(watch::check(&mut client, &settings(&new), &at[1]).await.unwrap().alerted, [forgotten]);
+    assert_eq!(
+        ours(alerts(&client).await),
+        [format!("🔴 {forgotten} (a planned step, still open after 31 min)\nTo see more: `vyreon-core queue`")]
+    );
+    assert_eq!(watch::check(&mut client, &settings(&new), &at[2]).await.unwrap().alerted, Vec::<String>::new(), "alerted once");
+    work::resume(&client).await.unwrap();
+    watch::check(&mut client, &settings(&new), &at[3]).await.unwrap();
+    assert_eq!(ours(alerts(&client).await).last().unwrap(), &format!("✅ Resolved: {forgotten} (it was open 33 min)"));
+
+    // a pause core makes itself is a problem at once, as before
+    work::pause(&client, "job 1 failed for the last time: tape").await.unwrap();
+    watch::check(&mut client, &settings(&new), &at[4]).await.unwrap();
+    assert_eq!(
+        ours(alerts(&client).await).last().unwrap(),
+        "🔴 Work queue paused, nothing is handed out: job 1 failed for the last time: tape\nTo see more: `vyreon-core queue`"
+    );
     scratch.drop().await;
 }
 
