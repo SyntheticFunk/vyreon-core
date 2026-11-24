@@ -1179,6 +1179,9 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   02:00 MT (is 03:00); rare: a build id interpolated unscrubbed into the admit line, restart count after a prior withdrawal,
   a hand-over straddling a window cutoff, long retry lines cut by the splitter. Gemini r4 still running (roll back only if
   it finds an alert regression). Kubeconfig expires ~11-25: refresh before then.
+  Gemini r4: 0 blocking (0 in ordinary operation) → deploy stands. Rare, added to the LATER core batch: a final job failure
+  or bundle refusal during an already-open pause is neither logged nor alerted (pre-existing; the release script shortens
+  pause windows), admit instruction hidden for a re-admitted build, restart count after withdraw/re-admit. **C-072 closed.**
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
