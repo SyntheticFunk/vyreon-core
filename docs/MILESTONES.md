@@ -1290,6 +1290,9 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   on a block's first day). Nothing stuck. Core hotfix (core-np): download steps are an implicit bounded wait (240 min) + any new
   step report counts as progress; deploy via release.sh --core. Proper fix next release: engine reports download progress.
   Leftover: old Job ws65f (07-22) errored after the hand-over ("lease gone") — harmless, 07-22 recompute covered.
+  **Hotfix deployed (UTC−6 ~16:00) via release.sh --core: core 067b33c, migration 56** — the 7 false NO_PROGRESS alerts resolved;
+  only REFCHECK_DISAGREES (07-12, old build; recompute pending) open. Next release: the engine reports download progress
+  (`progress` field on /lease/step) so a genuinely hung download is caught within 20 min, not 255.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
