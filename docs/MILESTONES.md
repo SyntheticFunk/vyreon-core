@@ -1296,6 +1296,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   10/63 assets (ARKK FXI JPM MSFT MSTR PLTR SPY TSLA XBI XLV) — my D-458 attribution was wrong. Pattern: a block's first days.
   If every daily run (a one-day block) hits it, it is launch-blocking. Read-only root-cause investigation running; fix joins
   the release.
+  **VS-O04 root cause (evidence):** not block position — `production_result.rs:420-428 validate` (pre-D-144) rejects a body
+  when T is clean but T−5/T−10 is OI-faulted; containment then writes ENGINE_FAULT on all roles. ENGINE_FAULT set on each
+  day == assets OI-faulted at T−10 (e.g. 07-16 ↔ 07-01: 10/10). Hits daily runs too. Fix → eng-rel (restores D-144, no method
+  change; republish VS-O04 on the 9 affected days). **Separate question opened:** OI marked faulted for 10-51/64 assets on
+  every session 2024-05-20..07-03 (clean from 07-05); only 06-10/11 are known faults (P-27) → true provider incompleteness or
+  an over-firing gate? Read-only investigation with Intrinio spot checks running.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
