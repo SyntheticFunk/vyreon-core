@@ -135,7 +135,7 @@ async fn a_verdict_is_kept_once_beside_its_cache_and_a_failure_is_a_disagreement
     assert_eq!(problems(&client).await, [("REFCHECK_DISAGREES".to_owned(), said.to_owned())]);
     let line = refcheck::tape_digest_line(&client, &now).await.unwrap().unwrap();
     assert_eq!(line, "Tape caches stored in the last 24 hours: 2 (0 verified by the tape reader, 1 disagree, 0 withheld whole, 1 not verified)");
-    assert!(watch::digest(&client, &settings, &now).await.unwrap().contains(&line));
+    assert!(watch::digest(&mut client, &settings, &now).await.unwrap().contains(&line));
     let show = refcheck::tape_show(&client, S).await.unwrap();
     assert_eq!(show["counts"], json!({"FAIL": 1, "stated absence": 1}));
     // the real FAIL lists no bin differences (its reason names the field)

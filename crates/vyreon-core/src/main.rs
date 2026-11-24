@@ -626,17 +626,17 @@ async fn problems() -> Result<(), String> {
 }
 
 async fn digest(weekly: bool) -> Result<(), String> {
-    let client = connect().await?;
+    let mut client = connect().await?;
     let now = watch::now(&client).await?;
-    let text = if weekly { watch::weekly(&client, &watch_settings()?, &now).await? } else { watch::digest(&client, &watch_settings()?, &now).await? };
+    let text = if weekly { watch::weekly(&mut client, &watch_settings()?, &now).await? } else { watch::digest(&mut client, &watch_settings()?, &now).await? };
     println!("{text}");
     Ok(())
 }
 
 async fn progress_preview() -> Result<(), String> {
-    let client = connect().await?;
+    let mut client = connect().await?;
     let now = watch::now(&client).await?;
-    let posts = core_db::progress::preview(&client, &watch_settings()?.profile, &now).await?;
+    let posts = core_db::progress::preview(&mut client, &watch_settings()?.profile, &now).await?;
     if posts.is_empty() {
         println!("nothing happened in the last 30 minutes: no progress post");
     }

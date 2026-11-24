@@ -199,7 +199,7 @@ async fn a_last_failure_and_a_provider_burst_are_problems_from_the_evidence() {
     let after_three = later_text(&client, 3).await;
     assert_eq!(check(&mut client, &s, &after_three).await.resolved.len(), 1);
     // the three were retried, not failed: handled, in the digest
-    let digest = watch::digest(&client, &s, &after_three).await.unwrap();
+    let digest = watch::digest(&mut client, &s, &after_three).await.unwrap();
     assert!(digest.starts_with("🟡 Running; handled: 3 retried attempts · "), "{digest}");
     scratch.drop().await;
 }
@@ -311,15 +311,15 @@ async fn the_digest_leads_with_its_verdict() {
     let dates = vec!["2025-12-09".to_owned(), "2025-12-10".to_owned()];
     let tallied = async |c: &Client| c.query_one("SELECT count(*) FROM core.revision_tally", &[]).await.unwrap().get::<_, i64>(0);
     assert_eq!(tallied(&client).await, 0);
-    let counted = watch::session_tallies(&client, PROFILE, &dates).await.unwrap();
+    let counted = watch::session_tallies(&mut client, PROFILE, &dates, None).await.unwrap().unwrap();
     assert_eq!(counted.len(), 2);
     assert_eq!((counted["2025-12-10"].engine_faults, counted["2025-12-09"].engine_faults), (1, 0));
     assert_eq!(tallied(&client).await, 2);
-    assert_eq!(watch::session_tallies(&client, PROFILE, &dates).await.unwrap(), counted);
+    assert_eq!(watch::session_tallies(&mut client, PROFILE, &dates, None).await.unwrap().unwrap(), counted);
 
     // 🟢: nothing open, nothing handled
     check(&mut client, &s, &now).await;
-    let green = watch::digest(&client, &s, &now).await.unwrap();
+    let green = watch::digest(&mut client, &s, &now).await.unwrap();
     let lines: Vec<&str> = green.lines().collect();
     assert_eq!(lines[0], format!("🟢 Running fine · {today}"));
     assert_eq!(lines[1], "Latest session stored: Wed Dec 10, 2025 · 80.0% of its measurements have a value (typical 100.0%) · 1 engine fault");
@@ -339,7 +339,7 @@ async fn the_digest_leads_with_its_verdict() {
     work::sweep(&mut client).await.unwrap();
     let now = watch::now(&client).await.unwrap();
     check(&mut client, &s, &now).await;
-    let yellow = watch::digest(&client, &s, &now).await.unwrap();
+    let yellow = watch::digest(&mut client, &s, &now).await.unwrap();
     assert!(yellow.starts_with(&format!("🟡 Running; handled: 1 retried attempt · {today}\n")), "{yellow}");
     assert!(yellow.contains("\nAttempts retried in the last 24 hours: 1\nWork queue: day blocks 1 waiting\nBackfill progress: 0 of 1 sessions done · no block running, so no estimate\n"), "{yellow}");
 
@@ -349,7 +349,7 @@ async fn the_digest_leads_with_its_verdict() {
     tx.commit().await.unwrap();
     let now = watch::now(&client).await.unwrap();
     check(&mut client, &s, &now).await;
-    let red = watch::digest(&client, &s, &now).await.unwrap();
+    let red = watch::digest(&mut client, &s, &now).await.unwrap();
     let paused = format!("Work queue paused, nothing is handed out: job {} (w1): bundle refused: unreadable bundle", claim.job_id);
     assert!(red.starts_with(&format!("🔴 Needs you: {paused} · {today}\n")), "{red}");
     assert!(red.ends_with(&format!("\nOpen problems (1):\n• {paused} · open 0 min · `vyreon-core queue`")), "{red}");
@@ -372,7 +372,7 @@ async fn the_digest_leads_with_its_verdict() {
         "Thu Dec 11: not published",
         "Fri Dec 12: not published"
     ]);
-    let watched = watch::weekly(&client, &settings(Some("2025-12-08")), "2025-12-13 09:00:00-07").await.unwrap();
+    let watched = watch::weekly(&mut client, &settings(Some("2025-12-08")), "2025-12-13 09:00:00-07").await.unwrap();
     // C-051: Friday's deadline (Saturday 10:00 here) is still ahead at 09:00: due, not missing
     assert!(watched.starts_with("🔴 Weekly check: Sunday's report at risk, 2 of 5 sessions not published (Mon Dec 8, Thu Dec 11)\n"), "{watched}");
     assert!(watched.contains("\nFri Dec 12: not published yet, due by Sat 10:00 MT\n"), "{watched}");
@@ -412,7 +412,7 @@ async fn the_weekly_check_needs_the_history_pass_and_no_open_problem() {
     }
     let saturday = "2025-12-13 11:00:00-07";
     check(&mut client, &s, saturday).await;
-    let weekly = watch::weekly(&client, &s, saturday).await.unwrap();
+    let weekly = watch::weekly(&mut client, &s, saturday).await.unwrap();
     let lines: Vec<&str> = weekly.lines().collect();
     assert_eq!(lines[0], "🟡 Weekly check: Sunday's report waits for the history pass of 1 of 5 sessions (Fri Dec 12)");
     assert_eq!(lines[4..6], [
@@ -420,12 +420,12 @@ async fn the_weekly_check_needs_the_history_pass_and_no_open_problem() {
         "Fri Dec 12: published · no measurements · 0 engine faults · history pass not published"
     ]);
     history_published(&client, days[4], "2025-12-13 10:30:00-07").await;
-    let weekly = watch::weekly(&client, &s, saturday).await.unwrap();
+    let weekly = watch::weekly(&mut client, &s, saturday).await.unwrap();
     assert!(weekly.starts_with("🟢 Weekly check: all 5 of this week's sessions published with their history pass; Sunday's report has what it needs\n"), "{weekly}");
     // a problem open (the queue paused): never green
     work::pause(&client, "a pass refused its bundle").await.unwrap();
     check(&mut client, &s, saturday).await;
-    let weekly = watch::weekly(&client, &s, saturday).await.unwrap();
+    let weekly = watch::weekly(&mut client, &s, saturday).await.unwrap();
     assert!(
         weekly.starts_with("🔴 Weekly check: Sunday's report is not cleared while a problem is open: Work queue paused, nothing is handed out: a pass refused its bundle\n"),
         "{weekly}"
@@ -480,14 +480,14 @@ async fn the_weekly_headline_agrees_with_its_lines() {
     }
     let nine = "2025-12-13 09:00:00-07";
     check(&mut client, &s, nine).await;
-    let weekly = watch::weekly(&client, &s, nine).await.unwrap();
+    let weekly = watch::weekly(&mut client, &s, nine).await.unwrap();
     let lines: Vec<&str> = weekly.lines().collect();
     assert_eq!(lines[0], "🟢 Weekly check: on time; 4 of 5 sessions published with their history pass, 1 due later (Fri Dec 12)");
     assert_eq!(lines[5], "Fri Dec 12: published · no measurements · 0 engine faults · history pass not published yet, due by Sat 10:00 MT");
     // no deadline set: the week is not judged, but an open problem is still red
     work::pause(&client, "a pass refused its bundle").await.unwrap();
     check(&mut client, &settings(None), nine).await;
-    let weekly = watch::weekly(&client, &settings(None), nine).await.unwrap();
+    let weekly = watch::weekly(&mut client, &settings(None), nine).await.unwrap();
     assert!(weekly.starts_with("🔴 Weekly check: Sunday's report is not cleared while a problem is open: Work queue paused"), "{weekly}");
     scratch.drop().await;
 }
@@ -617,7 +617,7 @@ async fn many_open_problems_fit_one_post() {
     assert_eq!(change.opened.len() as i64, late, "one per late session; no report-at-risk for weeks whose Sunday is past");
     assert_eq!(check(&mut client, &s, now).await, watch::Change::default());
     assert_eq!(posts(&client).await.len() as i64, late);
-    let digest = watch::digest(&client, &s, now).await.unwrap();
+    let digest = watch::digest(&mut client, &s, now).await.unwrap();
     assert!(digest.chars().count() <= watch::LIMIT, "{}", digest.chars().count());
     assert!(digest.starts_with("🔴 Needs you: Mon Mar 3 not published by its Tue 10:00 MT deadline (and "), "{digest}");
     assert!(digest.contains(&format!("\nOpen problems ({late}):\n")));
@@ -776,7 +776,7 @@ async fn the_backups_are_judged_on_the_plugins_record_alone() {
     watch::put_backup_evidence(&client, Ok(&good)).await.unwrap();
     let now = watch::now(&client).await.unwrap();
     assert_eq!(check(&mut client, &s, &now).await.resolved, [never]);
-    let digest = watch::digest(&client, &s, &now).await.unwrap();
+    let digest = watch::digest(&mut client, &s, &now).await.unwrap();
     assert!(digest.contains(" of 250.0 GiB (") && digest.contains("newest recoverable base backup 3 days ago (the plugin's record)"), "{digest}");
     // the plugin taken out of the Cluster: WAL goes nowhere, whatever PostgreSQL counts as archived
     let bare = watch::BackupEvidence::from_objects("vyreon-pg", &json!({"spec": {}}), None);
@@ -902,7 +902,7 @@ async fn workers_leaving_while_work_waits_are_a_problem() {
 
 /// C-071 (triage 2026-11-23 r2, C4 = G1, BLOCKS the ordered passes): the passes publish a history
 /// revision for each of phase 1's 597 sessions (2024-07-09..2026-11-20) within hours, and the 09:00
-/// digest counts every revision of the last 24 hours not counted yet. It counts them in batches of
+/// digest counts every revision not counted yet (round 3, 3: whenever published). It counts them in batches of
 /// `TALLY_BATCH`, each committed, for at most `TALLY_BUDGET` a minute, so no statement grows with
 /// the passes, and a core killed mid-count (here: its connection terminated while a batch waits)
 /// loses only that batch: the next minute goes on from there and counts each revision once.
@@ -915,12 +915,121 @@ async fn workers_leaving_while_work_waits_are_a_problem() {
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn the_digest_counts_the_ordered_passes_in_committed_batches_and_survives_a_kill() {
-    let (scratch, mut client, _) = ready("tally_batches").await;
-    client.query_one("SELECT vyreon.ensure_months('2024-07-01', '2026-11-30')", &[]).await.unwrap();
+    let (scratch, mut client, fresh) = ordered_passes("tally_batches").await;
     let s = settings(None);
+    let now = PASSES_DIGEST;
+    // what the digest counts: every revision published by then with no count, the bare bases too
+    // (round 3, 3), oldest first
+    let pending = uncounted(&client, now).await;
+    assert_eq!(pending.len(), 2 + 2 * 596, "the slice's two revisions, 596 bare bases and their passes");
+    let tallied = async |c: &Client| c.query_one("SELECT count(*) FROM core.revision_tally", &[]).await.unwrap().get::<_, i64>(0);
+
+    // a core killed mid-count: its third batch waits on a revision another transaction holds, and
+    // its connection is terminated there; the two batches before stay counted, the third is gone
+    let held = pending[2 * watch::TALLY_BATCH + 3];
+    let mut other = scratch.client().await;
+    let tx = other.transaction().await.unwrap();
+    tx.execute("INSERT INTO core.revision_tally (revision_id, slots, withheld, provider_withheld, engine_faults) VALUES ($1, 0, 0, 0, 0)", &[&held]).await.unwrap();
+    let mut killed = scratch.client().await;
+    let pid: i32 = killed.query_one("SELECT pg_backend_pid()", &[]).await.unwrap().get(0);
+    let counting = tokio::spawn(async move { watch::tally_untallied(&mut killed, PROFILE, now, None).await });
+    let waits = async || {
+        client
+            .query_one("SELECT count(*) FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock'", &[&pid])
+            .await
+            .unwrap()
+            .get::<_, i64>(0)
+    };
+    for _ in 0..600 {
+        if waits().await == 1 {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(waits().await, 1, "the third batch waits on the held revision");
+    assert!(client.query_one("SELECT pg_terminate_backend($1)", &[&pid]).await.unwrap().get::<_, bool>(0));
+    assert!(counting.await.unwrap().is_err(), "the killed count fails");
+    tx.rollback().await.unwrap();
+    assert_eq!(tallied(&client).await, 2 * watch::TALLY_BATCH as i64, "two batches committed, the killed one rolled back");
+    let first: Vec<(i64, String)> = client
+        .query("SELECT revision_id, counted_at::text FROM core.revision_tally ORDER BY 1", &[])
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+    assert_eq!(first.iter().map(|(r, _)| *r).collect::<Vec<_>>(), pending[..2 * watch::TALLY_BATCH]);
+
+    // a minute whose budget is spent counts one more batch and composes nothing yet
+    assert!(!watch::tally_untallied(&mut client, PROFILE, now, Some(std::time::Instant::now())).await.unwrap());
+    assert_eq!(tallied(&client).await, 3 * watch::TALLY_BATCH as i64);
+
+    // the 09:30 minute goes on from there, counts the rest and queues the digest
+    watch::tick(&mut client, &s, now).await.unwrap();
+    assert_eq!(tallied(&client).await, pending.len() as i64, "every revision counted, each once");
+    let digest: String = client.query_one("SELECT message FROM core.notice WHERE once = 'digest 2026-11-20'", &[]).await.unwrap().get(0);
+    let counted = client
+        .query(
+            "SELECT d.revision_id, d.base_revision IS NULL, t.slots, t.withheld, t.provider_withheld, t.engine_faults, t.counted_at::text
+             FROM vyreon.day_revision d JOIN core.revision_tally t USING (revision_id) WHERE d.revision_id = ANY($1) ORDER BY 1",
+            &[&fresh],
+        )
+        .await
+        .unwrap();
+    assert_eq!(counted.len(), 598, "every revision of the last 24 hours counted, each once");
+    for r in &counted {
+        let (id, is_base): (i64, bool) = (r.get(0), r.get(1));
+        let t: (i32, i32, i32, i32) = (r.get(2), r.get(3), r.get(4), r.get(5));
+        // the base: four delivered slots; each history revision: two delivered and the engine's
+        // faulted slot, withheld whole for its engine fault (never the held row's zeros)
+        assert_eq!(t, if is_base { (4, 0, 0, 0) } else { (3, 1, 0, 1) }, "revision {id}");
+    }
+    // what the killed count committed was not counted again
+    let kept: Vec<(i64, String)> = client
+        .query("SELECT revision_id, counted_at::text FROM core.revision_tally WHERE revision_id = ANY($1) ORDER BY 1", &[&first.iter().map(|(r, _)| *r).collect::<Vec<_>>()])
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+    assert_eq!(kept, first);
+    let lines: Vec<&str> = digest.lines().collect();
+    assert_eq!(lines[1], "Latest session stored: Fri Nov 20 · 66.7% of its measurements have a value (typical 66.7%) · 1 engine fault", "{digest}");
+    assert_eq!(lines[2], "Sessions published in the last 24 hours: 1 (2025-12-10)", "{digest}");
+    assert_eq!(lines[3], "Provider gaps recorded in the last 24 hours: none", "{digest}");
+    scratch.drop().await;
+}
+
+/// The digest's minute of the ordered passes (Friday 2026-11-20 09:30 MT).
+const PASSES_DIGEST: &str = "2026-11-20 09:30:00-07";
+
+/// The revisions of the profile published by `now` with no count, oldest first.
+async fn uncounted(client: &Client, now: &str) -> Vec<i64> {
+    client
+        .query(
+            "SELECT revision_id FROM vyreon.day_revision d WHERE published_at <= $1::text::timestamptz
+               AND NOT EXISTS (SELECT FROM core.revision_tally t WHERE t.revision_id = d.revision_id) ORDER BY revision_id",
+            &[&now],
+        )
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.get(0))
+        .collect()
+}
+
+/// The ordered passes of phase 1 as the 09:30 digest of `PASSES_DIGEST` finds them (C-071): the
+/// slice's real base and derived revisions of 2025-12-10 published at 09:00 (the engine's real
+/// faulted XLB body added to the derived one), each other session of 2024-07-09..2026-11-20 a bare
+/// base header published days before and a history revision holding the derived revision's three
+/// bodies re-dated to its session, published over the 15 hours before. Returns the revisions of
+/// the last 24 hours.
+async fn ordered_passes(test: &str) -> (Scratch, Client, Vec<i64>) {
+    let (scratch, mut client, _) = ready(test).await;
+    client.query_one("SELECT vyreon.ensure_months('2024-07-01', '2026-11-30')", &[]).await.unwrap();
     let mut revision = Vec::new();
-    for (name, (h, sc, f)) in [("tally-base", parts(BASE)), ("tally-derived", parts(DERIVED))] {
-        let path = bundle(name, &h, &sc, &f);
+    for (name, (h, sc, f)) in [("base", parts(BASE)), ("derived", parts(DERIVED))] {
+        let path = bundle(&format!("{test}-{name}"), &h, &sc, &f);
         revision.push(core_db::publish::publish_file_vouched(&mut client, &path).await.unwrap().revision_id);
         std::fs::remove_file(&path).unwrap();
     }
@@ -937,7 +1046,7 @@ async fn the_digest_counts_the_ordered_passes_in_committed_batches_and_survives_
         .await
         .unwrap();
     // Friday 2026-11-20 09:30 MT: the passes published over the last 15 hours, the bases days before
-    let now = "2026-11-20 09:30:00-07";
+    let now = PASSES_DIGEST;
     client.execute("UPDATE vyreon.day_revision SET published_at = '2026-11-20 09:00:00-07'", &[]).await.unwrap();
     client
         .execute(
@@ -982,73 +1091,80 @@ async fn the_digest_counts_the_ordered_passes_in_committed_batches_and_survives_
         .map(|r| r.get(0))
         .collect();
     assert_eq!(fresh.len(), 598, "596 passes and the slice's two revisions");
-    let tallied = async |c: &Client| c.query_one("SELECT count(*) FROM core.revision_tally", &[]).await.unwrap().get::<_, i64>(0);
+    (scratch, client, fresh)
+}
 
-    // a core killed mid-count: its third batch waits on a revision another transaction holds, and
-    // its connection is terminated there; the two batches before stay counted, the third is gone
-    let held = fresh[2 * watch::TALLY_BATCH + 3];
-    let mut other = scratch.client().await;
-    let tx = other.transaction().await.unwrap();
-    tx.execute("INSERT INTO core.revision_tally (revision_id, slots, withheld, provider_withheld, engine_faults) VALUES ($1, 0, 0, 0, 0)", &[&held]).await.unwrap();
-    let killed = scratch.client().await;
-    let pid: i32 = killed.query_one("SELECT pg_backend_pid()", &[]).await.unwrap().get(0);
-    let counting = tokio::spawn(async move { watch::tally_recent(&killed, PROFILE, now, None).await });
-    let waits = async || {
-        client
-            .query_one("SELECT count(*) FROM pg_stat_activity WHERE pid = $1 AND wait_event_type = 'Lock'", &[&pid])
-            .await
-            .unwrap()
-            .get::<_, i64>(0)
-    };
-    for _ in 0..600 {
-        if waits().await == 1 {
-            break;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-    assert_eq!(waits().await, 1, "the third batch waits on the held revision");
-    assert!(client.query_one("SELECT pg_terminate_backend($1)", &[&pid]).await.unwrap().get::<_, bool>(0));
-    assert!(counting.await.unwrap().is_err(), "the killed count fails");
-    tx.rollback().await.unwrap();
-    assert_eq!(tallied(&client).await, 2 * watch::TALLY_BATCH as i64, "two batches committed, the killed one rolled back");
-    let first: Vec<(i64, String)> = client
-        .query("SELECT revision_id, counted_at::text FROM core.revision_tally ORDER BY 1", &[])
-        .await
-        .unwrap()
-        .iter()
-        .map(|r| (r.get(0), r.get(1)))
-        .collect();
-    assert_eq!(first.iter().map(|(r, _)| *r).collect::<Vec<_>>(), fresh[..2 * watch::TALLY_BATCH]);
-
-    // a minute whose budget is spent counts one more batch and composes nothing yet
-    assert!(!watch::tally_recent(&client, PROFILE, now, Some(std::time::Instant::now())).await.unwrap());
-    assert_eq!(tallied(&client).await, 3 * watch::TALLY_BATCH as i64);
-
-    // the 09:30 minute goes on from there, counts the rest and queues the digest
-    watch::tick(&mut client, &s, now).await.unwrap();
-    let digest: String = client.query_one("SELECT message FROM core.notice WHERE once = 'digest 2026-11-20'", &[]).await.unwrap().get(0);
-    let counted = client
-        .query(
-            "SELECT d.revision_id, d.base_revision IS NULL, t.slots, t.withheld, t.provider_withheld, t.engine_faults, t.counted_at::text
-             FROM vyreon.day_revision d JOIN core.revision_tally t USING (revision_id) WHERE d.revision_id = ANY($1) ORDER BY 1",
-            &[&fresh],
+/// C-071, Codex round 3 (2026-11-23): the digest's counting is bounded and visible.
+/// 1. A batch waiting on a lock fails within `TALLY_LIMITS` (here: another transaction holds the
+///    first revision's count uncommitted): the minute records the digest's WATCH_FAILING problem
+///    and completes, so `/live` holds and core is not restarted.
+/// 3. What is counted is what has no count: a history revision published yesterday at 09:02 MT,
+///    after yesterday's digest and outside this 09:30 minute's 24 hours, is counted all the same.
+/// 4. A minute whose budget runs out before composing leaves that problem open; the minute that
+///    composes and queues the digest resolves it.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn the_digests_count_fails_within_its_limits_counts_what_is_left_and_resolves_only_on_a_digest() {
+    let (scratch, mut client, _) = ordered_passes("tally_bounded").await;
+    let s = settings(None);
+    let now = PASSES_DIGEST;
+    let late: i64 = client
+        .query_one(
+            "UPDATE vyreon.day_revision SET published_at = '2026-11-19 09:02:00-07'
+             WHERE revision_id = (SELECT min(revision_id) FROM vyreon.day_revision WHERE base_revision IS NOT NULL AND represented_date <> '2025-12-10')
+             RETURNING revision_id",
+            &[],
         )
         .await
+        .unwrap()
+        .get(0);
+    let pending = uncounted(&client, now).await;
+    assert!(pending.contains(&late));
+    let digest_failing = async |c: &Client| -> Vec<String> {
+        c.query("SELECT summary FROM core.problem WHERE kind = 'WATCH_FAILING' AND key = 'digest' AND resolved_at IS NULL", &[])
+            .await
+            .unwrap()
+            .iter()
+            .map(|r| r.get(0))
+            .collect()
+    };
+    let queued = async |c: &Client| c.query_one("SELECT count(*) FROM core.notice WHERE once = 'digest 2026-11-20'", &[]).await.unwrap().get::<_, i64>(0);
+    let tallied = async |c: &Client| c.query_one("SELECT count(*) FROM core.revision_tally", &[]).await.unwrap().get::<_, i64>(0);
+
+    // 1. the first batch waits on a count another transaction holds: it fails at the lock limit
+    let mut other = scratch.client().await;
+    let tx = other.transaction().await.unwrap();
+    tx.execute("INSERT INTO core.revision_tally (revision_id, slots, withheld, provider_withheld, engine_faults) VALUES ($1, 0, 0, 0, 0)", &[&pending[0]]).await.unwrap();
+    let started = std::time::Instant::now();
+    let change = watch::tick(&mut client, &s, now).await.expect("the minute completes: /live holds");
+    let took = started.elapsed();
+    assert!(took >= std::time::Duration::from_secs(10) && took < std::time::Duration::from_secs(60), "failed at the lock limit, not held: {took:?}");
+    let failing = digest_failing(&client).await;
+    assert_eq!(failing, ["Watch failing: cannot queue the daily digest (canceling statement due to lock timeout)"]);
+    assert_eq!(change.opened, failing);
+    assert_eq!((queued(&client).await, tallied(&client).await), (0, 0), "nothing queued, the failed batch rolled back");
+    tx.rollback().await.unwrap();
+
+    // 4. the next minute's budget runs out before composing: a batch counted, nothing composed,
+    // and the problem stays open (it neither resolves nor restates)
+    let change = watch::tick_within(&mut client, &s, now, std::time::Duration::ZERO).await.unwrap();
+    assert_eq!((change.resolved.len(), change.restated.len(), change.failing.len()), (0, 0, 0), "{change:?}");
+    assert_eq!(digest_failing(&client).await, failing);
+    assert_eq!((queued(&client).await, tallied(&client).await), (0, watch::TALLY_BATCH as i64));
+
+    // the minute after composes and queues the digest, and only that resolves the problem
+    let change = watch::tick(&mut client, &s, now).await.unwrap();
+    assert_eq!(change.resolved, failing);
+    assert!(digest_failing(&client).await.is_empty());
+    assert_eq!(queued(&client).await, 1);
+    // 3. every revision without a count is counted, yesterday's 09:02 history revision too
+    assert_eq!(tallied(&client).await, pending.len() as i64);
+    let t: (i32, i32, i32, i32) = client
+        .query_one("SELECT slots, withheld, provider_withheld, engine_faults FROM core.revision_tally WHERE revision_id = $1", &[&late])
+        .await
+        .map(|r| (r.get(0), r.get(1), r.get(2), r.get(3)))
         .unwrap();
-    assert_eq!(counted.len(), 598, "every revision of the last 24 hours counted, each once");
-    for r in &counted {
-        let (id, is_base): (i64, bool) = (r.get(0), r.get(1));
-        let t: (i32, i32, i32, i32) = (r.get(2), r.get(3), r.get(4), r.get(5));
-        // the base: four delivered slots; each history revision: two delivered and the engine's
-        // faulted slot, withheld whole for its engine fault (never the held row's zeros)
-        assert_eq!(t, if is_base { (4, 0, 0, 0) } else { (3, 1, 0, 1) }, "revision {id}");
-    }
-    // what the killed count committed was not counted again
-    let kept: Vec<(i64, String)> = counted.iter().filter(|r| first.iter().any(|(id, _)| *id == r.get::<_, i64>(0))).map(|r| (r.get(0), r.get(6))).collect();
-    assert_eq!(kept, first);
-    let lines: Vec<&str> = digest.lines().collect();
-    assert_eq!(lines[1], "Latest session stored: Fri Nov 20 · 66.7% of its measurements have a value (typical 66.7%) · 1 engine fault", "{digest}");
-    assert_eq!(lines[2], "Sessions published in the last 24 hours: 1 (2025-12-10)", "{digest}");
-    assert_eq!(lines[3], "Provider gaps recorded in the last 24 hours: none", "{digest}");
+    assert_eq!(t, (3, 1, 0, 1), "its two delivered slots and the engine's faulted one");
+    assert!(uncounted(&client, now).await.is_empty());
     scratch.drop().await;
 }

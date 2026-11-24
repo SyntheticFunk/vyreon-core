@@ -1444,7 +1444,7 @@ async fn a_day_whose_block_failed_after_its_base_is_missing_for_the_passes() {
     // the digest names the day set aside, with the base it left
     let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None };
     let now = watch::now(&client).await.unwrap();
-    let digest = watch::digest(&client, &s, &now).await.unwrap();
+    let digest = watch::digest(&mut client, &s, &now).await.unwrap();
     let line = format!("Set aside: Wed Dec 10, 2025 · FAILED · base revision {base10} superseded, no day-local revision was published on it; day-local derived: core answered 503");
     assert!(digest.lines().any(|l| l == line), "{digest}");
 
@@ -1964,7 +1964,7 @@ async fn a_date_is_omitted_only_when_its_day_failed_for_the_provider() {
     // the digest: one line per day set aside or omitted, with its cause code
     let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None };
     let now = watch::now(&client).await.unwrap();
-    let digest = watch::digest(&client, &s, &now).await.unwrap();
+    let digest = watch::digest(&mut client, &s, &now).await.unwrap();
     assert!(digest.starts_with("🟡 Running; handled: 1 date omitted · "), "{digest}");
     let lines: Vec<&str> = digest.lines().filter(|l| l.starts_with("Set aside: ") || l.starts_with("Omitted: ")).collect();
     let cut = watch::one_line(&first_line, 160);
@@ -2408,7 +2408,7 @@ async fn progress_states_a_check_only_of_the_revisions_it_checked() {
     let local = count(&client, "SELECT revision_id FROM vyreon.day_revision WHERE day_local AND state = 'PUBLISHED'").await;
     core_db::refcheck::put(&mut client, &claim.token, &refcheck_of(day, base, local, 9)).await.unwrap();
     let now = watch::now(&client).await.unwrap();
-    let posts = progress::preview(&client, PROFILE, &now).await.unwrap();
+    let posts = progress::preview(&mut client, PROFILE, &now).await.unwrap();
     let day_line = posts[0].lines().nth(1).unwrap().to_string();
     assert!(
         day_line.contains(" · reference check: 3,958 failures of 91,066, not triaged against rulings; 9 reference errors not judged · "),
@@ -2418,7 +2418,7 @@ async fn progress_states_a_check_only_of_the_revisions_it_checked() {
     let again = day_local(&mut client, &b, day, base, None).await;
     assert_ne!(again, local);
     let now = watch::now(&client).await.unwrap();
-    let posts = progress::preview(&client, PROFILE, &now).await.unwrap();
+    let posts = progress::preview(&mut client, PROFILE, &now).await.unwrap();
     let lines: Vec<&str> = posts[0].lines().collect();
     assert_eq!(lines[1], day_line, "the first revision's line keeps its own check");
     assert!(lines[2].starts_with("Published Wed Dec 10, 2025: ") && lines[2].contains(" · reference check not in yet"), "{}", posts[0]);
@@ -2460,7 +2460,7 @@ async fn progress_credits_a_day_only_to_the_lease_that_published_it() {
         .await
         .unwrap()
         .get(0);
-    let posts = progress::preview(&client, PROFILE, &now).await.unwrap();
+    let posts = progress::preview(&mut client, PROFILE, &now).await.unwrap();
     let lines: Vec<&str> = posts[0].lines().collect();
     assert!(lines[1].starts_with("Published Wed Dec 10, 2025: ") && lines[1].ends_with(" · reference check not in yet"), "by hand: no block, no minutes: {}", posts[0]);
     assert!(
@@ -2492,7 +2492,7 @@ async fn a_pass_done_then_queued_again_counts_as_done_in_its_window() {
     base_by_hand(&mut client, day).await;
     assert_eq!(count(&client, "SELECT count(*) FROM core.job WHERE kind = 'ORDERED_PASS' AND state = 'QUEUED'").await, 1, "the pass is queued again");
     let now = watch::now(&client).await.unwrap();
-    let posts = progress::preview(&client, PROFILE, &now).await.unwrap();
+    let posts = progress::preview(&mut client, PROFILE, &now).await.unwrap();
     assert!(posts[0].lines().any(|l| l == "Ordered passes: 1 done in this window · 0 of 1 done · 1 waiting"), "{}", posts[0]);
     scratch.drop().await;
 }

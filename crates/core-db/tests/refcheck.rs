@@ -238,7 +238,7 @@ async fn a_published_days_check_is_kept_once_and_judged_until_the_day_is_publish
     // the digest counts the day's checks and what they cost, and says the day is not fully judged
     let line = refcheck::digest_line(&client, &after(6), true).await.unwrap().unwrap();
     assert_eq!(line, "Reference checks in the last 24 hours: 1 (0 agree, 0 disagree, 1 not triaged against rulings, 0 did not run) · typical 40 min, 280 CPU min per day");
-    let digest = watch::digest(&client, &settings, &after(6)).await.unwrap();
+    let digest = watch::digest(&mut client, &settings, &after(6)).await.unwrap();
     assert!(digest.contains(&line) && digest.starts_with("🟡 Running; not fully judged: reference checks of 1 published day"), "{digest}");
     assert!(digest.contains("\nReference checks not fully judged: 1 published day (1 with 3958 failed comparisons from a suite without rulings, not yet triaged against them), the oldest 2025-12-10\n"), "{digest}");
     settings.refcheck_from = None;
@@ -405,13 +405,13 @@ const DISAGREES: &str = "Reference check disagrees with 1 published day: 254 com
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn the_clusters_checks_are_judged_on_each_days_current_check() {
-    let (scratch, client, settings, changes) = cluster("refcheck_cluster", true).await;
+    let (scratch, mut client, settings, changes) = cluster("refcheck_cluster", true).await;
     let said = |c: &watch::Change| (ours(c.opened.clone()), ours(c.resolved.clone()));
     assert_eq!(said(&changes[0]), (vec![CRASHED.to_string()], vec![]), "as the cluster opened it");
     assert_eq!(said(&changes[1]), (vec![], vec![]), "the cluster opened \"1982 comparisons failed\": failures without rulings are not a disagreement");
     assert_eq!(said(&changes[2]), (vec![], vec![CRASHED.to_string()]), "the crashed check's revision was superseded and the day checked again");
     assert_eq!(said(&changes[3]), (vec![DISAGREES.to_string()], vec![]));
-    let digest = watch::digest(&client, &settings, DIGEST_AT).await.unwrap();
+    let digest = watch::digest(&mut client, &settings, DIGEST_AT).await.unwrap();
     let lines: Vec<&str> = digest.lines().collect();
     assert_eq!(lines[0], format!("🔴 Needs you: {DISAGREES} · Fri Nov 20"));
     assert!(lines.contains(&"Reference checks in the last 24 hours: 4 (0 agree, 1 disagree, 3 not triaged against rulings, 0 did not run; 27 reference errors) · typical 31 min, 166 CPU min per day"), "{digest}");
@@ -421,10 +421,9 @@ async fn the_clusters_checks_are_judged_on_each_days_current_check() {
     assert!(digest.ends_with(&format!("Open problems (1):\n• {DISAGREES} · open 1 h · `vyreon-core refcheck list`")), "{digest}");
     // the older suite's days alone: yellow, not red
     client.execute("UPDATE core.refcheck_report SET failed_unexplained = 0 WHERE session = '2026-10-28'", &[]).await.unwrap();
-    let mut client = client;
     let change = watch::check(&mut client, &settings, DIGEST_AT).await.unwrap();
     assert_eq!(ours(change.resolved), [DISAGREES]);
-    let digest = watch::digest(&client, &settings, DIGEST_AT).await.unwrap();
+    let digest = watch::digest(&mut client, &settings, DIGEST_AT).await.unwrap();
     assert!(digest.starts_with("🟡 Running; not fully judged: reference checks of 3 published days · Fri Nov 20\n"), "{digest}");
     // published again: the superseded days' checks judge nothing
     client.execute("UPDATE vyreon.day_revision SET state = 'SUPERSEDED' WHERE represented_date IN ('2026-11-02', '2026-11-03', '2026-11-04')", &[]).await.unwrap();
@@ -449,13 +448,13 @@ async fn an_open_problem_says_what_holds_now_and_resolves_when_it_no_longer_hold
             .await
             .unwrap();
     }
-    let before = watch::digest(&client, &settings, DIGEST_AT).await.unwrap();
+    let before = watch::digest(&mut client, &settings, DIGEST_AT).await.unwrap();
     assert!(before.starts_with(&format!("🔴 Needs you: {CRASHED} (and 1 more problem) · Fri Nov 20\n")), "{before}");
     let change = watch::check(&mut client, &settings, DIGEST_AT).await.unwrap();
     assert_eq!((ours(change.opened), ours(change.resolved), ours(change.restated)), (vec![], vec![CRASHED.to_string()], vec![DISAGREES.to_string()]));
     let posts: Vec<String> = client.query("SELECT message FROM core.notice WHERE post ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
     assert_eq!(posts, [format!("✅ Resolved: {CRASHED} (it was open 25 h)")]);
-    let after = watch::digest(&client, &settings, DIGEST_AT).await.unwrap();
+    let after = watch::digest(&mut client, &settings, DIGEST_AT).await.unwrap();
     assert!(after.starts_with(&format!("🔴 Needs you: {DISAGREES} · Fri Nov 20\n")), "{after}");
     assert!(after.ends_with(&format!("Open problems (1):\n• {DISAGREES} · open 15 h · `vyreon-core refcheck list`")), "{after}");
     assert!(ours(watch::check(&mut client, &settings, DIGEST_AT).await.unwrap().restated).is_empty(), "restated once");
