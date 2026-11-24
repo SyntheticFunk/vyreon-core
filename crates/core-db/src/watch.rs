@@ -1206,9 +1206,11 @@ async fn no_progress(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) 
                  SELECT l.lease_id, l.job_id, l.worker, l.granted_at, j.kind, j.priority, j.next_session, j.first_session, j.last_session,
                         s.step, s.step_since, s.reason,
                         -- a download step is a wait of its own bound (`DOWNLOAD_STEP_MAX_MINUTES`), the later of it and a declared one
-                        GREATEST(s.waiting_until, CASE WHEN lower(ltrim(s.step)) LIKE 'download%' OR lower(ltrim(s.step)) LIKE 'fill%'
+                        -- (engine D-462: a download that reports its progress is judged by it, 20 minutes without a new
+                        -- report, so a hung one alerts within them; the implicit bound is only for one that reports none)
+                        GREATEST(s.waiting_until, CASE WHEN (lower(ltrim(s.step)) LIKE 'download%' OR lower(ltrim(s.step)) LIKE 'fill%') AND s.progress IS NULL
                                                        THEN s.step_since + make_interval(secs => $5::float8 * 60) END) AS waiting_until,
-                        s.waiting_until IS NULL OR s.waiting_until < s.step_since + make_interval(secs => $5::float8 * 60) AS implicit
+                        s.progress IS NULL AND (s.waiting_until IS NULL OR s.waiting_until < s.step_since + make_interval(secs => $5::float8 * 60)) AS implicit
                  FROM core.lease l JOIN core.job j USING (job_id) JOIN core.lease_step s USING (lease_id)
                  WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz AND l.granted_at <= $1::text::timestamptz),
              p AS (

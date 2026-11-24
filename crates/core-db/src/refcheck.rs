@@ -387,6 +387,21 @@ fn completed_for_pair(base: &str, local: &str) -> String {
     format!("r.base_revision = {base} AND r.outcome = 'COMPLETED' AND r.day_local_revision IS NOT DISTINCT FROM {local}")
 }
 
+/// C-074 (coordinator, 2026-11-24): a republished day's re-run checks only what its republish
+/// recomputed (its base's and day-local revision's `recomputed`, which hold the recompute set's
+/// dependants), when the revisions it replaced have a completed check: every carried slot was judged
+/// there. Else NULL: the whole day. Reads `todo.base` and `todo.local`.
+const SCOPED_MEASUREMENTS: &str = "(SELECT CASE WHEN l.republish_scope IS NOT NULL
+                  AND (b.republish_scope IS NULL OR b.republish_scope->>'job' = l.republish_scope->>'job')
+                  AND EXISTS (SELECT FROM core.refcheck_report r WHERE r.outcome = 'COMPLETED'
+                                AND r.base_revision = COALESCE((b.republish_scope->>'replaces')::bigint, b.revision_id)
+                                AND r.day_local_revision = (l.republish_scope->>'replaces')::bigint)
+             THEN (SELECT COALESCE(jsonb_agg(DISTINCT m ORDER BY m), '[]'::jsonb)
+                   FROM jsonb_array_elements_text(COALESCE(l.republish_scope->'recomputed', '[]'::jsonb)
+                                                  || COALESCE(b.republish_scope->'recomputed', '[]'::jsonb)) AS x(m))
+        END
+        FROM vyreon.day_revision b, vyreon.day_revision l WHERE b.revision_id = todo.base AND l.revision_id = todo.local)";
+
 /// C-073: queues a re-run (a REFCHECK job of the day's one session) for each day due (`DUE`), for the
 /// day's own build if it runs, else the running build admitted last; a day with no running build gets
 /// none (it stays not run: REFCHECK_NOT_RUN). Once per (base, day-local) pair: a unique index refuses
@@ -442,11 +457,15 @@ pub async fn queue_reruns(c: &impl GenericClient, profile: &str, from: &str, hou
                           WHERE NOT EXISTS (SELECT FROM core.refcheck_report r WHERE {completed} AND r.stored_at <= $3::text::timestamptz)
                             AND NOT EXISTS (SELECT FROM core.job j WHERE {pair} AND j.state <> 'CANCELLED'))
                  INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, max_attempts)
-                 SELECT 'REFCHECK', $1, runner, day, day, day, jsonb_build_object('base_revision', base, 'day_local_revision', local), {RERUN_ATTEMPTS}
+                 SELECT 'REFCHECK', $1, runner, day, day, day,
+                        jsonb_build_object('base_revision', base, 'day_local_revision', local)
+                        || COALESCE((SELECT jsonb_build_object('measurements', x.m) FROM (SELECT {scoped} AS m) x WHERE x.m IS NOT NULL), '{{}}'::jsonb),
+                        {RERUN_ATTEMPTS}
                  FROM todo WHERE runner IS NOT NULL ORDER BY day
                  ON CONFLICT DO NOTHING
                  RETURNING first_session::text, job_id",
                 current = current_days(),
+                scoped = SCOPED_MEASUREMENTS,
                 completed = completed_for_pair("due.base", "due.local"),
                 pair = job_of_pair("due.base", "due.local"),
             ),
