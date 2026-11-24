@@ -213,7 +213,7 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
     let until: String = admin.query_one("SELECT to_char((now() + interval '40 minutes') AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')", &[]).await.unwrap().get(0);
     assert_eq!(s.post("/lease/step", token, json!({"step": "EXQ01 cutoff", "waiting_until": until, "reason": "the provider's 16:15 ET cutoff"})).await.0, StatusCode::OK);
     assert_eq!(s.post("/lease/step", token, json!({"step": "EXQ01 cutoff", "waiting_until": until})).await.0, StatusCode::UNPROCESSABLE_ENTITY);
-    assert_eq!(s.post("/lease/step", token, json!({"step": "x", "waiting_until": "2020-01-01T00:00:00Z", "reason": "r"})).await.0, StatusCode::UNPROCESSABLE_ENTITY);
+    assert_eq!(s.post("/lease/step", token, json!({"step": "x", "waiting_until": "tomorrow", "reason": "r"})).await.0, StatusCode::UNPROCESSABLE_ENTITY);
     assert_eq!(s.post("/lease/step", "not-a-lease", json!({"step": "x"})).await.0, StatusCode::GONE);
     assert_eq!(s.post("/lease/finish", token, json!({})).await.0, StatusCode::UNPROCESSABLE_ENTITY, "its day is not published yet");
     let (header, scalars, files) = parts(BASE);
@@ -563,5 +563,46 @@ async fn a_day_worker_is_served_the_latest_readers_verdict() {
     assert_eq!((second["outcome"].clone(), second["verdict_kept"].clone()), (json!("MATCH"), json!(false)));
     let pass = test_support::tape_verdict_bound(test_support::TAPE_CHECK_AAPL_PASS, "AAPL", S, "engine-v1", &whole);
     assert_eq!(served(&token).await, json!({"AAPL": pass}), "the fixed reader's PASS");
+    s.scratch.drop().await;
+}
+
+/// C-073 (release audit, Gemini's suspicion 1): a re-run's dump over HTTP, streamed from the spool,
+/// is byte for byte what core writes, and nothing is left in the spool; a re-run of a revision
+/// superseded since is refused with the reason (its worker then reports NOT_RUN).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_reruns_dump_is_streamed_and_leaves_nothing() {
+    let s = service("api_dump").await;
+    let mut admin = s.scratch.client().await;
+    work::schedule(&mut admin, Kind::DayBlock, PROFILE, &s.base_build, "2025-12-10", "2025-12-10", 30).await.unwrap();
+    let block = work::claim(&mut admin, Kind::DayBlock, &s.base_build, "w1", 3600.0).await.unwrap().unwrap();
+    let (header, scalars, files) = parts(BASE);
+    let base = core_db::publish::publish_for_lease(&mut admin, &bundle("dump-base", &header, &scalars, &files), &block.token).await.unwrap().revision_id;
+    let (lh, ls, lf) = test_support::slice::day_local_parts(&s.base_build, "2025-12-10", base);
+    let local = core_db::publish::publish_for_lease(&mut admin, &bundle("dump-local", &lh, &ls, &lf), &block.token).await.unwrap().revision_id;
+    admin
+        .execute(
+            "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, max_attempts)
+             VALUES ('REFCHECK', $1, $2, '2025-12-10', '2025-12-10', '2025-12-10', jsonb_build_object('base_revision', $3::bigint, 'day_local_revision', $4::bigint), 2)",
+            &[&PROFILE, &s.base_build, &base, &local],
+        )
+        .await
+        .unwrap();
+    let claim: Value = s.claim("refcheck", &s.base_build, "rc-1").await.json().await.unwrap();
+    let token = claim["lease_token"].as_str().unwrap();
+    assert_eq!(claim["scope"], json!({"base_revision": base, "day_local_revision": local}));
+    let got = s.http.get(format!("{}/worker/v1/refcheck/2025-12-10/dump", s.url)).bearer_auth(token).send().await.unwrap();
+    assert_eq!(got.status(), StatusCode::OK);
+    let streamed = got.bytes().await.unwrap();
+    let direct = core_db::refcheck::dump(&mut admin, token, "2025-12-10").await.unwrap();
+    assert_eq!(streamed.as_ref(), direct.as_slice());
+    let spool = std::env::temp_dir().join("vyreon-core-spool-api_dump");
+    assert_eq!(std::fs::read_dir(&spool).unwrap().count(), 0, "nothing left in the spool");
+    // superseded since: refused with its reason
+    admin.execute("UPDATE vyreon.day_revision SET state = 'SUPERSEDED' WHERE revision_id = $1", &[&local]).await.unwrap();
+    let refused = s.http.get(format!("{}/worker/v1/refcheck/2025-12-10/dump", s.url)).bearer_auth(token).send().await.unwrap();
+    assert_eq!(refused.status(), StatusCode::UNPROCESSABLE_ENTITY);
+    assert!(refused.text().await.unwrap().contains("no longer published"));
+    assert_eq!(std::fs::read_dir(&spool).unwrap().count(), 0);
     s.scratch.drop().await;
 }

@@ -211,6 +211,8 @@ async fn a_check_that_never_reported_is_run_again_by_core_and_alerts_only_if_tha
     assert!(new);
     assert_eq!(refcheck::put(&mut client, &rerun.token, &timed_out(json!([base, local]))).await.unwrap(), (false, id));
     assert_eq!(work::finish(&mut client, &rerun.token).await.unwrap(), job.0);
+    // release audit (Codex 8, Gemini 4): said as what it is, never as the ordered passes
+    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE message = 'All scheduled reference-check re-runs are done (the last: 2025-12-10).'").await, 1);
     // the re-run failed too: now the day's check did not run, said as what the re-run found
     { let at = after(&client, base, 10).await; watch::check(&mut client, &settings, &at).await }.unwrap();
     assert_eq!(open(&client, "REFCHECK_NOT_RUN").await, ["Reference check did not run on 1 published day (1 timed out), the oldest 2025-12-10"]);
@@ -410,7 +412,13 @@ async fn a_worker_making_no_progress_is_one_alert_unless_it_declared_its_wait() 
     let change = watch::check(&mut client, &settings, &t80).await.unwrap();
     assert_eq!(change.resolved.len(), 1, "{change:?}");
     // the same step again is no progress; another step is
-    assert!(matches!(work::report_step(&mut client, &block.token, "x", Some("2020-01-01T00:00:00Z"), Some("r")).await, Err(LeaseError::Refused(_))));
+    // release audit (Gemini 12): not an instant, refused without being repeated; a wait already over
+    // (a second of skew) is kept with its step
+    let e = work::report_step(&mut client, &block.token, "x", Some("tomorrow api_key=OmRlYWRiZWVm"), Some("r")).await.unwrap_err();
+    assert!(matches!(&e, LeaseError::Refused(m) if !m.contains("OmRlYWRiZWVm")), "{e:?}");
+    work::report_step(&mut client, &block.token, "after the cutoff", Some("2020-01-01T00:00:00Z"), Some("the cutoff")).await.unwrap();
+    let kept: String = client.query_one("SELECT step FROM core.lease_step", &[]).await.unwrap().get(0);
+    assert_eq!(kept, "after the cutoff");
     assert!(matches!(work::report_step(&mut client, &block.token, "x api_key=OmRlYWRiZWVm", None, None).await, Err(LeaseError::Refused(_))));
     scratch.drop().await;
 }
