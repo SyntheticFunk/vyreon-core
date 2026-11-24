@@ -1279,6 +1279,13 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   budget pressure hiding a stalled daily tape; CLI counts) + 9 rare; Gemini 10 ordinary + 4 rare (overlapping; adds a temp
   token file left on SIGINT, false JOB_THRASHING on retry-failed, false NO_PROGRESS on verify/upload). All being fixed on
   core-auto (no re-audit). Engine Gemini running; engine Codex pending.
+  **Engine release audit in (UTC−6 ~13:05):** no wrong numbers; **wrong absences on ordinary data in existing sensors**
+  (DLM-EXPECTED-MOVE blanks established roles; an OI fault masks spot and non-OI roles in max pain/unusual contracts/OI
+  centroid; indicator warm-up withholds readings whose bars exist; VWAP share-count reason) + release-new: re-run judges old
+  revisions under newer rules; concurrent fill steps overwrite each other's step report; step posting can starve heartbeats
+  (Gemini ordinary); reference ledger images break on real reverse splits; Retry-After lost across layers / mislabelled.
+  All being fixed on eng-rel (no re-audit). The absence fixes bump method versions → the few days built before the release
+  are recomputed (cheap while the DB is small).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
