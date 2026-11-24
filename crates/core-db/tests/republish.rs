@@ -358,3 +358,84 @@ async fn a_hand_over_carries_a_republish_on_the_successors_plans() {
     assert_eq!(scope["recompute"]["day_local"], json!(plan.work.day_local));
     scratch.drop().await;
 }
+
+/// The reference re-run of a republished day checks what the republish recomputed when the revisions
+/// it replaced had a completed check (every carried slot was judged there); a day republished whole,
+/// or one whose replaced revisions were never checked, is checked whole.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_republished_days_reference_rerun_checks_what_was_recomputed() {
+    use flate2::{Compression, write::GzEncoder};
+    use std::io::Write;
+    let (scratch, mut client, b, d) = ready("rp_refcheck").await;
+    // the day published, then its check completed under its block's lease
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, DAY, DAY, 30).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    let base1 = send(&mut client, "rr-base", parts(BASE), &block.token).await.unwrap().revision_id;
+    let local1 = send(&mut client, "rr-local", day_local_parts(&b, DAY, base1), &block.token).await.unwrap().revision_id;
+    work::day_done(&mut client, &block.token, DAY).await.unwrap();
+    let account = json!({
+        "schema": refcheck::SCHEMA, "session": DAY, "outcome": "COMPLETED", "why": null, "wall_seconds": 10.0, "suite_seconds": 9.0,
+        "cpu_seconds": 60.0, "cpu_complete": true, "jobs": 8, "deadline_seconds": 36000, "revisions": [base1, local1],
+        "counts": {"checked": 10, "passed": 10, "failed": 0, "skipped": 0, "reference_errors": 0, "unit_mismatch": 0, "failure_classes": 0, "measurements": 2, "measurements_failing": 0},
+        "summary": {}, "report_trimmed": null, "versions": {"QuantLib": "1.43"},
+    });
+    let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+    gz.write_all(account.to_string().as_bytes()).unwrap();
+    refcheck::put(&mut client, &block.token, &refcheck::check(gz.finish().unwrap(), DAY).unwrap()).await.unwrap();
+    work::finish(&mut client, &block.token).await.unwrap();
+    let _ = d;
+    // a day-local republish of DLM-MAX-PAIN's family
+    let plan = rp::plan(&client, PROFILE, &b, &["DLM-CHAIN"], DAY, DAY, 3, TODAY).await.unwrap();
+    let job = rp::schedule(&mut client, PROFILE, &b, &plan.work, &plan.sessions, REASON).await.unwrap().jobs[0];
+    let lease = work::claim(&mut client, Kind::Republish, &b, "r1", HOUR).await.unwrap().unwrap();
+    let recomputed: Vec<String> = plan.work.day_local.iter().cloned().collect();
+    let names: Vec<&str> = recomputed.iter().map(String::as_str).collect();
+    let republish = Republish { job, replaces: local1, families: vec!["DLM-CHAIN".into()], measurements: vec![], recomputed: recomputed.clone(), value_changed: vec![], reason: REASON.into() };
+    let local2 = send(&mut client, "rr-local2", local_of(&b, base1, &names, republish), &lease.token).await.unwrap().revision_id;
+    work::day_done(&mut client, &lease.token, DAY).await.unwrap();
+    work::finish(&mut client, &lease.token).await.unwrap();
+    let later: String = client.query_one("SELECT (now() + interval '7 hours')::text", &[]).await.unwrap().get(0);
+    refcheck::queue_reruns(&client, PROFILE, DAY, 6.0, &later).await.unwrap();
+    let scope: serde_json::Value = serde_json::from_str(
+        &client.query_one("SELECT scope::text FROM core.job WHERE kind = 'REFCHECK' AND state = 'QUEUED'", &[]).await.unwrap().get::<_, String>(0),
+    )
+    .unwrap();
+    assert_eq!((scope["base_revision"].as_i64(), scope["day_local_revision"].as_i64()), (Some(base1), Some(local2)));
+    assert_eq!(scope["measurements"], json!(recomputed));
+    scratch.drop().await;
+}
+
+/// Engine D-462 finishes the C-073 hotfix: a download that reports its progress is judged by it. While
+/// its progress advances it is no stall; once it stops advancing, NO_PROGRESS alerts within the usual
+/// 20 minutes, not the implicit 240-minute bound a download that reports none keeps.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_download_reporting_its_progress_is_judged_by_it() {
+    use core_db::watch::{self, Settings};
+    let (scratch, mut client, b, _) = ready("rp_progress").await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, DAY, DAY, 30).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "day-1", 48.0 * HOUR).await.unwrap().unwrap();
+    let settings = Settings {
+        profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None,
+        refcheck_from: None, backup_days: None, refcheck_rerun_hours: None,
+    };
+    let step = "download 2025-12-10: fill 2025-12-10: options";
+    // reported now with its progress; the watch looks 10 and 30 minutes on (the report stands still)
+    work::report_step_with(&mut client, &block.token, step, None, None, Some("bulk files 3 of 31")).await.unwrap();
+    for (minutes, alerts) in [(10.0, 0), (30.0, 1)] {
+        let t: String = client.query_one("SELECT (now() + make_interval(secs => $1::float8 * 60))::text", &[&minutes]).await.unwrap().get(0);
+        watch::check(&mut client, &settings, &t).await.unwrap();
+        assert_eq!(no_progress(&client).await, alerts, "at {minutes} min");
+    }
+    // advancing again: resolved at the next look
+    work::report_step_with(&mut client, &block.token, step, None, None, Some("bulk files 4 of 31")).await.unwrap();
+    let t: String = client.query_one("SELECT (now() + interval '5 minutes')::text", &[]).await.unwrap().get(0);
+    watch::check(&mut client, &settings, &t).await.unwrap();
+    assert_eq!(no_progress(&client).await, 0);
+    scratch.drop().await;
+}
+
+async fn no_progress(c: &Client) -> i64 {
+    c.query_one("SELECT count(*) FROM core.problem WHERE resolved_at IS NULL AND kind = 'NO_PROGRESS'", &[]).await.unwrap().get(0)
+}
