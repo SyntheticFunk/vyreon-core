@@ -1150,6 +1150,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   timeout → `core-clock2`. Clock arithmetic verified correct.
   **core-clock2 merged (b56c3db; 194/0):** all 7 fixed; 0054 edited in place (live DB at migration 53, verified). Both
   reviewers on it (`audits/2026-11-24-core-c072-r2/`); then core build + deploy.
+  **Core r2 Codex:** blocking (ordinary operation): a refusal during an operator pause can still go unannounced if the
+  pause is resumed before the next tick → alert written at refusal time (`core-clock3`), plus cheap: pause reason dropped by
+  substring, overdue judged by check time. LATER (rare): two hand-overs to one unadmitted build within 30 min, migration
+  advisory lock before timeouts, admitted-then-withdrawn successor wording, text-matched withdrawal, and two pre-existing
+  publish defects that need a malformed/nondeterministic worker bundle (day-local accepted as base; changed reader scalar
+  on a resend acknowledged). Deadline arithmetic verified again.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
