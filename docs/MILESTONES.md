@@ -1182,6 +1182,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   Gemini r4: 0 blocking (0 in ordinary operation) → deploy stands. Rare, added to the LATER core batch: a final job failure
   or bundle refusal during an already-open pause is neither logged nor alerted (pre-existing; the release script shortens
   pause windows), admit instruction hidden for a re-admitted build, restart count after withdraw/re-admit. **C-072 closed.**
+  **eng-f6 merged (UTC−6 ~08:40; 1,720/0; pytest 244/107):** EXQ01 reads adjusted contracts under their listed root (BABA
+  2025-12-19 20/20; real ETHA1 prints = EOD volume); no value change where it worked; prevalence 4 of 1,258 cohorts (BABA
+  2025-12-10..15); worker image ships OVERLAY_RULES; reference strikes/duplicates/renamed roots/ambiguous archive. Narrow
+  audits by both running (`audits/2026-11-24-d460-r6/`). **Hand-over timing:** must precede the block covering
+  2025-12-05..12-26 (BABA's adjusted cohort days); planned right after the first July recompute days publish (least lost).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
