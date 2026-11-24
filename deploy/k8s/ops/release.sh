@@ -309,6 +309,10 @@ python3 - "$INVENTORY.part" "$BUILD" <<'PY' || fail "the inventory is not the bu
 import json, sys
 d = json.load(open(sys.argv[1]))
 assert d.get("engine_build") == sys.argv[2] and d.get("slots"), "no engine_build or no slots"
+# C-073: each profile's layer declared, so core can never take a day-local bundle as a base
+p = d.get("profiles") or {}
+assert sorted(p) == sorted({s["profile_revision"] for s in d["slots"]}) and set(p.values()) <= {"base", "day-local", "history"}, \
+    "the inventory does not declare every profile's layer (profiles: base | day-local | history)"
 PY
 mv "$INVENTORY.part" "$INVENTORY"
 if ((FROM > 1)); then
