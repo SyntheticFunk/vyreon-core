@@ -162,3 +162,14 @@ pub fn provider_502_stop() -> String {
         .collect::<Vec<_>>()
         .join("\n")
 }
+
+/// C-074: the engine's republish plans as its inventory declares them (engine D-462,
+/// `vyreon-worker inventory` of the eng-scope branch): every family's and measurement's recompute
+/// set, stages and input categories from the engine's sensor graph, and its reference timings.
+pub const REPUBLISH_PLANS: &str = include_str!("../fixtures/engine-republish-plans.json");
+
+/// `inventory` with the engine's republish plans declared, as a D-462 build registers.
+pub fn with_republish(mut inventory: serde_json::Value) -> serde_json::Value {
+    inventory["republish"] = serde_json::from_str(REPUBLISH_PLANS).expect("the engine's plans");
+    inventory
+}
