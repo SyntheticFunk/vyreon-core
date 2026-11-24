@@ -1258,7 +1258,8 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   static pages; (4) derived measurements only (Intrinio's "not reproducible" condition); (5) explainer pages and reports linked
   both ways so the existing search trickle feeds the reports.
   **Post-launch (owner, same day): automated social posting of unusual detections — teasers for the paid report, "same data,
-  larger surface".** Constraints: deterministic templates (no LLM in the production path); a teaser names that a flag fired
+  larger surface".** Content is Vyreon's own unusualness metrics across its own sensors (the stored unusual_score / DLM-
+  UNUSUALNESS), never Intrinio data reposted (owner: "we don't need to, nor want to, repost intrinio data"). Constraints: deterministic templates (no LLM in the production path); a teaser names that a flag fired
   and links to the report, never gives the paid reading away; derived measurements only (Intrinio's condition); plain voice,
   nothing hyped; posts only on genuine rare detections. Platform choice and API access decided at the time.
   **Investigating while it runs (owner's goal, UTC−6 ~11:40):** (1) the request budget is ~half used during downloads (avg
