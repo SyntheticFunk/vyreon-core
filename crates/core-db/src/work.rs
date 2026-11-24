@@ -1048,7 +1048,7 @@ pub async fn pause(db_client: &impl GenericClient, reason: &str) -> Result<(), S
     }
     db_client.execute("UPDATE core.queue_control SET reason = $1 WHERE paused", &[&causes.join(ALSO)]).await.map_err(db)?;
     notice::log(db_client, &format!("Queue already paused; also: {reason}.")).await?;
-    notice::alert(db_client, &crate::watch::alert_text(&format!("Work queue already paused; also: {}", crate::watch::one_line(reason, 300)), "vyreon-core queue")).await?;
+    notice::alert(db_client, &crate::watch::alert_for("QUEUE_PAUSED", &format!("Work queue already paused; also: {}", crate::watch::one_line(reason, 300)), "vyreon-core queue")).await?;
     Ok(())
 }
 

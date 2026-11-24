@@ -87,7 +87,8 @@
 //!                                                     second channel's webhook URL; core then posts the run's progress
 //!                                                     there every 30 minutes, silently: days published with their counts
 //!                                                     and reference checks, blocks started, the logged events, the queue's
-//!                                                     counts; unset or absent: nothing is composed or posted for it).
+//!                                                     counts; unset or absent: nothing is composed or posted for it);
+//!                                                     VYREON_CORE_PROGRESS_LABEL (C-073: its headline's name, "Phase 1").
 //!                                                     The watch (C-050), also read by `problems` and `digest`:
 //!                                                     VYREON_CORE_WATCH_PROFILE (FREE_REPORT_64), VYREON_CORE_DEADLINES_FROM
 //!                                                     (the first session with a publishing deadline; unset: the daily
@@ -429,6 +430,11 @@ fn setting<T: std::str::FromStr>(name: &str, default: T) -> Result<T, String> {
     }
 }
 
+/// C-073: the progress channel's headline label (`VYREON_CORE_PROGRESS_LABEL`, e.g. "Phase 1").
+fn progress_label() -> String {
+    set("VYREON_CORE_PROGRESS_LABEL").unwrap_or_else(|| core_db::progress::DEFAULT_LABEL.to_owned())
+}
+
 /// A setting that is set and not blank.
 fn set(name: &str) -> Option<String> {
     std::env::var(name).ok().map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())
@@ -658,7 +664,7 @@ async fn digest(weekly: bool) -> Result<(), String> {
 async fn progress_preview() -> Result<(), String> {
     let mut client = connect().await?;
     let now = watch::now(&client).await?;
-    let posts = core_db::progress::preview(&mut client, &watch_settings()?.profile, &now).await?;
+    let posts = core_db::progress::preview_as(&mut client, &watch_settings()?.profile, &progress_label(), &now).await?;
     if posts.is_empty() {
         println!("nothing happened in the last 30 minutes: no progress post");
     }
@@ -750,7 +756,7 @@ async fn serve() -> Result<(), String> {
         core_api::notices::spawn_sender(app.clone(), webhook, std::time::Duration::from_secs(15));
     }
     if let Some(webhook) = progress {
-        core_api::notices::spawn_progress(app.clone(), profile, std::time::Duration::from_secs(60));
+        core_api::notices::spawn_progress(app.clone(), profile, progress_label(), std::time::Duration::from_secs(60));
         core_api::notices::spawn_sender_on(app.clone(), webhook, std::time::Duration::from_secs(15), notice::Channel::Progress);
     }
     println!("vyreon-core listening on {listen} (the single-instance lock is held, C-053)");

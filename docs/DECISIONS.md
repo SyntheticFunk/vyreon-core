@@ -2778,6 +2778,7 @@ duration at phase-1 size was not measured.
   09:30 tick, each history revision 3 slots, 1 withheld for an engine fault).
 
 ## C-072 The owner's clock is fixed UTC−6; progress is terse (2026-11-24; owner's Discord; part 2, planned steps, retired the same day: see its last item)
+(Amended by C-073's last item, "Both Discord channels at a glance": the progress post's shape and the alerts' effect and action lines.)
 What the owner reads in Discord must answer "go look or running ok" at a glance (C-050, C-065).
 Three things broke that during the hand-overs of 2026-11-23/24.
 - **One owner zone, fixed UTC−6.** The owner's clock is UTC−6 all year (corrected 2026-11-11).
@@ -3209,3 +3210,23 @@ not fixed".
   `tests/migrate.rs::a_runner_waits_for_anothers_lock_only_so_long`; `progress.rs` unit test
   `many_retries_read_in_lines_a_post_can_hold`; the worker API test calls `/lease/step`. The suite:
   204 (193 + 11).
+- **Both Discord channels at a glance (owner, 2026-11-24; display only, amends C-065, C-072).** The
+  progress post is a headline ("🟢 Phase 1: 4 of 597 days published (0.7%) · 9 building · no failures":
+  🟢 fine, 🟡 an engine fault, a retry, a check that disagrees or a failure to watch, 🔴 an alert open;
+  days are the backfill's sessions with their base and day-local revision published; the label is
+  `VYREON_CORE_PROGRESS_LABEL`), then "+N this half hour:" and one line per day published (date, share of
+  readings with a value, engine faults ⚠, a disagreeing or incomplete reference check ⚠, hours; provider
+  absences not in the line), then the other news as short lines (a retried or resumed block named; a
+  pause, a resume, an admission, a withdrawal as what and why; a hand-over as C-072's one line, "· X not
+  admitted yet" while its successor is not; a failure, a day set aside or a lost lease as logged), then
+  the state in plain words ("History passes: 3 of 597 done · waiting for Jul 9 (they run in date order)",
+  "Tapes: …", "Daily 2026-11-23: computing since 08:03"). One post a window: no "(continued)"; lines it
+  cannot hold are counted and come next window. Dropped from the post, kept behind commands: pod names,
+  job ids, plain block starts, a block's routine end, a check that agrees, the per-kind "0 done"
+  counters. A half hour with nothing new is one line ("🟢 Phase 1: 4/597 · 9 building · nothing new");
+  with no work left, no post. **Alerts** read what happened, then what it means for published numbers
+  or absences, then "To do: … `command`" only when there is something to do (`watch::consequence`, one
+  entry per problem kind; PROVIDER_ERRORS clears by itself and has none); a resolution keeps its
+  duration. Never hidden: a failure, a stall, an engine fault. Tests: `tests/digest_format.rs` (a busy
+  half hour then a quiet one, a failure with its alert, a hand-over), the progress tests of `work.rs`,
+  `c072_later.rs` and the `progress.rs` unit tests rewritten to the new shape; the suite 214.

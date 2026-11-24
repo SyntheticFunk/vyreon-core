@@ -1409,13 +1409,53 @@ async fn open_one(c: &impl GenericClient, f: &Found, now: Option<&str>) -> Resul
         .await
         .map_err(db)?;
     if n == 1 {
-        notice::alert(c, &alert_text(&f.summary, &f.command)).await?;
+        notice::alert(c, &alert_for(f.kind, &f.summary, &f.command)).await?;
     }
     Ok(n == 1)
 }
 
-pub fn alert_text(summary: &str, command: &str) -> String {
-    format!("🔴 {summary}\nTo see more: `{command}`")
+/// C-073 (owner, 2026-11-24: readable at a glance): what a problem of `kind` means for the numbers,
+/// and what the owner should do about it (None: nothing; it clears by itself or core acts).
+pub fn consequence(kind: &str) -> (&'static str, Option<&'static str>) {
+    match kind {
+        "SESSION_LATE" => ("That day has no published numbers yet; readers see it as not published.", Some("See why its work has not finished:")),
+        "REPORT_AT_RISK" => ("Sunday's report may go out with this week incomplete.", Some("See what is still missing:")),
+        "QUEUE_PAUSED" => ("No new days are computed while paused; nothing published changes.", Some("Find the cause; once it is fixed, `vyreon-core queue resume`. Details:")),
+        "JOB_FAILED" => (
+            "That day stays unpublished (shown to readers as missing, with its cause); published days are not affected.",
+            Some("After a fix, `vyreon-core queue retry-failed`; why it failed:"),
+        ),
+        "PROVIDER_AUTH" => ("No new data can be fetched; published numbers are not affected.", Some("Check the Intrinio key and account:")),
+        "PROVIDER_ERRORS" => ("Work is retried by itself; published numbers are not affected.", None),
+        "DATABASE_FULL" => ("Publishing stops when the volume is full; published numbers are not affected.", Some("Grow the volume (deploy/k8s/README.md, Backups and the volume):")),
+        "CALENDAR_END" => ("Daily runs stop at the calendar's end.", Some("Load the engine's next calendar:")),
+        "NOT_DERIVED" => ("Those days' history readings (unusualness, windows) are absent until derived again.", Some("Queue their history passes:")),
+        "DAILY_STOPPED" => ("New sessions are not computed; published days are not affected.", Some("See the daily runs' settings:")),
+        "ARCHIVE_MISSING" => ("Published numbers are not affected; perishable inputs may be lost for later re-checks.", Some("See what is missing:")),
+        "REFCHECK_DISAGREES" => ("Published numbers may be wrong where the independent check disagrees; they stay published until judged.", Some("Review the disagreement:")),
+        "REFCHECK_NOT_RUN" => ("Those days are published but not independently checked (a re-run failed too).", Some("See which:")),
+        "STALLED" => ("No new days are computed meanwhile; published numbers are not affected.", Some("See the queue and the worker pods (`kubectl -n vyreon get pods`):")),
+        "CLAIMS_EMPTY" => ("Work waits while workers start and leave; published numbers are not affected.", Some("See the queue:")),
+        "WAL_ARCHIVING" | "BACKUP_STALE" => ("Published numbers are not affected; the database could not be restored to now.", Some("Check the backups:")),
+        "WATCH_FAILING" => ("Other problems may go unreported meanwhile.", Some("Read core's log:")),
+        "JOB_THRASHING" => ("That work keeps restarting; its day stays unpublished until it finishes.", Some("Check the pods' exit reasons (out of memory?):")),
+        "NO_PROGRESS" => ("That job is stuck; its day stays unpublished until it moves.", Some("Read the worker's log:")),
+        _ => ("", Some("To see more:")),
+    }
+}
+
+/// An alert (C-073, owner 2026-11-24): what happened, then whether it touches published numbers or
+/// absences, then what to do, with the command, only when there is something to do.
+pub fn alert_for(kind: &str, summary: &str, command: &str) -> String {
+    let (effect, action) = consequence(kind);
+    let mut text = format!("🔴 {summary}");
+    if !effect.is_empty() {
+        text.push_str(&format!("\n{effect}"));
+    }
+    if let Some(action) = action {
+        text.push_str(&format!("\nTo do: {action} `{command}`"));
+    }
+    text
 }
 
 pub fn resolved_text(summary: &str, age_seconds: i64) -> String {

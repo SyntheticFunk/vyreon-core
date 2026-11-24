@@ -205,7 +205,7 @@ pub fn spawn_sender_on(app: Arc<App>, webhook: String, every: Duration, channel:
 /// The progress channel's windows (C-065): every `every` (a minute in the service), a window of
 /// `progress::WINDOW_MINUTES` composed and queued when due. Its own task, so counting a window's
 /// days never delays the watch; started only when the progress webhook is set.
-pub fn spawn_progress(app: Arc<App>, profile: String, every: Duration) -> tokio::task::JoinHandle<()> {
+pub fn spawn_progress(app: Arc<App>, profile: String, label: String, every: Duration) -> tokio::task::JoinHandle<()> {
     tokio::spawn(async move {
         let mut tick = tokio::time::interval(every);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
@@ -217,11 +217,11 @@ pub fn spawn_progress(app: Arc<App>, profile: String, every: Duration) -> tokio:
             };
             let client: &mut tokio_postgres::Client = &mut client;
             let done = match core_db::watch::now(&*client).await {
-                Ok(now) => core_db::progress::tick(client, &profile, &now).await,
+                Ok(now) => core_db::progress::tick_as(client, &profile, &label, &now).await,
                 Err(e) => Err(e),
             };
             match done {
-                Ok(Some(w)) if w.posts > 0 => println!("vyreon-core: progress: {} lines in {} posts queued", w.lines, w.posts),
+                Ok(Some(w)) if w.posts > 0 => println!("vyreon-core: progress: {} lines queued", w.lines),
                 Ok(_) => {}
                 Err(e) => eprintln!("vyreon-core: progress: {e}"),
             }
