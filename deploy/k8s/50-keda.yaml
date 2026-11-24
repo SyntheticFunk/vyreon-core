@@ -138,21 +138,15 @@ spec:
         serviceAccountName: default
         imagePullSecrets:
           - {name: regcred}
-        # pool `day` (AMD) first, `day-intel` (Intel) when `day` cannot have a node (C-068: nyc1 has
-        # refused AMD capacity; the autoscaler backs a pool off after a failed scale-up and grows the
-        # other); both carry the label and the taint
+        # tapes run on pool `tape-mem` (s-8vcpu-32gb-amd, 0..6; owner 2026-11-23): quote-era replay capture peaked at
+        # 13 GB+ and was OOM-killed on 16 GB nodes; one tape per 32 GB node until the engine reduces incrementally
         nodeSelector: {vyreon: worker}
         affinity:
           nodeAffinity:
             requiredDuringSchedulingIgnoredDuringExecution:
               nodeSelectorTerms:
                 - matchExpressions:
-                    - {key: doks.digitalocean.com/node-pool, operator: In, values: [day, day-intel]}
-            preferredDuringSchedulingIgnoredDuringExecution:
-              - weight: 100
-                preference:
-                  matchExpressions:
-                    - {key: doks.digitalocean.com/node-pool, operator: In, values: [day]}
+                    - {key: doks.digitalocean.com/node-pool, operator: In, values: [tape-mem]}
         tolerations:
           - {key: vyreon, operator: Equal, value: worker, effect: NoSchedule}
         containers:
@@ -168,7 +162,7 @@ spec:
               - name: VYREON_WORKER_NAME
                 valueFrom: {fieldRef: {fieldPath: metadata.name}}
             resources:
-              requests: {cpu: "2", memory: 12Gi}   # 3Gi → 12Gi 2026-11-23: quote-era tapes (13 GB replay files, 2025-09+) were OOM-killed three to a node
+              requests: {cpu: "2", memory: 20Gi}   # one per 32 GB tape-mem node (2026-11-23: quote-era peaks 13 GB+)
             volumeMounts:
               - {name: work, mountPath: /work}
               - {name: secrets, mountPath: /secrets, readOnly: true}
