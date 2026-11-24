@@ -145,6 +145,12 @@ Next:
    decisions** — every rule in force (engine DECISIONS "Rules in force", D-0xx..D-45x) judged on the built population:
    how often it fired, on which assets and dates, whether its sample size supports it; rules fitted to one or two dates
    are retired or generalised (with the census and the whole-range missing-contract scan).
+   **Coverage report (owner, 2026-11-23), with the census:** coverage is per value inside each body (slots are all
+   DELIVERED: 28,100 of 28,100 on the first phase-1 days), so compute it from the bodies: (1) overall share supported vs
+   the 80% coverage goal (graded goal, separate from D-404's 75% window rule); (2) by sensor × asset; (3) by reason class —
+   structural (not yet listed, before a provider's coverage start), provider faults (undelivered, refused snapshots,
+   P-xx), ours (ENGINE_FAULT, our gates); (4) monthly over the range (era effects: trade counts from 2024-11-26, tape quote
+   eras). Reported to the owner with the census.
    **Owner, 2026-11-23:** start Reporter beside the build once the earliest phase-1 days have their history passes
    (from the gap scan's work list), so the web step starts from a working Reporter. **Codex reviews the design too**
    (read-only, like the audits), in separate passes: an accessibility pass (plain-language, non-programmatic reader)
