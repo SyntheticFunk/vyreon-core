@@ -1032,6 +1032,17 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   audits: Gemini clean; Codex one rare mislabel (mid-stream URL expiry on the last attempt → whole-session TAPE_UNAVAILABLE)
   → next batch. **eng-f1 started:** verify-and-fix the pre-existing engine findings (UPATH zero count, ACT01 feed guard x3,
   tape id, sync prefix, official-bar mislabel, identity inputs (report only), D-358 mislabel) as D-460.
+  **D-460 merged (01:25 MT, c897c46b; 1,692/0; pytest 209; reader sources untouched, golden digests match):** REAL and fixed:
+  UPATH zero count under a withheld D111 count (D-027; real NVDA 2024-06-13 repro: was NO_TRADES, now withheld), ACT01 feed
+  guard cohort date / strike key at $0.001 / negative volume, retained official-bar read errors (D-411), mid-stream relisting
+  mislabel (D-358). NOT REAL: multi-session tape jobs. Audits by both running (`audits/2026-11-24-d460/`). **Hand-over must
+  recompute the July-2024 days already published** (UPATH can change → one rule per series). Measured tape memory:
+  replay_capture ~2.1 GB RSS flat on 2026-11-17 (estimate was ~1 GB), under request 3Gi / limit 6Gi.
+  **For the owner (tape reader changes, each orphans every stored tape cache → full re-capture, ~6-12 h):** item 5, a
+  UTP-marked message inside a CTA file (0 on the real slice; fixer recommends counting it lost, TAPE_CORRUPT_SEGMENT); item 7,
+  a short valid prefix before damage read as NO_TAPE_MESSAGES (only where a tape's first sync is not at byte 0); item 6,
+  identity inputs missing (canonical.rs, crate versions; ids newline-joined). Coordinator recommendation: bundle 5+6+7 into
+  one deliberate tape-method bump with one re-capture, scheduled by the owner (after phase 1 unless the census finds either case).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
