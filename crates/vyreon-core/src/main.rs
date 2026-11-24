@@ -609,7 +609,11 @@ async fn problems() -> Result<(), String> {
         println!("no open problem");
     }
     for o in &open {
-        let planned = if o.quiet { " (a planned step, not alerted yet: C-072)" } else { "" };
+        let planned = match (o.quiet, o.overdue) {
+            (true, false) => " (a planned step, not alerted yet: C-072)",
+            (true, true) => " (a planned step past its grace: alerted at the watch's next check)",
+            _ => "",
+        };
         println!("open {}: {}{planned} · `{}`", watch::age(o.age), o.summary, o.command);
     }
     let rows = client

@@ -953,17 +953,32 @@ pub async fn pause_by_operator(db_client: &impl GenericClient, reason: &str) -> 
 async fn pause_as(db_client: &impl GenericClient, reason: &str, by_operator: bool) -> Result<(), String> {
     let reason = &scrubbed(reason);
     // the row first: an UPDATE computes its new row (and its clock) before it waits for a locker
-    db_client.execute("SELECT FROM core.queue_control FOR UPDATE", &[]).await.map_err(db)?;
-    let paused = db_client
-        .execute(
-            "UPDATE core.queue_control SET paused = true, reason = $1, by_operator = $2, changed_at = clock_timestamp() WHERE NOT paused",
-            &[&reason, &by_operator],
-        )
-        .await
-        .map_err(db)?;
-    if paused == 1 {
-        let by = if by_operator { " by the operator" } else { "" };
-        notice::log(db_client, &format!("Queue paused{by}: {reason}. No work is handed out until `vyreon-core queue resume`.")).await?;
+    let was: (bool, bool, Option<String>) = {
+        let r = db_client.query_one("SELECT paused, by_operator, reason FROM core.queue_control FOR UPDATE", &[]).await.map_err(db)?;
+        (r.get(0), r.get(1), r.get(2))
+    };
+    match was {
+        (false, ..) => {
+            db_client
+                .execute("UPDATE core.queue_control SET paused = true, reason = $1, by_operator = $2, changed_at = clock_timestamp()", &[&reason, &by_operator])
+                .await
+                .map_err(db)?;
+            let by = if by_operator { " by the operator" } else { "" };
+            notice::log(db_client, &format!("Queue paused{by}: {reason}. No work is handed out until `vyreon-core queue resume`.")).await?;
+        }
+        // C-072 (audit c072, 1): core's own pause during the operator's (a bundle refused, a job
+        // failed for the last time) is never quiet: the pause becomes core's, its reason first, the
+        // operator's kept after it; same pause (its `changed_at`), so the watch alerts its open
+        // problem at once (no longer a planned step) instead of opening another
+        (true, true, op) if !by_operator => {
+            let both = format!("{reason} (during the operator's pause: {})", op.unwrap_or_default());
+            db_client.execute("UPDATE core.queue_control SET reason = $1, by_operator = false", &[&both]).await.map_err(db)?;
+            notice::log(db_client, &format!("Queue paused: {reason}. The operator's pause is core's now: no work is handed out until `vyreon-core queue resume`.")).await?;
+        }
+        // already paused: the first reason is kept (what stopped the queue), a later one of core's
+        // is logged, never dropped
+        (true, ..) if !by_operator => notice::log(db_client, &format!("Queue already paused; also: {reason}.")).await?,
+        (true, ..) => {}
     }
     Ok(())
 }

@@ -170,6 +170,13 @@ pub struct Open {
     pub overdue: bool,
 }
 
+impl Open {
+    /// C-072: a planned step's problem within its grace: no reason to look yet.
+    pub fn calm(&self) -> bool {
+        self.quiet && !self.overdue
+    }
+}
+
 /// What a check changed.
 #[derive(Debug, Default, PartialEq)]
 pub struct Change {
@@ -404,14 +411,24 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
                 let daily = async {
                     let mut planned = None;
                     let why = match daily::build_stopped(c, d).await? {
-                        // C-072: stopped by a hand-over while its successor is admitted, a planned step
-                        Some(why) => match daily::handed_over(c, d).await? {
-                            Some((id, other, at)) => {
-                                planned = Some(at);
-                                Some(format!("build {} {why} (hand-over {id}, with build {other}), so no new session is queued", d.build))
+                        Some(why) => {
+                            // the queueing's own refusal of a stopped build says nothing more; any
+                            // other error of it (a table that cannot be read) is said, and is no
+                            // planned step (C-069; audit c072, 5)
+                            let refusal = format!("daily runs: build {} {why}; ", d.build);
+                            let error = queueing.filter(|e| !e.starts_with(&refusal)).map_or(String::new(), |e| format!("; queueing failed: {}", one_line(e, 240)));
+                            match daily::handed_over(c, d).await? {
+                                // C-072: stopped by this hand-over's own withdrawal, or waiting for its
+                                // successor's admission, a planned step
+                                Some((id, other, at)) => {
+                                    if error.is_empty() {
+                                        planned = Some(at);
+                                    }
+                                    Some(format!("build {} {why} (hand-over {id}, with build {other}), so no new session is queued{error}", d.build))
+                                }
+                                None => Some(format!("build {} {why}, so no new session is queued{error}", d.build)),
                             }
-                            None => Some(format!("build {} {why}, so no new session is queued", d.build)),
-                        },
+                        }
                         None => match (daily::due(c, d, now).await?.first(), queueing) {
                             (Some(oldest), Some(e)) => Some(format!("a session due is not queued (the oldest {oldest}): queueing failed: {}", one_line(e, 240))),
                             (Some(oldest), None) => Some(format!("a session due is not queued (the oldest {oldest}): queueing failed, the service's log says why")),
@@ -551,7 +568,9 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
             if let Some(kind) = p.kinds.iter().copied().find(|k| *k == o.kind)
                 && !checked.found.iter().chain(&held).any(|f: &Found| f.kind == o.kind && f.key == o.key)
             {
-                held.push(Found { kind, key: o.key.clone(), summary: o.summary.clone(), command: o.command.clone(), detail: None, planned: None });
+                // C-072 (audit c072, 4): held as it was, a planned step's included (its stored
+                // grace still decides; `planned` is only read when a problem opens)
+                held.push(Found { kind, key: o.key.clone(), summary: o.summary.clone(), command: o.command.clone(), detail: None, planned: o.quiet.then(String::new) });
             }
         }
         held.push(failing(p, e));
@@ -1045,6 +1064,32 @@ const GROUP: &str = "CASE WHEN j.kind = 'DAY_BLOCK' AND j.priority = 1 THEN 'DAI
 /// problem (`JOB_FAILED`), one alert for one cause. A paused queue or a build not admitted makes
 /// nothing claimable: those are their own problems.
 async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> Result<(), String> {
+    // C-072 (audit c072, 2): work a hand-over moved to a successor that does not run (never
+    // admitted, or withdrawn since) waits for nothing that will come; the stall checks below count
+    // only running builds' work. A stall once `PLANNED_GRACE_MINUTES` have passed since the hand-over
+    let waiting = c
+        .query(
+            "SELECT h.to_build, max(h.hand_over_id), count(DISTINCT j.job_id), to_char(max(h.handed_at) AT TIME ZONE $3, 'Dy HH24:MI')
+             FROM core.hand_over h JOIN core.job j ON j.engine_build = h.to_build AND j.state = 'QUEUED'
+             WHERE NOT core.build_runs(h.to_build)
+             GROUP BY h.to_build
+             HAVING max(h.handed_at) + make_interval(secs => $2::float8 * 60) <= $1::text::timestamptz
+             ORDER BY 1",
+            &[&now, &PLANNED_GRACE_MINUTES, &ZONE],
+        )
+        .await
+        .map_err(db)?;
+    for r in &waiting {
+        let (build, id, jobs, at): (String, i64, i64, String) = (r.get(0), r.get(1), r.get(2), r.get(3));
+        found.push(Found {
+            kind: "STALLED",
+            key: format!("successor {build}"),
+            summary: format!("Work stalled since {at} MT: hand-over {id} moved {jobs} jobs to build {}, which does not run: admit it (`vyreon-core build admit`)", short(&build)),
+            command: "vyreon-core queue".into(),
+            detail: None,
+            planned: None,
+        });
+    }
     let leased: Vec<String> = c
         .query(
             &format!("SELECT DISTINCT {GROUP} FROM core.lease l JOIN core.job j USING (job_id) WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz"),
@@ -1313,8 +1358,16 @@ pub async fn check(client: &mut Client, s: &Settings, now: &str) -> Result<Chang
 /// Resolves an open problem, with its post.
 async fn resolve(c: &impl GenericClient, o: &Open, now: &str) -> Result<(), String> {
     c.execute("UPDATE core.problem SET resolved_at = GREATEST($2::text::timestamptz, opened_at) WHERE problem_id = $1", &[&o.id, &now]).await.map_err(db)?;
-    // C-072: never alerted, it is over where it was said
-    if o.quiet { notice::log(c, &planned_over_text(&o.summary, o.age)).await } else { notice::alert(c, &resolved_text(&o.summary, o.age)).await }
+    // C-072: never alerted and over within its grace, it is over where it was said; past its grace
+    // (open at its deadline, cleared before a check saw it overdue: audit c072, 4) its alert is
+    // posted now, then its resolution
+    if o.quiet && !o.overdue {
+        return notice::log(c, &planned_over_text(&o.summary, o.age)).await;
+    }
+    if o.quiet {
+        notice::alert(c, &overdue_text(&o.summary, &o.command, o.age)).await?;
+    }
+    notice::alert(c, &resolved_text(&o.summary, o.age)).await
 }
 
 /// `check`, told the error of this minute's queueing of the daily runs, if it failed (C-069).
@@ -1579,8 +1632,9 @@ fn more_problems(n: usize) -> String {
 /// what is not fully judged (C-054 amended 2026-11-20), else 🟢. C-072: a planned step within its
 /// grace is no reason to look: 🟡, named as under way.
 pub fn verdict(open: &[Open], handled: &[String], unjudged: &[String]) -> String {
-    let loud: Vec<&Open> = open.iter().filter(|o| !o.quiet).collect();
-    let planned: Vec<String> = open.iter().filter(|o| o.quiet).map(|o| one_line(&o.summary, 120)).collect();
+    // one past its grace is a problem, alerted or about to be (audit c072, 4)
+    let loud: Vec<&Open> = open.iter().filter(|o| !o.calm()).collect();
+    let planned: Vec<String> = open.iter().filter(|o| o.calm()).map(|o| one_line(&o.summary, 120)).collect();
     match loud.as_slice() {
         [first, rest @ ..] => format!("🔴 Needs you: {}{}", first.summary, more_problems(rest.len())),
         [] if handled.is_empty() && unjudged.is_empty() && planned.is_empty() => "🟢 Running fine".into(),
@@ -1630,7 +1684,7 @@ pub fn compose(first: &str, lines: &[String], open: &[Open]) -> String {
     }
     text.push_str(&format!("\nOpen problems ({}):", open.len()));
     for (i, o) in open.iter().enumerate() {
-        let planned = if o.quiet { " (a planned step)" } else { "" };
+        let planned = if o.calm() { " (a planned step)" } else { "" };
         let line = format!("\n• {}{planned} · open {} · `{}`", one_line(&o.summary, 220), age(o.age), o.command);
         let rest = open.len() - i - 1;
         let tail = format!("\n• … and {} more: `vyreon-core problems`", rest + 1);
@@ -2075,10 +2129,10 @@ async fn weekly_of(c: &mut impl GenericClient, s: &Settings, now: &str, open: &[
     let no_history: Vec<&str> = watched.iter().filter(|w| w.3 && w.4 && !w.6).map(|w| w.1.as_str()).collect();
     let first = if !missing.is_empty() {
         format!("🔴 Weekly check: Sunday's report at risk, {} of {} sessions not published ({})", missing.len(), watched.len(), missing.join(", "))
-    } else if let Some(oldest) = open.iter().find(|o| !o.quiet) {
+    } else if let Some(oldest) = open.iter().find(|o| !o.calm()) {
         // an open problem is red whatever the week's deadlines (C-050; round w, 12); a planned
         // step within its grace is not a problem yet (C-072)
-        let loud = open.iter().filter(|o| !o.quiet).count();
+        let loud = open.iter().filter(|o| !o.calm()).count();
         format!("🔴 Weekly check: Sunday's report is not cleared while a problem is open: {}{}", one_line(&oldest.summary, 200), more_problems(loud - 1))
     } else if week.is_empty() {
         "🟡 Weekly check: no trading session this week".to_string()
