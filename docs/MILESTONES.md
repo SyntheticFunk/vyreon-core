@@ -974,6 +974,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   hour; each kill was a lost lease, re-queued quietly, and nothing alerted (no stall: the jobs kept being leased). Proposed:
   core's watch raises JOB_THRASHING when a job loses its lease ≥3 times (naming the job and, where readable, the pods'
   exit reasons), so an operator learns of a resource limit from the channel, not by looking.
+- **Tape memory (2026-11-23, measured):** replay capture memory climbs steadily as the file streams (old 3Gi pods at 1.8-3.5
+  GB mid-replay and rising): the fetch is streamed, the reduction accumulates the day. Now: 12Gi request (one per node);
+  after the 11 quote-era tapes finish, set request = measured peak + 25% with a matching limit (two per node if ≤7Gi).
+  Engine (after phase 1, performance not correctness): fold each asset's quotes into its summary incrementally so memory is
+  flat whatever the day's size. Observability: workers log their peak memory per job (cgroup memory.peak); core warns
+  when a job's peak passes ~80% of its request.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
