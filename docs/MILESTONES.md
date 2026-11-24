@@ -1302,6 +1302,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   proven on a real day (scoped vs full byte identity — cluster test after release).
   **Phase-1 projection from measured node-hours:** ~46 first days × 3.8 + ~551 later days × 2.8 ≈ 1,720 node-hours / 8 blocks
   ≈ 9 more days; ≈ $215-300 more → total ≈ $340-420 of the $500 (unproven; verify against real days as they publish).
+  **Release 2 assembled and in its one audit (UTC−6 ~16:20):** eng-scope 6470f89a (1,754/0; pytest 256/107) + core-scope 3c83e2c
+  (223/0; migration 0057): scoped recompute (REPUBLISH), scoped reference re-runs, download progress reports with the 20-min
+  rule for reporting downloads. Codex + Gemini (`audits/2026-11-24-release2/`); then fix every real finding, merge, release.sh;
+  then the cluster test (deploy/k8s/README.md §11, ops/scoped-check.sql: scoped vs full byte identity on one recent day, ~$1).
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
