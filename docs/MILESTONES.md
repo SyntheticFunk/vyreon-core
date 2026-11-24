@@ -1264,6 +1264,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   **Owner: retries are exponential (1, 2, 4, 8 s …), the standard way** → eng-rel: one shared policy for every provider retry:
   exponential backoff with full jitter, capped, bounded attempts, honouring Retry-After on 429/503 (RFC 9110 §10.2.3),
   through the request budget.
+  **eng-rel complete (a20d6af0; 1,733/0; pytest 249/107; D-461):** `vyreon-worker run refcheck`; EXQ01 per-page retries +
+  `--defer-cutoff-wait`; step reports with bounded declared waits; one retry helper (full jitter, 1 s→60 s, Retry-After); 38
+  LATER items: 19 fixed, 5 not real/resolved, 9 reader bundle, 2 overlay-rules bundle, 3 rulings. Coordinator rulings:
+  overlay-rules items (0 in 941,100 rows; force re-preparing every option source) join the post-phase-1 bundle with the reader
+  items; EWJ reference independence and a BABA2 certification guard fixed now; unreadable retained bar failing UACT/UQTR = honest
+  ENGINE_FAULT (not a defect). Then the single release audit of core-auto + eng-rel by both reviewers.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
