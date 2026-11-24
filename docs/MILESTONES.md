@@ -980,6 +980,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   Engine (after phase 1, performance not correctness): fold each asset's quotes into its summary incrementally so memory is
   flat whatever the day's size. Observability: workers log their peak memory per job (cgroup memory.peak); core warns
   when a job's peak passes ~80% of its request.
+  **Update 20:45 MT (owner: "hell yeah, and do #2 and do it right"):** measured peaks 7.5-12.9 GB and climbing; 6 tapes reached
+  attempt 2 of 3 (tape ScaledJob paused meanwhile; a FAILED tape can be re-run with `vyreon-core retry-failed`). Now: pool
+  `tape-mem` (s-8vcpu-32gb-amd, $0.25/h, 0..6) and tapes placed only there at 20Gi, one per node (6f382c6). Engine fix
+  started now, not after phase 1 (`eng-tape`, D-459): bounded-memory incremental reduction, byte-identical caches required.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
