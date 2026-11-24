@@ -1209,6 +1209,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   c9c23ca5 batch) carries the automation debts — release script, re-runnable reference checks, budget-aware KEDA,
   JOB_THRASHING — so they cost no extra hand-over. Being built now (`core-auto`, C-073); engine side of re-runnable
   refchecks, if needed, joins the same release.
+  **Owner, same day: "make all changes, THEN audit once (both codex and gemini), then commit."** Release default: all changes
+  on their branches first (commits stay on branches — the audit runner checks out a commit); ONE audit by both of the combined
+  release (branch tips, ORDINARY/RARE rule); fix ordinary findings; then merge to main/worker and release once. No more
+  merge → audit → fix → re-audit per piece.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
