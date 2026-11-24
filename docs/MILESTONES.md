@@ -1273,6 +1273,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   **Release audit running (UTC−6 ~12:30):** core-auto @9f18db4f and eng-rel @9cb9f049 (EWJ ledger + BABA2 guard added),
   Codex + Gemini each (`audits/2026-11-24-release/{core,engine}/`); engine Gemini chained after core Gemini (quota). Then fix
   every real finding, merge, build, release with release.sh (core first, worker within 15 min).
+  **Core release audit in (UTC−6 ~12:55):** anything changing a published number or absence on real data today? **No** (one
+  rare path: a changed-body resend on a current day; never observed). Codex 10 ordinary (release.sh: resumes a pause it does
+  not own, admits without evidence, weak success check, --from recovery, dry-run writes evidence; refcheck queue/labels;
+  budget pressure hiding a stalled daily tape; CLI counts) + 9 rare; Gemini 10 ordinary + 4 rare (overlapping; adds a temp
+  token file left on SIGINT, false JOB_THRASHING on retry-failed, false NO_PROGRESS on verify/upload). All being fixed on
+  core-auto (no re-audit). Engine Gemini running; engine Codex pending.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
