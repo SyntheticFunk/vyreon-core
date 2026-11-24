@@ -996,6 +996,9 @@ async fn a_hand_over_carries_no_pass_its_successor_cannot_run() {
     // a verify sample of the old build, as C-059 schedules one, over a stored cache
     assert!(core_db::tape::put(&client, "AAPL", day, "engine-v1", &core_db::tape::Cache::Body(test_support::TAPE_AAPL.to_vec())).await.unwrap());
     let verify = work::schedule_verify(&mut client, PROFILE, &old, &[day]).await.unwrap();
+    // its worker running when the hand-over withdraws the build
+    let verifying = work::claim(&mut client, Kind::Tape, &old, "v1", HOUR).await.unwrap().unwrap();
+    assert_eq!(verifying.job_id, verify[0]);
     // the successor reads the base but no day-local profile
     let mut base_only = inventories()[0].clone();
     base_only["engine_build"] = json!("slice-new-base-only");
@@ -1007,10 +1010,18 @@ async fn a_hand_over_carries_no_pass_its_successor_cannot_run() {
     let preview = build::hand_over(&mut client, &old, &new, "a new image", true, None).await.unwrap();
     assert!(preview.withdrew);
     assert_eq!((preview.carried.len(), preview.verify_cancelled.clone()), (1, verify.clone()));
-    assert_eq!(job_state(&client, verify[0]).await, "QUEUED", "a preview changes nothing");
+    assert_eq!(job_state(&client, verify[0]).await, "LEASED", "a preview changes nothing");
     let handed = build::hand_over(&mut client, &old, &new, "a new image", false, Some(&preview.token)).await.unwrap();
     assert!(handed.withdrew);
     assert_eq!(job_state(&client, verify[0]).await, "CANCELLED");
+    // C-072: the verify job's lease ended by the withdrawal is no restart; the successor not
+    // admitted keeps the instruction
+    let now = watch::now(&client).await.unwrap();
+    let post = core_db::progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
+    assert!(
+        post.contains(&format!("Hand-over {}: {old} → {new}, 1 pass moved, 1 tape verify job cancelled — a new image · build {new} is not admitted: admit it now", handed.hand_over_id.unwrap())),
+        "{post}"
+    );
     let withdrawn: bool = client.query_one("SELECT withdrawn_at IS NOT NULL FROM core.engine_build WHERE engine_build = $1", &[&old]).await.unwrap().get(0);
     assert!(withdrawn);
     // the successor's tapes are scheduled over the verified session
@@ -2335,7 +2346,7 @@ async fn the_progress_channel_says_what_moved_every_half_hour() {
             claim.job_id
         )
     );
-    assert_eq!(lines[2], format!("Started block 2025-12-10 to 2025-12-11 on day-7f2c (job {}, attempt 1)", claim.job_id));
+    assert_eq!(lines[2], "Started 1 block (2025): 12-10–12-11", "C-072: the blocks started, in one line");
     assert!(lines[3].ends_with(&format!("Engine build {b} admitted: its workers may claim work.")), "{post}");
     assert_eq!(lines[4], "Day blocks: 0 done in this window · 0 of 1 done · 1 running");
     assert_eq!(lines.len(), 5, "{post}");
@@ -2494,6 +2505,72 @@ async fn a_pass_done_then_queued_again_counts_as_done_in_its_window() {
     let now = watch::now(&client).await.unwrap();
     let posts = progress::preview(&mut client, PROFILE, &now).await.unwrap();
     assert!(posts[0].lines().any(|l| l == "Ordered passes: 1 done in this window · 0 of 1 done · 1 waiting"), "{}", posts[0]);
+    scratch.drop().await;
+}
+
+/// The owner's channel's posts (alerts, resolutions, digests), oldest first.
+async fn alerts(client: &Client) -> Vec<String> {
+    client.query("SELECT message FROM core.notice WHERE post AND channel = 'alerts' ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect()
+}
+
+/// C-072: a hand-over as the progress channel says it. The operator pauses the queue, hands the
+/// running build's work to its successor (two of its blocks running), admits it and resumes: the
+/// hand-over's own notice is one line (builds, what moved, the running jobs restarted, its reason);
+/// the pause, the withdrawal and the admission keep their own lines with their reasons (part 2,
+/// planned steps as progress, was retired: the pause alerts as before); the blocks started are one line.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_hand_over_is_one_progress_line_and_hides_no_reason() {
+    use core_db::daily::Daily;
+    use core_db::progress;
+    use core_db::watch::Settings;
+    let (scratch, mut client, _, _) = ready("c072_hand_over").await;
+    let old = whole_build_named(&mut client, "slice-old-image").await;
+    let days = ["2025-12-08", "2025-12-09", "2025-12-10", "2025-12-11", "2025-12-12"];
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &old, days[0], days[4], 1).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &old, days[0], days[4], 1).await.unwrap();
+    for worker in ["w1", "w2"] {
+        work::claim(&mut client, Kind::DayBlock, &old, worker, HOUR).await.unwrap().unwrap();
+    }
+    let reason = "bad AAPL close on 2025-12-09; replace the image";
+    work::pause(&client, reason).await.unwrap();
+    let new = registered_whole_build(&mut client, "slice-new-image").await;
+    let preview = build::hand_over(&mut client, &old, &new, "the rulings image", true, None).await.unwrap();
+    let id = build::hand_over(&mut client, &old, &new, "the rulings image", false, Some(&preview.token)).await.unwrap().hand_over_id.unwrap();
+
+    // the successor not admitted yet: the line says to admit it
+    let now = watch::now(&client).await.unwrap();
+    let post = progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
+    assert!(post.contains(&format!("Hand-over {id}: {old} → {new}, 5 blocks + 5 passes moved, 2 running jobs restarted — the rulings image · build {new} is not admitted: admit it now")), "{post}");
+
+    admit(&client, &new).await;
+    work::resume(&client).await.unwrap();
+    let now = watch::now(&client).await.unwrap();
+    let post = progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
+    let lines: Vec<&str> = post.lines().collect();
+    let line = |text: &str| lines.iter().any(|l| l.len() > 6 && &l[6..] == text);
+    assert!(line(&format!("Hand-over {id}: {old} → {new}, 5 blocks + 5 passes moved, 2 running jobs restarted — the rulings image")), "{post}");
+    assert!(line(&format!("Queue paused: {reason}. No work is handed out until `vyreon-core queue resume`.")), "the pause keeps its reason: {post}");
+    assert!(lines.iter().any(|l| l.contains(&format!("Engine build {old} withdrawn: handed over to build {new}: the rulings image. 2 running jobs stopped"))), "{post}");
+    assert!(line(&format!("Engine build {new} admitted: its workers may claim work.")) && line("Queue resumed."), "{post}");
+    assert!(lines.contains(&"Started 2 blocks (2025): 12-08, 12-09"), "{post}");
+
+    // part 2 retired: the pause and the daily runs' stop alert as any problem
+    let settings = Settings {
+        profile: PROFILE.into(),
+        deadlines_from: None,
+        volume_bytes: None,
+        deadline_hour: watch::DEADLINE_HOUR,
+        daily: Some(Daily { profile: PROFILE.into(), build: old.clone(), from: "2099-01-02".into() }),
+        archive: None,
+        refcheck_from: None,
+        backup_days: None,
+    };
+    work::pause(&client, "checking the new image's first day").await.unwrap();
+    watch::check(&mut client, &settings, &now).await.unwrap();
+    let posted = alerts(&client).await;
+    assert!(posted.contains(&"🔴 Work queue paused, nothing is handed out: checking the new image's first day\nTo see more: `vyreon-core queue`".to_string()), "{posted:?}");
+    assert!(posted.contains(&format!("🔴 Daily runs stopped: build {old} was withdrawn, so no new session is queued\nTo see more: `vyreon-core daily`")), "{posted:?}");
     scratch.drop().await;
 }
 
