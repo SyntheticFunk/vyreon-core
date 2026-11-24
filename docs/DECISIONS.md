@@ -3230,3 +3230,16 @@ not fixed".
   duration. Never hidden: a failure, a stall, an engine fault. Tests: `tests/digest_format.rs` (a busy
   half hour then a quiet one, a failure with its alert, a hand-over), the progress tests of `work.rs`,
   `c072_later.rs` and the `progress.rs` unit tests rewritten to the new shape; the suite 214.
+- **Hotfix: a download is its own wait; any new report is progress (live, 2026-11-24, core a6bb572,
+  worker 1ae946f7).** NO_PROGRESS alerted seven day blocks and a re-run in their downloads ("no progress
+  since 15:06, at step download …"): Intrinio's bulk option files (`h2-engine bulk-option-capture`) are
+  no request in core's ledger, and a block's first download runs about three hours (later days about
+  37 minutes). A step whose name begins with "download" or "fill" (the worker's `download <date>`, its
+  mirrored `download <date>: fill <date>: …`, a fill's `fill <date>: …`) is now an implicit wait of
+  `watch::DOWNLOAD_STEP_MAX_MINUTES` (240: the worst case and an hour's margin) from when it began;
+  NO_PROGRESS alerts it only past that and the 15-minute grace, naming the bound. A lease lost is the
+  queue's (its lease expires; STALLED, JOB_THRASHING), as before. **Contract amended:** `POST
+  /worker/v1/lease/step` also takes `progress` (1-200 characters, e.g. "chains 41 of 64"); a step report
+  may repeat, and any report whose step, wait, reason or progress differs from the last is progress
+  (`step_since`); the same report again only says the worker is alive. Migration 0056
+  (`lease_step.progress`). Test: `automation.rs::a_download_step_is_its_own_wait_and_any_new_report_is_progress`.
