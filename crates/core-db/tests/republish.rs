@@ -305,8 +305,18 @@ async fn the_planner_chooses_by_the_measured_cost_of_the_range() {
     assert!(p.full_first.total() - p.scoped.total() < 600.0);
     p.sessions = vec!["2025-12-10".into(), "2025-12-11".into(), "2025-12-12".into()];
     assert!(p.full_total() < p.scoped_total(), "{} {}", p.full_total(), p.scoped_total());
-    // a year on, the day's prints are no longer served: a full recompute would withhold EXQ01's readings,
+    // (release-2 audit, Gemini 6) the prints' capture began 2026-10-23: 2025-12-10 never read any, so a
+    // year on nothing perished there and the choice is the cost's
+    let p = rp::plan(&client, PROFILE, &b, &["P"], DAY, DAY, 3, TODAY).await.unwrap();
+    assert!(p.perished.is_empty() && p.choice == Choice::Scoped);
+    for (day, today, gone) in [("2026-11-02", TODAY, true), ("2026-11-19", TODAY, false), ("2026-11-02", "2026-11-06", false), (DAY, TODAY, false)] {
+        let g: bool = client.query_one("SELECT core.prints_perished($1::text::date, $2::text::date)", &[&day, &today]).await.unwrap().get(0);
+        assert_eq!(g, gone, "{day} on {today}");
+    }
+    // as if the prints' capture had begun before the day (the coverage row moved, in this scratch database):
+    // a year on the day's prints are no longer served: a full recompute would withhold EXQ01's readings,
     // the scoped one carries them (whatever the cost)
+    client.execute("UPDATE core.source_coverage SET first_date = '2025-06-02' WHERE source = 'option_prints'", &[]).await.unwrap();
     let p = rp::plan(&client, PROFILE, &b, &["P"], DAY, DAY, 3, TODAY).await.unwrap();
     assert_eq!((p.choice, p.perished.clone()), (Choice::Scoped, vec![DAY.to_owned()]));
     assert!(p.why.contains("carries them forward"), "{}", p.why);
@@ -438,4 +448,353 @@ async fn a_download_reporting_its_progress_is_judged_by_it() {
 
 async fn no_progress(c: &Client) -> i64 {
     c.query_one("SELECT count(*) FROM core.problem WHERE resolved_at IS NULL AND kind = 'NO_PROGRESS'", &[]).await.unwrap().get(0)
+}
+
+// ------------------------------------------------------------ the release-2 audit (C-074's table)
+
+fn account_for(revisions: serde_json::Value, unexplained: i64) -> refcheck::Checked {
+    use flate2::{Compression, write::GzEncoder};
+    use std::io::Write;
+    let a = json!({
+        "schema": refcheck::SCHEMA, "session": DAY, "outcome": "COMPLETED", "why": null, "wall_seconds": 10.0, "suite_seconds": 9.0,
+        "cpu_seconds": 60.0, "cpu_complete": true, "jobs": 8, "deadline_seconds": 36000, "revisions": revisions,
+        "counts": {"checked": 300, "passed": 300 - unexplained, "failed": unexplained, "failed_unexplained": unexplained, "skipped": 0, "reference_errors": 0,
+                   "unit_mismatch": 0, "failure_classes": i64::from(unexplained > 0), "measurements": 2, "measurements_failing": i64::from(unexplained > 0)},
+        "summary": {}, "report_trimmed": null, "versions": {"QuantLib": "1.43"},
+    });
+    let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+    gz.write_all(a.to_string().as_bytes()).unwrap();
+    refcheck::check(gz.finish().unwrap(), DAY).unwrap()
+}
+
+async fn job_state(client: &Client, job: i64) -> String {
+    client.query_one("SELECT state FROM core.job WHERE job_id = $1", &[&job]).await.unwrap().get(0)
+}
+
+async fn at(client: &Client, sql_interval: &str) -> String {
+    client.query_one(&format!("SELECT (now() + interval '{sql_interval}')::text"), &[]).await.unwrap().get(0)
+}
+
+/// Codex 4, 5, 15, 17; Gemini 2, 4, 14, 15: an identical retry of an accepted bundle is answered published
+/// (staged, for the base), never refused; a day block and a republish of a day never both run, whichever
+/// came first; the receipt counts the whole revision; a worker that ended after its day-local revision
+/// leaves its job done; a cancelled republish's staged base is rejected; a day-local revision binds only
+/// to the staged base that replaced its day's own.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn retries_overlaps_cancellation_and_counts() {
+    let (scratch, mut client, b, d) = ready("rp_a_retry").await;
+    let (base1, local1, _) = published_day(&mut client, &b, &d).await;
+    let plan = rp::plan(&client, PROFILE, &b, &["M0-GAMMA-CHANGE"], DAY, DAY, 3, TODAY).await.unwrap();
+    let job = rp::schedule(&mut client, PROFILE, &b, &plan.work, &plan.sessions, REASON).await.unwrap().jobs[0];
+    let over = work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, DAY, DAY, 30).await.unwrap_err();
+    assert!(over.contains(&format!("overlaps unfinished REPUBLISH job {job}")), "{over}");
+    let lease = work::claim(&mut client, Kind::Republish, &b, "r1", HOUR).await.unwrap().unwrap();
+    let m = ["M0-GAMMA-CHANGE"];
+    let first = send(&mut client, "ra-base", base_of(&m, scope(job, base1, &m, &m, &[])), &lease.token).await.unwrap();
+    assert_eq!((first.slots, first.reader_scalars, first.staged), (4, 1, true), "the whole revision: four slots, VS-IVS01's carried scalar");
+    let again = send(&mut client, "ra-base-again", base_of(&m, scope(job, base1, &m, &m, &[])), &lease.token).await.unwrap();
+    assert_eq!((again.already_published, again.staged, again.revision_id), (true, true, first.revision_id));
+    let local = send(&mut client, "ra-local", local_of(&b, first.revision_id, &[], scope(job, local1, &m, &[], &[])), &lease.token).await.unwrap();
+    let local_again = send(&mut client, "ra-local-again", local_of(&b, first.revision_id, &[], scope(job, local1, &m, &[], &[])), &lease.token).await.unwrap();
+    assert_eq!((local_again.already_published, local_again.revision_id), (true, local.revision_id));
+    // the worker ends before saying the day done: the job is done, never leased again for the day it replaced
+    work::fail(&mut client, &lease.token, "republish 2025-12-10", "the node went", "").await.unwrap();
+    assert_eq!(job_state(&client, job).await, "DONE");
+    // a second republish, cancelled after its base is staged: the staged base is rejected, the day as it was
+    let job2 = rp::schedule(&mut client, PROFILE, &b, &plan.work, &plan.sessions, REASON).await.unwrap().jobs[0];
+    let l2 = work::claim(&mut client, Kind::Republish, &b, "r2", HOUR).await.unwrap().unwrap();
+    let staged = send(&mut client, "ra-base3", base_of(&m, scope(job2, first.revision_id, &m, &m, &[])), &l2.token).await.unwrap().revision_id;
+    // Gemini 15: a day-local revision naming the staged base but replacing another day-local revision than the
+    // one the staged base's day stood on is refused
+    let mut stray = local_of(&b, staged, &[], scope(job2, local1, &m, &[], &[]));
+    stray.0.base_revision = Some(staged);
+    refused(send(&mut client, "ra-stray", stray, &l2.token).await, "is now");
+    work::cancel(&mut client, &[job2]).await.unwrap();
+    assert_eq!((state(&client, staged).await, state(&client, first.revision_id).await), ("REJECTED".to_owned(), "PUBLISHED".to_owned()));
+    scratch.drop().await;
+}
+
+/// Codex 1: a scope that asks for a history sensor (DLM-IV's DLM-IV30, its family's history members) has
+/// the day's history derived again, whatever the day-local values.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_requested_history_correction_is_never_skipped() {
+    let (scratch, mut client, b, d) = ready("rp_a_hist").await;
+    let (_, local1, hist1) = published_day(&mut client, &b, &d).await;
+    let plan = rp::plan(&client, PROFILE, &b, &["DLM-IV"], DAY, DAY, 3, TODAY).await.unwrap();
+    assert!(plan.work.seed_history.contains("DLM-IV30") && plan.choice != Choice::Passes, "{:?}", plan.work);
+    let job = rp::schedule(&mut client, PROFILE, &b, &plan.work, &plan.sessions, REASON).await.unwrap().jobs[0];
+    let lease = work::claim(&mut client, Kind::Republish, &b, "r1", HOUR).await.unwrap().unwrap();
+    let base: i64 = client.query_one("SELECT base_revision FROM vyreon.day_revision WHERE revision_id = $1", &[&local1]).await.unwrap().get(0);
+    let rec: Vec<String> = plan.work.day_local.iter().cloned().collect();
+    let r = Republish { job, replaces: local1, families: vec!["DLM-IV".into()], measurements: vec![], recomputed: rec, value_changed: vec![], reason: REASON.into() };
+    send(&mut client, "rh-local", local_of(&b, base, &[], r), &lease.token).await.unwrap();
+    assert_eq!(state(&client, hist1).await, "SUPERSEDED", "DLM-IV30's history is derived again");
+    assert_eq!(client.query_one("SELECT count(*) FROM core.job WHERE kind = 'ORDERED_PASS' AND state = 'QUEUED'", &[]).await.unwrap().get::<_, i64>(0), 1);
+    scratch.drop().await;
+}
+
+/// Codex 2, 9, 18, 19, 20: a republish whose prints perished is FAILED at its claim, never run; one that
+/// reads the tapes waits for unfinished tape work; a history revision never binds as a base; scheduling
+/// under a withdrawn build or with a credential in the reason is refused.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn claims_bindings_and_scheduling_refusals() {
+    let (scratch, mut client, b, d) = ready("rp_a_claims").await;
+    let (_, local1, hist1) = published_day(&mut client, &b, &d).await;
+    // a republish reading the prints of 2026-11-02, queued before they perished: FAILED at its claim
+    let gone: i64 = client
+        .query_one(
+            "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope)
+             VALUES ('REPUBLISH', $1, $2, '2026-11-02', '2026-11-02', '2026-11-02', $3::text::jsonb) RETURNING job_id",
+            &[&PROFILE, &b, &json!({"reason": REASON, "recompute": {}, "categories": ["daily", "options", "exq01"]}).to_string()],
+        )
+        .await
+        .unwrap()
+        .get(0);
+    assert!(work::claim(&mut client, Kind::Republish, &b, "r0", HOUR).await.unwrap().is_none());
+    assert_eq!(job_state(&client, gone).await, "FAILED");
+    // a scope reading the tapes waits for the tapes of its session
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, DAY, DAY, 1).await.unwrap();
+    let plan = rp::plan(&client, PROFILE, &b, &["DLM-CHAIN"], DAY, DAY, 3, TODAY).await.unwrap();
+    assert!(plan.work.categories.contains(&"consolidated".to_owned()));
+    let job = rp::schedule(&mut client, PROFILE, &b, &plan.work, &plan.sessions, REASON).await.unwrap().jobs[0];
+    assert!(work::claim(&mut client, Kind::Republish, &b, "r1", HOUR).await.unwrap().is_none(), "the tapes first");
+    let tape: i64 = client.query_one("SELECT job_id FROM core.job WHERE kind = 'TAPE'", &[]).await.unwrap().get(0);
+    work::cancel(&mut client, &[tape]).await.unwrap();
+    let lease = work::claim(&mut client, Kind::Republish, &b, "r1", HOUR).await.unwrap().unwrap();
+    // a day-local revision naming the history revision as its base is refused
+    let mut bad = local_of(&b, hist1, &["DLM-MAX-PAIN"], Republish { job, replaces: local1, families: vec!["DLM-CHAIN".into()], measurements: vec![], recomputed: plan.work.day_local.iter().cloned().collect(), value_changed: vec![], reason: REASON.into() });
+    bad.0.base_profile_revision = Some(test_support::slice::slice()["day_revision"][1]["profile_revision"].as_str().unwrap().to_owned());
+    refused(send(&mut client, "rc-bad", bad, &lease.token).await, "has no published");
+    work::cancel(&mut client, &[job]).await.unwrap();
+    // credentials and withdrawn builds
+    let leak = rp::schedule(&mut client, PROFILE, &b, &plan.work, &plan.sessions, "fix: postgresql://u:hunter2pass@db/x").await.unwrap_err();
+    assert!(leak.contains("carries no credential"), "{leak}");
+    build::withdraw(&mut client, &b, "replaced").await.unwrap();
+    let w = rp::schedule(&mut client, PROFILE, &b, &plan.work, &plan.sessions, REASON).await.unwrap_err();
+    assert!(w.contains("not admitted, or withdrawn"), "{w}");
+    scratch.drop().await;
+}
+
+/// Codex 3, 10, 11; Gemini 1, 7: a republished day's re-run is whole when the replaced pair's check found a
+/// disagreement, which stays open meanwhile; it is due six hours after the republish, not after its base;
+/// after consecutive corrections it is scoped to the last one's recomputed measurements.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn reference_reruns_of_republished_days() {
+    use core_db::watch::{self, Settings};
+    let (scratch, mut client, b, d) = ready("rp_a_refcheck").await;
+    let (base1, local1, _) = published_day(&mut client, &b, &d).await;
+    // the day's own check found 5 unexplained disagreements; the day published two days ago
+    let checker = work::schedule(&mut client, Kind::Refcheck, PROFILE, &b, DAY, DAY, 1).await;
+    assert!(checker.is_err());
+    client
+        .execute(
+            "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, max_attempts)
+             VALUES ('REFCHECK', $1, $2, $3::text::date, $3::text::date, $3::text::date, jsonb_build_object('base_revision', $4::bigint, 'day_local_revision', $5::bigint), 2)",
+            &[&PROFILE, &b, &DAY, &base1, &local1],
+        )
+        .await
+        .unwrap();
+    let rr = work::claim(&mut client, Kind::Refcheck, &b, "c1", HOUR).await.unwrap().unwrap();
+    refcheck::put(&mut client, &rr.token, &account_for(json!([base1, local1]), 5)).await.unwrap();
+    work::finish(&mut client, &rr.token).await.unwrap();
+    client.execute("UPDATE vyreon.day_revision SET published_at = published_at - interval '2 days' WHERE revision_id IN ($1, $2)", &[&base1, &local1]).await.unwrap();
+    let settings = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None,
+        refcheck_from: Some(DAY.into()), backup_days: None, refcheck_rerun_hours: Some(6.0) };
+    // a DLM-CHAIN republish (day-local only)
+    let plan = rp::plan(&client, PROFILE, &b, &["DLM-CHAIN"], DAY, DAY, 3, TODAY).await.unwrap();
+    let job = rp::schedule(&mut client, PROFILE, &b, &plan.work, &plan.sessions, REASON).await.unwrap().jobs[0];
+    let lease = work::claim(&mut client, Kind::Republish, &b, "r1", HOUR).await.unwrap().unwrap();
+    let rec: Vec<String> = plan.work.day_local.iter().cloned().collect();
+    let names: Vec<&str> = rec.iter().map(String::as_str).collect();
+    let mk = |job: i64, replaces: i64| Republish { job, replaces, families: vec!["DLM-CHAIN".into()], measurements: vec![], recomputed: rec.clone(), value_changed: vec![], reason: REASON.into() };
+    let local2 = send(&mut client, "rr-l2", local_of(&b, base1, &names, mk(job, local1)), &lease.token).await.unwrap().revision_id;
+    work::day_done(&mut client, &lease.token, DAY).await.unwrap();
+    work::finish(&mut client, &lease.token).await.unwrap();
+    // the disagreement on the carried readings stays open
+    let s = refcheck::state_with(&client, PROFILE, Some(DAY), Some(6.0), &at(&client, "1 hour").await).await.unwrap();
+    assert_eq!(s.disagree, 1, "{s:?}");
+    // due six hours after the republish, not after the base's two days
+    refcheck::queue_reruns(&client, PROFILE, DAY, 6.0, &at(&client, "1 hour").await).await.unwrap();
+    assert_eq!(client.query_one("SELECT count(*) FROM core.job WHERE kind = 'REFCHECK' AND state = 'QUEUED'", &[]).await.unwrap().get::<_, i64>(0), 0);
+    let t = at(&client, "1 hour").await;
+    let _ = watch::check(&mut client, &settings, &t).await.unwrap();
+    refcheck::queue_reruns(&client, PROFILE, DAY, 6.0, &at(&client, "7 hours").await).await.unwrap();
+    let scope: serde_json::Value = serde_json::from_str(&client.query_one("SELECT scope::text FROM core.job WHERE kind = 'REFCHECK' AND state = 'QUEUED'", &[]).await.unwrap().get::<_, String>(0)).unwrap();
+    assert_eq!((scope["day_local_revision"].as_i64(), scope.get("measurements")), (Some(local2), None), "a whole check: the replaced pair disagreed");
+    // that check completes clean; a second correction (DLM-CHAIN again) is checked scoped to it alone
+    let rr = work::claim(&mut client, Kind::Refcheck, &b, "c2", HOUR).await.unwrap().unwrap();
+    refcheck::put(&mut client, &rr.token, &account_for(json!([base1, local2]), 0)).await.unwrap();
+    work::finish(&mut client, &rr.token).await.unwrap();
+    let s = refcheck::state_with(&client, PROFILE, Some(DAY), Some(6.0), &at(&client, "8 hours").await).await.unwrap();
+    assert_eq!(s.disagree, 0);
+    let job2 = rp::schedule(&mut client, PROFILE, &b, &plan.work, &plan.sessions, REASON).await.unwrap().jobs[0];
+    let lease = work::claim(&mut client, Kind::Republish, &b, "r2", HOUR).await.unwrap().unwrap();
+    let local3 = send(&mut client, "rr-l3", local_of(&b, base1, &names, mk(job2, local2)), &lease.token).await.unwrap().revision_id;
+    work::day_done(&mut client, &lease.token, DAY).await.unwrap();
+    work::finish(&mut client, &lease.token).await.unwrap();
+    refcheck::queue_reruns(&client, PROFILE, DAY, 6.0, &at(&client, "7 hours").await).await.unwrap();
+    let scope: serde_json::Value = serde_json::from_str(&client.query_one("SELECT scope::text FROM core.job WHERE kind = 'REFCHECK' AND state = 'QUEUED'", &[]).await.unwrap().get::<_, String>(0)).unwrap();
+    assert_eq!((scope["day_local_revision"].as_i64(), scope["measurements"].clone()), (Some(local3), json!(rec)));
+    scratch.drop().await;
+}
+
+/// Codex 8: a download reporting progress is judged by it alone: request traffic does not hide a counter
+/// that stopped.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn request_traffic_never_hides_a_stopped_progress_counter() {
+    use core_db::watch::{self, Settings};
+    let (scratch, mut client, b, _) = ready("rp_a_traffic").await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, DAY, DAY, 30).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "day-1", 48.0 * HOUR).await.unwrap().unwrap();
+    let settings = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None,
+        refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
+    work::report_step_with(&mut client, &block.token, "download 2025-12-10: fill 2025-12-10: options", None, None, Some("bulk files 3 of 31")).await.unwrap();
+    // requests reported every few minutes, the counter still
+    for minutes in [5, 15, 25] {
+        let t = at(&client, &format!("{minutes} minutes")).await;
+        client.execute("INSERT INTO core.request_usage (minute, worker, category, requests) VALUES (date_trunc('minute', $1::text::timestamptz), 'day-1', 'captures', 900)", &[&t]).await.unwrap();
+    }
+    let t = at(&client, "30 minutes").await;
+    watch::check(&mut client, &settings, &t).await.unwrap();
+    assert_eq!(no_progress(&client).await, 1);
+    scratch.drop().await;
+}
+
+/// Codex 12, Gemini 11: the cluster check's parity SQL, run on a real copy: nothing on a correct copy (its
+/// recomputed stream changed included), a row for a carried scalar or slot lost.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn the_scoped_check_catches_a_lost_carried_slot_and_passes_a_correct_copy() {
+    let (scratch, mut client, b, d) = ready("rp_a_sql").await;
+    let (base1, local1, _) = published_day(&mut client, &b, &d).await;
+    let plan = rp::plan(&client, PROFILE, &b, &["M0-GAMMA-CHANGE"], DAY, DAY, 3, TODAY).await.unwrap();
+    let job = rp::schedule(&mut client, PROFILE, &b, &plan.work, &plan.sessions, REASON).await.unwrap().jobs[0];
+    let lease = work::claim(&mut client, Kind::Republish, &b, "r1", HOUR).await.unwrap().unwrap();
+    let m = ["M0-GAMMA-CHANGE"];
+    let base2 = send(&mut client, "rs-base", base_of(&m, scope(job, base1, &m, &m, &[])), &lease.token).await.unwrap().revision_id;
+    let local2 = send(&mut client, "rs-local", local_of(&b, base2, &[], scope(job, local1, &m, &[], &[])), &lease.token).await.unwrap().revision_id;
+    let sql = include_str!("../../../deploy/k8s/ops/scoped-check.sql");
+    let run = |full: bool| {
+        let text: String = sql.lines().filter(|l| !l.trim_start().starts_with('\\') && !l.trim_start().starts_with("--")).collect::<Vec<_>>().join("\n");
+        let text = text.replace(":scoped_base", &base2.to_string()).replace(":scoped_local", &local2.to_string())
+            .replace(":full_base", &base2.to_string()).replace(":full_local", &local2.to_string());
+        let mut parts: Vec<String> = text.split(';').map(str::trim).filter(|p| !p.is_empty()).map(str::to_owned).collect();
+        if !full {
+            parts.pop();
+        }
+        parts
+    };
+    assert_eq!(sql_rows(&client, run(true)).await, vec![0, 0, 0, 0], "a correct copy, and the scoped day against itself as the full day");
+    // the recomputed slot's stream differs from the replaced one: still nothing (it is not carried)
+    client.execute("UPDATE vyreon.measurement_stream SET events_gzip = events_gzip || '\\x00'::bytea WHERE revision_id = $1 AND measurement_id = 'M0-GAMMA-CHANGE'", &[&base2]).await.unwrap();
+    assert_eq!(sql_rows(&client, run(false)).await, vec![0, 0, 0]);
+    // a carried reader scalar lost, then a carried slot lost: each a row
+    client.execute("DELETE FROM vyreon.reader_scalar WHERE revision_id = $1", &[&base2]).await.unwrap();
+    assert_eq!(sql_rows(&client, run(false)).await, vec![0, 0, 1]);
+    client.execute("DELETE FROM vyreon.measurement WHERE revision_id = $1 AND measurement_id = 'VS-Q01'", &[&base2]).await.unwrap();
+    assert_eq!(sql_rows(&client, run(false)).await[0], 1);
+    scratch.drop().await;
+}
+
+/// Codex 13: a compare-only day block stages the day whole and publishes nothing: the scoped day stays
+/// what readers see while the comparison is judged.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_compare_only_day_block_publishes_nothing() {
+    let (scratch, mut client, b, d) = ready("rp_a_compare").await;
+    let (base1, local1, hist1) = published_day(&mut client, &b, &d).await;
+    let job = rp::schedule_compare(&mut client, PROFILE, &b, DAY).await.unwrap();
+    assert!(rp::schedule_compare(&mut client, PROFILE, &b, DAY).await.unwrap_err().contains("unfinished DAY_BLOCK"));
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w9", HOUR).await.unwrap().unwrap();
+    assert_eq!(block.job_id, job);
+    let base = send(&mut client, "rcmp-base", parts(BASE), &block.token).await.unwrap();
+    assert!(base.staged);
+    let mut lp = day_local_parts(&b, DAY, base.revision_id);
+    lp.0.base_revision = None;
+    let local = send(&mut client, "rcmp-local", lp, &block.token).await.unwrap();
+    assert!(local.staged);
+    work::day_done(&mut client, &block.token, DAY).await.unwrap();
+    work::finish(&mut client, &block.token).await.unwrap();
+    for (r, s) in [(base1, "PUBLISHED"), (local1, "PUBLISHED"), (hist1, "PUBLISHED"), (base.revision_id, "STAGED"), (local.revision_id, "STAGED")] {
+        assert_eq!(state(&client, r).await, s, "revision {r}");
+    }
+    let base_of_local: i64 = client.query_one("SELECT base_revision FROM vyreon.day_revision WHERE revision_id = $1", &[&local.revision_id]).await.unwrap().get(0);
+    assert_eq!(base_of_local, base.revision_id);
+    scratch.drop().await;
+}
+
+/// Codex 6, 14, 16; Gemini 3, 5, 8, 12, 13, 16: FULL and the passes schedule the published days in runs;
+/// a day published in other profile revisions is recomputed whole; a retired day's republish is cancelled;
+/// a failed republish is said as one; a build's plans are its first; a republish needs the day whole;
+/// the measured costs are overlaid by measurement, the publish as measured, the download as shares.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn planning_retirement_failures_and_measurement() {
+    use core_db::watch::{self, Settings};
+    let (scratch, mut client, b, d) = ready("rp_a_misc").await;
+    let (base1, _, _) = published_day(&mut client, &b, &d).await;
+    // runs: the published day alone of a range around it
+    let plan = rp::plan(&client, PROFILE, &b, &["P"], "2025-12-08", "2025-12-12", 3, TODAY).await.unwrap();
+    assert_eq!(plan.runs(), vec![(DAY.to_owned(), DAY.to_owned())]);
+    // a build publishing another base profile revision: the day is stale for it, recomputed whole
+    let mut next = test_support::with_republish(with_day_local(inventories().remove(0)));
+    next["engine_build"] = json!("dddddddd+000000000000");
+    for row in next["slots"].as_array_mut().unwrap() {
+        if row["profile_revision"] == "VYREON-RESEARCH-PROFILE-S64-3.0.0" {
+            row["profile_revision"] = json!("VYREON-RESEARCH-PROFILE-S64-3.1.0");
+        }
+    }
+    build::register(&mut client, &next).await.unwrap();
+    build::admit(&client, "dddddddd+000000000000", &json!({"checklist": "test"})).await.unwrap();
+    let stale = rp::plan(&client, PROFILE, "dddddddd+000000000000", &["CDD-FND01"], DAY, DAY, 3, TODAY).await.unwrap();
+    assert_eq!((stale.stale.clone(), stale.choice), (vec![DAY.to_owned()], Choice::Full));
+    assert!(rp::schedule(&mut client, PROFILE, "dddddddd+000000000000", &stale.work, &stale.sessions, REASON).await.unwrap_err().contains("recompute it whole"));
+    // the same build registered again with other plans is refused
+    let mut other = next.clone();
+    other["republish"]["perishable_sessions"] = json!(6);
+    assert!(build::register(&mut client, &other).await.unwrap_err().contains("other republish plans"));
+    // a retired day's republish is cancelled with it
+    let fnd = rp::plan(&client, PROFILE, &b, &["CDD-FND01"], DAY, DAY, 3, TODAY).await.unwrap();
+    let job = rp::schedule(&mut client, PROFILE, &b, &fnd.work, &fnd.sessions, REASON).await.unwrap().jobs[0];
+    let preview = core_db::publish::retire(&mut client, "test", &[DAY], true, None).await.unwrap();
+    assert!(preview.cancelled.contains(&job), "{preview:?}");
+    // a republish failing for the last time is said as one
+    let (base2, _, _) = (base1, 0, 0);
+    let _ = base2;
+    client.execute("UPDATE core.job SET max_attempts = 1 WHERE job_id = $1", &[&job]).await.unwrap();
+    let l = work::claim(&mut client, Kind::Republish, &b, "r1", HOUR).await.unwrap().unwrap();
+    assert!(!work::fail(&mut client, &l.token, "republish 2025-12-10", "the suite's inputs", "").await.unwrap());
+    let settings = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None,
+        refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
+    let t = at(&client, "1 minute").await;
+    watch::check(&mut client, &settings, &t).await.unwrap();
+    let said: String = client.query_one("SELECT summary FROM core.problem WHERE kind = 'JOB_FAILED' AND resolved_at IS NULL", &[]).await.unwrap().get(0);
+    assert!(said.starts_with("Republish of 2025-12-10 (its revisions stay as they were) failed for the last time"), "{said}");
+    // the measured costs from a base's report
+    client
+        .execute(
+            "UPDATE vyreon.day_revision SET report = $2::text::jsonb WHERE revision_id = $1",
+            &[&base1, &json!({"stages": [{"stage": "publish", "seconds": 55}], "task_minutes": {"intent b": {"VS-P01": [9.0, 1.0]}},
+                              "fill_seconds": {"options": 3000, "company": 1000}}).to_string()],
+        )
+        .await
+        .unwrap();
+    let m = rp::measured(&client, &serde_json::from_str(test_support::REPUBLISH_PLANS).unwrap(), PROFILE).await.unwrap();
+    assert_eq!((m.publish, m.task_minutes["VS-P01"], m.task_minutes["M0-ANALYTICS"]), (55.0, (9.0, 1.0), (122.6, 8.9)));
+    assert_eq!(m.fill["company"], m.download_first * 0.25);
+    scratch.drop().await;
+}
+
+/// The row counts of the parity SQL's queries after its first (the scopes' listing).
+async fn sql_rows(c: &Client, parts: Vec<String>) -> Vec<usize> {
+    let mut out = Vec::new();
+    for p in parts.iter().skip(1) {
+        out.push(c.query(p.as_str(), &[]).await.unwrap().len());
+    }
+    out
 }

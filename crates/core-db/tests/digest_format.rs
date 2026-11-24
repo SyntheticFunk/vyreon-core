@@ -130,7 +130,7 @@ async fn a_failure_is_named_and_its_alert_says_what_to_do() {
     eprintln!("ALERT:\n{alert}\n");
     let lines: Vec<&str> = alert.lines().collect();
     assert!(lines[0].starts_with("🔴 Day 2025-12-09 failed for the last time (job "), "{alert}");
-    assert_eq!(lines[1], "That day stays unpublished (shown to readers as missing, with its cause); published days are not affected.");
+    assert_eq!(lines[1], "A failed day block or pass leaves its day unpublished (shown to readers as missing, with its cause); a failed republish leaves its day as it was; published days are not affected.");
     assert!(lines[2].starts_with("To do: After a fix, `vyreon-core queue retry-failed`; why it failed: `vyreon-core evidence show "), "{alert}");
     let t1 = later(&client, &t0, 30).await;
     progress::tick_as(&mut client, PROFILE, LABEL, &t1).await.unwrap();
