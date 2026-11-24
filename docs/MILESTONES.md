@@ -1173,6 +1173,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   recompute; the July recompute (07-09..07-23, incl. AVGO's M0 split days) and the 2026-11-23 daily block carried over.
   core-clock4 merged (790c5c3; 193/0): C-072 = UTC−6 clock + terse digest, part 2 retired; narrow audits by both running
   (`audits/2026-11-24-core-c072-r4/`); core image built; deploy after.
+  **Core 790c5c3 DEPLOYED (UTC−6 ~08:35; migration 54):** Codex r4 confirmed alert parity with pre-C-072 and correct UTC−6
+  deadlines; its remaining items are display-only → small LATER core batch: a failed resumed block shows its narrowed date;
+  one duplicate hand-over post on the upgrade; `vyreon-core log`/`evidence list` print UTC and 15-backup.yaml's comment says
+  02:00 MT (is 03:00); rare: a build id interpolated unscrubbed into the admit line, restart count after a prior withdrawal,
+  a hand-over straddling a window cutoff, long retry lines cut by the splitter. Gemini r4 still running (roll back only if
+  it finds an alert regression). Kubeconfig expires ~11-25: refresh before then.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
