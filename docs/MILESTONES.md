@@ -1136,6 +1136,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   from provider rows. INDA 2026-08-27 real intervals: complete before (357/357, 357/357) and after (256/256, 357/357).
   Shared fixture etha-first-chain requoted (old kept as .pre-d460). Combined cargo test running; round-5 audit by both
   running (`audits/2026-11-24-d460-r5/`, briefed with the owner's stopping rule).
+  **First daily run started (UTC−6 ~05:30):** session 2026-11-23's tape leased, its block and pass queued on 2dde1132.
+  **core-clock merged (d728b04; 193/0; C-072; migration 0054 additive):** root cause of the hour: tzdata versions (newer tzdata
+  already keeps Edmonton on UTC−6 from 2026-11; the cluster's images had older tzdata). Core audits by both running
+  (`audits/2026-11-24-core-c072/`); then build + deploy core (image substituted, migration 0054).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
