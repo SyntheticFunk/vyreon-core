@@ -984,6 +984,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   attempt 2 of 3 (tape ScaledJob paused meanwhile; a FAILED tape can be re-run with `vyreon-core retry-failed`). Now: pool
   `tape-mem` (s-8vcpu-32gb-amd, $0.25/h, 0..6) and tapes placed only there at 20Gi, one per node (6f382c6). Engine fix
   started now, not after phase 1 (`eng-tape`, D-459): bounded-memory incremental reduction, byte-identical caches required.
+  **Owner, 2026-11-23 20:50 MT: no stopgap — "just do the proper engine fix".** tape-mem pool deleted (it had scaled to 6
+  nodes for pending pods; none ran there), placement reverted (cf93528), **tape ScaledJob paused** until D-459 lands. Waiting
+  on it: the 11 tapes 2026-11-06..11-20, the day blocks covering Nov 2026, and the daily run from 2026-11-23 (deadlines
+  start 11-30). Three old tapes still run on day nodes.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
