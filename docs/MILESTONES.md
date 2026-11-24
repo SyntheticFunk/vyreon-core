@@ -1089,6 +1089,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   false zero on every new day). fc36eefb published no day (4.5 h of block progress lost across hand-overs 24-26).
   **July recompute scheduled:** blocks 2024-07-09..07-12, 07-16..07-19, 07-23 (+ 07-15, 07-22 already queued); passes
   requeue as days publish. Next: `eng-f4` (feed guard reads the overlay's result; independent reference; r3 items).
+  **eng-f4 in progress (05:00 MT):** guard redesign committed (b66a67b8/456d1aba: the guard replays T's sealed requoted
+  source and reads `QuoteOverlay::session_volumes`, one rule; its copies deleted; ACT01-family @3/TV15@4/M0-PRINT-SIZE@1.2.0).
+  Helpers still running: eng-f4-ref (independent UPATH/EVC01/ACT01 reference, e9ff9e38 + engine bin-0 fix) and eng-f4-ops
+  (Codex 7, 8, 13-15 / Gemini 1). Then integrate, full tests, D-460 amendment, both audits.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
