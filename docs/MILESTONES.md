@@ -151,6 +151,19 @@ Next:
    structural (not yet listed, before a provider's coverage start), provider faults (undelivered, refused snapshots,
    P-xx), ours (ENGINE_FAULT, our gates); (4) monthly over the range (era effects: trade counts from 2024-11-26, tape quote
    eras). Reported to the owner with the census.
+   **Phase-1 measurement report (owner, 2026-11-23), beside coverage, after the base layer:**
+   1. Right numbers: gate a's unexplained rate per day and sensor over all 597 days; gates b-d (Cboe bands, EDGAR, flag
+      agreement ≥0.80 both ways); determinism (random days re-run on another node, byte for byte); no look-ahead.
+   2. Continuity: jumps the market did not make (sensor change vs the asset's own move); **no step at the dates where the
+      publishing build changed** (phase-1 days came from f3db692e, d9462aad, 2a8f8c4f and later: prove ordinary days
+      unchanged across them).
+   3. Paid layer: flags per asset-week and per week across the 64; calibration against what the threshold implies on
+      ordinary weeks; persistence (flags clustering on real events vs scattered).
+   4. Provider: faults per 1,000 asset-sessions by type (whole-range missing-contract scan, refused snapshots, missing
+      dividends, tape gaps); volume vs Cboe where held.
+   5. Operations: per-day compute time, cost and requests; refused/failed-day and retry rates; daily-run time to publish
+      vs deadline; alerts that needed a person (signal vs noise) — inputs to the two-weeks-unattended verdict.
+   Priority: 1, 2 (build-boundary continuity), 3.
    **Owner, 2026-11-23:** start Reporter beside the build once the earliest phase-1 days have their history passes
    (from the gap scan's work list), so the web step starts from a working Reporter. **Codex reviews the design too**
    (read-only, like the audits), in separate passes: an accessibility pass (plain-language, non-programmatic reader)
