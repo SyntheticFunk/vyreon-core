@@ -112,7 +112,7 @@ fn flat(text: &str) -> String {
 
 /// The window's lines, in sections: days published, reference checks come in, blocks started, the
 /// log, the queue's counts. Empty when nothing happened in it (the counts alone are not news).
-pub async fn lines(c: &impl GenericClient, profile: &str, start: &str, end: &str) -> Result<Vec<String>, String> {
+pub async fn lines(c: &mut impl GenericClient, profile: &str, start: &str, end: &str) -> Result<Vec<String>, String> {
     Ok(compose(c, profile, start, end).await?.0)
 }
 
@@ -125,7 +125,7 @@ type Shown = Vec<(&'static str, i64)>;
 /// 2 of core-watch, 9). So a window states each event once (`core.progress_shown`), and takes
 /// every one not stated yet from `STALE_HOURS` before its start (never before the first window's
 /// start, nor after its own) to its end.
-async fn compose(c: &impl GenericClient, profile: &str, start: &str, end: &str) -> Result<(Vec<String>, Shown), String> {
+async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &str) -> Result<(Vec<String>, Shown), String> {
     let mut lines = Vec::new();
     let mut shown: Shown = Vec::new();
     let mut happened = false;
@@ -378,7 +378,7 @@ pub fn split(header: &str, lines: &[String]) -> Vec<String> {
 
 /// The posts of the last `WINDOW_MINUTES` before `now`, as the progress channel would carry them,
 /// queued nowhere (`vyreon-core progress`): to read what the channel will say before it is on.
-pub async fn preview(c: &impl GenericClient, profile: &str, now: &str) -> Result<Vec<String>, String> {
+pub async fn preview(c: &mut impl GenericClient, profile: &str, now: &str) -> Result<Vec<String>, String> {
     let r = c
         .query_one(
             "SELECT ($1::text::timestamptz - make_interval(secs => $2::float8 * 60))::text,
@@ -412,7 +412,7 @@ pub async fn tick(client: &mut Client, profile: &str, now: &str) -> Result<Optio
     if !due {
         return Ok(None);
     }
-    let (lines, shown) = compose(&*client, profile, &start, now).await?;
+    let (lines, shown) = compose(client, profile, &start, now).await?;
     let posts = if lines.is_empty() { Vec::new() } else { split(&format!("Progress · {span}"), &lines) };
     let tx = client.transaction().await.map_err(db)?;
     let n = tx

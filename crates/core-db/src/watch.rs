@@ -1299,9 +1299,21 @@ pub const TALLY_BATCH: usize = 25;
 /// next minute, well inside `/live`'s 15 minutes (`core_api::LIVE_WITHIN`).
 pub const TALLY_BUDGET: Duration = Duration::from_secs(300);
 
+/// C-071 (round 3, 1): every counting statement runs in its own transaction under these, well
+/// inside `/live`'s 15 minutes: a batch that runs long or waits on a lock fails (and rolls back)
+/// as the watch's failing part (C-069), instead of holding the tick until core is restarted.
+pub const TALLY_LIMITS: &str = "SET LOCAL statement_timeout = '60s'; SET LOCAL lock_timeout = '10s'";
+
+/// A transaction (on a transaction: a savepoint) under `TALLY_LIMITS`.
+async fn bounded<C: GenericClient>(c: &mut C) -> Result<tokio_postgres::Transaction<'_>, String> {
+    let tx = c.transaction().await.map_err(db)?;
+    tx.batch_execute(TALLY_LIMITS).await.map_err(db)?;
+    Ok(tx)
+}
+
 /// Counts what each published revision holds, once (a published revision never changes): one
 /// statement, so at most `TALLY_BATCH` revisions (`tally_batches`).
-pub(crate) async fn tally(c: &impl GenericClient, revisions: &[i64]) -> Result<(), String> {
+async fn tally(c: &impl GenericClient, revisions: &[i64]) -> Result<(), String> {
     if revisions.is_empty() {
         return Ok(());
     }
@@ -1318,15 +1330,17 @@ pub(crate) async fn tally(c: &impl GenericClient, revisions: &[i64]) -> Result<(
     Ok(())
 }
 
-/// C-071: counts `revisions` `TALLY_BATCH` at a time, each batch one statement, so on a client
-/// (not inside a transaction) each batch commits on its own: what is counted stays counted when
-/// the process dies or is restarted, a revision is counted once (`ON CONFLICT DO NOTHING`, a
-/// batch whole or not at all), and the next call goes on from there. With `until`, it stops after
-/// the first batch that ends past it. True when every revision is counted.
-pub async fn tally_batches(c: &impl GenericClient, revisions: &[i64], until: Option<Instant>) -> Result<bool, String> {
+/// C-071: counts `revisions` `TALLY_BATCH` at a time, each batch one statement under
+/// `TALLY_LIMITS` committed on its own: what is counted stays counted when the process dies or is
+/// restarted, a revision is counted once (`ON CONFLICT DO NOTHING`, a batch whole or not at all),
+/// and the next call goes on from there. With `until`, it stops after the first batch that ends
+/// past it. True when every revision is counted.
+pub async fn tally_batches(c: &mut impl GenericClient, revisions: &[i64], until: Option<Instant>) -> Result<bool, String> {
     let batches = revisions.chunks(TALLY_BATCH).count();
     for (i, batch) in revisions.chunks(TALLY_BATCH).enumerate() {
-        tally(c, batch).await?;
+        let tx = bounded(c).await?;
+        tally(&tx, batch).await?;
+        tx.commit().await.map_err(db)?;
         if i + 1 < batches && until.is_some_and(|t| Instant::now() >= t) {
             return Ok(false);
         }
@@ -1334,23 +1348,37 @@ pub async fn tally_batches(c: &impl GenericClient, revisions: &[i64], until: Opt
     Ok(true)
 }
 
-/// C-071: counts the revisions of the profile published in the 24 hours to `now` and not counted
-/// yet (every layer: base, day-local and the ordered passes' history revisions alike), in batches
-/// (`tally_batches`). True when none is left.
-pub async fn tally_recent(c: &impl GenericClient, profile: &str, now: &str, until: Option<Instant>) -> Result<bool, String> {
-    let fresh: Vec<i64> = c
-        .query(
-            "SELECT d.revision_id FROM vyreon.day_revision d WHERE d.profile_id = $2 AND d.published_at > $1::text::timestamptz - interval '24 hours'
-               AND d.published_at <= $1::text::timestamptz AND NOT EXISTS (SELECT FROM core.revision_tally t WHERE t.revision_id = d.revision_id)
-             ORDER BY d.revision_id",
-            &[&now, &profile],
-        )
-        .await
-        .map_err(db)?
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
-    tally_batches(c, &fresh, until).await
+/// C-071: counts every revision of the profile published by `now` and not counted yet (every
+/// layer: base, day-local and the ordered passes' history revisions alike), oldest first,
+/// `TALLY_BATCH` at a time: each batch chosen and counted in one transaction under
+/// `TALLY_LIMITS`, committed on its own. Round 3, 3: what is left is what has no count, whenever
+/// it was published, so a later minute never loses one to a moving 24-hour cutoff. With `until`,
+/// it stops after the first batch that ends past it. True when none is left.
+pub async fn tally_untallied(c: &mut impl GenericClient, profile: &str, now: &str, until: Option<Instant>) -> Result<bool, String> {
+    loop {
+        let tx = bounded(c).await?;
+        let next: Vec<i64> = tx
+            .query(
+                "SELECT d.revision_id FROM vyreon.day_revision d WHERE d.profile_id = $2 AND d.published_at <= $1::text::timestamptz
+                   AND NOT EXISTS (SELECT FROM core.revision_tally t WHERE t.revision_id = d.revision_id)
+                 ORDER BY d.revision_id LIMIT $3",
+                &[&now, &profile, &(TALLY_BATCH as i64 + 1)],
+            )
+            .await
+            .map_err(db)?
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
+        let batch = &next[..next.len().min(TALLY_BATCH)];
+        tally(&tx, batch).await?;
+        tx.commit().await.map_err(db)?;
+        if next.len() <= TALLY_BATCH {
+            return Ok(true);
+        }
+        if until.is_some_and(|t| Instant::now() >= t) {
+            return Ok(false);
+        }
+    }
 }
 
 /// A session's published revisions of the profile, counted: slots, withheld whole, withheld for
@@ -1374,10 +1402,14 @@ impl Tally {
 /// statement, so one snapshot (audit round x, 7): the revisions published, and their counts (kept
 /// ones, and the ones counted here for the first time, which are kept for the next time). A
 /// revision replaced between two reads can no longer drop its session's count to nothing.
-pub async fn session_tallies(c: &impl GenericClient, profile: &str, sessions: &[String]) -> Result<BTreeMap<String, Tally>, String> {
+///
+/// C-071: each statement under `TALLY_LIMITS`; with `until` (the watch's minute), None when the
+/// revisions left to count outlast it (round 3, 2: composing respects the minute's budget too).
+pub async fn session_tallies(c: &mut impl GenericClient, profile: &str, sessions: &[String], until: Option<Instant>) -> Result<Option<BTreeMap<String, Tally>>, String> {
     // C-071: the revisions not counted yet, counted first in batches; the statement below then
     // counts only one published since (round x, 7 holds: one snapshot)
-    let uncounted: Vec<i64> = c
+    let tx = bounded(c).await?;
+    let uncounted: Vec<i64> = tx
         .query(
             "SELECT d.revision_id FROM vyreon.day_revision d
              WHERE d.profile_id = $1 AND d.state = 'PUBLISHED' AND d.represented_date = ANY($2::text[]::date[])
@@ -1390,9 +1422,13 @@ pub async fn session_tallies(c: &impl GenericClient, profile: &str, sessions: &[
         .iter()
         .map(|r| r.get(0))
         .collect();
-    tally_batches(c, &uncounted, None).await?;
+    tx.commit().await.map_err(db)?;
+    if !tally_batches(c, &uncounted, until).await? {
+        return Ok(None);
+    }
     // a session counts once its base revision is published; its derived revisions add their slots
-    let rows = c
+    let tx = bounded(c).await?;
+    let rows = tx
         .query(
             &format!(
                 "WITH shown AS (SELECT d.revision_id, d.represented_date FROM vyreon.day_revision d
@@ -1417,7 +1453,8 @@ pub async fn session_tallies(c: &impl GenericClient, profile: &str, sessions: &[
         )
         .await
         .map_err(db)?;
-    Ok(rows.iter().map(|r| (r.get(0), Tally { slots: r.get(1), withheld: r.get(2), provider_withheld: r.get(3), engine_faults: r.get(4) })).collect())
+    tx.commit().await.map_err(db)?;
+    Ok(Some(rows.iter().map(|r| (r.get(0), Tally { slots: r.get(1), withheld: r.get(2), provider_withheld: r.get(3), engine_faults: r.get(4) })).collect()))
 }
 
 /// "(and 1 more problem)": the other open problems, counted as problems (never read as more days
@@ -1605,12 +1642,15 @@ fn day_of(expr: &str) -> String {
 }
 
 /// The daily digest at `now`, from the problems as last checked.
-pub async fn digest(c: &impl GenericClient, s: &Settings, now: &str) -> Result<String, String> {
-    digest_of(c, s, now, &open(c, now).await?).await
+pub async fn digest(c: &mut impl GenericClient, s: &Settings, now: &str) -> Result<String, String> {
+    let open = open(&*c, now).await?;
+    // with no budget, every revision is counted and the digest composed
+    Ok(digest_of(c, s, now, &open, None).await?.unwrap_or_default())
 }
 
-/// The digest at `now` for the problems `open`.
-async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open]) -> Result<String, String> {
+/// The digest at `now` for the problems `open`. C-071: None when its counting outlasts `until`
+/// (the watch's minute), composed the next minute.
+async fn digest_of(c: &mut impl GenericClient, s: &Settings, now: &str, open: &[Open], until: Option<Instant>) -> Result<Option<String>, String> {
     let today: String = c.query_one("SELECT to_char($1::text::timestamptz AT TIME ZONE $2, 'Dy Mon FMDD')", &[&now, &ZONE]).await.map_err(db)?.get(0);
     let mut lines = Vec::new();
 
@@ -1630,7 +1670,9 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
         .map(|r| (r.get(0), r.get(1)))
         .collect();
     let dates: Vec<String> = recent.iter().map(|(d, _)| d.clone()).collect();
-    let tallies = session_tallies(c, &s.profile, &dates).await?;
+    let Some(tallies) = session_tallies(c, &s.profile, &dates, until).await? else {
+        return Ok(None);
+    };
     match recent.first() {
         None => lines.push("Latest session stored: none yet".into()),
         Some((date, words)) => {
@@ -1661,7 +1703,9 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
     // what was handled: provider gaps the engine or the workers stated, attempts retried. C-071:
     // the day's revisions counted in batches (the watch's digest has counted them already, a
     // minute at a time; only one published since is left)
-    tally_recent(c, &s.profile, now, None).await?;
+    if !tally_untallied(c, &s.profile, now, until).await? {
+        return Ok(None);
+    }
     let gaps: Vec<(String, String)> = c
         .query(
             "SELECT session::text, 'tapes' FROM core.tape_cache
@@ -1865,18 +1909,20 @@ async fn digest_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
     if omitted > 0 {
         handled.push(format!("{omitted} {} omitted", if omitted == 1 { "date" } else { "dates" }));
     }
-    Ok(compose(&format!("{} · {today}", verdict(open, &handled, &unjudged)), &lines, open))
+    Ok(Some(compose(&format!("{} · {today}", verdict(open, &handled, &unjudged)), &lines, open)))
 }
 
 /// The Saturday check at `now`: this week's sessions (Monday to the day before), each published
 /// or not with its coverage and its history pass, for Sunday's report. Green only with every
 /// watched session's base and history pass published (or due later) and no problem open.
-pub async fn weekly(c: &impl GenericClient, s: &Settings, now: &str) -> Result<String, String> {
-    weekly_of(c, s, now, &open(c, now).await?).await
+pub async fn weekly(c: &mut impl GenericClient, s: &Settings, now: &str) -> Result<String, String> {
+    let open = open(&*c, now).await?;
+    // with no budget, every revision is counted and the check composed
+    Ok(weekly_of(c, s, now, &open, None).await?.unwrap_or_default())
 }
 
-/// The Saturday check at `now` for the problems `open`.
-async fn weekly_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open]) -> Result<String, String> {
+/// The Saturday check at `now` for the problems `open`; None as `digest_of`.
+async fn weekly_of(c: &mut impl GenericClient, s: &Settings, now: &str, open: &[Open], until: Option<Instant>) -> Result<Option<String>, String> {
     let rows = c
         .query(
             &format!(
@@ -1901,7 +1947,9 @@ async fn weekly_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
     // pass published)
     let week: Vec<(String, String, bool, bool, bool, String, bool)> = rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6))).collect();
     let dates: Vec<String> = week.iter().map(|w| w.0.clone()).collect();
-    let tallies = session_tallies(c, &s.profile, &dates).await?;
+    let Some(tallies) = session_tallies(c, &s.profile, &dates, until).await? else {
+        return Ok(None);
+    };
     let watched: Vec<_> = week.iter().filter(|w| w.2).collect();
     // C-051: a session whose deadline is still ahead (Friday's, on Saturday morning) is due, not
     // missing; round v, 6: Sunday's report reads the history-reading sensors too (the ordered
@@ -1956,7 +2004,7 @@ async fn weekly_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
     }
     lines.push("Unusual-reading flags this week: not counted here; the flag threshold is calibrated by the engine's science, not by core".into());
     lines.push("Reporter dry run: not connected yet".into());
-    Ok(compose(&first, &lines, open))
+    Ok(Some(compose(&first, &lines, open)))
 }
 
 /// One minute of the watch: the daily runs' due sessions queued (C-051), the check, then the
@@ -1969,6 +2017,12 @@ async fn weekly_of(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open
 /// failure is recorded; Err (the check could not run, or nothing could be recorded) leaves `/live`
 /// to restart a core that stays so (`core_api::LIVE_WITHIN`).
 pub async fn tick(client: &mut Client, s: &Settings, now: &str) -> Result<Change, String> {
+    tick_within(client, s, now, TALLY_BUDGET).await
+}
+
+/// `tick`, its posts counting revisions for at most `budget` (C-071: `TALLY_BUDGET`; a test spends
+/// it at once).
+pub async fn tick_within(client: &mut Client, s: &Settings, now: &str, budget: Duration) -> Result<Change, String> {
     let queueing = match &s.daily {
         Some(d) => daily::queue_due(client, d, now).await.err(),
         None => None,
@@ -1985,10 +2039,13 @@ pub async fn tick(client: &mut Client, s: &Settings, now: &str) -> Result<Change
         match due_posts(&*client, now).await {
             Err(e) => outcomes.push((&DIGEST, Err(e))),
             Ok((date, nine, saturday)) => {
+                // C-071: the posts share one budget; a post left for the next minute is a part not
+                // run this minute (round 3, 4: it neither opens nor resolves its problem)
+                let until = Instant::now() + budget;
                 if nine {
-                    outcomes.push((&DIGEST, post_once(client, &format!("digest {date}"), s, now, false).await));
+                    outcomes.extend(ran(post_once(client, &format!("digest {date}"), s, now, false, until).await).map(|r| (&DIGEST, r)));
                     if saturday {
-                        outcomes.push((&WEEKLY, post_once(client, &format!("weekly {date}"), s, now, true).await));
+                        outcomes.extend(ran(post_once(client, &format!("weekly {date}"), s, now, true, until).await).map(|r| (&WEEKLY, r)));
                     }
                 }
             }
@@ -1996,6 +2053,11 @@ pub async fn tick(client: &mut Client, s: &Settings, now: &str) -> Result<Change
         record(client, now, &outcomes, &mut change).await?;
     }
     checked.map(|()| change)
+}
+
+/// A post's outcome as `record` takes it: None when it was left for the next minute.
+fn ran(posted: Result<bool, String>) -> Option<Result<(), String>> {
+    posted.map(|done| done.then_some(())).transpose()
 }
 
 /// The day in the owner's zone, whether the digest is due (09:00 or later) and whether it is Saturday.
@@ -2013,7 +2075,7 @@ async fn due_posts(c: &impl GenericClient, now: &str) -> Result<(String, bool, b
 
 /// The tick's own parts (C-069): one that failed is a WATCH_FAILING problem, opened with its alert
 /// or restated with this minute's error; one that worked resolves its problem; one not run this
-/// minute (the digest before 09:00) leaves its problem as it is.
+/// minute (the digest before 09:00, or left for the next minute: C-071) leaves its problem as it is.
 async fn record(client: &mut Client, now: &str, outcomes: &[(&Part, Result<(), String>)], change: &mut Change) -> Result<(), String> {
     let tx = client.transaction().await.map_err(db)?;
     tx.execute(PROBLEM_LOCK, &[]).await.map_err(db)?;
@@ -2053,24 +2115,30 @@ async fn record(client: &mut Client, now: &str, outcomes: &[(&Part, Result<(), S
 /// composed from: a post saying what is open is never queued beside a problem opening or resolving
 /// (round v, 7), and a publish opening a problem never waits for a digest's counting (round w, 4).
 /// When they changed, nothing is queued and the next minute composes it again.
-async fn post_once(client: &mut Client, key: &str, s: &Settings, now: &str, weekly_check: bool) -> Result<(), String> {
+///
+/// C-071: it first counts every revision not counted yet, in committed batches, until `until`;
+/// composing then counts only what was published since, within the same budget. False when the
+/// budget ran out first: nothing composed, the rest counted (and the post composed) next minute.
+async fn post_once(client: &mut Client, key: &str, s: &Settings, now: &str, weekly_check: bool, until: Instant) -> Result<bool, String> {
     if notice::queued(&*client, key).await? {
-        return Ok(());
+        return Ok(true);
     }
     let read = open(&*client, now).await?;
-    // C-071: the digest counts the day's revisions first, in committed batches, for at most
-    // `TALLY_BUDGET` a minute; what is left is counted the next minute, which then composes it
-    if !weekly_check && !tally_recent(&*client, &s.profile, now, Some(Instant::now() + TALLY_BUDGET)).await? {
-        return Ok(());
+    if !tally_untallied(client, &s.profile, now, Some(until)).await? {
+        return Ok(false);
     }
-    let text = if weekly_check { weekly_of(&*client, s, now, &read).await? } else { digest_of(&*client, s, now, &read).await? };
+    let composed = if weekly_check { weekly_of(client, s, now, &read, Some(until)).await? } else { digest_of(client, s, now, &read, Some(until)).await? };
+    let Some(text) = composed else {
+        return Ok(false);
+    };
     let ids = |o: &[Open]| o.iter().map(|p| p.id).collect::<Vec<_>>();
     let tx = client.transaction().await.map_err(db)?;
     tx.execute(PROBLEM_LOCK, &[]).await.map_err(db)?;
     if ids(&open(&tx, now).await?) == ids(&read) {
         notice::alert_once(&tx, key, &text).await?;
     }
-    tx.commit().await.map_err(db)
+    tx.commit().await.map_err(db)?;
+    Ok(true)
 }
 
 #[cfg(test)]
