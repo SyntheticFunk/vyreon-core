@@ -296,3 +296,48 @@ async fn the_wait_count_is_of_its_minutes() {
     assert_eq!((last.as_str(), n), ("2026-11-24 12:03:10", 1), "12:00's two waits are before 12:00:30");
     scratch.drop().await;
 }
+
+/// C-073 (owner, after the release audit's C13 residual): a bundle's layer is what its registered
+/// profile is. On a build's very first day, with nothing of it published, a day-local bundle stripped
+/// of its base fields is refused as a base; the inventory's declaration is checked when registered.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_bundles_layer_is_its_registered_profiles() {
+    let (scratch, mut client, _, _) = ready("ra_layer").await;
+    let mut inv = with_day_local(inventories().remove(0));
+    let base_profile = inv["slots"][0]["profile_revision"].as_str().unwrap().to_owned();
+    let local_profile = test_support::slice::day_local_profile();
+    inv["engine_build"] = json!("abcdef01+0123456789ab");
+    // a declaration that misses a profile, or names an unknown layer, is refused
+    inv["profiles"] = json!({base_profile.clone(): "base"});
+    assert!(build::register(&mut client, &inv).await.unwrap_err().contains("declares exactly the profile revisions"));
+    inv["profiles"] = json!({base_profile.clone(): "base", local_profile.clone(): "derived"});
+    assert!(build::register(&mut client, &inv).await.unwrap_err().contains("is base, day-local or history"));
+    inv["profiles"] = json!({base_profile.clone(): "base", local_profile.clone(): "day-local"});
+    let b = build::register(&mut client, &inv).await.unwrap().engine_build;
+    let mut other = inv.clone();
+    other["profiles"] = json!({base_profile.clone(): "day-local", local_profile.clone(): "base"});
+    assert!(build::register(&mut client, &other).await.unwrap_err().contains("is registered as its"));
+    build::admit(&client, &b, &json!({"checklist": "layer"})).await.unwrap();
+    // its first day: nothing of the build published yet; the stripped day-local bundle comes first
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, DAY, DAY, 30).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &b, "w1", HOUR).await.unwrap().unwrap();
+    let (mut lh, ls, lf) = day_local_parts(&b, DAY, 1);
+    (lh.base_profile_revision, lh.base_revision, lh.day_local) = (None, None, false);
+    let path = bundle("ra-first-day-stripped", &lh, &ls, &lf);
+    let e = publish_for_lease(&mut client, &path, &block.token).await.unwrap_err();
+    std::fs::remove_file(&path).unwrap();
+    assert!(matches!(&e, LeaseError::Refused(m) if m.contains("is registered as its day-local profile; this bundle is presented as a base revision")), "{e:?}");
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision").await, 0, "nothing published");
+    // the real base, then its day-local revision, go through
+    let (mut h, s, f) = parts(BASE);
+    h.engine_build = b.clone();
+    let path = bundle("ra-first-day-base", &h, &s, &f);
+    let base = publish_for_lease(&mut client, &path, &block.token).await.unwrap().revision_id;
+    std::fs::remove_file(&path).unwrap();
+    let (lh, ls, lf) = day_local_parts(&b, DAY, base);
+    let path = bundle("ra-first-day-local", &lh, &ls, &lf);
+    publish_for_lease(&mut client, &path, &block.token).await.unwrap();
+    std::fs::remove_file(&path).unwrap();
+    scratch.drop().await;
+}

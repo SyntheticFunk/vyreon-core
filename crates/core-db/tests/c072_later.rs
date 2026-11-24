@@ -221,7 +221,7 @@ async fn a_bundle_is_what_it_says_it_is() {
     let path = bundle("later-stripped-2", &lh, &ls, &lf);
     let refused = publish_for_lease(&mut client, &path, &next.token).await.unwrap_err();
     std::fs::remove_file(&path).unwrap();
-    assert!(matches!(&refused, LeaseError::Refused(m) if m.contains("is published as a day-local revision; this bundle is presented as a base revision")), "{refused:?}");
+    assert!(matches!(&refused, LeaseError::Refused(m) if m.contains("is registered as its day-local profile; this bundle is presented as a base revision")), "{refused:?}");
     scratch.drop().await;
 }
 
