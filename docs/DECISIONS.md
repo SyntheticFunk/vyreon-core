@@ -3055,7 +3055,9 @@ not fixed".
   job that moves on or finishes resolves it.
 - **Deploy:** migration 0055 (job kind REFCHECK in `job`, `job_evidence`, `claim_miss`,
   `stall_seen`; the re-run's scope check and unique index; problem kind JOB_THRASHING;
-  `core.budget_wait`; `core.scaler_count` granted to `vyreon_scaler`), under 0054's timeouts. Order:
+  `core.budget_wait`; `core.scaler_count` granted to `vyreon_scaler`; `lease.job_first`, `job_last`
+  and the grant trigger setting them; `hand_over_job.restarted`; `core.lease_step`; problem kind
+  NO_PROGRESS), under 0054's timeouts. Order:
   `release.sh --core <tag>` first (the triggers need 0055), then `release.sh <engine-tag>` with the
   engine image carrying `run refcheck`, within 15 minutes (a re-run queued between them for the old
   build is carried by the hand-over). 20-core.yaml sets `VYREON_CORE_REFCHECK_RERUN_HOURS` 6;
@@ -3072,4 +3074,77 @@ not fixed".
   after 5 quiet minutes; no STALLED while pressed, its clock restarted after),
   `a_job_that_keeps_losing_its_lease_is_one_alert_with_its_last_error` (3 losses alert once, a
   worker's stated failure becomes the last error, a provider-stopped attempt not counted, restated
-  without a post, resolved when the job finishes). The suite: 196 (193 + 3).
+  without a post, resolved when the job finishes).
+- **Workers say what they are doing; NO_PROGRESS (live investigation, 2026-11-24).** The daily run sat
+  idle about an hour in a deliberate EXQ01 cutoff wait, heartbeating, and nothing could tell it from a
+  stall. **Contract** (the engine's `eng-rel` branch calls it): `POST /worker/v1/lease/step` under the
+  lease token, JSON `{"step": "<1-200 chars>", "waiting_until": "<RFC 3339 instant>"?, "reason":
+  "<1-300 chars>"?}` (a wait states both its end and its reason; its end ahead of now by at most 24 h);
+  answer `{"recorded": true}`; 410 the lease is gone; 422 a malformed report, or one a credential
+  pattern matches (nothing stored). Core keeps the latest per lease (`core.lease_step`); a report whose
+  step or wait differs from the last starts its clock (`step_since`), the same again only says the
+  worker is alive. **The worker reports** at the start of each phase (download, each compute stage, the
+  publish, the archive, the reference check), and declares a wait (`waiting_until` = its expected end)
+  for any phase that makes no provider request for longer than 20 minutes: a cutoff wait, a long
+  computation, the reference suite; a declared wait is cleared by the next report without one. **The
+  watch:** a live lease whose worker has reported a step (an image before the endpoint is not judged:
+  it could not declare a long computation) with no progress for `NO_PROGRESS_MINUTES` (20): no request
+  drawn or reported (`core.budget_lease`, `core.request_usage`, by the lease's worker), no new step or
+  wait, nothing published under the lease, no tape cache or reference check stored, since the latest of
+  those and the grant. A declared wait moves the deadline to its end plus `WAIT_GRACE_MINUTES` (15), so
+  one that overstays alerts too, naming the wait. One problem per job (key `job <id>`), alerted once,
+  resolved when progress resumes or the lease ends; the command is the pod's log.
+- **The C-072 audits' remaining items (r2 and r4, Codex and Gemini; fixed now, before any deploy).**
+  1. A block set aside on the day it resumed was named in progress by its narrowed job ("07-10
+     (attempt 3)"): a lease now records its job's sessions when granted (`lease.job_first`,
+     `job_last`, set with `start_session`), and the started line names the block as it started, from
+     where it resumed.
+  2. A hand-over already stated by a core before 0054 (which recorded only its notice) was posted
+     again on the upgrade, and one whose notice and row fell either side of a window's end was posted
+     twice (its raw "Admit build … now" notice, then its line): a hand-over is stated when its own
+     notice has been, and the hand-overs a window's logged notices name are taken whatever their
+     `handed_at`.
+  3. "Restarted" counted any earlier withdrawal's stopped leases: the hand-over now records which of
+     the jobs it moved its own withdrawal stopped (`hand_over_job.restarted`; older rows as before).
+  4. A successor admitted and withdrawn before the hand-over lost the instruction to admit it: the
+     instruction is kept unless the successor was admitted and not withdrawn by the hand-over's time
+     (one withdrawn after it, deliberately, still gets none: r2-4).
+  5. A build's name went into the progress line unchecked: `build register` takes only the engine's
+     kind of name (`build::build_name`: 1 to 64 letters, digits, `+ . _ -`), and a hand-over's whole
+     line is checked for a credential pattern like any logged line.
+  6. Many retried or resumed starts made one line the post splitter cut, their dates lost: the started
+     line is cut into lines of at most `STARTED_LINE_MAX` (600), and a window records as stated only the
+     events of the lines its posts carried; the rest come with the next window ("… and N more lines
+     (the next window states them …)").
+  7. `vyreon-core log` and `evidence list` printed UTC (a 20:00 MT pause read as 02:00 the next day):
+     they print the owner's clock, "MT" (C-072's fixed UTC−6). 15-backup.yaml's comment: Sunday 09:00
+     UTC is 03:00 MT.
+  8. (Gemini, pre-existing; owner: such an event must alert) A bundle refused, or a job failed for the
+     last time, while the queue was already paused was dropped: no log, no alert, lost at the resume.
+     `work::pause` now adds the cause to the pause's reason (`\nalso: `, the first cause kept, at most
+     5 later ones, the same cause again adds nothing) and alerts it at once in the same transaction
+     ("🔴 Work queue already paused; also: …"), and logs it; the open QUEUE_PAUSED restates "…; also:
+     <latest>" without a second post.
+  9. (r2, pre-existing publish defects) A re-sent bundle was answered `already_published` from its
+     header's body digests alone, so one with a changed reader scalar was acknowledged while the reader
+     kept serving the first: it is now acknowledged only after every slot's files check against its
+     header, the bundle ends where it says, and its reader scalars and unusual scores are bit for bit
+     the stored ones; anything else is refused naming what differs. A day-local bundle stripped of its
+     base fields and `day_local` was taken as a base and superseded the real one: under a lease, a
+     profile revision of a build has one layer (fixed by any revision of it stored before), and a day
+     block's day has one base (a second base of another profile on the same lease and day is refused).
+     By hand (`publish --vouch` of old exports, a profile older than the split) only the old checks hold.
+  10. (r2-3, r4) The migrator waited for another migrator's advisory lock without bound before any
+     timeout applied: `migrate::apply` now waits at most `LOCK_WAIT` (60 s) for the lock and the ledger
+     (`lock_timeout`, the statement's bound twice that), then fails, so the init container exits and
+     is retried visibly; each migration runs without that bound.
+  The C-072 LATER items r2-2 (second hand-over to one successor) and r2-5 (a hand-typed withdrawal
+  text) were part 2's and are moot since its retirement.
+- Tests (added): `tests/automation.rs::a_worker_making_no_progress_is_one_alert_unless_it_declared_its_wait`;
+  `tests/c072_later.rs` (a set-aside block named as it started; a hand-over stated once across a window's
+  end and an upgrade, no restart from an earlier stop, the admit instruction kept; a cause during an
+  open pause alerted once and the log on the owner's clock; a re-sent bundle with a changed scalar
+  refused and a stripped day-local bundle refused as a base; an odd build name refused);
+  `tests/migrate.rs::a_runner_waits_for_anothers_lock_only_so_long`; `progress.rs` unit test
+  `many_retries_read_in_lines_a_post_can_hold`; the worker API test calls `/lease/step`. The suite:
+  204 (193 + 11).
