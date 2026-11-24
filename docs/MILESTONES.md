@@ -1084,7 +1084,7 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   overlay's own per-contract result (retire the copies). **Reference circularity confirmed:** int_upath.py/evc ported the
   engine's code and repeat its bin-0 mislabel → rewrite as an independent reading of D-027/D-094/D-118/D-460. Gemini's
   "12.0 volumes" suspicion checked live: option interval volumes are integers (NOT REAL; accept whole floats anyway).
-  **Hand-over 26 done (04:10 MT): 2dde1132+5f8d87f49bfc admitted, KEDA + DAILY_BUILD on it (core re-applied with image
+  **Hand-over 26 done (~03:40 MT): 2dde1132+5f8d87f49bfc admitted, KEDA + DAILY_BUILD on it (core re-applied with image
   substituted).** Coordinator criterion (owner asleep): strictly better than fc36eefb on wrong numbers (removes the UPATH
   false zero on every new day). fc36eefb published no day (4.5 h of block progress lost across hand-overs 24-26).
   **July recompute scheduled:** blocks 2024-07-09..07-12, 07-16..07-19, 07-23 (+ 07-15, 07-22 already queued); passes
@@ -1093,6 +1093,13 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   source and reads `QuoteOverlay::session_volumes`, one rule; its copies deleted; ACT01-family @3/TV15@4/M0-PRINT-SIZE@1.2.0).
   Helpers still running: eng-f4-ref (independent UPATH/EVC01/ACT01 reference, e9ff9e38 + engine bin-0 fix) and eng-f4-ops
   (Codex 7, 8, 13-15 / Gemini 1). Then integrate, full tests, D-460 amendment, both audits.
+  **eng-f4 merged (f8029c81; 1,706/0; pytest 228/107):** guard reads the overlay's own session volumes; independent
+  reference (old engine fails it on real NVDA 2024-06-13: 22/25 roles; all 9 real cases pass after the fix); UPATH@14,
+  EVC01@16, ACT01-family @3, TV15@4, M0-PRINT-SIZE@1.2.0; ops items fixed. Reader bundle adds: `capture::final_rows`
+  non-directory/dangling capture and failed listing as errors. Built days: UPATH/EVC01 reasons only (no values); ACT01
+  routing only where a feed ratio crosses 0.95 (not measured). Audits r4 by both running (`audits/2026-11-24-d460-r4/`).
+  Housekeeping for the owner: /home/diggz/wt holds ~60 stale worktrees/logs from earlier sessions (28 GB) besides
+  target-worker (90 GB, the image build dir) — propose deleting the stale ones (preview, owner's OK).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
