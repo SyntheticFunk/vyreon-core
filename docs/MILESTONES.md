@@ -1018,6 +1018,15 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   reader panic on a damaged archive (both), a spill failure mislabelled as provider refusal, spill name after a crash, an
   invalid kind dropped by the Python verdict, an fd leak → small batch `eng-tape3`. Image 009feb78 built, not handed over
   (the batch changes the reader digest again).
+  **Hand-over 24 done (2026-11-24 ~00:15 MT): engine fc36eefb (D-459 + r2 fixes + D-458 amendment), build
+  `fc36eefb+b1c8d00b5d79` admitted, KEDA + DAILY_BUILD on it; 645 jobs moved; 8 old-build Jobs deleted. Tape request
+  3Gi / limit 6Gi; tapes unpaused.** Carry-over gate queued: 26 verify jobs (`vyreon-core tape verify`, jobs 18576-18601):
+  2023-07-19 2023-10-16 2023-11-24 2023-12-14 2024-03-14 2024-06-14 2024-07-03 2024-09-16 2024-11-29 2025-01-16 2025-04-15
+  2025-06-13 2025-07-03 2025-08-15 2025-09-16 2025-10-16 2025-11-14 2025-11-28 2025-12-15 2026-02-13 2026-04-16 2026-06-15
+  2026-08-17 2026-09-16 2026-10-15 2026-11-10; read with `vyreon-core tape checks` — every member MATCH, else delete
+  CARRIED_OVER and re-capture. r3 audits running (`audits/2026-11-24-d459-r3/`).
+  **Incident:** applied `20-core.yaml` raw (placeholder `VYREON_CORE_IMAGE`) → core down ~3 min (InvalidImageName);
+  re-applied with image 6a4b59f. More evidence for the release-script automation debt (it must substitute images).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
