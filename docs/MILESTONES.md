@@ -1043,6 +1043,13 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   a short valid prefix before damage read as NO_TAPE_MESSAGES (only where a tape's first sync is not at byte 0); item 6,
   identity inputs missing (canonical.rs, crate versions; ids newline-joined). Coordinator recommendation: bundle 5+6+7 into
   one deliberate tape-method bump with one re-capture, scheduled by the owner (after phase 1 unless the census finds either case).
+  **Refcheck 2024-07-12 on 2a8f8c4f: 218 unexplained (was ~35/day):** 209 are VS-O04 on 19 assets published
+  WITHHELD/ENGINE_FAULT where the reference publishes values, incl. same-day fields (native_expiry_count, dte_band_shares),
+  and path_efficiency PROVIDER_OI_INCOMPLETE. Cause: the D-458 fallback (a T−4..T−1 window chain without an attempt read as
+  ENGINE_FAULT; 07-12 ran as a one-day block), fixed by the 955d0f82 amendment now live in fc36eefb. **Check after the next
+  hand-over's July recompute:** 07-12's refcheck on the new build — VS-O04 same-day fields must publish (if they are still
+  withheld, the fallback over-withholds: a defect, not a label). D-460 audits re-run with scope `tape` (the `d460` scope
+  did not exist and both runs aborted silently — runner should refuse an unknown scope loudly: small LATER).
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
