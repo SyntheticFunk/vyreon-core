@@ -2722,3 +2722,35 @@ Migration 0052. Commits d46602f (code), 86b8f06 (tests).
 4. **After:** `/live` answers 200 within a minute; `vyreon-core problems` shows no `WATCH_FAILING`.
    **No image rollback** past 0052/0053 without undoing them by hand (an older binary refuses a
    database that holds a migration it lacks).
+
+## C-071 The digest counts revisions in committed batches, a minute's budget at a time (2026-11-23; triage `2026-11-23-triage-r2`, C4 = G1, BLOCKS the ordered passes)
+The 09:00 digest counted every revision of the last 24 hours not counted yet in one statement
+(`INSERT … SELECT` over their bodies). Progress counts only bases and day-local revisions, so the
+ordered passes' history revisions (one per session, ~597 in phase 1, within hours) would all land
+there. A statement outliving `/live`'s 15 minutes (C-069) restarts core; the statement rolls back,
+and the next minute starts it again: a restart loop. Pre-existing (not a C-069 regression); its
+duration at phase-1 size was not measured.
+- **Batches.** `watch::tally_batches` counts `TALLY_BATCH` (25, the triage's figure) revisions per
+  statement, each committed on its own (the watch's client is outside a transaction). A batch is
+  whole or absent (`ON CONFLICT DO NOTHING` on `revision_tally`'s key), so a kill loses at most the
+  batch running, nothing is counted twice, and the next call goes on from there. Every layer is
+  counted alike (base, day-local, history).
+- **A minute's budget.** The digest counts (`watch::tally_recent`) for at most `TALLY_BUDGET` (5
+  minutes) a minute, stopping after the batch that ends past it; what is left is counted the next
+  minute, which composes and queues the digest once nothing is left. At most one batch outlives the
+  budget, so a tick stays well inside 15 minutes while the count still advances every minute. The
+  count runs after the open problems are read, as before, so a problem opened meanwhile still
+  drops that composition (round v, 7; round w, 4).
+- **Elsewhere:** `session_tallies` (digest and weekly check) first counts its sessions' uncounted
+  revisions in batches, then reads in one statement as before (round x, 7); progress counts its
+  days in the same batches (still inside its window's transaction, its own task). The CLI
+  `vyreon-core digest` counts all, with no budget.
+- **Ordinary day:** the same digest at 09:00 (a day's few revisions are one batch). On the passes'
+  mornings the digest can come some minutes late (worst case one minute per batch: 597 revisions,
+  24 batches); it never posts a partial count.
+- **Deploy:** code only, no migration, no setting. Takes effect with the next core image.
+- Test: `watch.rs::the_digest_counts_the_ordered_passes_in_committed_batches_and_survives_a_kill`
+  (597 sessions 2024-07-09..2026-11-20: the slice's real base and derived revisions of 2025-12-10
+  with the engine's real faulted XLB body, re-dated as history revisions on bare bases; the count's
+  connection terminated while its third batch waits, two batches kept, the rest counted once by the
+  09:30 tick, each history revision 3 slots, 1 withheld for an engine fault).
