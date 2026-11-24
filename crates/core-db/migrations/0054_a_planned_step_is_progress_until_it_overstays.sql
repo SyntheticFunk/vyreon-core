@@ -2,6 +2,16 @@
 -- hand-over) is progress, not an alert, unless it stays open longer than its grace
 -- (`watch::PLANNED_GRACE_MINUTES`): a forgotten pause is a problem.
 
+-- Audit c072, 7: the tables altered here are ones a running core and its workers' calls hold
+-- (the queue's control row, the problems, progress); a lock wait fails this migration in 10 s
+-- instead of holding the core pod in `migrate` past the workers' 10-minute leases. A failure rolls
+-- the whole migration back (the runner applies each in one transaction with its ledger row);
+-- `vyreon-core migrate` exits non-zero, the init container fails and Kubernetes starts it again
+-- with its back-off, so it is retried until the lock holder is gone. Each statement here is quick:
+-- 60 s bounds the CHECK's validation of `progress_shown` (kept a week).
+SET LOCAL lock_timeout = '10s';
+SET LOCAL statement_timeout = '60s';
+
 -- Who paused the queue: the operator (`vyreon-core queue pause <reason>`), or core itself (a job
 -- failed for the last time, a bundle refused). A pause from before this migration is core's (it
 -- alerts, as before).
