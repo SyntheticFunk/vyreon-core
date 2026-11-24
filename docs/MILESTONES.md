@@ -1264,6 +1264,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   nothing hyped; posts only on genuine rare detections. Cadence (owner): the week's top 1-3 unusualness readings spread over
   a few posts per week — the top of the paid report's own unusualness ranking (one computation; posts can never
   disagree with the report). Platform choice and API access decided at the time.
+  **Release merged (UTC−6 ~14:50):** core ef702d9 (C-073 + release-audit fixes; migration 0055) and engine 1ae946f7 (D-460 r5 +
+  D-461: re-run worker, EXQ01 fixes, step reports, retry policy, VS-O04 validator, witness rule, P-29, overlay items; OVERLAY_RULES
+  D-461; 1,744/0, pytest 256/107). Owner: fold the readable Discord digest/alerts into this release, no audit (display-only,
+  tested) → `core-digest`. Worker image building. Then release.sh: dry run, then live (core first, worker within 15 min);
+  then recompute every day published before the release (method bumps + OVERLAY_RULES), verify VS-O04 engine faults → 0.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
