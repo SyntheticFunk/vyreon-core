@@ -1293,6 +1293,15 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   **Hotfix deployed (UTC−6 ~16:00) via release.sh --core: core 067b33c, migration 56** — the 7 false NO_PROGRESS alerts resolved;
   only REFCHECK_DISAGREES (07-12, old build; recompute pending) open. Next release: the engine reports download progress
   (`progress` field on /lease/step) so a genuinely hung download is caught within 20 min, not 255.
+  **Scoped recompute built (eng-scope D-462 / core-scope C-074; 1,752/0, pytest 256/107, core 217/0), next release:** REPUBLISH
+  job kind, copy-forward in core (byte for byte), day replaced whole or not at all, worker fetches only the categories a scope
+  needs. Inputs are barely separable (any option-family scope needs nearly the whole day; only company 27% + ACT01 24 min drop)
+  → the saving is compute. **Measured node-hours: full day 3.8 (block's first day) / 2.8 (later day); scoped 1.3-3.7 by family.**
+  Rulings: old days always scoped (EXQ01 prints past retention); ≤4 republish pods; re-run reference check scoped to the
+  recomputed families. Next release also: engine download-progress reports; core-scope migration renumbered to 0057. Not yet
+  proven on a real day (scoped vs full byte identity — cluster test after release).
+  **Phase-1 projection from measured node-hours:** ~46 first days × 3.8 + ~551 later days × 2.8 ≈ 1,720 node-hours / 8 blocks
+  ≈ 9 more days; ≈ $215-300 more → total ≈ $340-420 of the $500 (unproven; verify against real days as they publish).
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
