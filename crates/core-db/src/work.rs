@@ -811,7 +811,19 @@ pub const WAIT_MAX_HOURS: f64 = 24.0;
 /// or long text, one a credential pattern matches (never stored), a wait that is not an RFC 3339
 /// instant or is more than `WAIT_MAX_HOURS` ahead (one already over is kept).
 pub async fn report_step(client: &mut Client, token: &str, step: &str, waiting_until: Option<&str>, reason: Option<&str>) -> Result<(), LeaseError> {
+    report_step_with(client, token, step, waiting_until, reason, None).await
+}
+
+/// `report_step` with the step's `progress` (C-073 hotfix: "chains 41 of 64", "312 MB of 1.9 GB"; 1 to
+/// 200 characters): a report whose step, wait, reason or progress differs from the last is progress for
+/// NO_PROGRESS (`step_since`), so a long step that reports how far it is never alerts; the same report
+/// again only says the worker is alive.
+pub async fn report_step_with(client: &mut Client, token: &str, step: &str, waiting_until: Option<&str>, reason: Option<&str>, progress: Option<&str>) -> Result<(), LeaseError> {
     let (step, reason) = (step.trim(), reason.map(str::trim).filter(|r| !r.is_empty()));
+    let progress = progress.map(str::trim).filter(|p| !p.is_empty());
+    if progress.is_some_and(|p| p.chars().count() > 200) {
+        return Err(LeaseError::Refused("a step's progress is at most 200 characters".into()));
+    }
     if step.is_empty() || step.chars().count() > 200 {
         return Err(LeaseError::Refused("a step is named in 1 to 200 characters".into()));
     }
@@ -821,7 +833,7 @@ pub async fn report_step(client: &mut Client, token: &str, step: &str, waiting_u
     if waiting_until.is_some() != reason.is_some() {
         return Err(LeaseError::Refused("a wait states both its end (waiting_until) and its reason".into()));
     }
-    for text in std::iter::once(step).chain(reason) {
+    for text in std::iter::once(step).chain(reason).chain(progress) {
         if let Some(found) = crate::evidence::unredacted(text) {
             return Err(LeaseError::Refused(format!("{found}: a step report carries no credential; nothing was stored")));
         }
@@ -851,13 +863,15 @@ pub async fn report_step(client: &mut Client, token: &str, step: &str, waiting_u
         }
     }
     tx.execute(
-        "INSERT INTO core.lease_step (lease_id, step, waiting_until, reason, step_since, reported_at)
-         VALUES ($1, $2, $3::text::timestamptz, $4, clock_timestamp(), clock_timestamp())
+        "INSERT INTO core.lease_step (lease_id, step, waiting_until, reason, progress, step_since, reported_at)
+         VALUES ($1, $2, $3::text::timestamptz, $4, $5, clock_timestamp(), clock_timestamp())
          ON CONFLICT (lease_id) DO UPDATE SET
              step_since = CASE WHEN core.lease_step.step = EXCLUDED.step AND core.lease_step.waiting_until IS NOT DISTINCT FROM EXCLUDED.waiting_until
+                                    AND core.lease_step.reason IS NOT DISTINCT FROM EXCLUDED.reason AND core.lease_step.progress IS NOT DISTINCT FROM EXCLUDED.progress
                                THEN core.lease_step.step_since ELSE EXCLUDED.step_since END,
-             step = EXCLUDED.step, waiting_until = EXCLUDED.waiting_until, reason = EXCLUDED.reason, reported_at = EXCLUDED.reported_at",
-        &[&lease.lease_id, &step, &until, &reason],
+             step = EXCLUDED.step, waiting_until = EXCLUDED.waiting_until, reason = EXCLUDED.reason, progress = EXCLUDED.progress,
+             reported_at = EXCLUDED.reported_at",
+        &[&lease.lease_id, &step, &until, &reason, &progress],
     )
     .await
     .map_err(failed)?;

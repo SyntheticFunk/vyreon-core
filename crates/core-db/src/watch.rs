@@ -1170,6 +1170,18 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
 pub const NO_PROGRESS_MINUTES: f64 = 20.0;
 /// C-073: how long past its declared end a wait may run before NO_PROGRESS.
 pub const WAIT_GRACE_MINUTES: f64 = 15.0;
+/// C-073 hotfix (live, 2026-11-24): a step whose name begins with "download" or "fill" (a day's input
+/// download: the worker's `download <date>`, its mirrored `download <date>: fill <date>: …`, a fill's
+/// own `fill <date>: …`) is an implicit wait of this many minutes from when it began: Intrinio's bulk
+/// option files are no request in core's ledger, and a block's first download runs about three hours
+/// (measured 2026-11-24; later days about 37 minutes). 240 = that worst case and an hour's margin.
+pub const DOWNLOAD_STEP_MAX_MINUTES: f64 = 240.0;
+
+/// Whether a reported step is a download (`DOWNLOAD_STEP_MAX_MINUTES`).
+pub fn is_download_step(step: &str) -> bool {
+    let s = step.trim_start().to_ascii_lowercase();
+    s.starts_with("download") || s.starts_with("fill")
+}
 
 /// C-073 (live investigation, 2026-11-24: the daily run's worker heartbeated through an hour's
 /// deliberate EXQ01 cutoff wait, indistinguishable from a stall): a live lease whose worker reports
@@ -1185,7 +1197,11 @@ async fn no_progress(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) 
         .query(
             "WITH live AS (
                  SELECT l.lease_id, l.job_id, l.worker, l.granted_at, j.kind, j.priority, j.next_session, j.first_session, j.last_session,
-                        s.step, s.step_since, s.waiting_until, s.reason
+                        s.step, s.step_since, s.reason,
+                        -- a download step is a wait of its own bound (`DOWNLOAD_STEP_MAX_MINUTES`), the later of it and a declared one
+                        GREATEST(s.waiting_until, CASE WHEN lower(ltrim(s.step)) LIKE 'download%' OR lower(ltrim(s.step)) LIKE 'fill%'
+                                                       THEN s.step_since + make_interval(secs => $5::float8 * 60) END) AS waiting_until,
+                        s.waiting_until IS NULL OR s.waiting_until < s.step_since + make_interval(secs => $5::float8 * 60) AS implicit
                  FROM core.lease l JOIN core.job j USING (job_id) JOIN core.lease_step s USING (lease_id)
                  WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz AND l.granted_at <= $1::text::timestamptz),
              p AS (
@@ -1214,12 +1230,14 @@ async fn no_progress(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) 
                         AND i.stored_at >= live.granted_at AND i.stored_at <= $1::text::timestamptz)
                  ) AS last FROM live)
              SELECT job_id, CASE WHEN kind = 'DAY_BLOCK' AND priority = 1 THEN 'DAILY_BLOCK' ELSE kind END, COALESCE(next_session, last_session)::text, worker, step,
-                    to_char(last AT TIME ZONE $2, 'Dy HH24:MI'), to_char(waiting_until AT TIME ZONE $2, 'Dy HH24:MI'), reason,
+                    to_char(last AT TIME ZONE $2, 'Dy HH24:MI'), to_char(waiting_until AT TIME ZONE $2, 'Dy HH24:MI'),
+                    CASE WHEN implicit AND (lower(ltrim(step)) LIKE 'download%' OR lower(ltrim(step)) LIKE 'fill%')
+                         THEN 'a download step is allowed ' || $5::float8::int || ' min' ELSE reason END,
                     waiting_until IS NOT NULL AND waiting_until + make_interval(secs => $4::float8 * 60) < $1::text::timestamptz
              FROM p
              WHERE $1::text::timestamptz > GREATEST(last + make_interval(secs => $3::float8 * 60), waiting_until + make_interval(secs => $4::float8 * 60))
              ORDER BY job_id",
-            &[&now, &ZONE, &NO_PROGRESS_MINUTES, &WAIT_GRACE_MINUTES],
+            &[&now, &ZONE, &NO_PROGRESS_MINUTES, &WAIT_GRACE_MINUTES, &DOWNLOAD_STEP_MAX_MINUTES],
         )
         .await
         .map_err(db)?;
