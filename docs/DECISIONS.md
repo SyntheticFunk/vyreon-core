@@ -2776,3 +2776,50 @@ duration at phase-1 size was not measured.
   with the engine's real faulted XLB body, re-dated as history revisions on bare bases; the count's
   connection terminated while its third batch waits, two batches kept, the rest counted once by the
   09:30 tick, each history revision 3 slots, 1 withheld for an engine fault).
+
+## C-072 The owner's clock is fixed UTC−6; planned operator steps are progress; progress is terse (2026-11-24; owner's Discord)
+What the owner reads in Discord must answer "go look or running ok" at a glance (C-050, C-065).
+Three things broke that during the hand-overs of 2026-11-23/24.
+- **One owner zone, fixed UTC−6.** The owner's clock is UTC−6 all year (corrected 2026-11-11).
+  Core rendered owner times and computed deadlines in tz-database `America/Edmonton`, whose meaning
+  depends on the tz release a PostgreSQL image carries: older releases fall back to UTC−7 in winter
+  (the cluster's "MT" ran one hour behind the owner's Discord on 2026-11-24; the laptop's tzdata
+  does too), newer ones keep UTC−6 from 2026-11 (the test server's). Now `watch::ZONE` =
+  `'Etc/GMT+6'`, the tz database's fixed UTC−6 zone (POSIX sign: "GMT+6" is six hours behind),
+  the only definition: the watch's SQL, the progress windows, the CLI's printouts and
+  `deploy/k8s/ops/health.sh` (`TZ=Etc/GMT+6`) read it; the label stays "MT". It works both ways in
+  `AT TIME ZONE` (timestamptz → local for display; local → timestamptz for a deadline), checked on
+  PostgreSQL 16 for January and July; a bare `'-06:00'` string does not (PostgreSQL reads it as a
+  POSIX zone, UTC+6). Market times stay `America/New_York` (07:30 queueing, sessions).
+  **Effect:** on a server whose tzdata says UTC−7 in winter, every deadline instant moves one hour
+  earlier in winter than before (a Friday session's deadline, Saturday 20:00 MT, is 02:00 UTC
+  Sunday, not 03:00), and the 09:00 digest is posted at 15:00 UTC all year. The daily deadlines start 2026-11-30.
+- **Planned operator steps are progress, not alerts.** A hand-over posted 🔴 "Work queue paused"
+  and 🔴 "Daily runs stopped: build … was withdrawn" to the alerts channel and resolved them minutes
+  later: two alerts and two resolutions for one deliberate act. Now a pause by the operator
+  (`vyreon-core queue pause`, recorded in `core.queue_control.by_operator`) and the daily runs stopped
+  by a hand-over (their build withdrawn by handing its work over, or a hand-over's successor not yet
+  admitted; the summary names the hand-over) are planned steps: their problem opens quiet
+  (`core.problem.quiet_until` = the step's start + `PLANNED_GRACE_MINUTES`, 30), logged
+  ("Planned step: … (alerted if still so at 04:58 MT)"), so the progress channel carries it, and
+  resolves quietly ("Planned step: over after 12 min: …"). Still open when its grace ends, it is
+  alerted once ("🔴 … (a planned step, still open after 31 min)") and resolves as any problem: a
+  forgotten pause is a problem. A pause core makes itself (a job failed for the last time, a bundle
+  refused) and every other problem alert at once, as before. A quiet problem is no reason to look:
+  the digest says "🟡 Running; planned step under way: …", the weekly check is not red for it, the
+  digest's list and `vyreon-core problems` mark it.
+- **Terse progress.** A hand-over is one line: "Hand-over 26: fc36eefb → 2dde1132, 42 blocks + 593
+  passes moved, 8 running jobs restarted — <reason cut to 80>", with its window's withdrawal (the
+  stopped job ids are its "restarted"), its successor's admission, the operator's pause and resume
+  and the planned-step lines folded in ("· queue paused 04:28 · 2dde1132 admitted 04:39 · queue
+  resumed 04:41"). The blocks started are one line ("Started 8 blocks (2024): 07-09–07-12, 07-15,
+  07-16–07-19 (from 07-17, attempt 2), …"; a resumed or retried block says so). Counts lines are
+  kept; failures, days set aside, core's own pauses and everything else logged stay as lines.
+- **Deploy:** migration 0054 (`queue_control.by_operator`, `problem.quiet_until`, progress_shown
+  source `hand_over`); additive, a pause open at the migration is core's (alerts as before). Takes
+  effect with the next core image; health.sh with the next checkout.
+- Test: `work.rs::a_hand_over_is_progress_unless_it_overstays` (a hand-over with two running blocks:
+  no alert, the digest yellow, one progress line with its steps folded; a forgotten operator pause
+  quiet at 29 min, alerted at 31, once, resolved at 33; core's own pause alerted at once);
+  `watch.rs::the_weeks_last_session_carries_sundays_report_and_the_owners_clock_stays_on_utc_minus_6`
+  (a winter Saturday 10:00 MT deadline is 16:00 UTC); `progress.rs` unit tests of both lines.

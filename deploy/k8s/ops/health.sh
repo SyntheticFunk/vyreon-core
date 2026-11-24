@@ -9,7 +9,8 @@ NS=vyreon
 core() { kubectl -n $NS exec -c core deploy/vyreon-core -- vyreon-core "$@" 2>/dev/null; }
 sql() { kubectl -n $NS exec vyreon-pg-1 -c postgres -- psql -X -A -t -F ' ' -d vyreon -c "$1" 2>/dev/null; }
 
-echo "== $(date -u '+%Y-%m-%d %H:%M UTC') ($(TZ=America/Edmonton date '+%H:%M MT'))"
+# MT is the owner's clock, UTC−6 all year (C-072; Etc/GMT+6 is UTC−6, the POSIX sign inverted)
+echo "== $(date -u '+%Y-%m-%d %H:%M UTC') ($(TZ=Etc/GMT+6 date '+%H:%M MT'))"
 
 # money: DigitalOcean's own month-to-date usage. C-068 (audit opsurface ops.md 11): an error answer
 # (do.sh exits 1 on anything but 2xx) or an answer without the figure is "unreadable", never $0.00

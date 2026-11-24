@@ -12,7 +12,7 @@
 //! retried that then succeeds, a provider absence the engine states, a build admitted, a block
 //! done. Those go to the log (`notice::log`) and into the digest's counts.
 //!
-//! Times are computed by PostgreSQL in `ZONE` (Mountain Time, with its daylight saving), from a
+//! Times are computed by PostgreSQL in `ZONE` (the owner's clock, UTC−6 all year: C-072), from a
 //! `now` the caller passes, so a check can be run for any moment.
 //!
 //! Not here (C-065): spend against the ceiling needs DigitalOcean's billing, which core cannot
@@ -26,8 +26,16 @@ use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 use tokio_postgres::{Client, GenericClient};
 
-/// The owner's zone: Calgary, Mountain Time (UTC−7, UTC−6 in summer).
-pub const ZONE: &str = "America/Edmonton";
+/// The owner's clock (C-072): UTC−6 all year, the one zone for every time core shows the owner
+/// ("MT") and every deadline it computes for them. The owner's clock is UTC−6 year-round
+/// (corrected 2026-11-11). 'America/Edmonton' meant whatever the tz database of the PostgreSQL
+/// image says: older releases fall back to UTC−7 in winter (the cluster's did: its "MT" ran an
+/// hour behind the owner's Discord on 2026-11-24), newer ones keep UTC−6 from 2026-11. 'Etc/GMT+6' is the
+/// tz database's fixed UTC−6 zone (POSIX sign: "GMT+6" is six hours behind Greenwich), valid both
+/// ways in PostgreSQL's AT TIME ZONE (timestamptz to local, and local to timestamptz) and in `TZ=`;
+/// a bare '-06:00' string is not (PostgreSQL reads it as a POSIX zone, UTC+6). Market times stay
+/// in New York's zone (`daily::READY_ZONE`).
+pub const ZONE: &str = "Etc/GMT+6";
 /// What a post may hold: Discord's limit is 2,000 characters; this leaves a margin.
 pub const LIMIT: usize = 1900;
 /// The provider is failing when more than this many attempts stop on a provider error (HTTP 429
@@ -71,6 +79,11 @@ pub const MISS_CLAIMS: i64 = 3;
 pub const MISS_WINDOW_MINUTES: f64 = 10.0;
 /// Misses are kept this long (the watch prunes older ones).
 pub const MISS_KEEP_DAYS: f64 = 7.0;
+/// C-072: a planned operator step (a queue paused by the operator, the daily runs stopped by a
+/// hand-over while its successor is admitted) is progress, not an alert, for this long after it
+/// began; still open then, it is alerted (a forgotten pause is a problem). A hand-over's steps
+/// (pause, hand over, admit, apply, resume) took 10 to 15 minutes on 2026-11-23 and 24.
+pub const PLANNED_GRACE_MINUTES: f64 = 30.0;
 
 /// Taken, for the transaction, by whatever opens or resolves a problem, and by the digest and the
 /// weekly check only while they read the open problems again and queue their post (never while
@@ -133,6 +146,11 @@ pub struct Found {
     pub summary: String,
     pub command: String,
     pub detail: Option<Value>,
+    /// C-072: when the planned operator step it comes from began (a timestamptz), for a problem
+    /// that is that step's own (a queue paused by the operator, the daily runs stopped by a
+    /// hand-over): said on the progress channel, alerted only once `PLANNED_GRACE_MINUTES` after
+    /// it have passed with it still open. None: alerted when it opens.
+    pub planned: Option<String>,
 }
 
 /// An open problem.
@@ -145,6 +163,11 @@ pub struct Open {
     pub command: String,
     /// Seconds since it opened, at the `now` it was read for.
     pub age: i64,
+    /// C-072: a planned step's problem not alerted yet (`core.problem.quiet_until` set): not a
+    /// reason to look, until its grace ends.
+    pub quiet: bool,
+    /// Its grace has ended at `now` (always false for one not quiet).
+    pub overdue: bool,
 }
 
 /// What a check changed.
@@ -157,6 +180,9 @@ pub struct Change {
     /// The parts of the watch that failed this minute, each `part: error` (C-069; their problems
     /// open once, the service's log says each minute's).
     pub failing: Vec<String>,
+    /// C-072: planned steps' problems alerted this minute, open past their grace (or no longer a
+    /// planned step's).
+    pub alerted: Vec<String>,
 }
 
 /// One line of at most `max` characters, with nothing a credential pattern matches (a stop
@@ -211,13 +237,17 @@ fn is_provider_error(code: u16) -> bool {
 pub async fn open(c: &impl GenericClient, now: &str) -> Result<Vec<Open>, String> {
     let rows = c
         .query(
-            "SELECT problem_id, kind, key, summary, command, GREATEST(extract(epoch FROM $1::text::timestamptz - opened_at), 0)::bigint
+            "SELECT problem_id, kind, key, summary, command, GREATEST(extract(epoch FROM $1::text::timestamptz - opened_at), 0)::bigint,
+                    quiet_until IS NOT NULL, COALESCE(quiet_until <= $1::text::timestamptz, false)
              FROM core.problem WHERE resolved_at IS NULL ORDER BY opened_at, problem_id",
             &[&now],
         )
         .await
         .map_err(db)?;
-    Ok(rows.iter().map(|r| Open { id: r.get(0), kind: r.get(1), key: r.get(2), summary: r.get(3), command: r.get(4), age: r.get(5) }).collect())
+    Ok(rows
+        .iter()
+        .map(|r| Open { id: r.get(0), kind: r.get(1), key: r.get(2), summary: r.get(3), command: r.get(4), age: r.get(5), quiet: r.get(6), overdue: r.get(7) })
+        .collect())
 }
 
 /// The database's own clock, as `now` for a check.
@@ -267,7 +297,7 @@ const TICK_PARTS: [&Part; 3] = [&CHECK, &DIGEST, &WEEKLY];
 
 /// The problem a part that failed is.
 fn failing(p: &Part, error: &str) -> Found {
-    Found { kind: WATCH_FAILING, key: p.key.into(), summary: format!("Watch failing: cannot {} ({})", p.what, one_line(error, 240)), command: WATCH_LOG.into(), detail: None }
+    Found { kind: WATCH_FAILING, key: p.key.into(), summary: format!("Watch failing: cannot {} ({})", p.what, one_line(error, 240)), command: WATCH_LOG.into(), detail: None, planned: None }
 }
 
 /// What the parts of one check found, and the parts that failed with their errors.
@@ -312,18 +342,24 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
     checked
         .part(c, &QUEUE, async {
             let paused = c
-                .query_opt("SELECT reason, to_char(changed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"') FROM core.queue_control WHERE paused", &[])
+                .query_opt(
+                    "SELECT reason, to_char(changed_at AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS.US\"Z\"'), by_operator, changed_at::text FROM core.queue_control WHERE paused",
+                    &[],
+                )
                 .await
                 .map_err(db)?;
             Ok(paused
                 .map(|row| {
                     let reason: String = row.get(0);
+                    // C-072: the operator's pause is a planned step
+                    let by_operator: bool = row.get(2);
                     Found {
                         kind: "QUEUE_PAUSED",
                         key: row.get(1),
-                        summary: format!("Work queue paused, nothing is handed out: {}", one_line(&reason, 160)),
+                        summary: format!("Work queue paused{}, nothing is handed out: {}", if by_operator { " by the operator" } else { "" }, one_line(&reason, 160)),
                         command: "vyreon-core queue".into(),
                         detail: None,
+                        planned: by_operator.then(|| row.get(3)),
                     }
                 })
                 .into_iter()
@@ -366,8 +402,16 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
         checked
             .part(c, &DAILY, async {
                 let daily = async {
+                    let mut planned = None;
                     let why = match daily::build_stopped(c, d).await? {
-                        Some(why) => Some(format!("build {} {why}, so no new session is queued", d.build)),
+                        // C-072: stopped by a hand-over while its successor is admitted, a planned step
+                        Some(why) => match daily::handed_over(c, d).await? {
+                            Some((id, other, at)) => {
+                                planned = Some(at);
+                                Some(format!("build {} {why} (hand-over {id}, with build {other}), so no new session is queued", d.build))
+                            }
+                            None => Some(format!("build {} {why}, so no new session is queued", d.build)),
+                        },
                         None => match (daily::due(c, d, now).await?.first(), queueing) {
                             (Some(oldest), Some(e)) => Some(format!("a session due is not queued (the oldest {oldest}): queueing failed: {}", one_line(e, 240))),
                             (Some(oldest), None) => Some(format!("a session due is not queued (the oldest {oldest}): queueing failed, the service's log says why")),
@@ -375,7 +419,7 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
                             (None, None) => None,
                         },
                     };
-                    Ok::<_, String>(why.map(|why| Found { kind: "DAILY_STOPPED", key: d.build.clone(), summary: format!("Daily runs stopped: {why}"), command: "vyreon-core daily".into(), detail: None }))
+                    Ok::<_, String>(why.map(|why| Found { kind: "DAILY_STOPPED", key: d.build.clone(), summary: format!("Daily runs stopped: {why}"), command: "vyreon-core daily".into(), detail: None, planned: planned.clone() }))
                 };
                 // the check of the daily runs failing, and their queueing with it: both errors said
                 match daily.await {
@@ -407,6 +451,7 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
                         ),
                         command: "vyreon-core archive list".into(),
                         detail: None,
+                        planned: None,
                     })
                     .into_iter()
                     .collect())
@@ -420,10 +465,10 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
             let checks = refcheck::state(c, &s.profile, s.refcheck_from.as_deref(), now).await?;
             let mut found = Vec::new();
             if let Some(summary) = checks.disagree_summary() {
-                found.push(Found { kind: "REFCHECK_DISAGREES", key: "refcheck".into(), summary, command: "vyreon-core refcheck list".into(), detail: None });
+                found.push(Found { kind: "REFCHECK_DISAGREES", key: "refcheck".into(), summary, command: "vyreon-core refcheck list".into(), detail: None, planned: None });
             }
             if let Some(summary) = checks.not_run_summary() {
-                found.push(Found { kind: "REFCHECK_NOT_RUN", key: "refcheck".into(), summary, command: "vyreon-core refcheck list".into(), detail: None });
+                found.push(Found { kind: "REFCHECK_NOT_RUN", key: "refcheck".into(), summary, command: "vyreon-core refcheck list".into(), detail: None, planned: None });
             }
             Ok(found)
         })
@@ -466,6 +511,7 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
                     summary: format!("The trading calendar ends on {last}, in {left} days: daily runs stop there until the engine's later calendar is loaded"),
                     command: "vyreon-core calendar load <sessions.json>".into(),
                     detail: None,
+                    planned: None,
                 });
             }
             Ok(found)
@@ -492,7 +538,7 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
                     .map_err(db)?
                     .get(0);
                 if derived != Some(true) {
-                    found.push(Found { kind: "NOT_DERIVED", key: o.key.clone(), summary: o.summary.clone(), command: o.command.clone(), detail: None });
+                    found.push(Found { kind: "NOT_DERIVED", key: o.key.clone(), summary: o.summary.clone(), command: o.command.clone(), detail: None, planned: None });
                 }
             }
             Ok(found)
@@ -505,7 +551,7 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
             if let Some(kind) = p.kinds.iter().copied().find(|k| *k == o.kind)
                 && !checked.found.iter().chain(&held).any(|f: &Found| f.kind == o.kind && f.key == o.key)
             {
-                held.push(Found { kind, key: o.key.clone(), summary: o.summary.clone(), command: o.command.clone(), detail: None });
+                held.push(Found { kind, key: o.key.clone(), summary: o.summary.clone(), command: o.command.clone(), detail: None, planned: None });
             }
         }
         held.push(failing(p, e));
@@ -592,7 +638,7 @@ pub fn storage_found(st: &Storage, volume: i64, full_open: bool) -> Vec<Found> {
             None if blind_open => format!("Database volume: cannot be judged while the WAL is unreadable ({} of data alone); it was full", gigabytes(st.data)),
             None => format!("Database volume {:.0}% full on the data alone: {} of {} (WAL not read)", share * 100.0, gigabytes(used), gigabytes(volume)),
         };
-        found.push(Found { kind: "DATABASE_FULL", key: "volume".into(), summary, command: "vyreon-core digest".into(), detail: None });
+        found.push(Found { kind: "DATABASE_FULL", key: "volume".into(), summary, command: "vyreon-core digest".into(), detail: None, planned: None });
     }
     if !st.readable {
         found.push(Found {
@@ -601,6 +647,7 @@ pub fn storage_found(st: &Storage, volume: i64, full_open: bool) -> Vec<Found> {
             summary: "The watch cannot read the WAL: the core login lacks pg_monitor (deploy/k8s/README.md, Backups B0)".into(),
             command: "vyreon-core digest".into(),
             detail: None,
+            planned: None,
         });
     }
     let failing = st.failed_ago.is_some_and(|f| st.archived_ago.is_none_or(|a| f < a)) && st.archived_ago.is_none_or(|a| a >= ARCHIVE_STALE_MINUTES);
@@ -620,6 +667,7 @@ pub fn storage_found(st: &Storage, volume: i64, full_open: bool) -> Vec<Found> {
             ),
             command: "kubectl -n vyreon logs vyreon-pg-1 --all-containers --since=1h".into(),
             detail: None,
+            planned: None,
         });
     }
     found
@@ -730,7 +778,7 @@ async fn backups(c: &impl GenericClient, days: i32, now: &str, open: &[Open], fo
     // "archiving is off" stays open while the record cannot be read
     let keep_off = |found: &mut Vec<Found>| {
         if let Some(o) = open.iter().find(|o| o.kind == "WAL_ARCHIVING" && o.key == "not configured") {
-            found.push(Found { kind: "WAL_ARCHIVING", key: o.key.clone(), summary: o.summary.clone(), command: o.command.clone(), detail: None });
+            found.push(Found { kind: "WAL_ARCHIVING", key: o.key.clone(), summary: o.summary.clone(), command: o.command.clone(), detail: None, planned: None });
         }
     };
     let row = c
@@ -744,7 +792,7 @@ async fn backups(c: &impl GenericClient, days: i32, now: &str, open: &[Open], fo
         )
         .await
         .map_err(db)?;
-    let stale = |why: String| Found { kind: "BACKUP_STALE", key: "base backup".into(), summary: why, command: "kubectl -n vyreon get objectstore,backup".into(), detail: None };
+    let stale = |why: String| Found { kind: "BACKUP_STALE", key: "base backup".into(), summary: why, command: "kubectl -n vyreon get objectstore,backup".into(), detail: None, planned: None };
     let Some(r) = row else {
         found.push(stale("Backups unverified: core has never read the backup plugin's record (VYREON_CORE_PG_CLUSTER, its Role: README B0)".into()));
         keep_off(found);
@@ -769,6 +817,7 @@ async fn backups(c: &impl GenericClient, days: i32, now: &str, open: &[Open], fo
             summary: "WAL archiving is off: the database's Cluster has no Barman Cloud WAL archiver, so no WAL reaches the bucket (10-postgres.yaml `plugins`)".into(),
             command: "kubectl -n vyreon get cluster -o yaml".into(),
             detail: None,
+            planned: None,
         });
     }
     let failed = if failed_last == Some(true) { "; the newest attempt failed" } else { "" };
@@ -820,6 +869,7 @@ async fn deadlines(c: &impl GenericClient, s: &Settings, from: &str, now: &str, 
             summary: format!("{day} not published by its {next} {:02}:00 MT deadline", s.deadline_hour),
             command: "vyreon-core queue".into(),
             detail: None,
+            planned: None,
         });
     }
     let at_risk = c
@@ -847,6 +897,7 @@ async fn deadlines(c: &impl GenericClient, s: &Settings, from: &str, now: &str, 
                 summary: format!("Sunday's report at risk: {day} still not published at Sat {:02}:00 MT", s.at_risk_hour()),
                 command: "vyreon-core queue".into(),
                 detail: None,
+                planned: None,
             });
         }
     }
@@ -888,6 +939,7 @@ async fn failed_jobs(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(
             summary: format!("{what} failed for the last time (job {job}): {}", one_line(&why, 160)),
             command: format!("vyreon-core evidence show {job}"),
             detail: None,
+            planned: None,
         });
     }
     Ok(())
@@ -949,6 +1001,7 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
             summary: format!("The provider (Intrinio) refuses our API key: HTTP {code} on job {job} at {at} MT, and no tape or day block started since has succeeded"),
             command: format!("vyreon-core evidence show {job}"),
             detail: None,
+            planned: None,
         });
     }
     let was_open = is_open(open, "PROVIDER_ERRORS", "intrinio");
@@ -959,7 +1012,7 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
         } else {
             "Provider (Intrinio) errors are still stopping attempts".into()
         };
-        found.push(Found { kind: "PROVIDER_ERRORS", key: "intrinio".into(), summary, command: "vyreon-core evidence list".into(), detail: None });
+        found.push(Found { kind: "PROVIDER_ERRORS", key: "intrinio".into(), summary, command: "vyreon-core evidence list".into(), detail: None, planned: None });
     }
     Ok(())
 }
@@ -1059,6 +1112,7 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
                 summary: format!("{title} stalled since {since} MT: {claimable} claimable and none leased, so no `{pod}` pod is running"),
                 command: "vyreon-core queue".into(),
                 detail: None,
+                planned: None,
             });
         }
     }
@@ -1109,6 +1163,7 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
             ),
             command: "vyreon-core queue".into(),
             detail: None,
+            planned: None,
         });
     }
     Ok(())
@@ -1172,6 +1227,7 @@ async fn claims_empty(c: &impl GenericClient, now: &str, open: &[Open], found: &
             ),
             command: "vyreon-core queue".into(),
             detail: None,
+            planned: None,
         });
     }
     Ok(())
@@ -1186,17 +1242,36 @@ fn short(build: &str) -> String {
 async fn open_one(c: &impl GenericClient, f: &Found, now: Option<&str>) -> Result<bool, String> {
     // a publish opens NOT_DERIVED in its own transaction: it waits for a digest being composed
     c.execute(PROBLEM_LOCK, &[]).await.map_err(db)?;
+    // C-072: a planned step's problem is quiet until its grace ends (its alert's instant, and that
+    // instant on the owner's clock); one found after its grace is alerted at once
+    let quiet: Option<(String, String)> = match &f.planned {
+        None => None,
+        Some(since) => c
+            .query_opt(
+                "SELECT q::text, to_char(q AT TIME ZONE $3, 'HH24:MI') FROM (SELECT $1::text::timestamptz + make_interval(secs => $4::float8 * 60) AS q) x
+                 WHERE q > COALESCE($2::text::timestamptz, now())",
+                &[since, &now, &ZONE, &PLANNED_GRACE_MINUTES],
+            )
+            .await
+            .map_err(db)?
+            .map(|r| (r.get(0), r.get(1))),
+    };
+    let quiet_until = quiet.as_ref().map(|q| q.0.as_str());
     let n = c
         .execute(
-            "INSERT INTO core.problem (kind, key, opened_at, summary, command, detail)
-             VALUES ($1, $2, COALESCE($3::text::timestamptz, now()), $4, $5, $6::text::jsonb)
+            "INSERT INTO core.problem (kind, key, opened_at, summary, command, detail, quiet_until)
+             VALUES ($1, $2, COALESCE($3::text::timestamptz, now()), $4, $5, $6::text::jsonb, $7::text::timestamptz)
              ON CONFLICT (kind, key) WHERE resolved_at IS NULL DO NOTHING",
-            &[&f.kind, &f.key, &now, &f.summary, &f.command, &f.detail.as_ref().map(Value::to_string)],
+            &[&f.kind, &f.key, &now, &f.summary, &f.command, &f.detail.as_ref().map(Value::to_string), &quiet_until],
         )
         .await
         .map_err(db)?;
     if n == 1 {
-        notice::alert(c, &alert_text(&f.summary, &f.command)).await?;
+        match &quiet {
+            // the progress channel's (it carries what core logs)
+            Some((_, at)) => notice::log(c, &planned_text(&f.summary, at)).await?,
+            None => notice::alert(c, &alert_text(&f.summary, &f.command)).await?,
+        }
     }
     Ok(n == 1)
 }
@@ -1209,6 +1284,26 @@ pub fn resolved_text(summary: &str, age_seconds: i64) -> String {
     format!("✅ Resolved: {summary} (it was open {})", age(age_seconds))
 }
 
+/// C-072: a planned step's problem as it opens, logged (the progress channel), with when it is
+/// alerted if still open (`at`, the owner's clock).
+pub fn planned_text(summary: &str, at: &str) -> String {
+    format!("{PLANNED}{} (alerted if still so at {at} MT)", one_line(summary, 160))
+}
+
+/// C-072: a planned step's problem that cleared within its grace, logged.
+pub fn planned_over_text(summary: &str, age_seconds: i64) -> String {
+    format!("{PLANNED}over after {}: {}", age(age_seconds), one_line(summary, 160))
+}
+
+/// C-072: a planned step's problem still open when its grace ended: the alert it held back.
+pub fn overdue_text(summary: &str, command: &str, age_seconds: i64) -> String {
+    format!("🔴 {summary} (a planned step, still open after {})\nTo see more: `{command}`", age(age_seconds))
+}
+
+/// What begins each line a planned step's problem logs (the progress channel folds them into the
+/// hand-over they belong to).
+pub const PLANNED: &str = "Planned step: ";
+
 /// Finds the problems that hold at `now`, opens the new ones and resolves the ones that cleared,
 /// with their posts, in one transaction.
 pub async fn check(client: &mut Client, s: &Settings, now: &str) -> Result<Change, String> {
@@ -1218,7 +1313,8 @@ pub async fn check(client: &mut Client, s: &Settings, now: &str) -> Result<Chang
 /// Resolves an open problem, with its post.
 async fn resolve(c: &impl GenericClient, o: &Open, now: &str) -> Result<(), String> {
     c.execute("UPDATE core.problem SET resolved_at = GREATEST($2::text::timestamptz, opened_at) WHERE problem_id = $1", &[&o.id, &now]).await.map_err(db)?;
-    notice::alert(c, &resolved_text(&o.summary, o.age)).await
+    // C-072: never alerted, it is over where it was said
+    if o.quiet { notice::log(c, &planned_over_text(&o.summary, o.age)).await } else { notice::alert(c, &resolved_text(&o.summary, o.age)).await }
 }
 
 /// `check`, told the error of this minute's queueing of the daily runs, if it failed (C-069).
@@ -1240,6 +1336,17 @@ async fn check_queued(client: &mut Client, s: &Settings, now: &str, queueing: Op
         {
             tx.execute("UPDATE core.problem SET summary = $2, command = $3 WHERE problem_id = $1", &[&o.id, &f.summary, &f.command]).await.map_err(db)?;
             change.restated.push(f.summary.clone());
+        }
+        // C-072: a planned step's problem still open when its grace ends (a forgotten pause), or
+        // no longer a planned step's, is alerted now, once; it then resolves as any other
+        if let Some(o) = open.iter().find(|o| o.kind == f.kind && o.key == f.key)
+            && o.quiet
+            && (o.overdue || f.planned.is_none())
+        {
+            tx.execute("UPDATE core.problem SET quiet_until = NULL WHERE problem_id = $1", &[&o.id]).await.map_err(db)?;
+            let text = if o.overdue { overdue_text(&f.summary, &f.command, o.age) } else { alert_text(&f.summary, &f.command) };
+            notice::alert(&tx, &text).await?;
+            change.alerted.push(f.summary.clone());
         }
     }
     for o in &open {
@@ -1274,6 +1381,7 @@ pub async fn not_derived(c: &impl GenericClient, days: &[(String, String, bool)]
         summary: format!("{cause} {} days that no job derives again: {shown}{more}", listed.len()),
         command: "vyreon-core log 20".into(),
         detail: Some(json!({"days": days.iter().map(|(day, profile, local)| json!({"day": day, "profile_id": profile, "day_local": local})).collect::<Vec<_>>()})),
+        planned: None,
     };
     open_one(c, &found, None).await.map(|_| ())
 }
@@ -1468,13 +1576,19 @@ fn more_problems(n: usize) -> String {
 }
 
 /// The verdict: 🔴 when anything is open (the oldest named), else 🟡 naming what was handled and
-/// what is not fully judged (C-054 amended 2026-11-20), else 🟢.
+/// what is not fully judged (C-054 amended 2026-11-20), else 🟢. C-072: a planned step within its
+/// grace is no reason to look: 🟡, named as under way.
 pub fn verdict(open: &[Open], handled: &[String], unjudged: &[String]) -> String {
-    match open {
+    let loud: Vec<&Open> = open.iter().filter(|o| !o.quiet).collect();
+    let planned: Vec<String> = open.iter().filter(|o| o.quiet).map(|o| one_line(&o.summary, 120)).collect();
+    match loud.as_slice() {
         [first, rest @ ..] => format!("🔴 Needs you: {}{}", first.summary, more_problems(rest.len())),
-        [] if handled.is_empty() && unjudged.is_empty() => "🟢 Running fine".into(),
+        [] if handled.is_empty() && unjudged.is_empty() && planned.is_empty() => "🟢 Running fine".into(),
         [] => {
             let mut text = "🟡 Running".to_string();
+            if !planned.is_empty() {
+                text.push_str(&format!("; planned step under way: {}", planned.join(", ")));
+            }
             if !handled.is_empty() {
                 text.push_str(&format!("; handled: {}", handled.join(", ")));
             }
@@ -1516,7 +1630,8 @@ pub fn compose(first: &str, lines: &[String], open: &[Open]) -> String {
     }
     text.push_str(&format!("\nOpen problems ({}):", open.len()));
     for (i, o) in open.iter().enumerate() {
-        let line = format!("\n• {} · open {} · `{}`", one_line(&o.summary, 220), age(o.age), o.command);
+        let planned = if o.quiet { " (a planned step)" } else { "" };
+        let line = format!("\n• {}{planned} · open {} · `{}`", one_line(&o.summary, 220), age(o.age), o.command);
         let rest = open.len() - i - 1;
         let tail = format!("\n• … and {} more: `vyreon-core problems`", rest + 1);
         let room = if rest == 0 { 0 } else { tail.chars().count() };
@@ -1634,11 +1749,11 @@ fn median(mut v: Vec<f64>) -> Option<f64> {
 }
 
 /// A session's date as the owner reads it: "Mon Nov 16" (with the year when it is not this year's).
-const DAY: &str = "CASE WHEN extract(year FROM $D) = extract(year FROM ($1::text::timestamptz AT TIME ZONE 'America/Edmonton'))
+const DAY: &str = "CASE WHEN extract(year FROM $D) = extract(year FROM ($1::text::timestamptz AT TIME ZONE '$Z'))
                         THEN to_char($D, 'Dy Mon FMDD') ELSE to_char($D, 'Dy Mon FMDD, YYYY') END";
 
 fn day_of(expr: &str) -> String {
-    DAY.replace("$D", expr)
+    DAY.replace("$D", expr).replace("$Z", ZONE)
 }
 
 /// The daily digest at `now`, from the problems as last checked.
@@ -1836,8 +1951,8 @@ async fn digest_of(c: &mut impl GenericClient, s: &Settings, now: &str, open: &[
                 let at: String = c
                     .query_one(
                         "SELECT CASE WHEN $2::float8 - extract(epoch FROM $1::text::timestamptz) <= 144 * 3600 THEN to_char(t, 'Dy HH24:MI') || ' MT' ELSE to_char(t, 'Mon FMDD') END
-                         FROM (SELECT to_timestamp($2::float8) AT TIME ZONE 'America/Edmonton' AS t) x",
-                        &[&now, &finish],
+                         FROM (SELECT to_timestamp($2::float8) AT TIME ZONE $3 AS t) x",
+                        &[&now, &finish, &ZONE],
                     )
                     .await
                     .map_err(db)?
@@ -1929,12 +2044,12 @@ async fn weekly_of(c: &mut impl GenericClient, s: &Settings, now: &str, open: &[
                 "SELECT s.session::text, {}, $3::text IS NOT NULL AND s.session >= $3::text::date,
                         EXISTS (SELECT FROM vyreon.day_revision d WHERE d.represented_date = s.session AND d.profile_id = $2
                                 AND d.state = 'PUBLISHED' AND d.base_revision IS NULL),
-                        ((s.session + 1) + make_time($4, 0, 0)) AT TIME ZONE 'America/Edmonton' <= $1::text::timestamptz,
+                        ((s.session + 1) + make_time($4, 0, 0)) AT TIME ZONE '{ZONE}' <= $1::text::timestamptz,
                         to_char(s.session + 1, 'Dy'),
                         EXISTS (SELECT FROM vyreon.day_revision d WHERE d.represented_date = s.session AND d.profile_id = $2
                                 AND d.state = 'PUBLISHED' AND d.base_revision IS NOT NULL AND NOT d.day_local)
                  FROM core.session s,
-                      (SELECT ($1::text::timestamptz AT TIME ZONE 'America/Edmonton')::date AS today) t
+                      (SELECT ($1::text::timestamptz AT TIME ZONE '{ZONE}')::date AS today) t
                  WHERE s.session >= date_trunc('week', t.today)::date AND s.session < t.today
                  ORDER BY 1",
                 day_of("s.session")
@@ -1960,9 +2075,11 @@ async fn weekly_of(c: &mut impl GenericClient, s: &Settings, now: &str, open: &[
     let no_history: Vec<&str> = watched.iter().filter(|w| w.3 && w.4 && !w.6).map(|w| w.1.as_str()).collect();
     let first = if !missing.is_empty() {
         format!("🔴 Weekly check: Sunday's report at risk, {} of {} sessions not published ({})", missing.len(), watched.len(), missing.join(", "))
-    } else if let Some(oldest) = open.first() {
-        // an open problem is red whatever the week's deadlines (C-050; round w, 12)
-        format!("🔴 Weekly check: Sunday's report is not cleared while a problem is open: {}{}", one_line(&oldest.summary, 200), more_problems(open.len() - 1))
+    } else if let Some(oldest) = open.iter().find(|o| !o.quiet) {
+        // an open problem is red whatever the week's deadlines (C-050; round w, 12); a planned
+        // step within its grace is not a problem yet (C-072)
+        let loud = open.iter().filter(|o| !o.quiet).count();
+        format!("🔴 Weekly check: Sunday's report is not cleared while a problem is open: {}{}", one_line(&oldest.summary, 200), more_problems(loud - 1))
     } else if week.is_empty() {
         "🟡 Weekly check: no trading session this week".to_string()
     } else if watched.is_empty() {
@@ -2065,8 +2182,8 @@ async fn due_posts(c: &impl GenericClient, now: &str) -> Result<(String, bool, b
     let row = c
         .query_one(
             "SELECT to_char(t, 'YYYY-MM-DD'), extract(hour FROM t) >= 9, extract(isodow FROM t) = 6
-             FROM (SELECT $1::text::timestamptz AT TIME ZONE 'America/Edmonton' AS t) x",
-            &[&now],
+             FROM (SELECT $1::text::timestamptz AT TIME ZONE $2 AS t) x",
+            &[&now, &ZONE],
         )
         .await
         .map_err(db)?;
@@ -2146,7 +2263,7 @@ mod tests {
     use super::*;
 
     fn problem(i: i64, summary: &str) -> Open {
-        Open { id: i, kind: "SESSION_LATE".into(), key: format!("{i}"), summary: summary.into(), command: "vyreon-core queue".into(), age: 3 * 3600 + 60 * i }
+        Open { id: i, kind: "SESSION_LATE".into(), key: format!("{i}"), summary: summary.into(), command: "vyreon-core queue".into(), age: 3 * 3600 + 60 * i, quiet: false, overdue: false }
     }
 
     #[test]

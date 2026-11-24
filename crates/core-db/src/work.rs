@@ -941,15 +941,29 @@ pub fn scrubbed(text: &str) -> String {
 /// autocommitted statements would leave the queue paused with no notice (a second `pause` then
 /// changes nothing, so would not repair it).
 pub async fn pause(db_client: &impl GenericClient, reason: &str) -> Result<(), String> {
+    pause_as(db_client, reason, false).await
+}
+
+/// `pause` by the operator (`vyreon-core queue pause <reason>`), a planned step (C-072): the watch
+/// says it on the progress channel, and alerts only if it outlasts `watch::PLANNED_GRACE_MINUTES`.
+pub async fn pause_by_operator(db_client: &impl GenericClient, reason: &str) -> Result<(), String> {
+    pause_as(db_client, reason, true).await
+}
+
+async fn pause_as(db_client: &impl GenericClient, reason: &str, by_operator: bool) -> Result<(), String> {
     let reason = &scrubbed(reason);
     // the row first: an UPDATE computes its new row (and its clock) before it waits for a locker
     db_client.execute("SELECT FROM core.queue_control FOR UPDATE", &[]).await.map_err(db)?;
     let paused = db_client
-        .execute("UPDATE core.queue_control SET paused = true, reason = $1, changed_at = clock_timestamp() WHERE NOT paused", &[&reason])
+        .execute(
+            "UPDATE core.queue_control SET paused = true, reason = $1, by_operator = $2, changed_at = clock_timestamp() WHERE NOT paused",
+            &[&reason, &by_operator],
+        )
         .await
         .map_err(db)?;
     if paused == 1 {
-        notice::log(db_client, &format!("Queue paused: {reason}. No work is handed out until `vyreon-core queue resume`.")).await?;
+        let by = if by_operator { " by the operator" } else { "" };
+        notice::log(db_client, &format!("Queue paused{by}: {reason}. No work is handed out until `vyreon-core queue resume`.")).await?;
     }
     Ok(())
 }
@@ -958,7 +972,7 @@ pub async fn pause(db_client: &impl GenericClient, reason: &str) -> Result<(), S
 /// a transaction, as `pause`.
 pub async fn resume(db_client: &impl GenericClient) -> Result<Option<String>, String> {
     let was: Option<String> = db_client.query_one("SELECT reason FROM core.queue_control", &[]).await.map_err(db)?.get(0);
-    let resumed = db_client.execute("UPDATE core.queue_control SET paused = false, reason = NULL, changed_at = clock_timestamp() WHERE paused", &[]).await.map_err(db)?;
+    let resumed = db_client.execute("UPDATE core.queue_control SET paused = false, reason = NULL, by_operator = false, changed_at = clock_timestamp() WHERE paused", &[]).await.map_err(db)?;
     if resumed == 1 {
         notice::log(db_client, "Queue resumed.").await?;
     }

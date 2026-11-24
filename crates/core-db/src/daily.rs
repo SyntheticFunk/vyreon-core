@@ -59,6 +59,23 @@ pub async fn build_stopped(c: &impl GenericClient, d: &Daily) -> Result<Option<S
     })
 }
 
+/// C-072: the hand-over that explains why the build cannot be given work, a planned step: the
+/// build was withdrawn by handing its work over, or it is a hand-over's successor not admitted
+/// yet. (hand-over id, its other build, when it was made); None otherwise.
+pub async fn handed_over(c: &impl GenericClient, d: &Daily) -> Result<Option<(i64, String, String)>, String> {
+    let row = c
+        .query_opt(
+            "SELECT h.hand_over_id, CASE WHEN h.from_build = $1 THEN h.to_build ELSE h.from_build END, h.handed_at::text
+             FROM core.hand_over h JOIN core.engine_build b ON b.engine_build = $1
+             WHERE (h.from_build = $1 AND b.withdrawn_at IS NOT NULL) OR (h.to_build = $1 AND b.admitted_at IS NULL)
+             ORDER BY h.handed_at DESC, h.hand_over_id DESC LIMIT 1",
+            &[&d.build],
+        )
+        .await
+        .map_err(db)?;
+    Ok(row.map(|r| (r.get(0), r.get(1), r.get(2))))
+}
+
 /// The sessions due at `now` and not handled yet, oldest first.
 pub async fn due(c: &impl GenericClient, d: &Daily, now: &str) -> Result<Vec<String>, String> {
     let rows = c

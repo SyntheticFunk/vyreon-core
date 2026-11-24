@@ -235,7 +235,7 @@ async fn queue(change: &[&str]) -> Result<(), String> {
         // the queue's change and its notice are one transaction (C-027's outbox)
         ["pause", reason] => {
             let tx = client.transaction().await.map_err(|e| e.to_string())?;
-            work::pause(&tx, reason).await?;
+            work::pause_by_operator(&tx, reason).await?;
             tx.commit().await.map_err(|e| e.to_string())?
         }
         ["resume"] => {
@@ -587,9 +587,9 @@ async fn daily_runs(queue: bool) -> Result<(), String> {
     }
     let rows = client
         .query(
-            "SELECT session::text, engine_build, to_char(queued_at AT TIME ZONE 'America/Edmonton', 'Dy Mon FMDD HH24:MI'), jobs::text
+            "SELECT session::text, engine_build, to_char(queued_at AT TIME ZONE $2, 'Dy Mon FMDD HH24:MI'), jobs::text
              FROM core.daily_session WHERE profile_id = $1 ORDER BY session DESC LIMIT 10",
-            &[&d.profile],
+            &[&d.profile, &watch::ZONE],
         )
         .await
         .map_err(|e| e.to_string())?;
@@ -609,13 +609,14 @@ async fn problems() -> Result<(), String> {
         println!("no open problem");
     }
     for o in &open {
-        println!("open {}: {} · `{}`", watch::age(o.age), o.summary, o.command);
+        let planned = if o.quiet { " (a planned step, not alerted yet: C-072)" } else { "" };
+        println!("open {}: {}{planned} · `{}`", watch::age(o.age), o.summary, o.command);
     }
     let rows = client
         .query(
-            "SELECT to_char(resolved_at AT TIME ZONE 'America/Edmonton', 'Dy Mon FMDD HH24:MI'), summary FROM core.problem
+            "SELECT to_char(resolved_at AT TIME ZONE $1, 'Dy Mon FMDD HH24:MI'), summary FROM core.problem
              WHERE resolved_at IS NOT NULL ORDER BY resolved_at DESC, problem_id DESC LIMIT 10",
-            &[],
+            &[&watch::ZONE],
         )
         .await
         .map_err(|e| e.to_string())?;
