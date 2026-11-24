@@ -1275,6 +1275,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   every other slot, cascade to later days only where a changed value reaches a history reader); missing: core job kind with a
   scope, worker path, core accepting copy-forward revisions (D-104's narrowed supersede); check whether inputs can be fetched per
   family (big saving) or only whole-day (compute saving only).
+  **Owner: build scoped recompute now, while the cluster runs ("we're gonna need it"); phase 1 is iterative, not one clean
+  pass.** Scoped vs full day: a planner computes the recompute set (seed + dependants, D-104) and estimated cost from measured
+  per-family timings and picks; thresholds from measurements, not a guessed %; scoped output must be byte-identical to a
+  full-day recompute for its families. Building on eng-scope/core-scope (D-462/C-074) for the next release.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
