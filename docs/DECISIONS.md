@@ -2792,8 +2792,8 @@ Three things broke that during the hand-overs of 2026-11-23/24.
   PostgreSQL 16 for January and July; a bare `'-06:00'` string does not (PostgreSQL reads it as a
   POSIX zone, UTC+6). Market times stay `America/New_York` (07:30 queueing, sessions).
   **Effect:** on a server whose tzdata says UTC−7 in winter, every deadline instant moves one hour
-  earlier in winter than before (Friday's 20:00 MT deadline is 02:00 UTC Saturday, not 03:00), the
-  09:00 digest is posted at 15:00 UTC all year. The daily deadlines start 2026-11-30.
+  earlier in winter than before (a Friday session's deadline, Saturday 20:00 MT, is 02:00 UTC
+  Sunday, not 03:00), and the 09:00 digest is posted at 15:00 UTC all year. The daily deadlines start 2026-11-30.
 - **Planned operator steps are progress, not alerts.** A hand-over posted 🔴 "Work queue paused"
   and 🔴 "Daily runs stopped: build … was withdrawn" to the alerts channel and resolved them minutes
   later: two alerts and two resolutions for one deliberate act. Now a pause by the operator
