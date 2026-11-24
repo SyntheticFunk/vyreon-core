@@ -23,7 +23,7 @@ HAVING count(*) > 1
 --    and compute it again.
 SELECT 'base without day-local' AS check, b.represented_date, b.profile_id, b.revision_id, b.engine_build,
        EXISTS (SELECT FROM core.job j
-                WHERE j.kind = 'DAY_BLOCK' AND j.state = 'LEASED' AND j.profile_id = b.profile_id
+                WHERE j.kind = 'DAY_BLOCK' AND j.state IN ('LEASED','QUEUED') AND j.profile_id = b.profile_id
                   AND j.next_session = b.represented_date) AS block_on_it
   FROM vyreon.day_revision b
  WHERE b.state = 'PUBLISHED' AND b.base_revision IS NULL
