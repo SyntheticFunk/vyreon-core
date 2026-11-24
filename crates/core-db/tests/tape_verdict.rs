@@ -101,7 +101,7 @@ async fn a_verdict_is_kept_once_beside_its_cache_and_a_failure_is_a_disagreement
     // the real cache, and the suite's own NOT_RUN on it: kept once; a cache with no verdict, or a
     // NOT_RUN one, is not verified (the digest says so) and no problem
     assert!(tape::put(&client, "AAPL", S, V1, &Cache::Body(TAPE_AAPL.to_vec())).await.unwrap());
-    let settings = Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None };
+    let settings = Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
     let now: String = client.query_one("SELECT (now() + interval '1 minute')::text", &[]).await.unwrap().get(0);
     assert_eq!(refcheck::tape_digest_line(&client, &now).await.unwrap().unwrap(), "Tape caches stored in the last 24 hours: 1 (0 verified by the tape reader, 0 disagree, 0 withheld whole, 1 not verified)");
     let not_run = verdict(V1, "NOT_RUN");
