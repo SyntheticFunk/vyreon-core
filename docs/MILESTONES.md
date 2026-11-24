@@ -1140,6 +1140,14 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   **core-clock merged (d728b04; 193/0; C-072; migration 0054 additive):** root cause of the hour: tzdata versions (newer tzdata
   already keeps Edmonton on UTC−6 from 2026-11; the cluster's images had older tzdata). Core audits by both running
   (`audits/2026-11-24-core-c072/`); then build + deploy core (image substituted, migration 0054).
+  **Engine round 5 (UTC−6 ~08:00):** combined 5f637983: cargo 1,718/0, pytest 238/107. Codex: no regression vs 2dde1132;
+  ordinary-data findings, all pre-existing → follow-up batch: EXQ01 rejects adjusted contracts (real BABA 2025-12-19: whole
+  print capture aborted → SAI-EXQ01 + M0-PRINT-SIZE ENGINE_FAULT), worker image lacks OVERLAY_RULES for the reference
+  (mislabel on D-359 partial days, 111 real sources), reference rounds 3-decimal strikes (XLK 2025-12-05). Rare → LATER.
+  Gemini hit its quota at launch (both runs); engine re-run started, core Gemini waits for the core fix round.
+  **Core C-072 Codex: hold deploy** — refusal during an operator pause silenced; unadmitted successor silent; planned-ness
+  not tied to the hand-over event; pause overstaying between ticks; masked queue_due error; digest counts; 0054 lock
+  timeout → `core-clock2`. Clock arithmetic verified correct.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
