@@ -1191,6 +1191,16 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   ETHA1 prints = EOD volume); reference items rare, one ordinary only for phase-2 META-under-FB dates (2022) → LATER with
   the deeper build. **D-460 closed.** Image c9c23ca5 built; hand-over when the first 5f637983 days publish (days published by
   5f637983 stay valid: c9c23ca5 changes no published value outside adjusted cohorts).
+  **Owner asked: were the wrong numbers investigated? (UTC−6 10:45, checked in the published DB, 694 asset-days):**
+  crashes (tape OOM, day refusals) were real and are fixed. **None of the claimed wrong numbers reached published data:**
+  UPATH false zero 0 occurrences (no NO_TRADES bin published at all); the ACT01 feed guard never routed a published day to
+  NONE (691 delivered, 2 asset-level NO_GOVERNED_COHORT_CERTIFICATE, 1 PROVIDER_COVERAGE_START); M0-PRINT-SIZE split days
+  cannot occur in the backfill (historical prints not retained → EVENT_SOURCE_NOT_RETAINED); BABA EXQ01 is Dec 2025 and
+  live-only. **The real published defect: VS-O04 over-withheld as ENGINE_FAULT on 147 asset-days** (D-458 fallback, mostly
+  the build's first days; fixed since 955d0f82) → verify it clears when the July recompute republishes. (A first count of
+  "60/63 PROVIDER_OI_INCOMPLETE" was a text-match artefact; field level: 5 asset-days.)
+  **Rule from this:** a finding claiming a wrong number gets an occurrence count in the published DB before it can justify
+  a hand-over; without occurrences it waits for a batched release at a block boundary.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
