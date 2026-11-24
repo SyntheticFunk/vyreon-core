@@ -691,6 +691,12 @@ waits for its Codex+Gemini audit, since migrations 0052/0053 can't be rolled bac
 1,683/0; pytest 205): **hand-over 20 done ~17:45 MT** (d9462aad published 2024-07-15, kept), build
 `2a8f8c4f+5bbbf36545c0` admitted, KEDA and DAILY_BUILD on it (b4b28de, core still on image 4eda341). Repeat audits of
 C-069/C-070 and D-458 by both reviewers running (`audits/2026-11-23-core-c069/`, `audits/2026-11-23-engine-d458/`).
+**Round 2 (triage `audits/2026-11-23-triage-r2/triage.md`): close to converged.** Core 474a229 cleared and **deployed
+2026-11-23 17:27 MT** (queue paused, pre-check clean incl. queued blocks, migrations 0052/0053 applied, watch ticks clean).
+Two small blockers, both found by both reviewers: core digest tallies all revisions in one statement (restart-loop risk
+once the passes run) → `core-p2` C-071; engine D-458 fallback mislabels a T−4..T−1 capture gap as ENGINE_FAULT →
+`eng-p1c`. 2024-07-15 (published on d9462aad, refcheck lost in hand-over 20) queued for recompute. Then a narrow third
+audit.
 **Owner, 2026-11-23 ~09:50 MT: D-191 recommendation accepted** (weight kept, text corrected: engine worker commit after f3db692e, docs only). Old Jobs deleted by hand again (2nd time: automation debt
 in "Listed, not fixed").
 **D-191 for the owner (fixer, OCC memo #59890 via the MIAX mirror):** ETHA1 = 33 ETHA shares + cash in lieu of
