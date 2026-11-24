@@ -3325,7 +3325,7 @@ copied forward byte for byte. This is that mechanism on the cluster.
   and suite, about 4 to 6 hours a day); accept, or have the republish worker run the suite itself
   (it would then need the whole day's inputs); (2) the ScaledJob's 4 at once; (3) a copy-forward
   revision's `snapshot_cutoff` is its recompute's; the carried slots' own is in `republish_scope`
-  (`carried_cutoff`): the reader API states the revision's.
+  (release-2 audit C7: none; each carried slot's are its `carried_from_revision`'s): the reader API states the revision's.
 - **Deploy:** migration 0057 (the kind in `job`, `job_evidence`, `claim_miss`, `stall_seen`; the scope
   check and unique index; `core.build_republish`; the pass's claim waiting for republishes) before the
   engine image carrying `run republish` and the inventory's plans; `build register` of that image
@@ -3359,3 +3359,41 @@ copied forward byte for byte. This is that mechanism on the cluster.
   `deploy/k8s/README.md` "11. The first scoped recompute" and `ops/scoped-check.sql` (validated on a
   migrated database). Tests: `republish.rs::a_republished_days_reference_rerun_checks_what_was_recomputed`,
   `a_download_reporting_its_progress_is_judged_by_it`. The suite: 223 (main's 215 + 8).
+- **The release-2 audit, core half (2026-11-24, `audits/2026-11-24-release2/core`, Codex 17 + 3 rare, Gemini 16 +
+  2 suspicions; the only audit of this release, owner's rule: every real finding fixed and tested).**
+  | Finding | Verdict |
+  |---|---|
+  | C1 a requested history correction skipped | fixed: the scope's own history sensors (`seed_history`, named or a named family's) make the day's and later days' history derived again, whatever the worker's values |
+  | C2, G6 prints retention only at planning; every pre-capture day "perished" | fixed: `core.prints_perished` (0057: from the prints' capture start, 2026-10-23, only); the claim FAILS a queued republish reading them once they are gone (retry and hand-over included), scheduling refuses it |
+  | C3, G1 a scoped re-run clears a carried disagreement | fixed: scoped only when the replaced pair's check found nothing unexplained and no reference error; meanwhile a republished day carries its predecessors' latest check (walked back through successive republishes) into the problems |
+  | C4, G2 an identical retry refused (422, pause); a worker ending after its day-local revision leased again | fixed: a republish's resent bundle (or a compare-only block's) is answered published/staged when it is that revision's recomputed part, every file and number; a job whose day-local revision is published is done on any requeue |
+  | C5, G4 overlap depends on command order | fixed: a day block refuses an unfinished republish of its days (and the reverse, as before); a hand-over checks both kinds |
+  | C6, G5 FULL and the passes schedule outside the plan | fixed: they schedule the plan's published sessions in runs of consecutive sessions (`Plan::runs`); FULL's cost counts those |
+  | C7 carried slots' build and cutoff misstated after successive republishes | fixed: `republish_scope` states none; a carried slot's are those of `carried_from_revision`'s revision |
+  | C8 request traffic hides a stopped progress counter | fixed: a download step that reports progress is judged by it alone |
+  | C9 a tape-reading republish starts before its tapes | fixed: 0057's claim view holds a republish reading `consolidated` behind unfinished tape work, as a day block |
+  | C10 consecutive corrections re-checked whole | fixed: the predecessor's base is the kept base when another job republished it |
+  | C11, G7 a local-only correction inherits the base's age | fixed: a day is published at the later of its base and day-local revision; a day-local republish's open lease is checking |
+  | C12, G11 parity SQL misses losses, rejects a correct copy | fixed: `ops/scoped-check.sql` compares both ways (full joins) per slot, stream and scalar; tested on the real slice (a correct copy and a changed recomputed stream pass, a lost scalar or slot is a row) |
+  | C13 the runbook replaces the day before judging | fixed: `vyreon-core compare-day` queues a compare-only day block: its revisions staged, never published, nothing kept; the runbook compares against it |
+  | C14 `--plan` omits the override | fixed: the plan prints the overridden choice; `--full` is honoured for history-only scopes, `--scoped` refused where impossible |
+  | C15, G14 cancellation and withdrawal leave a staged base | fixed: `work::reject_staged` on cancel, withdrawal, retirement, as on requeue |
+  | C16, G9 a failed republish said as an ordered pass | fixed: "Republish of D (its revisions stay as they were)", and JOB_FAILED's consequence says what each kind leaves |
+  | C17 receipt counts mix sets | fixed: a copy-forward's slots and scalars are the whole revision's, as its streams |
+  | C18 a malformed bundle binds a history revision as base | fixed: only a base-layer revision binds as a base (`bind_base`), for every bundle |
+  | C19 scheduling under a withdrawn build | fixed: refused unless the build runs |
+  | C20 a credential in a reason | fixed: refused before anything is stored or logged (scoped, FULL and passes) |
+  | G3 profile revision changes not checked | fixed: the planner names days published in other profile revisions (FULL, a copy-forward cannot cross them); scheduling and hand-over refuse such republishes |
+  | G8 retire leaves a republish | fixed: retirement cancels a republish of a retired day |
+  | G10 release.sh checks 0055 only | fixed: it needs `core.build_republish` (0057) and an inventory with republish plans |
+  | G12 hand-over lines omit republishes | fixed |
+  | G13 measured costs: stale publish, mixed download days, replaced task-minutes | fixed: publish from the reports' stages; a category's download as its share of its reports' download times a first day's; task-minutes merged by measurement |
+  | G15 a staged base of another profile or base | fixed: the staged base must be of the bundle's base profile and must have replaced the base the replaced day-local revision stood on |
+  | G16 dump without a day-local revision; re-registration with other plans | fixed: the dump refuses a day without one; registration refuses other plans |
+  | G S1 concurrent dumps fill the spool | partly real: dumps now build one at a time (`App::dumping`); their size is not measured (the first cluster run measures it) |
+  | G S2 step names, staged `published_at` | not real: the engine's download steps begin with "download"; a staged base counts once published with its day-local revision |
+  Tests: `tests/republish.rs` (`retries_overlaps_cancellation_and_counts`, `a_requested_history_correction_is_never_skipped`,
+  `claims_bindings_and_scheduling_refusals`, `reference_reruns_of_republished_days`, `request_traffic_never_hides_a_stopped_progress_counter`,
+  `the_scoped_check_catches_a_lost_carried_slot_and_passes_a_correct_copy`, `a_compare_only_day_block_publishes_nothing`,
+  `planning_retirement_failures_and_measurement`, the planner test's prints coverage), `progress.rs`'s hand-over line,
+  `digest_format.rs`'s JOB_FAILED consequence. release.sh: syntax checked, the two checks read. The suite: 231.
