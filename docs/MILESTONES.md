@@ -1310,6 +1310,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   live is affected (release 2 not deployed) except one PRE-EXISTING wrong reading found on the way: DLM-CANDLESTICK misses two
   real UUP patterns (2025-05-21 hammer, 2025-05-22 inverted hammer) through float boundary comparisons — not yet built (phase 1
   is in mid-2024), so fixing it in release 2 means no published day carries it. All findings being fixed on core-scope/eng-scope.
+  **Correction (UTC−6 17:30):** the exact-price fix (engine 249a21a6 code, 42e243ad tests, 7139116a docs; DLM-CANDLESTICK 1.2.0,
+  DLM-TECHNICAL 1.11.0) also covers NR7 (UUP 2025-03-10, 2025-08-20 called NR7 on a tied range): 4 of 431 UUP sessions wrong,
+  ~1 in 200 on low-priced assets. Built days carry the old method (OTHER_METHOD_VERSION in DLM-UNUSUALNESS history) →
+  after release 2: scoped republish of family DLM-TECHNICAL on every day built before it (first real scoped use; no option files).
+  Core audit fixes committed (core-scope 61c869f); engine audit fixes in progress.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
