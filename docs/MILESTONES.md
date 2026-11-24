@@ -1243,6 +1243,14 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   (before phase 1) → phase 1 so far ≈ $89 + ~11 h ≈ $100 of the $500 ceiling; burn ≈ $1.25/h (10 nodes) → ~11-13 days of
   cluster left. Projected total to be computed from the first measured days/hour; warn the owner before passing $500.
   Owner: the audits' value is avoided rebuilds (each rebuild costs cluster dollars), so one thorough audit per release stays.
+  **Month-6 review (owner, 2026-11-24: "6 months is a long time but worth doing"):** after launch (first paid issue Sunday
+  2027-01-10), judged on four signals, by trend, raw GA4 (no filtering) against the pre-launch baseline (~29 users/week, bare
+  site, ads off): (1) organic search impressions/clicks growing 3 months running; (2) readers returning (GA4 returning users on
+  report pages, week over week); (3) paid subscribers retained past months 1-2 (Stripe cohorts); (4) free → paid conversion.
+  Thresholds set from the first observed months, not assumed. Pivot = change the reports' audience/format (not B2B/API) if all
+  four are bad; weak conversion alone = an offer/pricing fix. **First look early May 2027**, before Intrinio Startup's price
+  doubles (~2027-05-24, month 7). Instrumentation exists (GA4: consent mode, engaged_60s, sign_up/generate_lead); Stripe
+  retention needs nothing until there are subscribers.
   **Investigating while it runs (owner's goal, UTC−6 ~11:40):** (1) the request budget is ~half used during downloads (avg
   ~800-1,270/min of 1,900; near the cap only 12 min in 4 h) → downloads are bound by per-worker concurrency, not Intrinio:
   candidate improvement = more in-flight requests per worker (cuts the ~3 h download stage and node-hours); compute is
