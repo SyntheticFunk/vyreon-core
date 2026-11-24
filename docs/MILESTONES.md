@@ -1290,6 +1290,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   verified, claims per kind, dry-run writes nothing, diff errors stop, tag reuse refused, token file trapped); re-run
   queueing exact; dump streamed; alert accuracy; resend compares every field. G1.2 kept by design (KEDA starts no backfill
   work under budget pressure). Last item: the C13 first-day residual, closed by profile layer.
+  **First days on 5f637983 (UTC−6 12:58): 2024-07-16 published** — block lease 08:03 → publish 12:58 = **4 h 55 min for a block's
+  first day** (~3 h download + ~2 h compute); later days in a block expected faster (window reused) — measure day 2.
+  **VS-O04 did NOT clear:** 07-16 on 5f637983 still withholds VS-O04 entirely (ENGINE_FAULT, all roles incl. same-day ones) for
+  10/63 assets (ARKK FXI JPM MSFT MSTR PLTR SPY TSLA XBI XLV) — my D-458 attribution was wrong. Pattern: a block's first days.
+  If every daily run (a one-day block) hits it, it is launch-blocking. Read-only root-cause investigation running; fix joins
+  the release.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
