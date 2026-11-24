@@ -1062,6 +1062,15 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   over-withhold (Gemini 2). All sent back as `eng-f2`. LATER: stale translated cohort (stateless workers start clean),
   official-bar I/O fault failing UACT/UQTR (honest for a local fault), early-close boundary bar (suspicion), retried-capture
   cutoff wait (verify). Next hand-over after eng-f2 + a narrow re-audit, with the July recompute.
+  **eng-f2 merged (af7f09e2; 1,696/0; pytest 210; UPATH@13, EVC01@15), image built, NOT handed over: re-audit r2 (03:00
+  MT) not converged.** Blocking (both reviewers): reference UPATH/EVC01 owners disagree with the engine on every lawful
+  NO_TRADES bin (gate a would flood); ACT01-routed family (ACT01, TV15, EXQ01, M0-PRINT-SIZE) needs a method bump; feed
+  guard reads the snapshot unsealed and refusal via a worker-local file; the new shared URL refresh aborts on a second
+  expiry; read-time official-bar faults still swallowed; reasons after a failed bin; stale prior-session EOD volume (real
+  QQQ 2026-09-08 case) → `eng-f3`. LATER: fill restart in one workspace (not reachable: Jobs are one pod, no restart, fresh
+  emptyDir); M/9 listing close equal to the previous price read as a carry (label only; provenance is in the reader).
+  Convergence note: D-460's area is the ACT01 feed guard + UPATH carry; each round's findings are narrower; the stopping
+  rule (a round with no wrong number, no silent wrong absence, no silent stop) is not yet met.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
