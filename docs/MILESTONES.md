@@ -970,6 +970,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   resort; a rule built on sparse data is judged by the built population.
 
 ## Listed, not fixed
+- **Automation debt (2026-11-23, tape OOM loop): repeated lost leases are silent.** 11 tapes were OOM-killed 12 times in an
+  hour; each kill was a lost lease, re-queued quietly, and nothing alerted (no stall: the jobs kept being leased). Proposed:
+  core's watch raises JOB_THRASHING when a job loses its lease ≥3 times (naming the job and, where readable, the pods'
+  exit reasons), so an operator learns of a resource limit from the channel, not by looking.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
