@@ -1258,6 +1258,9 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   cutoff wait to the fill (like ACT01 D-457), bounded retry of transient 5xx/timeouts per page, worker step/wait reporting +
   core NO_PROGRESS watch (alerts on no progress unless a declared wait covers it). My "hung" call was wrong; the evidence
   check corrected it.
+  **core-auto complete (204/0; C-073; migration 0055 extended in place, never deployed):** automation debts + all C-072 leftovers
+  + the two pre-existing publish defects + bounded migrator lock + NO_PROGRESS (`POST /worker/v1/lease/step`). Waiting on
+  eng-rel (refcheck worker, LATER items, EXQ01 defer + 5xx retry, step reporting with declared waits); then one audit of both.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
