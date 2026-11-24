@@ -1007,6 +1007,13 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   → a separate verify-and-fix batch after the tapes run.
   Noted: core's STALLED alert fired for the intentional tape pause; a paused ScaledJob should read "paused", not "stalled"
   (small core watch fix, LATER).
+  **eng-tape2 merged (2026-11-23 23:50 MT, 009feb78; 1,688/0; pytest 208):** old/new readers accept and refuse the same
+  archives (frozen 955d0f82 reader vs 274 damaged real copies); spill failures latch and fail fast; Python tape verdict
+  streamed (QQQ full day ~16 GB → ~221 MB; 64 verdicts ~13 min/day on 2 jobs, deadline 30); CARRIED_OVER now
+  353824f7… → 36c70d1c…. Proposed tape request 3Gi, limit 6Gi. Narrow re-audit by both running
+  (`audits/2026-11-24-d459-r2/`). Then: hand-over to 009feb78 (carries D-458 amendment), tape request 3Gi/6Gi, unpause,
+  verify sample ≥20 sessions (`vyreon-core tape verify`), watch 2026-11-12/-20 memory.peak.
+  Disk: `/home/diggz/wt/target-worker` (image build dir, reused by deploy/worker/build.sh) is 90 GB.
 - **Automation debt (2026-11-23): a reference check dies with its worker.** Gate a runs in the worker after a day
   publishes; hand-over 18 stopped the workers of 2024-07-09, 07-16, 07-17 (published on f3db692e) before their
   checks finished, and nothing re-runs them (core only reports REFCHECK_NOT_RUN). Fixed this time by recomputing the
