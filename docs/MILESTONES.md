@@ -1561,6 +1561,15 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   h3-asset closure::code_digests_change_with_exactly_their_closures (crate:h3-o02 now re-keys every route after the merge;
   r6c put h4_run.rs into ALWAYS, an r6a/r6b edit apparently made it depend on h3-o02) → sent to the r6c fixer to settle what is
   true (genuine dependency → update expectation; leak → cut it). address_bound passed this run.
+  Settled (D-514, 067905f4/fee687ae): a false dependency — an r6a test inside h4_run.rs named h3_o06 and build.rs counted test
+  code; test modules are now skipped in the crate scan (the file digest still covers the whole file). Closure test passes
+  with its expected sets unchanged.
+  **ENGINE FROZEN FOR PHASE 1 (UTC−6 ~16:50): worker 93a04676** (eng-r6 merged and pushed; worktrees/targets of r5, r6, r6a-c
+  removed, disk 245 GB). Worker image building. Core batch for the freeze release on core-freeze: audit contracts (republish
+  retention by open_at; stale-replaced refusal; terminal_state/reason; FXI special_cash_per_contract; IP01 view), the tape
+  re-capture for the new reader identity (2023-05-24..today) with recompute by method version, the owner's STOP RULE counter
+  and alert, re-runs back to "6", P-31..P-33. Then: release (core first), AMD bit-identity check of H5-FIELD (cargo test -p
+  h5-field --test d114 on a worker), tape re-capture, reschedule phase 1 as one big block per node, scale in steps.
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
