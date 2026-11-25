@@ -1482,6 +1482,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   (reader identity changes, 6-12 h); (5) freeze the engine for phase 1, one big block per node, nodes scaled in steps. Cluster
   stays at 8 nodes meanwhile (real data keeps finding faults). Note: the tape-reader bundle (3 items, not 9) was MY
   recommendation to defer, never the owner's decision.
+  **Backfill stopped (owner, UTC−6 ~11:30: "stop computing database numbers until we freeze the engine"):** `queue cancel` of the
+  58 unfinished priority-0 DAY_BLOCK + REFCHECK jobs (48 + 10; leases end, workers refused at their next call, nothing
+  published touched). KEPT: the nightly capture (priority-1 day block + tape jobs) — option prints (~5-session retention) and
+  trades (7 days) are perishable, so the daily run must never stop. Ordered passes (594) left queued: they wait in date order
+  on 2024-07-12 and claim nothing. The phase-1 range is rescheduled after the freeze as one big block per node. Phase 1 so far:
+  20 days published (all recomputed after the fix release where methods changed).
  "freeze the build, then crank
   it and generate phase 1 with as many nodes as possible. Fix everything we find that we can trace to an engine fault. THEN
   selectively recompute where we have to." Why: since 11-21, 38 of 61 day publications (~62%) redid a published day across 11
