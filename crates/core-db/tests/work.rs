@@ -859,9 +859,11 @@ async fn a_pass_under_a_build_that_does_not_run_holds_nothing_and_is_replaced() 
     }
     assert_eq!(ran, days);
 
-    // neither the publisher (no derived profile) nor the fallen revisions' build runs: nothing is
-    // queued, the days are named and a problem is open
+    // neither the publisher (no derived profile) nor the fallen revisions' build runs, nor any build that
+    // publishes the derived profile (C-077, release-3 audit Codex 2: the newest such build that runs would
+    // derive them): nothing is queued, the days are named and a problem is open
     build::withdraw(&mut client, &w, "a later image").await.unwrap();
+    build::withdraw(&mut client, &d, "a later image").await.unwrap();
     base_by_hand(&mut client, days[0]).await;
     assert_eq!(count(&client, "SELECT count(*) FROM core.job WHERE kind = 'ORDERED_PASS' AND state IN ('QUEUED', 'LEASED', 'FAILED')").await, 0);
     let said = notices(&client).await;

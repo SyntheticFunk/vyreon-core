@@ -68,21 +68,29 @@ async fn the_spend_since_the_start_is_watched_against_the_ceiling() {
     let line = spend::line(&spend::spend(&client, &w, "2026-11-23 07:00:00+00").await.unwrap());
     assert_eq!(line, "💵 Spend: not known (no DigitalOcean token: the secret vyreon-core-do-billing is not made (deploy/k8s/README.md, Spend)); the ceiling is not watched meanwhile");
 
-    // the real figures: a day apart, then the newest
+    // the real figures: DigitalOcean's of 20 h, 24 h (read twice: an hourly read of the same figure) and 0 h
+    // before; the rate is over the one nearest 24 h (release-3 audit, Codex 14)
     reading(&client, "2026-11-23 06:40:00+00", "238.10", "2026-11-23T06:30:00Z", json!([])).await;
+    reading(&client, "2026-11-23 07:40:00+00", "238.10", "2026-11-23T06:30:00Z", json!([])).await;
+    reading(&client, "2026-11-23 10:40:00+00", "243.00", "2026-11-23T10:30:00Z", json!([])).await;
     reading(&client, "2026-11-24 06:42:00+00", "269.04", "2026-11-24T06:30:00Z", json!([])).await;
     let Spend::Known(k) = spend::spend(&client, &w, now).await.unwrap() else { panic!("known") };
     assert!((k.spent - 88.63).abs() < 1e-9, "{}", k.spent);
     let (rate, over) = k.rate.clone().unwrap();
-    assert!((rate - 30.94 * 24.0 / (24.0 + 2.0 / 60.0)).abs() < 0.01, "{rate}");
+    assert!((rate - 30.94).abs() < 1e-9, "{rate}");
     assert_eq!(over, "over the last 24 h");
+    // the spend now: DigitalOcean's figure of 06:30 and half an hour at that rate (Codex 7)
+    assert!((k.now - (88.63 + 30.94 / 48.0)).abs() < 1e-9, "{}", k.now);
     assert_eq!(k.reached.as_ref().map(|(d, _)| d.as_str()), Some("Dec 7"));
     assert_eq!(
         spend::line(&Spend::Known(k)),
-        "💵 Spend since Nov 21: $88.63 of the $500.00 ceiling (18%); $30.90 a day over the last 24 h; at that rate the ceiling is reached about Dec 7 (in 13 days) (DigitalOcean's figures, whole account, read 00:42 MT)"
+        "💵 Spend since Nov 21: ≈$89.27 of the $500.00 ceiling (18%) ($88.63 at DigitalOcean's figure of Nov 24 00:30 MT, then at the rate); $30.94 a day over the last 24 h; at that rate the ceiling is reached about Dec 7 (in 13 days)"
     );
-    // a stale reading is no evidence
+    // core's reading stale is no evidence; nor is DigitalOcean's figure, however freshly read again
     assert!(matches!(spend::spend(&client, &w, "2026-11-24 12:00:00+00").await.unwrap(), Spend::Unread(ref why) if why.contains("newest reading is 5 h old")));
+    reading(&client, "2026-11-25 10:00:00+00", "269.04", "2026-11-24T06:30:00Z", json!([])).await;
+    assert!(matches!(spend::spend(&client, &w, "2026-11-25 10:05:00+00").await.unwrap(), Spend::Unread(ref why) if why.contains("DigitalOcean's newest figure is 27 h old")));
+    client.execute("DELETE FROM core.spend_reading WHERE read_at = '2026-11-25 10:00:00+00'", &[]).await.unwrap();
 
     // the morning's line: once, at 09:00 MT, on the progress channel
     let s = settings(w.clone());
@@ -100,7 +108,8 @@ async fn the_spend_since_the_start_is_watched_against_the_ceiling() {
     watch::check(&mut client, &s, "2026-11-24 15:03:00+00").await.unwrap();
     let alerts = open(&client).await;
     assert_eq!(alerts.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(), ["80%"]);
-    assert!(alerts[0].1.starts_with("Spend since Nov 21 is $96.59, 88% of the $110.00 ceiling; $"), "{}", alerts[0].1);
+    assert!(alerts[0].1.starts_with("Spend since Nov 21 is $97."), "{}", alerts[0].1);
+    assert!(alerts[0].1.contains("88% of the $110.00 ceiling; $"), "{}", alerts[0].1);
     let s = settings(watch_of(90.0));
     watch::check(&mut client, &s, "2026-11-24 15:04:00+00").await.unwrap();
     assert_eq!(open(&client).await.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(), ["100%", "80%"]);

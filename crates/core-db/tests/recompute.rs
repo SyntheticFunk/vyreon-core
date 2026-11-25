@@ -74,12 +74,21 @@ async fn count(client: &Client, sql: &str) -> i64 {
     client.query_one(sql, &[]).await.unwrap().get(0)
 }
 
+/// A reading of DigitalOcean's figures (the account's real month to date of 2026-11-24), as of `at`.
+async fn reading(client: &Client, at: &str) {
+    let balance = json!({"month_to_date_usage": "269.04", "generated_at": at});
+    let r = spend::from_answers(&balance, &json!({"invoices": []}), "2026-11").unwrap();
+    spend::put_reading(client, Ok(&r)).await.unwrap();
+    client.execute("UPDATE core.spend_reading SET read_at = $1::text::timestamptz WHERE reading_id = (SELECT max(reading_id) FROM core.spend_reading)", &[&at]).await.unwrap();
+}
+
 /// Two days published by the old build; the new build (its M0-GAMMA-CHANGE method moved on) publishes a
-/// third. Nothing is compared before it has published a whole day, nor while a block of the old build
-/// drains. Then: the differing day not being computed (the second has the new build's block queued over
-/// it) is planned for M0-GAMMA-CHANGE as the C-074 planner chooses. Held without a watched spend, and
-/// when the spend plus its cost would pass the ceiling, each said on both channels; scheduled within
-/// it, once.
+/// third. Nothing is compared before it has published a whole day. The second day is being computed (the
+/// new build's block queued over it): left, and decided again once it is free (release-3 audit, Codex 5,
+/// Gemini 11). The first is planned for the measurement M0-GAMMA-CHANGE as the C-074 planner chooses, its
+/// cost with the check's re-run (Codex 9). Held without a watched spend, said once on both channels; held
+/// past the ceiling, the reserve of plans not yet billed counted (Codex 10); a raised ceiling decides it
+/// again and schedules it (Codex 11, Gemini 8).
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn a_new_builds_method_change_is_recomputed_within_the_ceiling() {
@@ -88,60 +97,151 @@ async fn a_new_builds_method_change_is_recomputed_within_the_ceiling() {
     publish_day(&mut client, &old, DAYS[0], false).await;
     publish_day(&mut client, &old, DAYS[1], false).await;
     let new = admitted(&mut client, "slice-new-image").await;
-    assert_eq!(recompute::due(&client, PROFILE).await.unwrap(), None, "nothing of the new build published yet");
+    assert_eq!(recompute::due(&client, PROFILE, None).await.unwrap(), None, "nothing of the new build published yet");
     publish_day(&mut client, &new, DAYS[2], true).await;
-    assert_eq!(recompute::due(&client, PROFILE).await.unwrap(), Some((new.clone(), vec!["base", "day-local"])));
-    // the second day is being computed again under the new build: left alone
+    assert_eq!(recompute::due(&client, PROFILE, None).await.unwrap(), Some((new.clone(), vec!["base", "day-local"], None)));
+    // the second day is being computed again under the new build
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &new, DAYS[1], DAYS[1], 1).await.unwrap();
 
-    let p = recompute::propose(&client, PROFILE, &new, &["base", "day-local", "history"], None, 3, "2026-11-24").await.unwrap();
+    let p = recompute::propose(&client, PROFILE, &new, &["base", "day-local", "history"], None, None, 3, "2026-11-24").await.unwrap();
     assert_eq!((p.layers.clone(), p.waiting.clone(), p.busy.clone()), (vec!["base".to_owned(), "day-local".to_owned()], vec!["history".to_owned()], vec![DAYS[1].to_owned()]));
     assert_eq!(p.groups.len(), 1);
     let g = &p.groups[0];
-    assert_eq!((g.names.clone(), g.days.clone()), (vec![CHANGED.to_owned()], vec![DAYS[0].to_owned()]));
+    assert_eq!((g.names.clone(), g.days.clone(), g.perished), (vec![CHANGED.to_owned()], vec![DAYS[0].to_owned()], false));
     let plan = g.plan.as_ref().unwrap();
     assert!(g.schedulable && g.seconds > 0.0);
-    assert_eq!(g.seconds, if g.choice == Some(core_db::republish::Choice::Scoped) { plan.scoped_total() } else { plan.full_total() });
+    // no re-run measured yet: priced at its deadline (an upper bound)
+    let want = if g.choice == Some(core_db::republish::Choice::Scoped) { plan.scoped_total() + recompute::RERUN_BOUND_SECONDS } else { plan.full_total() };
+    assert_eq!(g.seconds, want);
     let lines = recompute::describe(&p, 0.167);
-    assert_eq!(lines[0], "Build slice-old-image's methods (base, day-local compared) differ on 1 published days".replace("slice-old-image", &new));
+    assert_eq!(lines[0], format!("Build {new}'s methods (base, day-local compared) differ on 1 published days"));
     assert!(lines[1].starts_with(&format!(" · [{CHANGED}] on 1 days ({}): ", DAYS[0])), "{lines:?}");
-    assert!(lines.iter().any(|l| l == " 1 days being computed (unfinished day blocks or republishes) left alone"), "{lines:?}");
+    assert!(lines.iter().any(|l| l == " 1 days being computed (unfinished day blocks or republishes): compared again once they are done"), "{lines:?}");
     // a day before VYREON_CORE_RECOMPUTE_FROM is left alone
-    let later = recompute::propose(&client, PROFILE, &new, &["base", "day-local"], Some(DAYS[1]), 3, "2026-11-24").await.unwrap();
+    let later = recompute::propose(&client, PROFILE, &new, &["base", "day-local"], Some(DAYS[1]), None, 3, "2026-11-24").await.unwrap();
     assert!(later.groups.is_empty() && later.before == 1);
 
-    // no spend watched: held, both channels told, nothing queued
+    // no spend watched: held, both channels told once, nothing queued; not decided again while nothing changes
     let w = rw();
     let jobs = "SELECT count(*) FROM core.job WHERE engine_build = 'slice-new-image' AND kind IN ('REPUBLISH', 'DAY_BLOCK') AND state = 'QUEUED' AND first_session = '2025-12-09'";
     let d = recompute::auto(&mut client, PROFILE, &w, None, NOW).await.unwrap().unwrap();
     assert_eq!((d.outcome, d.jobs), ("HELD", 0));
     assert!(d.why.unwrap().contains("the spend is not watched"));
     assert_eq!(count(&client, jobs).await, 0);
-    assert!(recompute::auto(&mut client, PROFILE, &w, None, NOW).await.unwrap().is_none(), "decided once");
+    assert!(recompute::auto(&mut client, PROFILE, &w, None, NOW).await.unwrap().is_none(), "nothing new to decide");
     let alert: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'alerts' AND message LIKE '🔴 Recompute%'", &[]).await.unwrap().get(0);
-    assert!(alert.contains("not scheduled: the spend is not watched") && alert.contains(&format!("vyreon-core recompute {PROFILE} {new} --plan")), "{alert}");
+    assert!(alert.contains("the spend is not watched") && alert.contains(&format!("vyreon-core recompute {PROFILE} {new} --plan")), "{alert}");
 
-    // the spend known: past the ceiling with the plan, held; within it, scheduled
-    let balance = json!({"month_to_date_usage": "269.04", "generated_at": "2026-11-24T06:30:00Z"});
-    let r = spend::from_answers(&balance, &json!({"invoices": []}), "2026-11").unwrap();
-    spend::put_reading(&client, Ok(&r)).await.unwrap();
-    client.execute("UPDATE core.spend_reading SET read_at = '2026-11-24 06:42:00+00'", &[]).await.unwrap();
+    // the spend watched (DigitalOcean's figure of 06:30): the plan's cost past a tight ceiling, held again
+    reading(&client, "2026-11-24 06:30:00+00").await;
     let cost = p.seconds() / 3600.0 * 0.167;
     let tight = SpendWatch { since: "2026-11-21T06:09:00Z".into(), baseline_usd: 180.41, ceiling_usd: 88.63 + cost / 2.0 };
-    client.execute("DELETE FROM core.recompute_plan", &[]).await.unwrap();
     let d = recompute::auto(&mut client, PROFILE, &w, Some(&tight), NOW).await.unwrap().unwrap();
     assert_eq!(d.outcome, "HELD");
-    assert!(d.why.as_deref().unwrap().starts_with("$88.63 spent and $"), "{:?}", d.why);
+    assert!(d.why.as_deref().unwrap().contains("reserved by plans not yet billed") && d.why.as_deref().unwrap().contains("would pass the"), "{:?}", d.why);
     assert_eq!(count(&client, jobs).await, 0);
-    client.execute("DELETE FROM core.recompute_plan", &[]).await.unwrap();
-    let ok = SpendWatch { ceiling_usd: 500.0, ..tight };
+    assert!(recompute::auto(&mut client, PROFILE, &w, Some(&tight), NOW).await.unwrap().is_none(), "the same ceiling, no newer figure: not decided again");
+    // the owner raises the ceiling: decided again, scheduled
+    let ok = SpendWatch { ceiling_usd: 500.0, ..tight.clone() };
     let d = recompute::auto(&mut client, PROFILE, &w, Some(&ok), NOW).await.unwrap().unwrap();
     assert_eq!((d.outcome, d.why.clone()), ("SCHEDULED", None));
     assert!(d.jobs >= 1);
     assert_eq!(count(&client, jobs).await, 1, "the day's republish (SCOPED) or its day block (FULL)");
-    let progress: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'progress' AND message LIKE '♻️ Recompute% scheduled: %' ", &[]).await.unwrap().get(0);
+    let tagged: i64 = count(&client, "SELECT count(*) FROM core.job WHERE scope ? 'recompute_plan' AND first_session = '2025-12-09'").await;
+    assert_eq!(tagged, 1, "the job names its plan");
+    let progress: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'progress' AND message LIKE '♻️ Recompute after a method change (scheduled:%' ORDER BY notice_id LIMIT 1", &[]).await.unwrap().get(0);
     assert!(progress.contains(&format!("[{CHANGED}] on 1 days")), "{progress}");
-    assert!(recompute::auto(&mut client, PROFILE, &w, Some(&ok), NOW).await.unwrap().is_none(), "once");
-    assert_eq!(recompute::due(&client, PROFILE).await.unwrap(), None);
+    // reserved while its job is unfinished: a further plan is held by it
+    let reserved = recompute::reserved(&client, "2026-11-24 06:30:00+00").await.unwrap();
+    assert!((reserved - cost).abs() < 1e-6, "{reserved} {cost}");
+    assert_eq!(recompute::due(&client, PROFILE, Some(500.0)).await.unwrap(), None);
+
+    // the busy day's block is cancelled: the day is free and still differs, so it is decided now, alone
+    client.execute("UPDATE core.job SET state = 'CANCELLED' WHERE kind = 'DAY_BLOCK' AND engine_build = $1 AND first_session = '2025-12-10'", &[&new]).await.unwrap();
+    assert_eq!(recompute::due(&client, PROFILE, Some(500.0)).await.unwrap(), Some((new.clone(), vec!["base", "day-local"], Some(vec![DAYS[1].to_owned()]))));
+    let tight2 = SpendWatch { ceiling_usd: 88.63 + cost * 1.5, ..tight };
+    let d = recompute::auto(&mut client, PROFILE, &w, Some(&tight2), NOW).await.unwrap().unwrap();
+    assert_eq!(d.outcome, "HELD", "the first plan's reserve and this one's cost pass the ceiling: {:?}", d.why);
+    let d = recompute::auto(&mut client, PROFILE, &w, Some(&ok), NOW).await.unwrap().unwrap();
+    assert_eq!(d.outcome, "SCHEDULED");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.job WHERE scope ? 'recompute_plan' AND first_session = '2025-12-10'").await, 1);
+    assert_eq!(recompute::due(&client, PROFILE, Some(500.0)).await.unwrap(), None);
+    scratch.drop().await;
+}
+
+/// Release-3 audit, Codex 6: a measurement is planned as the measurement, never as the family of the same
+/// name (DLM-TECHNICAL: the measurement recomputes itself, the family seven).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_measurement_is_never_read_as_its_family() {
+    let (scratch, mut client) = ready("c079_measurement").await;
+    let b = admitted(&mut client, "slice-image").await;
+    publish_day(&mut client, &b, DAYS[0], false).await;
+    let days = vec![DAYS[0].to_owned()];
+    let m = core_db::republish::plan_days(&client, PROFILE, &b, &["DLM-TECHNICAL".to_owned()], &days, 3, "2026-11-24").await.unwrap();
+    let f = core_db::republish::plan(&client, PROFILE, &b, &["DLM-TECHNICAL"], DAYS[0], DAYS[0], 3, "2026-11-24").await.unwrap();
+    assert_eq!(m.work.measurements, vec!["DLM-TECHNICAL".to_owned()]);
+    assert!(m.work.families.is_empty() && f.work.families == vec!["DLM-TECHNICAL".to_owned()]);
+    assert!(m.work.day_local.len() < f.work.day_local.len(), "{:?} {:?}", m.work.day_local, f.work.day_local);
+    scratch.drop().await;
+}
+
+/// Release-3 audit, Codex 8, Gemini 6: FULL over days apart is priced as it is scheduled, a block's first
+/// day at each gap.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_full_recompute_across_gaps_is_priced_by_its_runs() {
+    let (scratch, mut client) = ready("c079_gaps").await;
+    let b = admitted(&mut client, "slice-image").await;
+    publish_day(&mut client, &b, DAYS[0], false).await;
+    let mut p = core_db::republish::plan(&client, PROFILE, &b, &["P"], DAYS[0], DAYS[0], 3, "2026-11-24").await.unwrap();
+    let (first, next) = (p.full_first.total(), p.full_next.total());
+    // three days in a row: one block (a first day and two later days)
+    p.sessions = vec!["2025-12-08".into(), "2025-12-09".into(), "2025-12-10".into()];
+    p.unpublished = vec![];
+    assert!((p.full_total() - (first + 2.0 * next)).abs() < 1e-6);
+    // three days apart: three blocks, three first days
+    p.sessions = vec!["2025-12-08".into(), "2025-12-10".into(), "2025-12-12".into()];
+    p.skipped = vec!["2025-12-09".into(), "2025-12-11".into()];
+    assert_eq!(p.runs().len(), 3);
+    assert!((p.full_total() - 3.0 * first).abs() < 1e-6, "{} {}", p.full_total(), 3.0 * first);
+    scratch.drop().await;
+}
+
+/// Release-3 audit, Codex 1 and 15, Gemini 1 and 10; coordinator: "print retention rechecked at claim for
+/// every job kind, FULL included; old days scoped regardless". A published day past the prints' retention
+/// (the capture's start moved before it, as `republish.rs` moves it) is planned apart from the others, and a
+/// queued full recompute over it is cut at its claim: the day becomes a scoped republish of the
+/// measurements the block names, its other days queued again; a block that names none leaves the day
+/// published and says so.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_full_recompute_never_runs_over_a_day_whose_prints_are_gone() {
+    let (scratch, mut client) = ready("c079_perished").await;
+    let old = admitted(&mut client, "slice-old-image").await;
+    publish_day(&mut client, &old, DAYS[0], false).await;
+    let new = admitted(&mut client, "slice-new-image").await;
+    publish_day(&mut client, &new, DAYS[2], true).await;
+    client.execute("UPDATE core.source_coverage SET first_date = '2025-06-02' WHERE source = 'option_prints'", &[]).await.unwrap();
+    let p = recompute::propose(&client, PROFILE, &new, &["base", "day-local"], None, None, 3, "2026-11-24").await.unwrap();
+    assert_eq!(p.groups.len(), 1);
+    assert!(p.groups[0].perished, "planned as a day whose prints are gone");
+    assert!(recompute::describe(&p, 0.167)[1].contains("prints no longer served"), "{:?}", recompute::describe(&p, 0.167));
+    // a full recompute queued over it (and the day after, not published) by a C-079 plan, then claimed
+    let scope = json!({"recompute_plan": 1, "measurements": [CHANGED], "reason": "C-079: test"});
+    work::schedule_scoped(&mut client, Kind::DayBlock, PROFILE, &new, DAYS[0], DAYS[1], 3, Some(&scope)).await.unwrap();
+    let claim = work::claim(&mut client, Kind::DayBlock, &new, "w9", HOUR).await.unwrap().unwrap();
+    assert_eq!(claim.sessions, [DAYS[1]], "the published day past retention is cut out of the block");
+    let republish: i64 = count(&client, "SELECT count(*) FROM core.job WHERE kind = 'REPUBLISH' AND first_session = '2025-12-09' AND scope ? 'recompute_plan'").await;
+    let alerted: i64 = count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'alerts' AND message LIKE '🔴 Full recompute of 2025-12-09%'").await;
+    assert_eq!(republish + alerted, 1, "scoped, or (its scope reading the prints) left to the owner and said");
+    // a block naming nothing: the day stays published, said
+    work::finish(&mut client, &claim.token).await.unwrap_err();
+    client.execute("UPDATE core.job SET state = 'CANCELLED' WHERE kind IN ('DAY_BLOCK', 'REPUBLISH') AND state IN ('QUEUED', 'LEASED')", &[]).await.unwrap();
+    client.execute("UPDATE core.lease SET ended_at = now(), outcome = 'CANCELLED' WHERE ended_at IS NULL", &[]).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &new, DAYS[0], DAYS[0], 1).await.unwrap();
+    assert!(work::claim(&mut client, Kind::DayBlock, &new, "w9", HOUR).await.unwrap().is_none());
+    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'alerts' AND message LIKE '🔴 Full recompute of 2025-12-09%names no measurements%'").await, 1);
+    assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE represented_date = '2025-12-09' AND state = 'PUBLISHED'").await, 2);
     scratch.drop().await;
 }

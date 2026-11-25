@@ -239,3 +239,158 @@ async fn a_block_whose_day_the_successor_cannot_read_is_stopped_as_before() {
     assert_eq!(count(&client, "SELECT count(*) FROM core.drain").await, 0);
     scratch.drop().await;
 }
+
+async fn open_problems(client: &Client, kind: &str) -> Vec<String> {
+    client.query("SELECT key FROM core.problem WHERE kind = $1 AND resolved_at IS NULL ORDER BY key", &[&kind]).await.unwrap().iter().map(|r| r.get(0)).collect()
+}
+
+fn watch_settings() -> core_db::watch::Settings {
+    core_db::watch::Settings {
+        profile: PROFILE.into(),
+        deadlines_from: None,
+        volume_bytes: None,
+        deadline_hour: core_db::watch::DEADLINE_HOUR,
+        daily: None,
+        archive: None,
+        refcheck_from: None,
+        backup_days: None,
+        spend: None,
+        recompute: None,
+        refcheck_rerun_hours: None,
+    }
+}
+
+/// Release-3 audit, Codex 4, Gemini 5: `next_session` moves on at `day_done`, before the day's archive and
+/// reference check. A block whose worker reports the check of a done day finishes that day (not the next),
+/// its later days carried; a block whose every day is done (its next session none) drains too, its lease
+/// kept for the check, never ended by the withdrawal. Gemini 14: meanwhile the new build's day blocks, claimable and
+/// claimed by no pod of the new build, are STALLED although the old build's drains hold leases.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_hand_over_lets_a_done_days_archive_and_check_finish() {
+    let (scratch, mut client) = ready("c077_post_work").await;
+    let old = registered(&mut client, "slice-old-image").await;
+    admit(&client, &old).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &old, DAYS[0], DAYS[2], 3).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &old, DAYS[3], DAYS[3], 1).await.unwrap();
+    let a = work::claim(&mut client, Kind::DayBlock, &old, "pod-a", HOUR).await.unwrap().unwrap();
+    let b = work::claim(&mut client, Kind::DayBlock, &old, "pod-b", HOUR).await.unwrap().unwrap();
+    let (base, local) = publish_day(&mut client, &old, &a, DAYS[0]).await.unwrap();
+    assert!(!work::day_done(&mut client, &a.token, DAYS[0]).await.unwrap());
+    work::report_step(&mut client, &a.token, &format!("reference check {}", DAYS[0]), None, None).await.unwrap();
+    publish_day(&mut client, &old, &b, DAYS[3]).await.unwrap();
+    assert!(work::day_done(&mut client, &b.token, DAYS[3]).await.unwrap());
+    let new = registered(&mut client, "slice-new-image").await;
+    let preview = build::hand_over(&mut client, &old, &new, "release 3", true, None).await.unwrap();
+    let handed = build::hand_over(&mut client, &old, &new, "release 3", false, Some(&preview.token)).await.unwrap();
+    let draining: Vec<(i64, &str)> = handed.draining.iter().map(|d| (d.job, d.session.as_str())).collect();
+    assert_eq!(draining, [(a.job_id, DAYS[0]), (b.job_id, DAYS[3])]);
+    assert_eq!(job(&client, a.job_id).await, ("LEASED".into(), DAYS[0].into(), DAYS[0].into(), None), "cut to the done day");
+    let carried: Vec<(String, String, String)> = handed.carried.iter().filter(|c| c.kind == "DAY_BLOCK").map(|c| (c.state.clone(), c.first.clone(), c.last.clone())).collect();
+    assert_eq!(carried, [("DRAINING".to_owned(), DAYS[1].to_owned(), DAYS[2].to_owned())]);
+    assert!(work::heartbeat(&mut client, &a.token, HOUR).await.is_ok() && work::heartbeat(&mut client, &b.token, HOUR).await.is_ok());
+    admit(&client, &new).await;
+    // Gemini 14: the new build's blocks claimable, no pod of it claims: stalled, whatever the drains lease
+    let s = watch_settings();
+    let t0: String = client.query_one("SELECT now()::text", &[]).await.unwrap().get(0);
+    core_db::watch::check(&mut client, &s, &t0).await.unwrap();
+    let t1: String = client.query_one("SELECT ($1::text::timestamptz + interval '20 minutes')::text", &[&t0]).await.unwrap().get(0);
+    client.execute("UPDATE core.lease SET expires_at = $1::text::timestamptz + interval '1 hour' WHERE ended_at IS NULL", &[&t1]).await.unwrap();
+    core_db::watch::check(&mut client, &s, &t1).await.unwrap();
+    assert_eq!(open_problems(&client, "STALLED").await, ["DAY_BLOCK"]);
+    // the done day's check ends its lease
+    refcheck::put(&mut client, &a.token, &check(DAYS[0], base, local)).await.unwrap();
+    assert_eq!(job(&client, a.job_id).await.0, "DONE");
+    assert!(matches!(work::heartbeat(&mut client, &a.token, HOUR).await, Err(LeaseError::Gone)));
+    scratch.drop().await;
+}
+
+/// Release-3 audit, Gemini 3: a drain that ends after its day's base and before its day-local revision
+/// leaves no half day published (the base superseded, as a day set aside's is). Codex 16, Gemini 16: its
+/// day goes to a build that runs, though the hand-over's successor was withdrawn since with nothing handed
+/// on. Gemini 13: its day failing for the last time beside two failed days pauses nothing (the sweep carries it).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_drain_that_ends_without_its_day_leaves_no_half_day_and_finds_a_running_build() {
+    let (scratch, mut client) = ready("c077_half_day").await;
+    let old = registered(&mut client, "slice-old-image").await;
+    admit(&client, &old).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &old, DAYS[0], DAYS[0], 1).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &old, DAYS[1], DAYS[1], 1).await.unwrap();
+    let a = work::claim(&mut client, Kind::DayBlock, &old, "pod-a", HOUR).await.unwrap().unwrap();
+    let b = work::claim(&mut client, Kind::DayBlock, &old, "pod-b", HOUR).await.unwrap().unwrap();
+    let mid = registered(&mut client, "slice-mid-image").await;
+    let preview = build::hand_over(&mut client, &old, &mid, "release 3", true, None).await.unwrap();
+    build::hand_over(&mut client, &old, &mid, "release 3", false, Some(&preview.token)).await.unwrap();
+    admit(&client, &mid).await;
+    // the base of the first day, then nothing more
+    let (h, s, f) = parts(BASE);
+    let mut h = h;
+    (h.represented_date, h.engine_build) = (DAYS[0].into(), old.clone());
+    let path = bundle(&unique("c077-half"), &h, &s, &f);
+    let base = publish_for_lease(&mut client, &path, &a.token).await.unwrap().revision_id;
+    std::fs::remove_file(&path).unwrap();
+    // the successor withdrawn with nothing to hand on; another build runs
+    build::withdraw(&mut client, &mid, "a bad image").await.unwrap();
+    let last = registered(&mut client, "slice-last-image").await;
+    admit(&client, &last).await;
+    // two days stand failed, then the second drain fails for the last time: no pause
+    client.execute("INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, state, attempts, max_attempts)
+                    VALUES ('DAY_BLOCK', $1, $2, '2025-12-15', '2025-12-15', '2025-12-15', 'FAILED', 3, 3), ('DAY_BLOCK', $1, $2, '2025-12-16', '2025-12-16', '2025-12-16', 'FAILED', 3, 3)",
+                   &[&PROFILE, &last]).await.unwrap();
+    client.execute("UPDATE core.job SET attempts = max_attempts WHERE job_id = $1", &[&b.job_id]).await.unwrap();
+    assert!(!work::fail(&mut client, &b.token, "day 2025-12-09", "stop: 2025-12-09 not published: a fault", "log").await.unwrap());
+    let paused: bool = client.query_one("SELECT paused FROM core.queue_control", &[]).await.unwrap().get(0);
+    assert!(!paused, "the withdrawn build's draining day is no third failed day of the running builds");
+    // the first drain's bound passes
+    client.execute("UPDATE core.drain SET until = now() - interval '1 second' WHERE job_id = $1", &[&a.job_id]).await.unwrap();
+    work::sweep(&mut client).await.unwrap();
+    let state: String = client.query_one("SELECT state FROM vyreon.day_revision WHERE revision_id = $1", &[&base]).await.unwrap().get(0);
+    assert_eq!(state, "SUPERSEDED", "no base without its day-local revision stays published");
+    let carried: Vec<String> = client
+        .query("SELECT j.engine_build FROM core.drain d JOIN core.job j ON j.job_id = d.carried_job ORDER BY d.job_id", &[])
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    assert_eq!(carried, [last.clone(), last.clone()], "both days to the build that runs");
+    scratch.drop().await;
+}
+
+/// Release-3 audit, Codex 2, Gemini 2: a draining block publishes a day earlier than days whose history the
+/// old build already derived (a day retried after later passes ran). Those histories fall; the publisher
+/// and the fallen revisions' build are both withdrawn, so the successor that runs derives them again.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_draining_days_publish_has_its_later_history_derived_again_by_the_successor() {
+    let (scratch, mut client) = ready("c077_rederive").await;
+    let old = registered(&mut client, "slice-old-image").await;
+    admit(&client, &old).await;
+    // the second day published and its history derived by the old build
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &old, DAYS[1], DAYS[1], 1).await.unwrap();
+    let b = work::claim(&mut client, Kind::DayBlock, &old, "pod-b", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &old, &b, DAYS[1]).await.unwrap();
+    work::day_done(&mut client, &b.token, DAYS[1]).await.unwrap();
+    work::finish(&mut client, &b.token).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &old, DAYS[1], DAYS[1], 1).await.unwrap();
+    assert_eq!(run_pass(&mut client, &old).await.as_deref(), Some(DAYS[1]));
+    // the first day, computed later, drains through a release
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &old, DAYS[0], DAYS[0], 1).await.unwrap();
+    let a = work::claim(&mut client, Kind::DayBlock, &old, "pod-a", HOUR).await.unwrap().unwrap();
+    let new = registered(&mut client, "slice-new-image").await;
+    let preview = build::hand_over(&mut client, &old, &new, "release 3", true, None).await.unwrap();
+    build::hand_over(&mut client, &old, &new, "release 3", false, Some(&preview.token)).await.unwrap();
+    admit(&client, &new).await;
+    publish_day(&mut client, &old, &a, DAYS[0]).await.unwrap();
+    let passes: Vec<(String, String)> = client
+        .query("SELECT engine_build, state FROM core.job WHERE kind = 'ORDERED_PASS' AND first_session = '2025-12-09' AND state <> 'DONE' ORDER BY job_id", &[])
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+    assert_eq!(passes, [(new.clone(), "QUEUED".to_owned())], "the fallen history is derived again under the build that runs");
+    assert!(open_problems(&client, "NOT_DERIVED").await.is_empty());
+    scratch.drop().await;
+}

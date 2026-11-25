@@ -71,7 +71,7 @@ async fn the_billing_is_read_with_the_token_from_its_file_and_its_absence_is_sai
     assert_eq!((r.month.as_str(), r.month_to_date_usd, r.invoices.clone()), ("2026-11", 269.04, vec![("2026-10".to_owned(), 212.5)]));
     assert_eq!(
         seen.lock().unwrap().clone(),
-        [("/v2/customers/my/balance".to_owned(), true), ("/v2/customers/my/invoices?per_page=24".to_owned(), true)]
+        [("/v2/customers/my/balance".to_owned(), true), ("/v2/customers/my/invoices?per_page=200".to_owned(), true)]
     );
     std::fs::remove_dir_all(&dir).unwrap();
 }
