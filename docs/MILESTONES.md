@@ -1429,6 +1429,13 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   drains early by deleting their Jobs was denied by the permission check — left to the designed bound. Fix for the next core
   release: a refused bundle from a DRAINED lease for a day past its last (the expected pre-D-465 behaviour) is recorded and
   its job stopped, not a queue pause. Only matters for drains of pre-D-465 builds (this one), but cheap and generally right.
+  **Owner (UTC−6 ~04:10): Discord in plain language** ("currently its exposing a lot of alphanumeric codes"): no job/lease/
+  build/decision codes in posts; 🔴 only when the owner is needed, ⚠ to look at; named assets; quiet half-hours silent with a
+  daily heartbeat; alerts say what happened / affects published numbers? / what to do. Rewrite on core-fix10 (release 4).
+  Also on core-fix10: digest undercount fixed (0bec432/e45efdc: 08-15 was outside every live job).
+  **Engine faults on every published day** (IBIT daily 10 slots, ETHA daily since listing, ARKK intraday families most days,
+  AVGO/UUP/MSTR some): honestly withheld (no wrong number) but a systematic engine defect; investigation on eng-faults (D-468).
+  Reference checks on 1ae946f7 days disagree: 07-15 (87 unexplained), 08-14 (22) — to investigate after release 4.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
