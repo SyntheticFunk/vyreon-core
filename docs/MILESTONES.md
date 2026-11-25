@@ -1488,6 +1488,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   trades (7 days) are perishable, so the daily run must never stop. Ordered passes (594) left queued: they wait in date order
   on 2024-07-12 and claim nothing. The phase-1 range is rescheduled after the freeze as one big block per node. Phase 1 so far:
   20 days published (all recomputed after the fix release where methods changed).
+  `queue cancel` worked as designed (58 leases ended within a minute; workers exited at their next call), BUT core's own C-073
+  automation re-queued 10 REFCHECK re-runs minutes later (published days without a completed check) → set
+  VYREON_CORE_REFCHECK_RERUN_HOURS "off" (20-core.yaml, d562aa7 deployed ~10:33 UTC−6; back to "6" with the dump fix) and
+  cancelled them again. release.sh --core defects seen: an identical-content rebuild fails step 3's digest check (local id vs
+  registry digest), and --from 4 does not work for --core (both to the core-dump branch). Lesson: stopping the backfill = cancel
+  jobs AND turn off every automation that queues backfill-type work (re-runs; C-079 recompute is already held by unknown spend).
  "freeze the build, then crank
   it and generate phase 1 with as many nodes as possible. Fix everything we find that we can trace to an engine fault. THEN
   selectively recompute where we have to." Why: since 11-21, 38 of 61 day publications (~62%) redid a published day across 11
