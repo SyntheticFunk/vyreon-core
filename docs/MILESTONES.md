@@ -1321,6 +1321,14 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   (attempt 1) with no alert: observability gap (a plan refusal should alert at once, not after 3 attempts). Diagnosis + fix on
   eng-etha (from eng-scope) → folds into release 2. Also seen: bulk option files of Jan-Feb 2024 fail whole on a quote
   character in a row (the API captures those chains instead; costs requests, not correctness) → PROVIDER_FAULTS check.
+  **Release-2 audit fixed (UTC−6 ~18:15):** engine eng-scope 2f65ce01 (1,760/0; pytest 258/107; audit code a444250e 21fb3516,
+  tests 85669627 546ae594, docs d6eb00a7 2f65ce01; candlestick 249a21a6/42e243ad/7139116a); core core-scope 05483ea (231/0).
+  Every finding fixed but one judged not real (Gemini task-minutes). Consequence: a fresh worker can't open published option/
+  surface files, so option-family scopes recompute VS-O02/O06/IVS01 + dependants ≈ a full day; cheap scopes are the daily-bar
+  ones (DLM-TECHNICAL) → the cluster test now uses DLM-TECHNICAL. Still to join release 2: ETHA fix (eng-etha) and a core alert on
+  plan-refused days (DAY_REFUSED, hold instead of burning attempts). Disk: eng-rel worktree + target (79 GB) removed (merged).
+  Open question: are the Jan-Feb 2024 bulk files' quote characters valid CSV quoting (our reader too strict) or a provider fault?
+  Files not retained; check one when convenient (costs only API requests meanwhile).
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
