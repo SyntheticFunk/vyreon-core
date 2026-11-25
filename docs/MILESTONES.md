@@ -1513,6 +1513,16 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   **Coordinator ruling (standards first):** the forward put-call pair tolerance becomes the no-arbitrage band (sum of both
   legs' half-spreads; Hull) instead of the mean of the half-spreads — 12 of 13 such failures fall inside it. The owner's
   2026-10-30 rule (offsets without a σ half-width stay flagged) is unchanged.
+  **PHASE-1 RUN RULE — DECIDED (owner, 2026-11-25 ~14:40 UTC−6: "Yeah that is a good set of rules"):** run phase 1 on the frozen
+  engine; faults found go to one list, fixed after phase 1, then one recompute. STOP RULE: over the first ≥20 published days of
+  the frozen build (then continuously), a day is BAD if (1) its valid reference check shows a disagreement traced to an ENGINE
+  fault that changes a published value (wrong number or wrongly withheld) — suite/provider causes do not count — or (2) it
+  fails to publish because of an engine fault. If >50% of sampled days are bad: stop, fix everything, freeze again, restart.
+  Core counts the automatic part (days not published; unexplained reference failures per day), posts the running share to the
+  progress channel and alerts past 50%; the engine-vs-suite classification is the coordinator's, verified before stopping.
+  Recompute after: a fix that changes no method version (a day's own transient fault, a crash, a refusal) → recompute just the
+  bad days on the same build; a fix that changes how a value is computed is a method change (D-273) → C-079 recomputes every
+  day of that family/measurement, so histories never mix definitions. Core count + alert ride the freeze release.
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
