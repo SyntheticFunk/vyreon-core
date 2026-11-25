@@ -1358,6 +1358,14 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   new kubeconfig valid 7 days (to ~12-01); release.sh auto-refresh in release 3, (3) spend watch (DO billing → daily progress
   line, alerts at 80/100% of the $500), (4) build.sh credential-free docker config, (5) automatic recompute planning after a
   method change. Builder on core-auto3 / eng-auto3 (from release-2 heads) → release 3, one audit by both.
+  **Release 3 built (UTC−6 ~21:20; core-auto3 242/0, eng-auto3 1,765/0):** C-077 draining release (0059; DRAIN_MINUTES 6 h; old
+  blocks finish their current day), kubeconfig.sh --if-needed in release.sh/health.sh, C-078 spend watch (0060; hourly billing,
+  09:00 MT progress line, alerts 80/100% of $500; needs the owner's billing:read token as secret vyreon-core-do-billing),
+  engine build.sh empty docker config (5eae249f), C-079 recompute after a method change (0061; held while spend is unknown —
+  coordinator: right default, spending is the owner's call; bumps that change no value are NOT excluded: D-273 makes old days
+  other-method in DLM-UNUSUALNESS histories). Its one audit running (`audits/2026-11-25-release3/`). Disk: merged worktrees
+  eng-etha/eng-scope/core-scope + targets removed (now 305 GB used).
+  Phase-1 on 1ae946f7 so far: 07-09, 07-17, 07-24, 08-14 (+ nightly 11-23); later days compute-paced (~2.5-3 h a day).
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
