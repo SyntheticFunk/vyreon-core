@@ -1422,6 +1422,13 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   never hidden, slot read from the draining pod, step guard checks each step's command. Engine audit (Codex): 2 ordinary
   (memory, double parse) + 4 rare, no verdict change — fixing on eng-refperf with the declared waits. All 8 drained days
   published by 01:00 UTC−6; leases end as their reference checks reach core.
+  **Drain finding (UTC−6 03:35): a pre-D-465 old-build worker paused the queue.** Job 21823 (block 09-05) finished its drained
+  day's check (09:31Z), ignored "last day" (1ae946f7 predates D-465), computed 09-06 and sent it; core refused ("expects no
+  further day … from build 1ae946f7") and the refusal PAUSED THE WHOLE QUEUE. Resumed by hand at ~03:40 (pause held only that
+  refusal). The other 6 drained old blocks may do the same before the 10:13 UTC bound (resume each). My attempt to end those
+  drains early by deleting their Jobs was denied by the permission check — left to the designed bound. Fix for the next core
+  release: a refused bundle from a DRAINED lease for a day past its last (the expected pre-D-465 behaviour) is recorded and
+  its job stopped, not a queue pause. Only matters for drains of pre-D-465 builds (this one), but cheap and generally right.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
