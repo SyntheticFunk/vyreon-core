@@ -1471,6 +1471,25 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   API requests) >20 min with no progress report → alert while working. D-467 covered reference checks and drained waits, not
   long LOCAL units inside a download. Next engine release: the fill reports progress per symbol (or per chunk) inside every
   long local unit (requote, quote window, bulk parse) — progress, not a wider bound. Day count: 20 at 10:00.
+  **PHASE-1 POLICY (owner, 2026-11-25 ~10:30 UTC−6): freeze the engine build, crank, fix after.** "freeze the build, then crank
+  it and generate phase 1 with as many nodes as possible. Fix everything we find that we can trace to an engine fault. THEN
+  selectively recompute where we have to." Why: since 11-21, 38 of 61 day publications (~62%) redid a published day across 11
+  engine builds — fixes paid in installments. So: (1) engine frozen at worker 70d83bbc+04d2e67336c9 for the rest of phase 1;
+  engine releases only for BLOCKERS (a day cannot publish, a crash loop, runaway cost); (2) every engine finding goes to the
+  "Phase-1 engine backlog" below, fixed after phase 1 in ONE release, one audit, then C-079 recompute by method version
+  (scoped where inputs allow); (3) core releases continue freely (they change no computed data); (4) block layout: one big
+  contiguous block per node (owner: "how many days to compute is decided by the optimal block count per worker"; first days
+  carry the cold start), rescheduled after the current drain; (5) as many nodes as the limits allow, raised in steps with
+  evidence: the Intrinio budget is the binding limit (2026-11-23: 12 blocks + 24 tapes saturated 1,900/min and timed captures
+  ran out of time → cut to 8); tapes are now done (no tape queue) and 24 h average is 732/min with 8 blocks → 12 first, then
+  16+ while the budget and capture outcomes hold. DO limit 30 droplets (13 used); pools day + day-intel max 13 each.
+
+  **Phase-1 engine backlog (fix after phase 1; engine release frozen):**
+  - Fill progress per symbol inside long local units (NO_PROGRESS false alarm 11-25 10:03).
+  - Reference check on a mixed-build day (07-10: 74 of 96 families fail every check) — cause under investigation.
+  - 158 ARKK tape sessions (owner decision: re-capture vs rule).
+  - Drain ends at publish; the day's reference check handed to REFCHECK re-runs (drained slots held ~2 h).
+  - Any further engine finding from the cluster, with evidence.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
