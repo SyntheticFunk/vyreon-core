@@ -259,6 +259,7 @@ const WATCH_LOG: &str = "kubectl -n vyreon logs deploy/vyreon-core";
 const DEADLINES: Part = Part { key: "deadlines", what: "check the sessions' publishing deadlines", kinds: &["SESSION_LATE", "REPORT_AT_RISK"] };
 const QUEUE: Part = Part { key: "queue", what: "check whether the work queue is paused", kinds: &["QUEUE_PAUSED"] };
 const FAILED_JOBS: Part = Part { key: "failed jobs", what: "check for work that failed for the last time", kinds: &["JOB_FAILED"] };
+const REFUSED: Part = Part { key: "refused days", what: "check for days the input plan refused", kinds: &["DAY_REFUSED"] };
 const PROVIDER: Part = Part { key: "provider", what: "check the provider's errors", kinds: &["PROVIDER_AUTH", "PROVIDER_ERRORS"] };
 const STALLS: Part = Part { key: "stalls", what: "check for stalled work", kinds: &["STALLED"] };
 const CLAIMS: Part = Part { key: "claims", what: "check for workers leaving while work waits", kinds: &["CLAIMS_EMPTY"] };
@@ -354,6 +355,13 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
         .part(c, &FAILED_JOBS, async {
             let mut found = Vec::new();
             failed_jobs(c, &mut found).await?;
+            Ok(found)
+        })
+        .await?;
+    checked
+        .part(c, &REFUSED, async {
+            let mut found = Vec::new();
+            refused_days(c, &mut found).await?;
             Ok(found)
         })
         .await?;
@@ -907,7 +915,10 @@ async fn failed_jobs(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(
              FROM core.job j
              LEFT JOIN LATERAL (SELECT l.lease_id FROM core.lease l WHERE l.job_id = j.job_id AND l.outcome IN ('FAILED', 'EXPIRED')
                                 ORDER BY l.lease_id DESC LIMIT 1) f ON true
-             WHERE j.state = 'FAILED' AND j.kind <> 'REFCHECK' ORDER BY j.job_id",
+             WHERE j.state = 'FAILED' AND j.kind <> 'REFCHECK'
+               -- C-075: a day held for the input plan's refusal is DAY_REFUSED's, one alert for one cause
+               AND NOT EXISTS (SELECT FROM core.day_refusal r WHERE r.job_id = j.job_id AND r.lease_id = f.lease_id AND r.held)
+             ORDER BY j.job_id",
             &[],
         )
         .await
@@ -933,6 +944,40 @@ async fn failed_jobs(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(
         });
     }
     Ok(())
+}
+
+/// C-075 (an observability gap, 2026-11-24): a day the engine's input plan refused and core held
+/// (`work::fail`), until the day is published (a day-local revision of it published after the refusal):
+/// one problem per day, naming the refused inputs, the job and its build.
+async fn refused_days(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(), String> {
+    let rows = c
+        .query(
+            "SELECT DISTINCT ON (r.profile_id, r.session) r.session::text, r.job_id, r.engine_build, r.inputs, r.profile_id
+             FROM core.day_refusal r
+             WHERE r.held
+               AND NOT EXISTS (SELECT FROM vyreon.day_revision d
+                               WHERE d.represented_date = r.session AND d.profile_id = r.profile_id AND d.day_local
+                                 AND d.state = 'PUBLISHED' AND d.published_at > r.refused_at)
+             ORDER BY r.profile_id, r.session, r.refused_at DESC",
+            &[],
+        )
+        .await
+        .map_err(db)?;
+    for r in &rows {
+        let (day, job, build, inputs): (String, i64, String, String) = (r.get(0), r.get(1), r.get(2), r.get(3));
+        found.push(Found {
+            kind: "DAY_REFUSED",
+            key: format!("day {day}"),
+            summary: format!("Day {day} refused by the engine's input plan (job {job}, build {}): {}", short_build(&build), one_line(&inputs, 240)),
+            command: format!("vyreon-core evidence show {job}"),
+            detail: None,
+        });
+    }
+    Ok(())
+}
+
+fn short_build(build: &str) -> &str {
+    build.get(..8).unwrap_or(build)
 }
 
 /// (d) The provider failing, from the failure evidence's decisive text (its stop message and the
@@ -1473,6 +1518,10 @@ pub fn consequence(kind: &str) -> (&'static str, Option<&'static str>) {
         "WATCH_FAILING" => ("Other problems may go unreported meanwhile.", Some("Read core's log:")),
         "JOB_THRASHING" => ("That work keeps restarting; its day stays unpublished until it finishes.", Some("Check the pods' exit reasons (out of memory?):")),
         "NO_PROGRESS" => ("That job is stuck; its day stays unpublished until it moves.", Some("Read the worker's log:")),
+        "DAY_REFUSED" => (
+            "That day stays unpublished (readers see it missing, with its cause); the build goes on; nothing more is tried on it.",
+            Some("Fix the refused input or the engine, then a new build's `vyreon-core build hand-over` or `vyreon-core queue retry-failed`; the refusal:"),
+        ),
         _ => ("", Some("To see more:")),
     }
 }

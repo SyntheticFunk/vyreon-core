@@ -1112,9 +1112,91 @@ pub async fn fail(client: &mut Client, token: &str, stage: &str, message: &str, 
     )
     .await
     .map_err(failed)?;
+    // C-075: a day the engine's input plan refused is held (or retried once), never retried to the end
+    if matches!(lease.kind.as_str(), "DAY_BLOCK" | "REPUBLISH") {
+        refused(&tx, &lease, message).await.map_err(LeaseError::Failed)?;
+    }
     let again = requeue(&tx, lease.job_id, &format!("{stage}: {message}")).await.map_err(LeaseError::Failed)?;
     tx.commit().await.map_err(failed)?;
     Ok(again)
+}
+
+/// C-075: how the engine says a day was refused by its input plan (`stop: <date> not published: <date>
+/// refused by the input plan (plan.json)`, engine `day.rs`).
+pub const PLAN_REFUSED: &str = "refused by the input plan";
+
+/// C-075 (coordinator, 2026-11-24; an observability gap): a failed attempt that stopped on a day the
+/// engine's input plan refused (the worker's stop message, `PLAN_REFUSED`) is recorded
+/// in `core.day_refusal` with the refused inputs (the evidence's `refusals`, the plan's refusing entries).
+/// The same refusal comes back on every attempt, hours of node time each, so the job is held at once
+/// (its attempts spent: `requeue` makes it FAILED, the day set aside as any day out of attempts, the
+/// build going on), unless every refused input is a capture that failed here retryably
+/// (`refusal_inputs`), which may be transient: retried once, and held if it is refused again. The
+/// watch's DAY_REFUSED says so until the day is published; a new build's hand-over or `queue
+/// retry-failed` tries it again.
+async fn refused(c: &impl GenericClient, lease: &Held, message: &str) -> Result<(), String> {
+    // the worker's own stop message, as it reports the failure (its evidence, stored just before, has the
+    // plan's refusing entries)
+    if !message.contains(PLAN_REFUSED) {
+        return Ok(());
+    }
+    let evidence = c.query_opt("SELECT refusals::text, session::text FROM core.job_evidence WHERE lease_id = $1", &[&lease.lease_id]).await.map_err(db)?;
+    let (refusals, session): (Option<String>, Option<String>) = evidence.map_or((None, None), |r| (r.get(0), r.get(1)));
+    // the day the stop message names, else the evidence's, else the job's next
+    let named = |m: &str| m.strip_prefix("stop: ").and_then(|r| r.get(..10)).filter(|d| d.len() == 10 && d.as_bytes()[4] == b'-').map(str::to_owned);
+    let Some(day) = named(message).or(session).or_else(|| lease.next_session.clone()) else {
+        return Ok(());
+    };
+    let refusals: Value = refusals.and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
+    let (inputs, transient) = refusal_inputs(&refusals);
+    let earlier: i64 = c
+        .query_one("SELECT count(*) FROM core.day_refusal WHERE job_id = $1 AND session = $2::text::date", &[&lease.job_id, &day])
+        .await
+        .map_err(db)?
+        .get(0);
+    let hold = !transient || earlier > 0;
+    c.execute(
+        "INSERT INTO core.day_refusal (job_id, lease_id, profile_id, engine_build, session, inputs, transient, held)
+         VALUES ($1, $2, $3, $4, $5::text::date, $6, $7, $8) ON CONFLICT (lease_id) DO NOTHING",
+        &[&lease.job_id, &lease.lease_id, &lease.profile_id, &lease.engine_build, &day, &inputs, &transient, &hold],
+    )
+    .await
+    .map_err(db)?;
+    if hold {
+        c.execute("UPDATE core.job SET attempts = GREATEST(attempts, max_attempts) WHERE job_id = $1", &[&lease.job_id]).await.map_err(db)?;
+    }
+    let what = if hold { "held: nothing more is tried until a new build or `vyreon-core queue retry-failed`" } else { "every refused input a capture that failed here: tried once more" };
+    notice::log(c, &format!("Day {day} refused by the engine's input plan (job {}): {inputs}; {what}.", lease.job_id)).await
+}
+
+/// C-075: the refused inputs of a plan's refusing entries (the evidence's `refusals`: each with its
+/// `input`, `role`, `session`, `status`, `reason` and failing `assets`), readable on one line, and
+/// whether every one is a capture that failed here retryably or was not attempted (the engine's
+/// `ENGINE_FAULT: capture failed here (<category> retryable|not_attempted)`, a fill that may succeed
+/// again), never a provider's absence, a stale input or an engine rule.
+pub fn refusal_inputs(refusals: &Value) -> (String, bool) {
+    let Some(entries) = refusals.as_array().filter(|a| !a.is_empty()) else {
+        return ("the input plan's refusals were not reported (its plan.json is in the evidence)".into(), false);
+    };
+    let retryable = |why: &str| {
+        why.split("capture failed here (").nth(1).and_then(|r| r.split(')').next()).is_some_and(|how| how.ends_with(" retryable") || how.ends_with(" not_attempted"))
+    };
+    let mut transient = true;
+    let mut parts = Vec::new();
+    for e in entries {
+        let text = |k: &str| e[k].as_str().unwrap_or("").to_owned();
+        let assets: Vec<(String, String)> = e["assets"].as_object().map(|m| m.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned())).collect()).unwrap_or_default();
+        transient &= !assets.is_empty() && assets.iter().all(|(_, why)| retryable(why));
+        let head = format!("{} ({} {}, {})", text("input"), text("role"), text("session"), text("status"));
+        let named: Vec<String> = assets.iter().take(3).map(|(k, why)| format!("{k}: {}", crate::watch::one_line(why, 80))).collect();
+        let more = if assets.len() > 3 { format!(" and {} more", assets.len() - 3) } else { String::new() };
+        parts.push(match (named.is_empty(), text("reason")) {
+            (false, _) => format!("{head} {}{more}", named.join("; ")),
+            (true, r) if !r.is_empty() => format!("{head} {}", crate::watch::one_line(&r, 120)),
+            _ => head,
+        });
+    }
+    (crate::watch::one_line(&parts.join(" | "), 400), transient)
 }
 
 /// A worker's text as core keeps it: whole, or withheld whole when a credential pattern is in it
