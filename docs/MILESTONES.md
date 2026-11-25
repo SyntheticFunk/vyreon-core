@@ -1440,6 +1440,16 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   drained day (07-10, 07-15, 07-16, 07-18, 07-22, 07-25, 08-15, 09-05); the new build holds all 8 day-block slots at 04:15.
   Next: release 4 (worker a79930e2 built; core-fix10 after the plain-language digest) — its drain will be the first with
   D-465 workers. Then: re-measure throughput with the fast reference check; investigate the 07-15/08-14 disagreements.
+  **Engine-fault census (UTC−6 ~04:50, eng-faults D-468: 419c1c7c/37af9156/bf35bde0; 6,826/0):** most digest "engine faults"
+  are NOT faults — every whole-slot withheld body's result id ends `/engine-fault` whatever its reason (IBIT/ETHA no listed
+  options before 2024-11-19; ETHA coverage start; AVGO/UUP/MSTR CARRY_NOT_IDENTIFIED) → core tally fixed by reason (core-fix10).
+  Real: (1) VS-O04 on 07-11/12 (old 2a8f8c4f validator; their recompute is queued). (2) ARKK tape families: Intrinio changed
+  ARKK's stated listing ARCX→BATS on 11-24 (P-25 amended: the stated MIC is not point in time); restate refused every ARKK
+  cache. D-468 restates 693 of 851 (listing from the tape's own `9`, byte-identical to a fresh derivation). **158 ARKK caches
+  still fault (owner decision):** 2023-07/08, 2023-10-26, 2024-09-12, 114 sessions 2025-03-31..10-22, 2026-01-02, 2026-11-04 —
+  re-capture those tapes (recommended; core needs a cache-replace path) or rule that a cache stands under the record it was
+  derived with. INT-TEMP-EVC01 (252-session history) faults on nearly every ARKK day until resolved. Codex audit of
+  eng-faults running → joins release 4.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
