@@ -1576,7 +1576,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   frozen build: 12 DAY_BLOCKs of 50 sessions over all 597 (every day recomputed: methods changed) + 597 ordered passes; day
   blocks wait for their tape windows (existing gate). 15 stale re-runs of old-build days cancelled (recomputed anyway).
   KEDA day-block max stays 8 for now; raise to 12 once the tapes are through and the budget is measured, then higher.
-  Still open: H5-FIELD bit-identity on an AMD worker (D-511).
+  Re-runs re-queued stale old-build checks → core 8f4fdc9 (C-073 amendment: no re-run for a day a running build will publish
+  again; queued ones cancelled; checked after the new revision) deployed ~17:40. Tapes: 60/880 done by 17:19 (~7 h for all).
+  H5-FIELD bit-identity: production schedules workers on BOTH `day` (AMD) and `day-intel` pools; laptop is Intel → proof run
+  in a throwaway pod pinned to an AMD node (D-511 test d114); remedy if not identical: pin workers to one CPU vendor.
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
