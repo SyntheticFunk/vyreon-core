@@ -263,8 +263,8 @@ fn watch_settings() -> core_db::watch::Settings {
 /// Release-3 audit, Codex 4, Gemini 5: `next_session` moves on at `day_done`, before the day's archive and
 /// reference check. A block whose worker reports the check of a done day finishes that day (not the next),
 /// its later days carried; a block whose every day is done (its next session none) drains too, its lease
-/// kept for the check, never ended by the withdrawal. Gemini 14: meanwhile the new build's day blocks, claimable and
-/// claimed by no pod of the new build, are STALLED although the old build's drains hold leases.
+/// kept for the check, never ended by the withdrawal. Meanwhile the new build's day blocks wait for the drains'
+/// slots: no stall while they drain within their bound (said on the progress channel), STALLED once past it.
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn a_hand_over_lets_a_done_days_archive_and_check_finish() {
@@ -290,14 +290,28 @@ async fn a_hand_over_lets_a_done_days_archive_and_check_finish() {
     assert_eq!(carried, [("DRAINING".to_owned(), DAYS[1].to_owned(), DAYS[2].to_owned())]);
     assert!(work::heartbeat(&mut client, &a.token, HOUR).await.is_ok() && work::heartbeat(&mut client, &b.token, HOUR).await.is_ok());
     admit(&client, &new).await;
-    // Gemini 14: the new build's blocks claimable, no pod of it claims: stalled, whatever the drains lease
+    // the new build's blocks claimable and no pod of it claims: while the old build's blocks drain within
+    // their bound their slots explain it (live, 2026-11-25: a false STALLED with day-block's 8 slots all
+    // draining); the progress channel says so. Gemini 14: once a drain is past its bound, it no longer does
     let s = watch_settings();
     let t0: String = client.query_one("SELECT now()::text", &[]).await.unwrap().get(0);
     core_db::watch::check(&mut client, &s, &t0).await.unwrap();
-    let t1: String = client.query_one("SELECT ($1::text::timestamptz + interval '20 minutes')::text", &[&t0]).await.unwrap().get(0);
+    let at = |m: i32| format!("SELECT ($1::text::timestamptz + make_interval(mins => {m}))::text");
+    let t1: String = client.query_one(&at(20), &[&t0]).await.unwrap().get(0);
     client.execute("UPDATE core.lease SET expires_at = $1::text::timestamptz + interval '1 hour' WHERE ended_at IS NULL", &[&t1]).await.unwrap();
     core_db::watch::check(&mut client, &s, &t1).await.unwrap();
+    assert!(open_problems(&client, "STALLED").await.is_empty(), "the drains hold the slots: no stall");
+    let post = core_db::progress::preview(&mut client, PROFILE, &t1).await.unwrap().join("\n");
+    assert!(post.contains("Draining: 2 blocks of build slice-old-image finishing their day (2 with the day done, its check to come), by "), "{post}");
+    assert!(post.contains("the new build's blocks start as they end"), "{post}");
+    // a drain past its bound (the sweep did not stop it) explains nothing: after the stall's minutes, STALLED
+    client.execute("UPDATE core.drain SET until = $1::text::timestamptz - interval '1 minute'", &[&t1]).await.unwrap();
+    core_db::watch::check(&mut client, &s, &t1).await.unwrap();
+    let t2: String = client.query_one(&at(40), &[&t0]).await.unwrap().get(0);
+    client.execute("UPDATE core.lease SET expires_at = $1::text::timestamptz + interval '1 hour' WHERE ended_at IS NULL", &[&t2]).await.unwrap();
+    core_db::watch::check(&mut client, &s, &t2).await.unwrap();
     assert_eq!(open_problems(&client, "STALLED").await, ["DAY_BLOCK"]);
+    client.execute("UPDATE core.drain SET until = now() + interval '6 hours'", &[]).await.unwrap();
     // the done day's check ends its lease
     refcheck::put(&mut client, &a.token, &check(DAYS[0], base, local)).await.unwrap();
     assert_eq!(job(&client, a.job_id).await.0, "DONE");
