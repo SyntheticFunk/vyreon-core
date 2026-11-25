@@ -3696,3 +3696,68 @@ old writer); `refcheck.rs::a_check_that_could_not_read_its_dump_is_kept_as_not_r
 run by `cargo test -p vyreon-core --test ops_scripts`; reproduces the live stop on the old script). Also: the progress
 test `an_event_committed_after_its_window_is_in_the_next_and_windows_are_kept_a_week` failed after 09:00 MT (the
 morning heartbeat, C-073's last item, posts in the first window); it now counts what the posts state.
+
+## C-081 The frozen engine's contracts (engine 93a04676, D-469..D-514; coordinator, 2026-11-25)
+- **(a) The prints' retention counts a session once it has opened** (engine D-512 contract a, `fill::prints_retained`):
+  `core.prints_perished_at(session, instant)` (0063) counts the last five sessions whose 09:30 New York open is at or
+  before the instant (every XNYS session opens then; the engine's calendar `open_at`). Every claim-time and
+  scheduling check uses it: a republish reading EXQ01's prints at its claim, a day block's published days at its
+  claim (`guard_perished_blocks`), a scoped republish's schedule. The planners keep the date form (the sessions
+  before the UTC date): their plan is checked again at the claim. Before, core counted the sessions before the UTC
+  date, so for the hours after Monday's open it still claimed a republish of the session the provider had dropped.
+  Test `freeze.rs::a_session_counts_toward_the_prints_retention_once_it_has_opened` (the engine's Sunday-evening
+  example; EST and EDT opens).
+- **(b) A copy-forward revision is refused when the revision it replaces is no longer the published one**
+  (D-512 contract b): already so since C-074 (`publish::republish_checks` locks the day's published revision of the
+  layer and refuses unless it is the bundle's `replaces`; none published refuses too). Tested by
+  `republish.rs` ("but 2025-12-10's published base revision is now"). No change.
+- **(c) A coordinates view may carry top-level `terminal_state` and `terminal_reason`** (D-512 item 1): core stores a
+  view whole (any JSON object) and serves it whole (`detail=coordinates`); it reads none of its fields. Tested with
+  the frozen engine's own projection of IBIT's M0-GAMMA of 2024-08-15 (withheld whole,
+  `coordinates-2024-08-15-IBIT-M0-GAMMA-withheld-whole.json`) in `reader_api.rs`. No code change.
+- **(e) IP01's registry view re-materialised in each home** (D-478/D-480, INT-TEMP-IP01-FROZEN-REGISTRY@2): every worker
+  home on the cluster is an `emptyDir` (`VYREON_HOME=/work`), so each pod writes the view its build carries and none
+  holds an older copy (a worker refuses a home whose copy differs). Now a test: `ops_scripts.rs::every_worker_home_on_
+  the_cluster_is_empty_when_its_pod_starts`. A persistent home outside the cluster (the droplet's, a laptop's) sets
+  its `h4-ip01-registry-dev1/registry-view.json` aside once before the frozen engine runs there.
+- `VYREON_CORE_REFCHECK_RERUN_HOURS` is "6" in this release's 20-core.yaml: the backfill resumes with it (C-080 fixed
+  the dump the re-runs read).
+
+## C-082 FXI's cash deliverable in the OCC ledger (engine D-483; OCC By-Laws Art. VI §11A, memo #52545)
+A strike offset whose special went ex before its strike reduction states `special_cash_per_contract`: OCC's cash
+deliverable per standard contract on the special's ex-date, as the memo states it. FXI 2023-06-08 (cash ex 06-07, memo
+#52545: 100 shares + $14.90): `14.90`; EEM 2019-12-17 (cash ex 12-16, memo #46168: 100 shares + $26.63): `26.63`. The
+engine reads that session's standard contracts in those terms (`standard_cash=`), and without the figure as `unknown`
+(no standard contract sound that session). Core's checks (`adjustments::check`): required exactly where the special
+went ex before its strike reduction, refused elsewhere, positive, and the special per share times the 100-share
+deliverable to the penny (both memos' figures are). Served in every claim's ledger as before; an engine before D-483
+ignores the field. Test `adjustments::tests` (the two figures; each rule refuses a real entry altered to break it).
+
+## C-083 Every tape is captured again for the frozen engine's reader (engine D-472, D-480; coordinator, 2026-11-25)
+The frozen build's tape-reader identity is new (`CARRIED_OVER` empty): no stored cache is its. Core keys caches by
+`METHOD+reader identity`, so the old ones stay and the new are captured beside them. One operator command after the
+release (`release.sh` registers and admits the build): `vyreon-core tape recapture FREE_REPORT_64 <build>` queues one
+TAPE job a session (scope `{"recapture": true}`) from the replay files' first session (2023-05-24, `core.source_coverage`)
+to the last session before today in New York (the nightly captures today's); run again, it queues only what no tape job
+of the build holds (and leaves a session an unfinished tape job of another build holds: the hand-over carries it).
+Claimed oldest first; day blocks wait for every tape up to their last session (`core.claimable_job`, unchanged), so the
+backfill resumes behind the re-capture; a republish that reads the tapes waits too. The progress post says "Tapes for
+the new reader: N of M sessions captured; backfill days from D wait for them". The recompute of the tape families'
+already-published days (labels bumped: D111@12, EVC01@17, UPATH@15, UACT@8, UQTR@9, DLM-VWAP@3.2.9, IP01@2) is C-079's,
+planned by the watch once the build publishes a whole day and scheduled within the spend ceiling (`vyreon-core
+recompute FREE_REPORT_64 <build> --plan` shows it). Note: the nightly day block waits behind the re-capture as any day
+block does (its tapes window reads every earlier session's tape). Test `freeze.rs::every_tape_is_captured_again_for_a_
+new_reader_and_the_backfill_waits_for_it`.
+
+## C-084 The owner's phase-1 stop rule, the part core counts (owner, 2026-11-25: MILESTONES "PHASE-1 RUN RULE")
+For the newest running build, over its first 20 published days and then continuously (`stoprule.rs`), a day looks bad
+when an attempt of the build failed on it and the build has not published it (a failed day-block lease naming the day,
+after the build's admission; an input-plan refusal is the provider's inputs, C-075's DAY_REFUSED, not counted), or its
+current reference check completed with unexplained failures (`failed_unexplained`; `failed` from a suite without
+rulings). Judged days: those and the published days whose current check completed. The progress post carries the
+running share once a day is judged ("Stop rule: 14 of 21 judged days look bad (67%): …"); from the 20th published day,
+past half of the judged days, the watch raises STOP_RULE ("Published numbers affected"), which says that core's count is
+an upper bound and that whether each day is an engine fault that changes a published value, not the suite's or the
+provider's, is the coordinator's classification, verified before stopping. `vyreon-core stoprule <profile> [<build>]`
+lists the bad days with why. Days published by a republish (copy-forward) are not the build's own computation and are
+not counted. Test `freeze.rs::the_stop_rule_counts_bad_days_and_alerts_past_half_from_the_twentieth`.

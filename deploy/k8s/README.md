@@ -425,6 +425,14 @@ KUBECONFIG=... VYREON_DO_TOKEN_FILE=... deploy/k8s/ops/release.sh --dry-run --ev
 KUBECONFIG=... VYREON_DO_TOKEN_FILE=... deploy/k8s/ops/release.sh --evidence passed.json c9c23ca5 "D-461 rulings"
 ```
 
+**A build with a new tape-reader identity** (the engine's decision says "every tape is captured again"; the frozen
+engine 93a04676, D-472/D-480): after its release, one command queues the re-capture (C-083); the backfill's day blocks
+wait for the tapes up to their last session, and the progress post says how far it is:
+
+```sh
+kubectl -n vyreon exec -c core deploy/vyreon-core -- vyreon-core tape recapture FREE_REPORT_64 <build>
+```
+
 `passed.json` is required: `{"tests": …, "checks": …}`, what the build passed (the suites and their
 counts; the golden comparison and the block-start result). The script refuses to start while the queue
 is paused by anyone else, resumes only its own pause (a cause added during the run leaves it paused

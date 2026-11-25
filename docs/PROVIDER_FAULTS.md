@@ -67,3 +67,24 @@ contracts, FLEX excluded, by definition (engine D-362).
   requests on the key that bypass core's permits (being hunted). Not a data fault: no wrong value, a refused day.
 - **Handling:** carry capture retries on throttling (engine D-463); any permit bypass closed (release 2).
 - **Reported:** no.
+
+## P-31 — An 8-K acceptance copied into a periodic report in New York time marked UTC (2026-11-25)
+- **Evidence:** LLY's 10-Q of 2023-08-08 (engine capture of 2024-07-09) names its earnings 8-K `fil_6Q6VlW` and copies
+  its acceptance as `07:01:37Z`; the 8-K's own (EDGAR's) is `11:01:37Z`: the New York clock written with a `Z`. Of the
+  four such links in the LLY capture three agree to the second (engine D-503, full-engine audit company 1).
+- **Handling:** the engine takes the named 8-K's own acceptance wherever it is listed, the report's copy only where it
+  is not (D-503).
+- **Reported:** no.
+
+## P-32 — `sec_unique_id` written both bare and dashed (2026-11-25)
+- **Evidence:** LLY's three filings pages: 100 accessions bare; 69 bare and 31 dashed; 36 dashed. Insider URLs write it
+  bare, so 46 of LLY's 270 insider rows lost their SEC acceptance before the fix (engine D-503, company 4).
+- **Handling:** the engine compares the 18 digits (`source::accession_digits`).
+- **Reported:** no.
+
+## P-33 — A macro series page repeats its boundary row on the next page (2026-11-25)
+- **Evidence:** on 2025-12-03 INDPRO returned 1,296 rows over 1,284 dates, FEDFUNDS 866 over 858, CPIAUCSL 957 over 948:
+  each page's last row again first on the next (engine D-508, company 9).
+- **Handling:** the engine's readback and receipt count the distinct dates (`distinct_date_count`); values were
+  unaffected (a repeated date is the same row).
+- **Reported:** no.
