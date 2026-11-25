@@ -1552,6 +1552,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   D-475 (sent back). Owner rulings pending (with recommendations): daily 11 (score the 1-year book's gamma too? D-101 asks a
   single figure → recommend keep one), D-500 item 5 (list ~800k source ordinals per SPY day literally? → recommend a compact
   content-addressed form), D-495 (surfaces before 2023-01-03 withheld until the calendar holds 2019 — outside phase 1).
+  **All audit remediation merged (UTC−6 ~16:30): integration branch eng-r6** (eng-r5 + r6c + r6b + r6a; two code conflicts resolved:
+  views::split_ratios takes r6a's conflicting-ratio set with D-512's comment; M0 pins renewed for the merged code under D-500's
+  labels). r6a's last items: O03 current roles publish on a refused T−5 (VS-O03@3, D-481); path-free view identity (D-482); FXI
+  cash deliverable with a core ledger contract `special_cash_per_contract` (D-483); shared fixture etha-first-chain requoted
+  under D-477 (backup etha-first-chain.pre-D477; eng-r5/r6b/r6c need the backup). Reference mirrors D-475/D-494. Full suites
+  running once on eng-r6.
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
