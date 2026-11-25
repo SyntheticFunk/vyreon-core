@@ -277,6 +277,7 @@ const THRASHING: Part = Part { key: "thrashing", what: "check for jobs losing th
 const STORAGE: Part = Part { key: "storage", what: "check the database volume and its WAL", kinds: &["DATABASE_FULL", "WAL_ARCHIVING"] };
 const BACKUPS: Part = Part { key: "backups", what: "check the backups", kinds: &["BACKUP_STALE", "WAL_ARCHIVING"] };
 const CALENDAR: Part = Part { key: "calendar", what: "check where the trading calendar ends", kinds: &["CALENDAR_END"] };
+const STOP_RULE: Part = Part { key: "stop rule", what: "count the phase-1 stop rule's days", kinds: &["STOP_RULE"] };
 const DERIVED_AGAIN: Part = Part { key: "not derived", what: "check the days left to derive again", kinds: &["NOT_DERIVED"] };
 
 /// The tick's own parts beside the check (C-069). Their WATCH_FAILING problems are the tick's to
@@ -372,6 +373,18 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
             let mut found = Vec::new();
             failed_jobs(c, &mut found).await?;
             Ok(found)
+        })
+        .await?;
+    // C-084: the owner's phase-1 stop rule, the part core counts
+    checked
+        .part(c, &STOP_RULE, async {
+            let tally = crate::stoprule::tally(c, &s.profile).await?;
+            Ok(tally
+                .and_then(|t| {
+                    t.summary().map(|summary| Found { kind: "STOP_RULE", key: t.build.clone(), summary, command: format!("vyreon-core stoprule {}", s.profile), detail: None })
+                })
+                .into_iter()
+                .collect())
         })
         .await?;
     checked
@@ -1569,6 +1582,7 @@ pub fn consequence(kind: &str) -> (bool, &'static str, Option<&'static str>) {
         "JOB_THRASHING" => (false, "that work keeps restarting; its day stays unpublished until it finishes", Some("check why the pods end (out of memory?):")),
         "NO_PROGRESS" => (false, "that work is stuck; its day stays unpublished until it moves", Some("read the worker's log:")),
         "DAY_REFUSED" => (true, "that day stays unpublished (readers see it missing, with its cause); nothing more is tried on it", Some("fix the refused input or the engine, then retry it (`vyreon-core queue retry-failed`); the refusal:")),
+        "STOP_RULE" => (true, "if most of these days are engine faults, the owner's rule stops phase 1 for a fix and a restart", Some("the coordinator classifies each day (engine, suite or provider) before anything stops; the days:")),
         "SPEND" => (false, "the spend nears or passes the owner's ceiling", Some("decide whether to go on (raise the ceiling, or stop the workers: deploy/k8s/README.md, Stopping everything); the spend:")),
         _ => (false, "", Some("to see more:")),
     }

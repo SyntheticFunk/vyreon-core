@@ -21,7 +21,10 @@
 //! A strike offset states the special behind it (engine D-120 as amended 2026-11-20: the special
 //! is not projected as a dividend, the rest of the payment is): `special_dividend`, OCC's exact
 //! special per share from the memo, and `special_ex_date` where the cash went ex before the
-//! strikes were reduced (FXI 2023: cash 06-07, strikes 06-08, memo #52545).
+//! strikes were reduced (FXI 2023: cash 06-07, strikes 06-08, memo #52545). Such an entry also states
+//! `special_cash_per_contract` (C-082, engine D-483): OCC's cash deliverable per standard contract on the
+//! special's ex-date, as the memo states it (FXI: 100 shares + $14.90, so `14.90`); the engine reads that
+//! session's standard contracts in those terms (`standard_cash=`), and without it as `unknown`.
 //!
 //! Core adds its own rules to the engine's parser: every entry is backed by an OCC Information
 //! Memo, cited by number and URL at the head of its evidence (no entry without a source, engine
@@ -30,7 +33,9 @@
 //! adjustment) is never sent, since a sourced adjustment is certain; an asset's entries are in
 //! ex-date order without repeats; every strike offset states its special, the offset is that
 //! special rounded to the nearest penny (OCC's rule, as each memo states it), and its
-//! `special_ex_date`, if any, is not after the strike reduction.
+//! `special_ex_date`, if any, is not after the strike reduction; a special that went ex before its strike
+//! reduction states its cash per contract, the special per share times the 100-share deliverable to the
+//! penny (as the memo states it), and no other entry states one.
 use core_contract::is_date;
 use serde_json::{Map, Value};
 use std::collections::BTreeSet;
@@ -67,7 +72,7 @@ pub fn check(doc: &Value) -> Result<(), String> {
             let e = e.as_object().ok_or_else(|| format!("{asset}: an entry that is not an object"))?;
             let ex = e.get("ex_date").and_then(Value::as_str).filter(|d| is_date(d)).ok_or_else(|| format!("{asset}: an entry without an ex_date"))?;
             let at = format!("{asset} {ex}");
-            if let Some(k) = e.keys().find(|k| !["ex_date", "kind", "ratio", "root", "strike_offset", "special_dividend", "special_ex_date", "evidence"].contains(&k.as_str())) {
+            if let Some(k) = e.keys().find(|k| !["ex_date", "kind", "ratio", "root", "strike_offset", "special_dividend", "special_ex_date", "special_cash_per_contract", "evidence"].contains(&k.as_str())) {
                 return Err(format!("{at}: a field the engine does not read ({k})"));
             }
             let evidence = e.get("evidence").and_then(Value::as_str).unwrap_or_default();
@@ -91,14 +96,24 @@ pub fn check(doc: &Value) -> Result<(), String> {
                     if ((special * 100.0).round() / 100.0 - d).abs() > 1e-9 {
                         return Err(format!("{at}: strike offset {d} is not the special {special} rounded to the nearest penny"));
                     }
-                    if let Some(when) = e.get("special_ex_date") {
-                        when.as_str().filter(|w| is_date(w) && *w <= ex).ok_or_else(|| format!("{at}: special_ex_date is not a date on or before the ex_date"))?;
+                    let before = match e.get("special_ex_date") {
+                        Some(when) => when.as_str().filter(|w| is_date(w) && *w <= ex).ok_or_else(|| format!("{at}: special_ex_date is not a date on or before the ex_date"))? < ex,
+                        None => false,
+                    };
+                    // C-082 (engine D-483): the cash per standard contract while the strikes still stood
+                    match (before, num("special_cash_per_contract").transpose()?) {
+                        (true, None) => return Err(format!("{at}: a special that went ex before its strike reduction states special_cash_per_contract (the memo's cash per contract)")),
+                        (false, Some(_)) => return Err(format!("{at}: special_cash_per_contract on a special that went ex with its strike reduction")),
+                        (true, Some(cash)) if ((special * 100.0 * 100.0).round() / 100.0 - cash).abs() > 1e-9 => {
+                            return Err(format!("{at}: special_cash_per_contract {cash} is not 100 shares' special {special} to the penny"));
+                        }
+                        _ => {}
                     }
                     format!("shift:{d}")
                 }
                 _ => return Err(format!("{at}: not a split, an adjusted root or a strike offset")),
             };
-            if e.get("strike_offset").is_none() && (e.contains_key("special_dividend") || e.contains_key("special_ex_date")) {
+            if e.get("strike_offset").is_none() && (e.contains_key("special_dividend") || e.contains_key("special_ex_date") || e.contains_key("special_cash_per_contract")) {
                 return Err(format!("{at}: a special dividend on an entry that is no strike offset"));
             }
             if ex < last.as_str() || !seen.insert((ex.to_owned(), image)) {
@@ -176,6 +191,12 @@ mod tests {
         assert_eq!(special("EEM", "2019-12-17"), (Some(0.266326), Some("2019-12-16".to_owned())));
         assert_eq!(special("XLE", "2019-12-30"), (Some(1.791209), None));
         assert_eq!(special("XLV", "2019-12-30"), (Some(0.66554), None));
+        // C-082 (engine D-483): the cash per standard contract of the two specials that went ex before their
+        // strike reductions, as their memos state it (#52545: 100 shares + $14.90; #46168: + $26.63); no other
+        let cash = |asset: &str, ex: &str| entry(asset, ex)["special_cash_per_contract"].as_f64();
+        assert_eq!((cash("FXI", "2023-06-08"), cash("EEM", "2019-12-17"), cash("EWJ", "2025-12-16")), (Some(14.9), Some(26.63), None));
+        let stated = doc["assets"].as_object().unwrap().values().flat_map(|l| l.as_array().unwrap()).filter(|e| e.get("special_cash_per_contract").is_some()).count();
+        assert_eq!(stated, 2);
         assert_eq!((entry("ARKK", "2021-12-29")["strike_offset"].as_f64(), memo(entry("ARKK", "2021-12-29")["evidence"].as_str().unwrap())), (Some(0.78), Some(49856)));
         let offsets = doc["assets"].as_object().unwrap().values().flat_map(|l| l.as_array().unwrap()).filter(|e| e.get("strike_offset").is_some()).count();
         assert_eq!(offsets, 9);
@@ -244,6 +265,27 @@ mod tests {
             e.insert("special_dividend".into(), json!(0.1));
         })
         .contains("no strike offset"));
+        // C-082: the cash per contract where the special went ex before its strike cut, only there, to the penny
+        assert!(altered("FXI", "2023-06-08", &|e| {
+            e.remove("special_cash_per_contract");
+        })
+        .contains("states special_cash_per_contract"));
+        assert!(altered("FXI", "2023-06-08", &|e| {
+            e.insert("special_ex_date".into(), json!("2023-06-08"));
+        })
+        .contains("went ex with its strike reduction"));
+        assert!(altered("EWJ", "2025-12-16", &|e| {
+            e.insert("special_cash_per_contract".into(), json!(15.7));
+        })
+        .contains("went ex with its strike reduction"));
+        assert!(altered("FXI", "2023-06-08", &|e| {
+            e.insert("special_cash_per_contract".into(), json!(14.89));
+        })
+        .contains("to the penny"));
+        assert!(altered("FXI", "2023-06-08", &|e| {
+            e.insert("special_cash_per_contract".into(), json!(-14.9));
+        })
+        .contains("not a positive number"));
         let mut doc = committed();
         let xle = doc["assets"]["XLE"].as_array_mut().unwrap();
         xle.push(xle[0].clone());

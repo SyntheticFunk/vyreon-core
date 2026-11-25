@@ -615,3 +615,81 @@ mod tests {
         );
     }
 }
+
+/// C-083 (engine D-472, D-480: a new tape-reader identity; every tape is captured again): what
+/// `recapture` queued.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Recaptured {
+    pub first: String,
+    pub last: String,
+    /// One TAPE job per session queued now.
+    pub jobs: u64,
+    /// Sessions in the range left as they are: a TAPE job of this build already holds them (any state
+    /// but cancelled), or an unfinished one of another build (the hand-over carries it).
+    pub kept: i64,
+}
+
+/// C-083: every session's tape captured again under `build` (whose reader identity is new): one TAPE job a
+/// session (scope `{"recapture": true}`, ordinary priority, claimed oldest first), from the replay files'
+/// first session (`core.source_coverage`, 2023-05-24) or `first`, to the last session before today in New
+/// York (today's is the nightly's) or `last`. Day blocks wait for every tape up to their last session
+/// (`core.claimable_job`), so the backfill resumes behind the re-capture; a republish reading the tapes
+/// waits too. Run again, it queues only what is missing. The recompute of the tape families' published days
+/// is C-079's, planned once the build publishes a whole day.
+pub async fn recapture(client: &mut Client, profile: &str, build: &str, first: Option<&str>, last: Option<&str>) -> Result<Recaptured, String> {
+    for d in [first, last].into_iter().flatten() {
+        if !core_contract::is_date(d) {
+            return Err(format!("{d} is not a date written YYYY-MM-DD"));
+        }
+    }
+    let runs: Option<bool> = client.query_opt("SELECT core.build_runs($1) FROM core.engine_build WHERE engine_build = $1", &[&build]).await.map_err(db)?.map(|r| r.get(0));
+    match runs {
+        None => return Err(format!("engine build {build} is not registered")),
+        Some(false) => return Err(format!("engine build {build} is not admitted, or withdrawn: no worker would capture its tapes")),
+        Some(true) => {}
+    }
+    let tx = client.transaction().await.map_err(db)?;
+    tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.map_err(db)?;
+    let range = tx
+        .query_one(
+            "SELECT COALESCE($1::text::date, (SELECT first_date FROM core.source_coverage WHERE source = 'replay_tapes'))::text,
+                    COALESCE($2::text::date, (SELECT max(session) FROM core.session WHERE session < (now() AT TIME ZONE 'America/New_York')::date))::text",
+            &[&first, &last],
+        )
+        .await
+        .map_err(db)?;
+    let (from, to): (Option<String>, Option<String>) = (range.get(0), range.get(1));
+    let (from, to) = (from.ok_or("no first session: core.source_coverage has no replay_tapes")?, to.ok_or("no session before today")?);
+    if from > to {
+        return Err(format!("{from} is after {to}: no session to capture"));
+    }
+    let held = "EXISTS (SELECT FROM core.job t WHERE t.kind = 'TAPE' AND t.first_session = s.session AND t.profile_id = $1
+                         AND NOT COALESCE(t.scope @> '{\"verify\": true}', false)
+                         AND ((t.engine_build = $2 AND t.state <> 'CANCELLED') OR t.state IN ('QUEUED', 'LEASED', 'FAILED')))";
+    let kept: i64 = tx
+        .query_one(&format!("SELECT count(*) FROM core.session s WHERE s.session BETWEEN $3::text::date AND $4::text::date AND {held}"), &[&profile, &build, &from, &to])
+        .await
+        .map_err(db)?
+        .get(0);
+    let jobs = tx
+        .execute(
+            &format!(
+                "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope)
+                 SELECT 'TAPE', $1, $2, s.session, s.session, s.session, '{{\"recapture\": true}}'::jsonb
+                 FROM core.session s WHERE s.session BETWEEN $3::text::date AND $4::text::date AND NOT {held}
+                 ORDER BY s.session"
+            ),
+            &[&profile, &build, &from, &to],
+        )
+        .await
+        .map_err(db)?;
+    if jobs > 0 {
+        crate::notice::log(
+            &tx,
+            &format!("Tape re-capture for build {build} (a new tape-reader identity): {jobs} sessions queued, {from} to {to}; day blocks wait for the tapes up to their last session."),
+        )
+        .await?;
+    }
+    tx.commit().await.map_err(db)?;
+    Ok(Recaptured { first: from, last: to, jobs, kept })
+}

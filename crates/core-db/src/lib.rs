@@ -17,6 +17,7 @@ pub mod recompute;
 pub mod refcheck;
 pub mod republish;
 pub mod spend;
+pub mod stoprule;
 pub mod tape;
 pub mod universe;
 pub mod watch;

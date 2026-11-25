@@ -644,7 +644,7 @@ pub async fn schedule_tagged(client: &mut Client, profile: &str, build: &str, wo
         // (release-2 audit, Gemini 3; Codex 2) published in this build's profile revisions, and the prints it reads still served
         let row = tx
             .query_one(
-                "SELECT core.day_published($1::text::date, $2, $3), core.prints_perished($1::text::date, (now() AT TIME ZONE 'UTC')::date)",
+                "SELECT core.day_published($1::text::date, $2, $3), core.prints_perished_at($1::text::date, now())",
                 &[s, &profile, &build],
             )
             .await
