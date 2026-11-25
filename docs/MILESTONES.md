@@ -1403,6 +1403,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   reaches core (~1.5-2 h after publish), so 5 of 8 nodes sit in "day done, its check to come" while 45 new-build blocks wait
   for slots. Improvement for the next core/engine release: end the drain at publish and hand the reference check to the
   REFCHECK re-run machinery (or let the new build's blocks start beside a draining check), measured against today's numbers.
+  **THROUGHPUT FINDING (UTC−6 00:10): the per-day reference check is the bottleneck.** Measured: nightly 11-23 check 7,566 s
+  at 8×94% CPU (≈2.1 node-h); 08-14's ran >3.5 h beside the next day; 07-22's >2 h 47 min. Engine compute per later day
+  ≈1.6-2.8 node-h, so the check is ~45-55% of node time, and the worker waits for the previous day's check. The ~9-day /
+  $340-420 phase-1 projection did NOT include it — void until re-measured. Profiling agent (eng-refperf) running; options
+  for the owner after: optimise the suite (keeps every check), run checks after the block / at lower priority, or sample
+  (owner's call: weakens validation).
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
