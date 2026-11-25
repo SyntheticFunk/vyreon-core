@@ -1486,10 +1486,16 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
 
   **Phase-1 engine backlog (fix after phase 1; engine release frozen):**
   - Fill progress per symbol inside long local units (NO_PROGRESS false alarm 11-25 10:03).
-  - Reference check on a mixed-build day (07-10: 74 of 96 families fail every check) — cause under investigation.
+  - Reference suite: find a slot's id by parsing the line, not its first 400 characters; a NOT_RUN guard when the suite loads far
+    fewer slots than the dump holds (core fix below makes this non-blocking).
   - 158 ARKK tape sessions (owner decision: re-capture vs rule).
   - Drain ends at publish; the day's reference check handed to REFCHECK re-runs (drained slots held ~2 h).
   - Any further engine finding from the cluster, with evidence.
+  **07-10 cause PROVEN (UTC−6 ~10:45):** not mixed builds, not data. Core's refcheck dump writes store.jsonl keys alphabetically
+  (serde_json preserve_order off: body first, measurement_id after); the suite looks for the id in a line's first 400 chars →
+  every REFCHECK re-run from core's dump loads 0 slots (report 33: 3,332 of 3,341 "slot not published"; reproduced with real
+  bodies). Every re-run since C-073 is invalid; worker-own-dump checks (07-15 87, 08-14 22) are valid. Fix in CORE (engine
+  frozen): dump lines in the engine's key order + a guard storing such reports as invalid; then re-run the affected checks.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
