@@ -1450,6 +1450,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   re-capture those tapes (recommended; core needs a cache-replace path) or rule that a cache stands under the record it was
   derived with. INT-TEMP-EVC01 (252-session history) faults on nearly every ARKK day until resolved. Codex audit of
   eng-faults running → joins release 4.
+  **Release 4 core SHIPPED (UTC−6 ~05:10): core 1055efb, migration 62** via release.sh --core (core-fix10 merged): release.sh step 10
+  + guard + atomic `queue resume --expect`, drain-aware STALLED, drained overruns don't pause, plain-language Discord (both
+  channels; total 597 over the configured range), engine faults counted by stated reason (0062 re-tallies). Worker half of
+  release 4 waits for the eng-faults audit: then merge eng-faults into worker (a79930e2 + D-468), rebuild, release.sh.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
