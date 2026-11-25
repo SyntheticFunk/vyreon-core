@@ -1580,6 +1580,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   again; queued ones cancelled; checked after the new revision) deployed ~17:40. Tapes: 60/880 done by 17:19 (~7 h for all).
   H5-FIELD bit-identity: production schedules workers on BOTH `day` (AMD) and `day-intel` pools; laptop is Intel → proof run
   in a throwaway pod pinned to an AMD node (D-511 test d114); remedy if not identical: pin workers to one CPU vendor.
+  **PROVEN (UTC−6 ~18:10):** H5-FIELD is bit-identical across vendors (D-509 field 6): one d114 test binary from 93a04676 gave
+  digest 39bb103fbe457875 (49.4 MB D114 endpoint result) on the laptop (i7-12700H), a `day` AMD node (EPYC Zen 2) and a
+  `day-intel` node (Cascade Lake, AVX-512); MKL_CBWR=COMPATIBLE, 1 thread, sequential; the image's MKL libraries are
+  byte-identical to the laptop's. No remedy needed: workers stay on both pools. Throwaway pods deleted, none left.
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
