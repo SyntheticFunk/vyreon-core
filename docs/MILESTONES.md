@@ -1556,8 +1556,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   views::split_ratios takes r6a's conflicting-ratio set with D-512's comment; M0 pins renewed for the merged code under D-500's
   labels). r6a's last items: O03 current roles publish on a refused T−5 (VS-O03@3, D-481); path-free view identity (D-482); FXI
   cash deliverable with a core ledger contract `special_cash_per_contract` (D-483); shared fixture etha-first-chain requoted
-  under D-477 (backup etha-first-chain.pre-D477; eng-r5/r6b/r6c need the backup). Reference mirrors D-475/D-494. Full suites
-  running once on eng-r6.
+  under D-477 (backup etha-first-chain.pre-D477; eng-r5/r6b/r6c need the backup). Reference mirrors D-475/D-494.
+  **Full suites on eng-r6 (UTC−6 ~16:20):** reference pytest 288/107 ✓; cargo 1,824 passed, 1 failed:
+  h3-asset closure::code_digests_change_with_exactly_their_closures (crate:h3-o02 now re-keys every route after the merge;
+  r6c put h4_run.rs into ALWAYS, an r6a/r6b edit apparently made it depend on h3-o02) → sent to the r6c fixer to settle what is
+  true (genuine dependency → update expectation; leak → cut it). address_bound passed this run.
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
