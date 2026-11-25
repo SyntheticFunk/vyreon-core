@@ -3406,3 +3406,28 @@ copied forward byte for byte. This is that mechanism on the cluster.
   DLM-VWAP reads D111-TEMP01. The cheap day-local scopes are the daily-bar ones (DLM-TECHNICAL, its
   measurements). The tests use DLM-TECHNICAL as their day-local scope and check DLM-CHAIN's new base. The
   cluster test plan (deploy/k8s/README.md §11) should take DLM-TECHNICAL as its first scoped day. Suite: 231.
+
+## C-075 A day the input plan refused is held and alerted at once (coordinator, 2026-11-24; AGENTS.md: an observability gap becomes a notification)
+Live, 2024-07-23 was refused by the engine's input plan (ETHA's ACT01 gap; engine side on eng-scope's sibling
+eng-etha) and core said nothing: the worker's `POST /lease/fail` (`stop: D not published: D refused by the
+input plan (plan.json)`, its evidence with the plan's refusing entries stored just before) queued the job
+again, and only its last attempt would have alerted, some 3 × 2-3 hours of node time later, each attempt
+refused the same way.
+- **Held at once.** `work::fail` records such a stop in `core.day_refusal` (migration 0058: day, job, lease,
+  build, the refused inputs on one line from the evidence's `refusals`, transient, held). The job's attempts
+  are spent, so it goes the way of a day out of attempts: FAILED, the day set aside, the rest of its block
+  queued again, the build going on (and `FAILED_DAYS_PAUSE` as ever). A new build's hand-over (it carries
+  FAILED jobs with fresh attempts) or `vyreon-core queue retry-failed` tries it again.
+- **One quick retry for failed captures.** When every refused input is a capture that failed here
+  retryably or was not attempted (the engine's `ENGINE_FAULT: capture failed here (<category>
+  retryable|not_attempted)`, a fill that may succeed next time), the job is queued once more; the same
+  day refused again by the same job is held. A provider's absence, a stale input, an engine rule or a
+  fatal capture is held at once (`work::refusal_inputs`).
+- **DAY_REFUSED** (watch part "refused days", alerts channel): one problem per held day, "Day D refused by
+  the engine's input plan (job J, build B): <input (role session, status) assets or reason | …>", with
+  what it means and what to do; resolved when a day-local revision of the day is published after the
+  refusal. JOB_FAILED leaves a held refusal to it (one alert for one cause).
+Tests: `tests/day_refusal.rs` (the real refused day's `close_quotes` refusal held and alerted, resolved
+once the real slice of 2025-12-10 is published after `retry-failed`; a failed-capture refusal retried once
+then held; the one-line inputs). `watch.rs`'s and `job_evidence.rs`'s failures that were refusals only by
+their wording now use another failure (a refusal is DAY_REFUSED's). Suite: 234.
