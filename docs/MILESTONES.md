@@ -1523,6 +1523,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   Recompute after: a fix that changes no method version (a day's own transient fault, a crash, a refusal) → recompute just the
   bad days on the same build; a fix that changes how a value is computed is a method change (D-273) → C-079 recomputes every
   day of that family/measurement, so histories never mix definitions. Core count + alert ride the freeze release.
+  **Expectation (owner, 2026-11-25):** "Its rational to expect at least one recomputation at this stage. So my goal is no longer
+  'one and done' but rather one pass to find everything and another to fix what died." Phase 1 = PASS 1 (frozen engine, full
+  range, faults collected) + PASS 2 (fix everything found, then recompute only what the fixes touch: bad days on the same build
+  where no method changed, affected measurements by method version where one did). Spend: pass 1 ≈ $250 more (estimate, before
+  the fast reference check is measured); pass 2 unknown until the fault list exists — the two together will likely pass the
+  $500 ceiling; flag before crossing it (needs the billing token for a measured number).
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
