@@ -1509,6 +1509,15 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
   need VYREON_REFERENCE_SUITE=<engine>/tools/reference. Worker nodes scaling down (8 at 10:42).
+  Cluster wound down by 11:22 (one worker node: the nightly capture). **Engine batch eng-r5 (UTC−6 ~12:30, 26 commits, D-469..476):**
+  suite reads slots by parsed id + NOT_RUN guard; progress in long local units; ended lease stops a worker in ≤2 min (exit 75);
+  ONE tape-reader identity bump (D-472: lost-message rules, identity inputs, listing by the one Network-B opening auction →
+  ARKK's 158 resolved; METHOD @14); bulk files read as RFC 4180 (the "quote character" was valid CSV — our fault, not P-31);
+  dividends after the monthly expiration (UUP/XLE; H5-SURFACE@24, M0-ANALYTICS@1.1.0, M0-GAMMA@1.2.0, M0-GAMMA-CHANGE@1.1.0);
+  six suite faults (D-476). D-471 (drain hands its check to a core re-run) being REVERTED: with D-466 the check is ~0.5 h on
+  the node, a re-run re-downloads ~3 h. Still open before the audit: E3 (NVDA VS-O04 2024-06-21, TSLA σ) by re-captured
+  inputs; 08-14 volume_oscillator_5_20 failures. Core work after: register the build, re-capture tapes 2023-05-24..today
+  (6-12 h), hold days until their tape windows exist, recompute by method version (C-079).
  "freeze the build, then crank
   it and generate phase 1 with as many nodes as possible. Fix everything we find that we can trace to an engine fault. THEN
   selectively recompute where we have to." Why: since 11-21, 38 of 61 day publications (~62%) redid a published day across 11
