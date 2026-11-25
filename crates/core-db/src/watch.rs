@@ -1128,11 +1128,16 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
     // day-block slots were the old build's draining blocks): a kind with a draining lease within its bound
     // is waiting for those slots, not stalled; the progress channel says so (`progress`'s "Draining" line).
     // Once the drains end (or one passes its bound) the clock starts again from the last lease's end
+    // (release-4 audit, Codex 6 and 7) the slot a drain holds is its pod's ScaledJob (KEDA names a Job's pod
+    // after it: `day-block-daily-…`, `day-block-…`; VYREON_WORKER_NAME is the pod's name), not its job's
+    // priority (a backfill pod may claim a daily block); and a kind with a drain past its bound is not excused
+    let slot = format!("CASE WHEN l.worker LIKE 'day-block-daily-%' THEN 'DAILY_BLOCK' WHEN l.worker LIKE 'day-block-%' THEN 'DAY_BLOCK' ELSE {GROUP} END");
     let draining: Vec<String> = c
         .query(
             &format!(
-                "SELECT DISTINCT {GROUP} FROM core.drain d JOIN core.lease l USING (lease_id) JOIN core.job j ON j.job_id = d.job_id
-                 WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz AND d.until >= $1::text::timestamptz"
+                "SELECT {slot} FROM core.drain d JOIN core.lease l USING (lease_id) JOIN core.job j ON j.job_id = d.job_id
+                 WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz
+                 GROUP BY 1 HAVING bool_and(d.until >= $1::text::timestamptz)"
             ),
             &[&now],
         )

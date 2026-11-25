@@ -55,7 +55,7 @@
 //!                                                     the stored cache only when the recomputed one equals it byte for byte
 //!   vyreon-core tape checks                           the sample (C-059): one line, then each session's checks and
 //!                                                     every member not passed
-//!   vyreon-core queue [pause <reason> | resume | retry-failed | cancel <job>...]   the queue at a glance, or change it
+//!   vyreon-core queue [pause <reason> | resume [--expect <reason>] | retry-failed | cancel <job>...]   the queue at a glance, or change it
 //!   vyreon-core omit <profile> <session> <reason...>  omit a date whose day failed for the provider (C-061): only while
 //!                                                     its day job stands FAILED, never for an engine fault (fixed and
 //!                                                     recomputed instead). Records the reason, cancels the failed day job
@@ -373,12 +373,19 @@ async fn queue(change: &[&str]) -> Result<(), String> {
             tx.commit().await.map_err(|e| e.to_string())?;
             println!("was paused for: {}", was.as_deref().unwrap_or("(it was not paused)"))
         }
+        // C-077 (release-4 audit, Codex 1): only the pause that reads exactly so is resumed, atomically
+        ["resume", "--expect", reason] => {
+            let tx = client.transaction().await.map_err(|e| e.to_string())?;
+            let resumed = work::resume_if(&tx, reason).await?;
+            tx.commit().await.map_err(|e| e.to_string())?;
+            println!("{}", if resumed { "resumed" } else { "it was not paused" })
+        }
         ["retry-failed"] => println!("{} failed jobs queued again", work::retry_failed(&client).await?),
         ["cancel", jobs @ ..] if !jobs.is_empty() => {
             let jobs: Vec<i64> = jobs.iter().map(|j| j.parse().map_err(|_| format!("job id: {j}"))).collect::<Result<_, _>>()?;
             println!("{} jobs cancelled", work::cancel(&mut client, &jobs).await?)
         }
-        _ => return Err("queue [pause <reason> | resume | retry-failed | cancel <job>...]".into()),
+        _ => return Err("queue [pause <reason> | resume [--expect <reason>] | retry-failed | cancel <job>...]".into()),
     }
     work::sweep(&mut client).await?;
     println!("{}", serde_json::to_string_pretty(&work::status(&client).await?).map_err(|e| e.to_string())?);

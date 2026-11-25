@@ -1651,6 +1651,32 @@ pub async fn resume(db_client: &impl GenericClient) -> Result<Option<String>, St
     Ok(was)
 }
 
+/// C-077 (release-4 audit, Codex 1): resumes only a pause whose reason is exactly `expected` (a release's
+/// own), in one statement: a cause added meanwhile (`also: …`, a refused bundle) or another pause is left as
+/// it is. Returns whether it resumed; Err names what the pause holds when it is not that.
+pub async fn resume_if(db_client: &impl GenericClient, expected: &str) -> Result<bool, String> {
+    let expected = scrubbed(expected);
+    let resumed = db_client
+        .execute("UPDATE core.queue_control SET paused = false, reason = NULL, changed_at = clock_timestamp() WHERE paused AND reason = $1", &[&expected])
+        .await
+        .map_err(db)?;
+    if resumed == 1 {
+        notice::log(db_client, "Queue resumed.").await?;
+        return Ok(true);
+    }
+    let now: (bool, Option<String>) = {
+        let r = db_client.query_one("SELECT paused, reason FROM core.queue_control", &[]).await.map_err(db)?;
+        (r.get(0), r.get(1))
+    };
+    match now {
+        (false, _) => Ok(false),
+        (true, reason) => Err(format!(
+            "the pause is not only this one: {} -- left paused",
+            crate::watch::one_line(&reason.unwrap_or_default().replace(ALSO, "; also: "), 300)
+        )),
+    }
+}
+
 /// Puts FAILED jobs back in the queue with their attempts reset (after the cause is fixed). One
 /// whose every session was done is DONE instead: there is nothing left to claim. Returns how many
 /// were queued again.
