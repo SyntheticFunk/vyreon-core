@@ -63,7 +63,7 @@ contracts, FLEX excluded, by definition (engine D-362).
 - **Evidence:** cluster job 21818 (day 2024-07-23, build 1ae946f7), core evidence 105: `carry_inputs: dividends/SPY: HTTP 429
   Too Many Requests` and company-capture `TRANSPORT:HTTP 429 … after 5 attempts` at ~22:55 UTC 2026-11-24, while core's
   recorded usage was 1,589–1,845 requests per calendar minute (core cap 1,900; Intrinio's published limit 2,000/min).
-- **Reading:** most likely Intrinio counts a rolling window, so two busy adjacent calendar minutes exceed 2,000 across the
-  boundary; not confirmed with Intrinio. Not a data fault: no wrong value, a refused day.
-- **Handling:** core budgets over a rolling 60 s window (release 2); carry capture retries on throttling (engine D-463).
+- **Reading:** first guessed a rolling-window count, but core already bounds every rolling 60 s window (C-076); now suspected:
+  requests on the key that bypass core's permits (being hunted). Not a data fault: no wrong value, a refused day.
+- **Handling:** carry capture retries on throttling (engine D-463); any permit bypass closed (release 2).
 - **Reported:** no.

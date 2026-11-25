@@ -1335,6 +1335,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   D-463 (eng-etha 6237e806/f7ba7d30/51ad931b): carry exits 3 on throttle/transport so the fill retries; ETHA's not-yet-T−5
   cohort noise removed (ETHA's ACT01 is correctly withheld PROVIDER_COVERAGE_START, as 2a8f8c4f published). Release 2 also
   gets: rolling-60 s budget in core (root cause), C-075 transient class for throttle refusals; eng-etha merged into eng-scope.
+  **Correction 2 (UTC−6 ~19:00):** core already reserves over a rolling 60 s window (C-076 proof; the calendar-minute figures are
+  the ledger booking at release) — my reading was wrong. Closed: released leases count 5 s more (in-flight). Root cause of the
+  429 under budget now hunted as a BYPASS (requests on the key without a permit); droplet ruled out (timers 12:00/14:30 UTC).
+  Prime suspect: the reference re-run's Python fetchers. Merged: eng-etha → eng-scope ad9a9283; D-464 carry failure class
+  (077e51ea/69e94998/f399e80a); C-076 core 7dd8cea/0ab4966/7136cd5. Suites: engine 1,763/0, pytest 258/107, core 235/0.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
