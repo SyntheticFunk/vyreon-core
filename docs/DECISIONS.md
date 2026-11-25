@@ -3458,3 +3458,14 @@ the capture (`capture: "carry retryable"` after a throttled or failing provider)
 seconds holds the next minute's draws until 65 s after its releases) and the in-flight end in
 `the_budget_never_commits_more_than_its_ceiling`; `day_refusal.rs` (job 21818's carry refusal as the
 engine now states it: transient; fatal, unfinished, or without the class: held).
+**The bypass hunt (2026-11-24, engine D-464's table).** Every cluster path that sends to Intrinio's API
+draws a permit; the file downloads (snapshot, bulk day, replay objects) are presigned links with no key;
+the reference suite sends nothing. The worker image now refuses to send without the gate
+(`VYREON_BUDGET_REQUIRED`). **Evidence of Intrinio's own count** (its account-usage report, read
+2026-11-24 ~23:5x UTC through the Intrinio MCP server): a `one_min_call_limit` of 2,000 per access code
+(`api` and `opra_historical_intervals` both counted), with `seconds_until_reset`, a fixed minute
+window, which any rolling 60 s bound covers. That report came back for the same account as the
+cluster's: **the agents' Intrinio MCP server shares the account and draws no permit** (core cannot see
+it). It is the one sender left outside the budget; whether agents queried Intrinio near 22:55 UTC on
+11-24 (or 19:32 UTC on 11-23) is for the session logs to say. Options, the owner's: lower the ceiling by
+the agents' share, or give the MCP server its own key.
