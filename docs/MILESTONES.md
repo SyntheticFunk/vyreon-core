@@ -1393,6 +1393,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   (QUEUE_PAUSED alert worked); resumed by hand at ~22:20 (exactly this run's pause, as step 10 would). Fix on branch core-fix10
   (step 10 restored + a guard refusing to run if a documented step is undefined); merge only after the running release.sh exits
   (never edit a script a running job uses). 08-15 published 22:12 = the 08-14 block's second day 1 h 40 min after its first.
+  **False STALLED during the drain (22:33):** the day-block ScaledJob's 8 slots are held by draining old-build pods; fixed on
+  core-fix10 (d83428e/cf36ac2/ab00b99: draining leases within their bound explain the absence; progress line instead; 248/0).
+  Deploy after the drains end: merge core-fix10 → main, build core, release.sh --core. Engine gap for the next engine release:
+  a drained release-3 worker waits for its next day's download under a plain step → NO_PROGRESS after 20 min; make it a
+  declared wait.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
