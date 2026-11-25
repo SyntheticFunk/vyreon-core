@@ -1462,6 +1462,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   Suites 1,776/1 (the 1 = h3-asset address_bound test, fails only under memory pressure of a parallel full run; passes alone on
   base and branch), pytest 268/107. Correction logged: the agent's first "6,826 passed" was wrong (run had stopped).
   Next: core registers TAPE_LISTING_RESTATED (core-r4b) and ships FIRST; then the worker 70d83bbc release (drain, D-465).
+  **Release 4 SHIPPED (UTC−6 ~06:00):** core 9bf80be (TAPE_LISTING_RESTATED engine-caused) then worker 70d83bbc+04d2e67336c9 via
+  release.sh (evidence ~/claude-artifacts/cluster-scratch/evidence-70d83bbc.json): step 10 resumed the queue itself (fix proven
+  live), the new build claimed a reference re-run at once, step 12 drains the 8 release-3 blocks (first drain with D-465
+  workers: they stop after their day). Next: measure the fast reference check and a block's per-day pace on 70d83bbc → a real
+  phase-1 projection; investigate the 07-15/08-14 reference disagreements; the owner's three decisions.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
