@@ -8,8 +8,12 @@ The database, API, job queue and cluster around the Vyreon engine. See `AGENTS.m
 cargo test                      # unit tests
 docker run -d --name vyreon-core-test --memory 1536m -e POSTGRES_PASSWORD=test -p 127.0.0.1:55432:5432 postgres:16
 VYREON_CORE_TEST_PG="host=127.0.0.1 port=55432 user=postgres password=test dbname=postgres" \
+VYREON_REFERENCE_SUITE=<engine checkout>/tools/reference \
   cargo test -- --ignored       # database tests; each creates and drops its own database
 ```
+
+`VYREON_REFERENCE_SUITE` is the engine's reference suite: a re-run's dump, as core serves it, is read
+by the suite's own loader (C-080).
 
 `vyreon-core universe load <PROFILE.json> <dir>` stores a profile's members and ticker history from
 saved Intrinio responses; `vyreon-core universe on <profile> <date>` lists them for a date.
