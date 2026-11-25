@@ -2406,6 +2406,10 @@ pub async fn tick_within(client: &mut Client, s: &Settings, now: &str, budget: D
                         outcomes.push((&SPEND_LINE, spend_line_once(&*client, w, now, &date).await));
                     }
                 }
+                // C-079: a new build's methods compared with the published days', once
+                if let Some(r) = &s.recompute {
+                    outcomes.push((&RECOMPUTE, crate::recompute::auto(client, &s.profile, r, s.spend.as_ref(), now).await.map(|_| ())));
+                }
             }
         }
         record(client, now, &outcomes, &mut change).await?;

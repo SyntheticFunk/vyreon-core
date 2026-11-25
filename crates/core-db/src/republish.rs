@@ -352,6 +352,8 @@ pub struct Plan {
     pub sessions: Vec<String>,
     /// Sessions of the range with no published day (nothing to republish).
     pub unpublished: Vec<String>,
+    /// C-079: sessions of the range not asked for (`plan_days`): left as they are, and a run never spans them.
+    pub skipped: Vec<String>,
     /// Published sessions whose revisions are of profile revisions the build does not publish.
     pub stale: Vec<String>,
     /// The slots the recompute set holds, base and day-local, and the day's base and day-local slots
@@ -373,7 +375,7 @@ impl Plan {
     /// (release-2 audit, Codex 6, Gemini 5) the published sessions in runs of consecutive sessions of the
     /// range: what FULL and the ordered passes schedule, an unpublished or omitted session left as it is.
     pub fn runs(&self) -> Vec<(String, String)> {
-        let mut all: Vec<&String> = self.sessions.iter().chain(&self.unpublished).collect();
+        let mut all: Vec<&String> = self.sessions.iter().chain(&self.unpublished).chain(&self.skipped).collect();
         all.sort();
         let mut runs: Vec<(String, String)> = Vec::new();
         let mut open: Option<(String, String)> = None;
@@ -404,6 +406,20 @@ impl Plan {
 /// cost each way, and the choice. `block`: the days a full recompute's day block covers.
 #[allow(clippy::too_many_arguments)]
 pub async fn plan(client: &impl GenericClient, profile: &str, build: &str, names: &[&str], first: &str, last: &str, block: i64, today: &str) -> Result<Plan, String> {
+    plan_in(client, profile, build, names, first, last, None, block, today).await
+}
+
+/// C-079: `plan` over the listed sessions only (each a session; their runs of consecutive sessions are
+/// what FULL and the passes schedule).
+pub async fn plan_days(client: &impl GenericClient, profile: &str, build: &str, names: &[&str], sessions: &[String], block: i64, today: &str) -> Result<Plan, String> {
+    let (Some(first), Some(last)) = (sessions.iter().min(), sessions.iter().max()) else {
+        return Err("no session to plan".into());
+    };
+    plan_in(client, profile, build, names, first, last, Some(sessions), block, today).await
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn plan_in(client: &impl GenericClient, profile: &str, build: &str, names: &[&str], first: &str, last: &str, only: Option<&[String]>, block: i64, today: &str) -> Result<Plan, String> {
     if !core_contract::is_date(first) || !core_contract::is_date(last) || !core_contract::is_date(today) {
         return Err(format!("{first} to {last}: dates are written YYYY-MM-DD"));
     }
@@ -418,6 +434,9 @@ pub async fn plan(client: &impl GenericClient, profile: &str, build: &str, names
         )
         .await
         .map_err(db)?;
+    let asked = |r: &tokio_postgres::Row| only.is_none_or(|o| o.iter().any(|s| s == r.get::<_, &str>(0)));
+    let skipped: Vec<String> = rows.iter().filter(|r| !asked(r)).map(|r| r.get(0)).collect();
+    let rows: Vec<_> = rows.into_iter().filter(|r| asked(r)).collect();
     if rows.is_empty() {
         return Err(format!("no trading session from {first} to {last}"));
     }
@@ -445,7 +464,7 @@ pub async fn plan(client: &impl GenericClient, profile: &str, build: &str, names
     let perished: Vec<String> = sessions.iter().filter(|s| perished_days.contains(*s)).cloned().collect();
     let scoped = scoped_day(&measured, &work, &plans);
     let (full_first, full_next) = (full_day(&measured, true), full_day(&measured, false));
-    let mut p = Plan { work, sessions, unpublished, stale, slots, scoped, full_first, full_next, block: block.max(1), measured, perished, choice: Choice::Full, why: String::new() };
+    let mut p = Plan { work, sessions, unpublished, skipped, stale, slots, scoped, full_first, full_next, block: block.max(1), measured, perished, choice: Choice::Full, why: String::new() };
     let (s, f) = (p.scoped_total(), p.full_total());
     let perishable: Vec<String> = set(&plans["perishable"]).into_iter().filter(|c| p.work.categories.contains(c)).collect();
     (p.choice, p.why) = if !p.work.worker() {
