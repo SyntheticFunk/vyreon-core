@@ -3507,7 +3507,10 @@ knows which job a pod holds, its day, and what the successor reads; release.sh o
   leaves the drains to core; `--from 12` resumes the clean-up. The progress channel's hand-over line says
   "N running blocks finishing their day first".
 - **Cost accepted.** A draining pod holds its node and its ScaledJob slot until its day ends (up to the
-  bound), so the successor's carried days start on the free slots meanwhile. Other kinds (tapes, passes,
+  bound), so the successor's carried days start on the free slots meanwhile; with `day-block` at its cap
+  (8, phase 1's 8 blocks) they start as the drains end. Never slower than the old way: a slot finishes
+  the day's remaining part instead of computing the whole day again. Step 11 therefore does not wait for
+  a claim of a kind whose ScaledJob has draining Jobs (checked against live Job and pod labels, read-only). Other kinds (tapes, passes,
   re-runs, republishes) are stopped as before: passes are minutes; a republish or tape drain is a later
   extension if a release ever cuts one.
 Tests: `tests/drain.rs` (two running blocks: one finishes its day, its check ends the lease, a further
