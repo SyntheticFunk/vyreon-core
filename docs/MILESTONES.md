@@ -1366,6 +1366,9 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   other-method in DLM-UNUSUALNESS histories). Its one audit running (`audits/2026-11-25-release3/`). Disk: merged worktrees
   eng-etha/eng-scope/core-scope + targets removed (now 305 GB used).
   Phase-1 on 1ae946f7 so far: 07-09, 07-17, 07-24, 08-14 (+ nightly 11-23); later days compute-paced (~2.5-3 h a day).
+  Release-3 audit: Codex core 14 ordinary + 5 rare, Codex engine 0 ordinary + 4 rare, Gemini core in; **Gemini engine NOT run:
+  weekly quota exhausted (resets in ~138 h, ~2026-12-01)** — recorded and moved on (audits rule); the engine half is small
+  (D-465 last-day stop, build.sh). All findings to the builder on core-auto3/eng-auto3. 07-22 published 21:20.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
