@@ -987,17 +987,19 @@ REPOINT=(-e "s#$LOST-rw#$NEW-rw#g" -e "s#$LOST-app#$NEW-app#g" -e "s#value: $LOS
 ### 11. The first scoped recompute: scoped against full, byte for byte (C-074, engine D-462; the coordinator, after the release)
 What it proves on a real day, which no laptop can: the copy-forward keeps every other slot byte for byte, and a
 scoped recompute computes its sensors exactly as a full recompute of the same day does. About 4 node-hours
-(one scoped day of DLM-CHAIN about 2.4 node-hours, one full day 3.8), about $1. Nothing the comparison has not
+(one scoped day of DLM-TECHNICAL, one full day 3.8 node-hours), about $1. Nothing the comparison has not
 judged replaces what readers see: the full recompute runs compare-only (its revisions staged, never published).
 1. **The day.** A recent session published by the released build, within the prints' five sessions, with a
    COMPLETED reference check that found nothing unexplained, not the daily run's today (`vyreon-core refcheck list
    <date>`): call it D. Note its base and day-local revisions: `SELECT revision_id, day_local FROM vyreon.day_revision
    WHERE represented_date = 'D' AND state = 'PUBLISHED' AND (base_revision IS NULL OR day_local)`.
-2. **Plan, then the scoped run.** `vyreon-core republish FREE_REPORT_64 <build> DLM-CHAIN D D "D-462 first scoped
-   run: scoped against full" --plan` (read the set: day-local DLM-CHAIN's seven sensors, no base; stages derive and
-   surfaces; inputs without company or ACT01; SCOPED). Then the same without `--plan`. Watch: a `republish` pod
+2. **Plan, then the scoped run.** `vyreon-core republish FREE_REPORT_64 <build> DLM-TECHNICAL D D "D-462 first scoped
+   run: scoped against full" --plan` (read the set: day-local DLM-TECHNICAL's seven sensors, no base; stages intents
+   (DLM-VWAP's tape records), derive and surfaces; inputs without company; SCOPED. DLM-CHAIN is no day-local scope
+   since engine D-462's release-2 audit: its records read the option population and surface files, so it
+   republishes VS-O02, VS-O06, VS-IVS01 and their dependants, about a day). Then the same without `--plan`. Watch: a `republish` pod
    starts (`kubectl -n vyreon get pods -l work=republish`), its steps and download progress reach core (`vyreon-core
-   queue`; no NO_PROGRESS), the progress post says "republished (job …, [DLM-CHAIN]: …)", and the job is DONE.
+   queue`; no NO_PROGRESS), the progress post says "republished (job …, [DLM-TECHNICAL]: …)", and the job is DONE.
    The scoped revisions are what readers see from here: they are what is being proven.
 3. **Check the copy.** `ops/scoped-check.sql` with `scoped_base` the day's base (unchanged: the scope has no base
    sensor) and `scoped_local` the new day-local revision: part 1 shows the scope and `value_changed` (expected
