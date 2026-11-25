@@ -1471,7 +1471,9 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   API requests) >20 min with no progress report → alert while working. D-467 covered reference checks and drained waits, not
   long LOCAL units inside a download. Next engine release: the fill reports progress per symbol (or per chunk) inside every
   long local unit (requote, quote window, bulk parse) — progress, not a wider bound. Day count: 20 at 10:00.
-  **PHASE-1 POLICY (owner, 2026-11-25 ~10:30 UTC−6): freeze the engine build, crank, fix after.** "freeze the build, then crank
+  **PHASE-1 POLICY — PROPOSED, NOT DECIDED (owner correction 2026-11-25 ~11:00 UTC−6: "we talked about freezing it yes but we didnt
+  like, decide to freeze it"; "we should probably fix every problem we already found before we freeze it"). I recorded it as
+  decided without confirming — wrong. Direction now: fix every known problem first, one release, THEN freeze and crank.** "freeze the build, then crank
   it and generate phase 1 with as many nodes as possible. Fix everything we find that we can trace to an engine fault. THEN
   selectively recompute where we have to." Why: since 11-21, 38 of 61 day publications (~62%) redid a published day across 11
   engine builds — fixes paid in installments. So: (1) engine frozen at worker 70d83bbc+04d2e67336c9 for the rest of phase 1;
