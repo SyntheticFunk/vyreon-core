@@ -1386,6 +1386,13 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   instead of two (later releases drain). Gemini engine audit of release 3 not run (weekly quota) — Codex's alone accepted
   (audits rule). Merged: engine worker 1134003a, core main 635c3a4 (image built); worker image building. Ship once 09-05
   and 07-15 publish: release.sh --core 635c3a4 (migrations 57-61), then release.sh <1134003a tag>.
+  **Releases 2+3 SHIPPED (UTC−6 ~22:10-22:16):** core 635c3a4 (migrations 57-61) via release.sh --core; worker 1134003a+838b60481511
+  via release.sh with evidence (~/claude-artifacts/cluster-scratch/evidence-1134003a.json). First drain (C-077): the 8 old blocks
+  finish their current day (bound 10:13 UTC); release.sh step 12 still running in the background (log in the session scratchpad).
+  **Defect found live: release.sh step 10 (queue resume) had been deleted by audit-fix commit 6cb40c2** — the queue stayed paused
+  (QUEUE_PAUSED alert worked); resumed by hand at ~22:20 (exactly this run's pause, as step 10 would). Fix on branch core-fix10
+  (step 10 restored + a guard refusing to run if a documented step is undefined); merge only after the running release.sh exits
+  (never edit a script a running job uses). 08-15 published 22:12 = the 08-14 block's second day 1 h 40 min after its first.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
