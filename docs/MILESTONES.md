@@ -1529,6 +1529,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   where no method changed, affected measurements by method version where one did). Spend: pass 1 ≈ $250 more (estimate, before
   the fast reference check is measured); pass 2 unknown until the fault list exists — the two together will likely pass the
   $500 ceiling; flag before crossing it (needs the billing token for a measured number).
+  Owner: knows the two passes will pass $500; ceiling not yet raised → one heads-up with the measured number before crossing.
+  **Slow nightly (11-24, worker 70d83bbc on a day-intel node):** fill 19,215 s wall (5.3 h): quotes unit 9,673 s (requote
+  children 46,749 CPU-s, resident 6.5 GB), options 6,747 s, exq01 1,644 s; 11-23's whole nightly took ~2 h on a `day` (AMD)
+  node. Hypotheses to test before the freeze-run sizing: node type (Intel shared vs AMD), memory pressure in quotes, or a
+  D-466..468-era change in requote work. Perishables were captured (download done 14:09 UTC−6). Backlog item.
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
