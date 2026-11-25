@@ -294,6 +294,10 @@ async fn a_hand_over_lets_a_done_days_archive_and_check_finish() {
     // their bound their slots explain it (live, 2026-11-25: a false STALLED with day-block's 8 slots all
     // draining); the progress channel says so. Gemini 14: once a drain is past its bound, it no longer does
     let s = watch_settings();
+    // (release-4 audit, Codex 7) the slot is the pod's ScaledJob, named in its pod's name: day-block pods
+    // that claimed daily (priority 1) blocks hold day-block's slots, not the daily one's
+    client.execute("UPDATE core.job SET priority = 1 WHERE job_id = ANY($1)", &[&vec![a.job_id, b.job_id]]).await.unwrap();
+    client.execute("UPDATE core.lease SET worker = 'day-block-' || lease_id || '-pod' WHERE job_id = ANY($1)", &[&vec![a.job_id, b.job_id]]).await.unwrap();
     let t0: String = client.query_one("SELECT now()::text", &[]).await.unwrap().get(0);
     core_db::watch::check(&mut client, &s, &t0).await.unwrap();
     let at = |m: i32| format!("SELECT ($1::text::timestamptz + make_interval(mins => {m}))::text");
@@ -302,10 +306,18 @@ async fn a_hand_over_lets_a_done_days_archive_and_check_finish() {
     core_db::watch::check(&mut client, &s, &t1).await.unwrap();
     assert!(open_problems(&client, "STALLED").await.is_empty(), "the drains hold the slots: no stall");
     let post = core_db::progress::preview(&mut client, PROFILE, &t1).await.unwrap().join("\n");
-    assert!(post.contains("Draining: 2 blocks of build slice-old-image finishing their day (2 with the day done, its check to come), by "), "{post}");
+    assert!(post.contains("Draining: 2 blocks of build slice-old-image finishing their day (2 with the day done, its check to come), the first bound "), "{post}");
     assert!(post.contains("the new build's blocks start as they end"), "{post}");
-    // a drain past its bound (the sweep did not stop it) explains nothing: after the stall's minutes, STALLED
-    client.execute("UPDATE core.drain SET until = $1::text::timestamptz - interval '1 minute'", &[&t1]).await.unwrap();
+    // the half hours go by with nothing published: each window's post still says the blocks drain (release-4
+    // audit, Codex 5: a quiet window's one line dropped it)
+    core_db::progress::tick(&mut client, PROFILE, &t1).await.unwrap();
+    let t1b: String = client.query_one(&at(51), &[&t0]).await.unwrap().get(0);
+    core_db::progress::tick(&mut client, PROFILE, &t1b).await.unwrap();
+    let last: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'progress' ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    assert!(last.contains("Draining: 2 blocks"), "{last}");
+    // one drain past its bound (the sweep did not stop it) beside one within it: the kind is not excused
+    // (release-4 audit, Codex 6); after the stall's minutes, STALLED
+    client.execute("UPDATE core.drain SET until = $1::text::timestamptz - interval '1 minute' WHERE job_id = $2", &[&t1, &b.job_id]).await.unwrap();
     core_db::watch::check(&mut client, &s, &t1).await.unwrap();
     let t2: String = client.query_one(&at(40), &[&t0]).await.unwrap().get(0);
     client.execute("UPDATE core.lease SET expires_at = $1::text::timestamptz + interval '1 hour' WHERE ended_at IS NULL", &[&t2]).await.unwrap();
@@ -406,5 +418,27 @@ async fn a_draining_days_publish_has_its_later_history_derived_again_by_the_succ
         .collect();
     assert_eq!(passes, [(new.clone(), "QUEUED".to_owned())], "the fallen history is derived again under the build that runs");
     assert!(open_problems(&client, "NOT_DERIVED").await.is_empty());
+    scratch.drop().await;
+}
+
+/// Release-4 audit, Codex 1: a release resumes only its own pause, atomically: a cause added after its read
+/// (a draining worker's bundle refused) leaves the queue paused, the causes kept.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_release_resumes_only_its_own_pause() {
+    let (scratch, client) = ready("c077_resume_if").await;
+    let mine = "release abc+def: release 4";
+    assert!(!work::resume_if(&client, mine).await.unwrap(), "not paused: nothing to resume");
+    work::pause(&client, mine).await.unwrap();
+    work::pause(&client, "bundle refused: 2024-07-23").await.unwrap();
+    let refused = work::resume_if(&client, mine).await.unwrap_err();
+    assert!(refused.contains("bundle refused: 2024-07-23") && refused.contains("left paused"), "{refused}");
+    let paused: bool = client.query_one("SELECT paused FROM core.queue_control", &[]).await.unwrap().get(0);
+    assert!(paused);
+    work::resume(&client).await.unwrap();
+    work::pause(&client, mine).await.unwrap();
+    assert!(work::resume_if(&client, mine).await.unwrap());
+    let paused: bool = client.query_one("SELECT paused FROM core.queue_control", &[]).await.unwrap().get(0);
+    assert!(!paused);
     scratch.drop().await;
 }
