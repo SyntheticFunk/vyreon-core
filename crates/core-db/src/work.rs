@@ -104,6 +104,15 @@ pub struct Scheduled {
 /// another build that runs refuses the range (withdraw that build or cancel its pass first). DONE
 /// and CANCELLED passes of any build are left as they are.
 pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &str, first: &str, last: &str, block: i32) -> Result<Scheduled, String> {
+    schedule_scoped(client, kind, profile, build, first, last, block, None).await
+}
+
+/// `schedule`, each new job carrying `scope` (C-079: a recompute's day blocks and passes name their
+/// plan and, for a day block, the measurements it recomputes, so a claim past the prints' retention
+/// can turn its days into scoped republishes, `guard_perished_blocks`).
+#[allow(clippy::too_many_arguments)]
+pub async fn schedule_scoped(client: &mut Client, kind: Kind, profile: &str, build: &str, first: &str, last: &str, block: i32, scope: Option<&Value>) -> Result<Scheduled, String> {
+    let scope: Option<String> = scope.map(Value::to_string);
     if kind == Kind::Refcheck {
         return Err("reference-check re-runs are queued by core's watch (C-073), not scheduled".into());
     }
@@ -145,15 +154,15 @@ pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &st
         let (kept, replaced) = passes_in_range(&tx, profile, build, first, last).await?;
         let jobs = tx
             .execute(
-                "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, priority)
+                "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, priority, scope)
                  SELECT 'ORDERED_PASS', $1, $2, s.session, s.session, s.session,
-                        COALESCE((SELECT max(r.priority) FROM core.job r WHERE r.job_id = ANY($5) AND r.first_session = s.session), 0)
+                        COALESCE((SELECT max(r.priority) FROM core.job r WHERE r.job_id = ANY($5) AND r.first_session = s.session), 0), $6::text::jsonb
                  FROM core.session s
                  WHERE s.session BETWEEN $3::text::date AND $4::text::date
                    AND NOT EXISTS (SELECT FROM core.job u WHERE u.kind = 'ORDERED_PASS' AND u.profile_id = $1 AND u.first_session = s.session
                                      AND u.state IN ('QUEUED', 'LEASED', 'FAILED'))
                  ORDER BY s.session",
-                &[&profile, &build, &first, &last, &replaced],
+                &[&profile, &build, &first, &last, &replaced, &scope],
             )
             .await
             .map_err(db)?;
@@ -178,12 +187,12 @@ pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &st
     }
     let jobs = tx
         .execute(
-            "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session)
-             SELECT $1, $2, $3, min(session), max(session), min(session)
+            "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope)
+             SELECT $1, $2, $3, min(session), max(session), min(session), $7::text::jsonb
              FROM (SELECT session, (row_number() OVER (ORDER BY session) - 1) / $6 AS block
                    FROM core.session WHERE session BETWEEN $4::text::date AND $5::text::date) s
              GROUP BY block ORDER BY min(session)",
-            &[&kind.name(), &profile, &build, &first, &last, &i64::from(block)],
+            &[&kind.name(), &profile, &build, &first, &last, &i64::from(block), &scope],
         )
         .await
         .map_err(db)?;
@@ -333,6 +342,129 @@ pub async fn sweep(client: &mut Client) -> Result<u64, String> {
     if errors.is_empty() { Ok(ended) } else { Err(errors.join("; ")) }
 }
 
+/// C-079 (release-3 audit, Codex 1 and 15; coordinator: "print retention rechecked at claim for every job
+/// kind, FULL included; old days scoped regardless"): before a day block of `build` is claimed, each queued
+/// one whose remaining sessions include a published day past the prints' retention (`core.prints_perished`,
+/// as a republish's claim reads it) is cut there: the block is cancelled, its done days kept as a DONE
+/// job, its other days queued again as blocks of their own; each such day becomes a scoped republish of
+/// the measurements the block recomputes (a C-079 block's scope names them) unless that scope reads the
+/// prints itself (no faithful recompute), and a day no scope names is left as published. Either way it is
+/// said on the alerts channel when the owner must act. A first computation (an unpublished day) is never
+/// touched: nothing of it can be withheld that was published.
+pub async fn guard_perished_blocks(client: &mut Client, build: &str) -> Result<(), String> {
+    // a database before 0057 (the tests' older schemas) has no prints to lose
+    let known: bool = client.query_one("SELECT to_regprocedure('core.prints_perished(date,date,integer)') IS NOT NULL", &[]).await.map_err(db)?.get(0);
+    if !known {
+        return Ok(());
+    }
+    let candidates: Vec<i64> = client
+        .query(
+            "SELECT DISTINCT j.job_id FROM core.job j JOIN core.session s ON s.session BETWEEN j.next_session AND j.last_session
+             WHERE j.kind = 'DAY_BLOCK' AND j.state = 'QUEUED' AND j.engine_build = $1 AND NOT COALESCE(j.scope @> '{\"compare_only\": true}', false)
+               AND core.prints_perished(s.session, (now() AT TIME ZONE 'UTC')::date) AND core.day_published(s.session, j.profile_id)",
+            &[&build],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    for job in candidates {
+        let tx = client.transaction().await.map_err(db)?;
+        tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.map_err(db)?;
+        let Some(row) = tx
+            .query_opt(
+                "SELECT j.profile_id, j.scope::text,
+                        ARRAY(SELECT s.session::text FROM core.session s WHERE s.session BETWEEN j.next_session AND j.last_session ORDER BY 1),
+                        ARRAY(SELECT s.session::text FROM core.session s WHERE s.session BETWEEN j.next_session AND j.last_session
+                                AND core.prints_perished(s.session, (now() AT TIME ZONE 'UTC')::date) AND core.day_published(s.session, j.profile_id) ORDER BY 1)
+                 FROM core.job j WHERE j.job_id = $1 AND j.state = 'QUEUED' FOR UPDATE SKIP LOCKED",
+                &[&job],
+            )
+            .await
+            .map_err(db)?
+        else {
+            continue;
+        };
+        let (profile, scope, all, perished): (String, Option<String>, Vec<String>, Vec<String>) = (row.get(0), row.get(1), row.get(2), row.get(3));
+        if perished.is_empty() {
+            continue;
+        }
+        // the days it did: a finished job of their own, as a hand-over keeps them
+        tx.execute(
+            "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, state, attempts, max_attempts, finished_at, priority)
+             SELECT kind, profile_id, engine_build, first_session,
+                    (SELECT max(session) FROM core.session WHERE session < j.next_session), NULL, scope, 'DONE', attempts, max_attempts, clock_timestamp(), priority
+             FROM core.job j WHERE job_id = $1 AND next_session > first_session",
+            &[&job],
+        )
+        .await
+        .map_err(db)?;
+        tx.execute("UPDATE core.job SET first_session = next_session, state = 'CANCELLED', finished_at = clock_timestamp() WHERE job_id = $1", &[&job])
+            .await
+            .map_err(db)?;
+        // the other days, in runs of consecutive sessions, queued again as they were
+        let mut run: Vec<&String> = Vec::new();
+        let mut runs: Vec<(String, String)> = Vec::new();
+        for d in &all {
+            if perished.contains(d) {
+                if let (Some(a), Some(b)) = (run.first(), run.last()) {
+                    runs.push(((*a).clone(), (*b).clone()));
+                }
+                run.clear();
+            } else {
+                run.push(d);
+            }
+        }
+        if let (Some(a), Some(b)) = (run.first(), run.last()) {
+            runs.push(((*a).clone(), (*b).clone()));
+        }
+        for (a, b) in &runs {
+            tx.execute(
+                "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, attempts, max_attempts, priority)
+                 SELECT kind, profile_id, engine_build, $2::text::date, $3::text::date, $2::text::date, scope, attempts, max_attempts, priority FROM core.job WHERE job_id = $1",
+                &[&job, a, b],
+            )
+            .await
+            .map_err(db)?;
+        }
+        let scope: Value = scope.and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
+        let names: Vec<String> = scope["measurements"].as_array().into_iter().flatten().filter_map(|m| m.as_str().map(str::to_owned)).collect();
+        notice::log(
+            &tx,
+            &format!(
+                "Day block job {job} of build {build} cut at its claim: {} published, past the prints' retention ({}); a full recompute would withhold the prints' sensors there. Its other days queued again.",
+                perished.len(),
+                perished.join(" ")
+            ),
+        )
+        .await?;
+        tx.commit().await.map_err(db)?;
+        // each such day: scoped, when the block says what it recomputes and that scope reads no prints
+        let reason = scope["reason"].as_str().unwrap_or("a full recompute past the prints' retention").to_owned();
+        let scoped = if names.is_empty() {
+            Err("the block names no measurements it recomputes".to_owned())
+        } else {
+            match crate::republish::plans(&*client, build).await.and_then(|plans| crate::republish::compose(&plans, &[], &names)) {
+                Ok(w) if w.categories.iter().any(|c| c == "exq01") => Err(format!("its scope [{}] reads the prints itself: no faithful recompute", names.join(","))),
+                Ok(w) => crate::republish::schedule_tagged(client, &profile, build, &w, &perished, &reason, scope.get("recompute_plan")).await.map(|_| ()),
+                Err(e) => Err(e),
+            }
+        };
+        if let Err(why) = scoped {
+            notice::alert(
+                &*client,
+                &format!(
+                    "🔴 Full recompute of {} under build {build} not run: the provider no longer serves those days' option prints, so it would publish their sensors withheld; {why}.\nPublished numbers stay as they are.\nTo do: recompute them scoped (`vyreon-core republish {profile} {build} <scope> <first> <last> \"<reason>\" --scoped`), or leave them.",
+                    perished.join(" ")
+                ),
+            )
+            .await?;
+        }
+    }
+    Ok(())
+}
+
 /// C-077: how long a release lets a running day block of the old build finish the day it is computing
 /// (`build::hand_over`). The measured worst first day of a block on the cluster, 4 h 55 min (2024-07-16
 /// on 5f637983, MILESTONES: about 3 h of download and 2 h of compute; a later day is shorter), its
@@ -440,16 +572,46 @@ async fn settle_drain(client: &mut Client, lease: i64) -> Result<bool, String> {
             // where the hand-overs from the old build lead (a later release may have handed its
             // successor's work on): the newest successor of each, from the drain's own
             let mut successor = to.clone();
-            for _ in 0..32 {
+            let mut seen = vec![from.clone(), to.clone()];
+            while let Some(next) = tx
+                .query_opt("SELECT to_build FROM core.hand_over WHERE from_build = $1 ORDER BY handed_at DESC, hand_over_id DESC LIMIT 1", &[&successor])
+                .await
+                .map_err(db)?
+                .map(|r| r.get::<_, String>(0))
+                .filter(|n| !seen.contains(n))
+            {
+                seen.push(next.clone());
+                successor = next;
+            }
+            // (release-3 audit, Codex 16, Gemini 16) where that build no longer runs (withdrawn with nothing to
+            // hand over, or a rollback), the newest running build that reads the day takes it; a successor
+            // not admitted yet (its hand-over's admission to come) keeps it
+            let (runs, never_admitted): (bool, bool) = {
+                let r = tx
+                    .query_one("SELECT core.build_runs($1), admitted_at IS NULL FROM core.engine_build WHERE engine_build = $1", &[&successor])
+                    .await
+                    .map_err(db)?;
+                (r.get(0), r.get(1))
+            };
+            if !runs && !never_admitted {
                 match tx
-                    .query_opt("SELECT to_build FROM core.hand_over WHERE from_build = $1 ORDER BY handed_at DESC, hand_over_id DESC LIMIT 1", &[&successor])
+                    .query_opt(
+                        "SELECT b.engine_build FROM core.engine_build b WHERE core.build_runs(b.engine_build) AND core.reads_days_of(b.engine_build, $1)
+                         ORDER BY b.admitted_at DESC, b.engine_build LIMIT 1",
+                        &[&from],
+                    )
                     .await
                     .map_err(db)?
                 {
-                    Some(r) if r.get::<_, String>(0) != from => successor = r.get(0),
-                    _ => break,
+                    Some(r) => successor = r.get(0),
+                    // no build to take it yet: tried again at the next sweep
+                    None => return Ok(false),
                 }
             }
+            // a base published without its day-local revision is superseded, as a day set aside's is
+            // (release-3 audit, Gemini 3: C-063, migration 0039), so no reader sees half a day
+            let profile: String = tx.query_one("SELECT profile_id FROM core.job WHERE job_id = $1", &[&job]).await.map_err(db)?.get(0);
+            let dropped = dropped_base_clause(crate::publish::drop_base_without_day_local(&tx, job, &next, &profile).await?, &next);
             // the days it did: a finished job of their own, as a hand-over keeps them
             tx.execute(
                 "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, state, attempts, max_attempts, finished_at, priority)
@@ -476,7 +638,7 @@ async fn settle_drain(client: &mut Client, lease: i64) -> Result<bool, String> {
             let why = if failure.is_empty() { outcome.to_lowercase() } else { crate::watch::one_line(&failure, 160) };
             notice::log(
                 &tx,
-                &format!("Draining day block job {job} of build {from} ended without {next} ({why}): the day is build {successor}'s, job {new}."),
+                &format!("Draining day block job {job} of build {from} ended without {next} ({why}): the day is build {successor}'s, job {new}{dropped}."),
             )
             .await?;
             Some(new)
@@ -728,7 +890,16 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         .await
         .map_err(db)?;
     let (day, profile): (String, String) = (row.get(0), row.get(1));
-    let failed: i64 = db_client.query_one("SELECT count(*) FROM core.job WHERE kind = 'DAY_BLOCK' AND state = 'FAILED'", &[]).await.map_err(db)?.get(0);
+    // (release-3 audit, Gemini 13) a draining block of a withdrawn build is carried to the successor by the
+    // sweep: its failed day is no day of the running builds' to pause for
+    let failed: i64 = db_client
+        .query_one(
+            "SELECT count(*) FROM core.job j WHERE j.kind = 'DAY_BLOCK' AND j.state = 'FAILED' AND NOT EXISTS (SELECT FROM core.drain d WHERE d.job_id = j.job_id)",
+            &[],
+        )
+        .await
+        .map_err(db)?
+        .get(0);
     // audit 2026-11-22 round 2 core-r2 1: a base its day-local revision never joined is superseded, so
     // no later day's history reads the day this block leaves missing
     let local = dropped_base_clause(crate::publish::drop_base_without_day_local(db_client, job, &day, &profile).await?, &day);
@@ -849,6 +1020,12 @@ pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str
             notice::log(&t, &format!("Republish of {day} (job {job}) not run: the scope reads {day}'s option prints, which the provider no longer serves. The day keeps its revisions.")).await?;
         }
         t.commit().await.map_err(db)?;
+    }
+    // C-079 (release-3 audit, Codex 1 and 15): a day block over a published day whose option prints the
+    // provider no longer serves would publish the prints' sensors withheld where the day holds readings;
+    // such days are taken out of the block first, whoever queued it and however long it waited
+    if kind == Kind::DayBlock {
+        guard_perished_blocks(client, build).await?;
     }
     let tx = client.transaction().await.map_err(db)?;
     if kind == Kind::OrderedPass {

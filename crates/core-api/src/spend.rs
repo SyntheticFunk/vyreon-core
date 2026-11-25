@@ -50,7 +50,7 @@ impl Billing {
             _ => return Err("no DigitalOcean token: the secret vyreon-core-do-billing is not made (deploy/k8s/README.md, Spend)".into()),
         };
         let balance = self.get(&token, "/v2/customers/my/balance").await?;
-        let invoices = self.get(&token, "/v2/customers/my/invoices?per_page=24").await?;
+        let invoices = self.get(&token, "/v2/customers/my/invoices?per_page=200").await?;
         spend::from_answers(&balance, &invoices, month_now)
     }
 }

@@ -88,8 +88,11 @@ pub struct Group {
     pub why: String,
     /// False when the owner must decide (no faithful recompute, no plan).
     pub schedulable: bool,
-    /// The chosen way's estimated node-seconds (ordered passes: none counted, minutes each, no node of their own).
+    /// The chosen way's estimated node-seconds, the work it causes included (release-3 audit, Codex 9: a
+    /// scoped day's reference-check re-run; the ordered passes at their measured time).
     pub seconds: f64,
+    /// Its days are past the prints' retention (planned apart: Gemini 10).
+    pub perished: bool,
 }
 
 /// What a recompute after `build` would do.
@@ -102,7 +105,8 @@ pub struct Proposal {
     /// The layers asked for whose versions the build has not published yet.
     pub waiting: Vec<String>,
     pub groups: Vec<Group>,
-    /// Days with unfinished day blocks or republishes, left alone (being computed).
+    /// Differing days with unfinished day blocks or republishes (compare-only blocks included: a schedule
+    /// over them is refused): decided again once they are free (release-3 audit, Codex 5, Gemini 11).
     pub busy: Vec<String>,
     /// Published days before `from`, left alone.
     pub before: i64,
@@ -112,14 +116,44 @@ impl Proposal {
     pub fn days(&self) -> usize {
         self.groups.iter().map(|g| g.days.len()).sum()
     }
+    /// The differing days planned (schedulable or not).
+    pub fn planned_days(&self) -> Vec<String> {
+        let mut d: Vec<String> = self.groups.iter().flat_map(|g| g.days.iter().cloned()).collect();
+        d.sort();
+        d
+    }
     pub fn seconds(&self) -> f64 {
         self.groups.iter().filter(|g| g.schedulable).map(|g| g.seconds).sum()
     }
 }
 
-/// The plan of recomputing, under `build`, the published days of `profile` whose versions in `layers`
-/// differ from the build's own.
-pub async fn propose(c: &impl GenericClient, profile: &str, build: &str, layers: &[&str], from: Option<&str>, block: i64, today: &str) -> Result<Proposal, String> {
+/// How many recent finished leases a measured duration is the median of.
+pub const MEASURED_LEASES: i64 = 20;
+/// A reference-check re-run not yet measured is priced at its deadline (the engine's `RERUN_MINUTES`, 600):
+/// an upper bound, never a guess.
+pub const RERUN_BOUND_SECONDS: f64 = 600.0 * 60.0;
+/// An ordered pass not yet measured is priced at C-066's cap (a pass past 30 minutes is raised).
+pub const PASS_BOUND_SECONDS: f64 = 30.0 * 60.0;
+
+/// The median node-seconds of the latest finished leases of `kind`, else `bound`.
+async fn measured_lease(c: &impl GenericClient, kind: &str, bound: f64) -> Result<f64, String> {
+    let m: Option<f64> = c
+        .query_one(
+            "SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY s) FROM (
+                 SELECT extract(epoch FROM l.ended_at - l.granted_at)::float8 AS s FROM core.lease l JOIN core.job j USING (job_id)
+                 WHERE j.kind = $1 AND l.outcome = 'DONE' ORDER BY l.ended_at DESC LIMIT $2) x",
+            &[&kind, &MEASURED_LEASES],
+        )
+        .await
+        .map_err(db)?
+        .get(0);
+    Ok(m.filter(|x| *x > 0.0).unwrap_or(bound))
+}
+
+/// The plan of recomputing, under `build`, the published days of `profile` (`only`: of those days) whose
+/// versions in `layers` differ from the build's own.
+#[allow(clippy::too_many_arguments)]
+pub async fn propose(c: &impl GenericClient, profile: &str, build: &str, layers: &[&str], from: Option<&str>, only: Option<&[String]>, block: i64, today: &str) -> Result<Proposal, String> {
     let reference = reference(c, profile, build).await?;
     let compared: Vec<String> = layers.iter().filter(|l| reference.contains_key(**l)).map(|l| (*l).to_owned()).collect();
     let waiting: Vec<String> = layers.iter().filter(|l| !reference.contains_key(**l)).map(|l| (*l).to_owned()).collect();
@@ -127,28 +161,32 @@ pub async fn propose(c: &impl GenericClient, profile: &str, build: &str, layers:
     if compared.is_empty() {
         return Ok(p);
     }
+    let only: Option<Vec<String>> = only.map(<[String]>::to_vec);
     p.before = c
         .query_one(
             "SELECT count(DISTINCT represented_date) FROM vyreon.day_revision
-             WHERE state = 'PUBLISHED' AND profile_id = $1 AND $2::text IS NOT NULL AND represented_date < $2::text::date",
-            &[&profile, &from],
+             WHERE state = 'PUBLISHED' AND profile_id = $1 AND $2::text IS NOT NULL AND represented_date < $2::text::date
+               AND ($3::text[] IS NULL OR represented_date::text = ANY($3))",
+            &[&profile, &from, &only],
         )
         .await
         .map_err(db)?
         .get(0);
-    // the published layers of each day, and their measurements' labels
-    let published: Vec<(String, String)> = c
+    // the published layers of each day, and whether the build publishes their profile revisions
+    let published: Vec<(String, String, bool)> = c
         .query(
             &format!(
-                "SELECT d.represented_date::text, {LAYER} FROM vyreon.day_revision d
-                 WHERE d.state = 'PUBLISHED' AND d.profile_id = $1 AND ($2::text IS NULL OR d.represented_date >= $2::text::date) AND {LAYER} = ANY($3)"
+                "SELECT d.represented_date::text, {LAYER}, EXISTS (SELECT FROM core.expected_slot e WHERE e.engine_build = $4 AND e.profile_revision = d.profile_revision)
+                 FROM vyreon.day_revision d
+                 WHERE d.state = 'PUBLISHED' AND d.profile_id = $1 AND ($2::text IS NULL OR d.represented_date >= $2::text::date) AND {LAYER} = ANY($3)
+                   AND ($5::text[] IS NULL OR d.represented_date::text = ANY($5))"
             ),
-            &[&profile, &from, &compared],
+            &[&profile, &from, &compared, &build, &only],
         )
         .await
         .map_err(db)?
         .iter()
-        .map(|r| (r.get(0), r.get(1)))
+        .map(|r| (r.get(0), r.get(1), r.get(2)))
         .collect();
     let rows = c
         .query(
@@ -156,16 +194,17 @@ pub async fn propose(c: &impl GenericClient, profile: &str, build: &str, layers:
                 "SELECT d.represented_date::text, {LAYER}, m.measurement_id, array_agg(DISTINCT m.science_version || ' | ' || m.method_version)
                  FROM vyreon.day_revision d JOIN vyreon.measurement m ON m.revision_id = d.revision_id AND m.represented_date = d.represented_date
                  WHERE d.state = 'PUBLISHED' AND d.profile_id = $1 AND ($2::text IS NULL OR d.represented_date >= $2::text::date) AND {LAYER} = ANY($3)
+                   AND ($4::text[] IS NULL OR d.represented_date::text = ANY($4))
                  GROUP BY 1, 2, 3"
             ),
-            &[&profile, &from, &compared],
+            &[&profile, &from, &compared, &only],
         )
         .await
         .map_err(db)?;
-    let mut labels: BTreeMap<(String, String, String), BTreeSet<String>> = BTreeMap::new();
+    let mut labels: BTreeMap<(String, String), BTreeMap<String, BTreeSet<String>>> = BTreeMap::new();
     for r in rows {
         let l: Vec<String> = r.get(3);
-        labels.insert((r.get(0), r.get(1), r.get(2)), l.into_iter().collect());
+        labels.entry((r.get(0), r.get(1))).or_default().insert(r.get(2), l.into_iter().collect());
     }
     let busy: BTreeSet<String> = c
         .query(
@@ -178,39 +217,64 @@ pub async fn propose(c: &impl GenericClient, profile: &str, build: &str, layers:
         .iter()
         .map(|r| r.get(0))
         .collect();
-    let empty = BTreeSet::new();
+    let empty = BTreeMap::new();
     let mut differ: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
-    for (day, layer) in &published {
-        for (m, want) in &reference[layer] {
-            let have = labels.get(&(day.clone(), layer.clone(), m.clone())).unwrap_or(&empty);
-            if have != want {
-                differ.entry(day.clone()).or_default().insert(m.clone());
+    for (day, layer, readable) in &published {
+        let want = &reference[layer];
+        let have = labels.get(&(day.clone(), layer.clone())).unwrap_or(&empty);
+        let names = differ.entry(day.clone()).or_default();
+        if !*readable {
+            // (release-3 audit, Gemini 17) a layer in a profile revision the build does not publish: the whole
+            // layer is recomputed (the planner makes it FULL, or the owner's where the prints are gone)
+            names.extend(want.keys().cloned());
+            continue;
+        }
+        for (m, labels) in want {
+            if have.get(m) != Some(labels) {
+                names.insert(m.clone());
             }
         }
+        // a measurement the build no longer publishes: the day differs by it (the planner says what it can do)
+        names.extend(have.keys().filter(|m| !want.contains_key(*m)).cloned());
     }
-    let mut groups: BTreeMap<BTreeSet<String>, Vec<String>> = BTreeMap::new();
+    differ.retain(|_, n| !n.is_empty());
+    let days: Vec<String> = differ.keys().cloned().collect();
+    let perished: BTreeSet<String> = c
+        .query("SELECT d FROM unnest($1::text[]) d WHERE core.prints_perished(d::date, $2::text::date)", &[&days, &today])
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    // (release-3 audit, Gemini 10) days past the prints' retention are planned apart from the others: neither
+    // decides the other's way
+    let mut groups: BTreeMap<(BTreeSet<String>, bool), Vec<String>> = BTreeMap::new();
     for (day, names) in differ {
         if busy.contains(&day) {
             p.busy.push(day);
         } else {
-            groups.entry(names).or_default().push(day);
+            let gone = perished.contains(&day);
+            groups.entry((names, gone)).or_default().push(day);
         }
     }
-    for (names, days) in groups {
+    let rerun = measured_lease(c, "REFCHECK", RERUN_BOUND_SECONDS).await?;
+    let pass = measured_lease(c, "ORDERED_PASS", PASS_BOUND_SECONDS).await?;
+    for ((names, gone), days) in groups {
         let names: Vec<String> = names.into_iter().collect();
-        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
-        let g = match republish::plan_days(c, profile, build, &refs, &days, block, today).await {
+        let g = match republish::plan_days(c, profile, build, &names, &days, block, today).await {
             Ok(plan) => {
                 let faithful = !(plan.choice == Choice::Full && plan.why.starts_with("no faithful recompute"));
+                let n = plan.sessions.len() as f64;
                 let seconds = match plan.choice {
-                    Choice::Scoped => plan.scoped_total(),
+                    // a republished day's current revisions get a reference-check re-run (C-074 ruling 1)
+                    Choice::Scoped => plan.scoped_total() + n * rerun,
                     Choice::Full => plan.full_total(),
-                    Choice::Passes => 0.0,
+                    Choice::Passes => n * pass,
                 };
                 let why = if faithful { plan.why.clone() } else { format!("left to the owner: {}", plan.why) };
-                Group { names, days, choice: Some(plan.choice), why, schedulable: faithful, seconds, plan: Some(plan) }
+                Group { names, days, choice: Some(plan.choice), why, schedulable: faithful, seconds, perished: gone, plan: Some(plan) }
             }
-            Err(e) => Group { names, days, plan: None, choice: None, why: format!("not planned: {e}"), schedulable: false, seconds: 0.0 },
+            Err(e) => Group { names, days, plan: None, choice: None, why: format!("not planned: {e}"), schedulable: false, seconds: 0.0, perished: gone },
         };
         p.groups.push(g);
     }
@@ -247,9 +311,9 @@ pub fn describe(p: &Proposal, node_hour_usd: f64) -> Vec<String> {
     )];
     for g in p.groups.iter().take(GROUPS_SHOWN) {
         let way = match (g.choice, &g.plan) {
-            (Some(Choice::Scoped), _) if g.schedulable => format!("SCOPED, one job a day, {}", hours(g.seconds)),
+            (Some(Choice::Scoped), _) if g.schedulable => format!("SCOPED, one job a day and its check's re-run, {}", hours(g.seconds)),
             (Some(Choice::Full), Some(plan)) if g.schedulable => format!("FULL, day blocks over {} runs of days, {}", plan.runs().len(), hours(g.seconds)),
-            (Some(Choice::Passes), _) => "ordered passes (minutes each)".to_owned(),
+            (Some(Choice::Passes), _) => format!("ordered passes, {}", hours(g.seconds)),
             _ => "not scheduled".to_owned(),
         };
         let span = match (g.days.first(), g.days.last()) {
@@ -258,7 +322,8 @@ pub fn describe(p: &Proposal, node_hour_usd: f64) -> Vec<String> {
             _ => String::new(),
         };
         let unsaid = if g.schedulable { String::new() } else { format!(" — {}", one_line(&g.why, 160)) };
-        out.push(format!(" · [{}] on {} days ({span}): {way}{unsaid}", names_words(&g.names, 6), g.days.len()));
+        let gone = if g.perished { ", prints no longer served" } else { "" };
+        out.push(format!(" · [{}] on {} days ({span}{gone}): {way}{unsaid}", names_words(&g.names, 6), g.days.len()));
     }
     if p.groups.len() > GROUPS_SHOWN {
         out.push(format!(" · and {} more groups of days", p.groups.len() - GROUPS_SHOWN));
@@ -268,7 +333,7 @@ pub fn describe(p: &Proposal, node_hour_usd: f64) -> Vec<String> {
         out.push(format!(" ≈ {} ≈ {} at {}/node-h (the planner's measured times)", hours(s), dollars(s / 3600.0 * node_hour_usd), dollars(node_hour_usd)));
     }
     if !p.busy.is_empty() {
-        out.push(format!(" {} days being computed (unfinished day blocks or republishes) left alone", p.busy.len()));
+        out.push(format!(" {} days being computed (unfinished day blocks or republishes): compared again once they are done", p.busy.len()));
     }
     if p.before > 0 {
         out.push(format!(" {} published days before VYREON_CORE_RECOMPUTE_FROM left alone", p.before));
@@ -295,25 +360,51 @@ pub struct Decided {
     pub jobs: u64,
 }
 
+/// The cost of plans already scheduled and not yet in DigitalOcean's figure as of `asof` (release-3 audit,
+/// Codex 10): each SCHEDULED or FAILED plan whose jobs are unfinished, or finished after it, counted whole.
+pub async fn reserved(c: &impl GenericClient, asof: &str) -> Result<f64, String> {
+    Ok(c
+        .query_one(
+            "SELECT COALESCE(sum(p.cost_usd), 0)::float8 FROM core.recompute_plan p
+             WHERE p.outcome IN ('SCHEDULED', 'FAILED')
+               AND EXISTS (SELECT FROM core.job j WHERE j.scope ? 'recompute_plan' AND (j.scope->>'recompute_plan')::bigint = p.plan_id
+                             AND (j.state IN ('QUEUED', 'LEASED', 'FAILED') OR j.finished_at > $1::text::timestamptz))",
+            &[&asof],
+        )
+        .await
+        .map_err(db)?
+        .get(0))
+}
+
 /// Why the proposal may not be scheduled by itself now, if it may not: the ceiling (`spend` None: not
-/// watched; its spend not known: not applied; spent plus the plan's cost past it).
+/// watched; its spend not known: not applied; the spend now, what earlier plans reserve and this plan's
+/// cost past it).
 async fn held_by_ceiling(c: &impl GenericClient, p: &Proposal, w: &RecomputeWatch, watch: Option<&spend::SpendWatch>, now: &str) -> Result<Option<String>, String> {
     let cost = p.seconds() / 3600.0 * w.node_hour_usd;
     Ok(match watch {
         None => Some("the spend is not watched (VYREON_CORE_SPEND_SINCE is not set), so the ceiling cannot be applied".to_owned()),
         Some(sw) => match spend::spend(c, sw, now).await? {
             Spend::Unread(why) => Some(format!("the spend is not known ({}), so the ceiling cannot be applied", one_line(&why, 160))),
-            Spend::Known(k) if k.spent + cost > k.ceiling => {
-                Some(format!("{} spent and {} more would pass the {} ceiling", dollars(k.spent), dollars(cost), dollars(k.ceiling)))
+            Spend::Known(k) => {
+                let held = reserved(c, &k.asof_at).await?;
+                (k.now + held + cost > k.ceiling).then(|| {
+                    format!(
+                        "{} spent, {} reserved by plans not yet billed and {} more would pass the {} ceiling",
+                        dollars(k.now),
+                        dollars(held),
+                        dollars(cost),
+                        dollars(k.ceiling)
+                    )
+                })
             }
-            Spend::Known(_) => None,
         },
     })
 }
 
-/// Schedules the proposal when its cost keeps the spend within the ceiling, records it once
-/// (`core.recompute_plan`) and says so: on the progress channel always, on the alerts channel when the
-/// owner must decide. None when it was recorded before (another tick or the command).
+/// Schedules the proposal when its cost keeps the spend within the ceiling, records the decision
+/// (`core.recompute_plan`) and says so: on the progress channel when it differs from the last decision of
+/// these layers, on the alerts channel when the owner must decide (held, failed, or groups left to him).
+/// None while another decision runs.
 pub async fn decide(client: &mut Client, p: &Proposal, w: &RecomputeWatch, watch: Option<&spend::SpendWatch>, now: &str) -> Result<Option<Decided>, String> {
     // one decision at a time (the watch's tick, the command), so nothing is scheduled twice; the lock is
     // the session's, given back whatever the outcome
@@ -324,35 +415,62 @@ pub async fn decide(client: &mut Client, p: &Proposal, w: &RecomputeWatch, watch
     }
     let out = decide_locked(client, p, w, watch, now).await;
     client.execute(&format!("SELECT pg_advisory_unlock({LOCK})"), &[]).await.map_err(db)?;
-    out
+    out.map(Some)
 }
 
-async fn decide_locked(client: &mut Client, p: &Proposal, w: &RecomputeWatch, watch: Option<&spend::SpendWatch>, now: &str) -> Result<Option<Decided>, String> {
+async fn decide_locked(client: &mut Client, p: &Proposal, w: &RecomputeWatch, watch: Option<&spend::SpendWatch>, now: &str) -> Result<Decided, String> {
     let layers = p.layers.join(",");
-    let recorded = client
-        .query_opt("SELECT FROM core.recompute_plan WHERE engine_build = $1 AND profile_id = $2 AND layers = $3", &[&p.build, &p.profile, &layers])
-        .await
-        .map_err(db)?
-        .is_some();
-    if recorded || p.layers.is_empty() {
-        return Ok(None);
-    }
     let schedulable = p.groups.iter().any(|g| g.schedulable);
     let held = if schedulable { held_by_ceiling(&*client, p, w, watch, now).await? } else { None };
+    let cost = p.seconds() / 3600.0 * w.node_hour_usd;
+    let ceiling = watch.map(|s| s.ceiling_usd);
+    let (outcome, why): (&'static str, Option<String>) = match &held {
+        _ if p.groups.is_empty() => ("NOTHING", None),
+        Some(h) => ("HELD", Some(h.clone())),
+        None if !schedulable => ("HELD", Some("no group of days can be scheduled by itself (see each)".to_owned())),
+        None => ("SCHEDULED", None),
+    };
+    let previous: Option<(String, Option<String>)> = client
+        .query_opt(
+            "SELECT outcome, why FROM core.recompute_plan WHERE engine_build = $1 AND profile_id = $2 AND layers = $3 ORDER BY plan_id DESC LIMIT 1",
+            &[&p.build, &p.profile, &layers],
+        )
+        .await
+        .map_err(db)?
+        .map(|r| (r.get(0), r.get(1)));
+    let lines = describe(p, w.node_hour_usd);
+    let days = p.planned_days();
+    let plan_id: i64 = client
+        .query_one(
+            "INSERT INTO core.recompute_plan (engine_build, profile_id, layers, outcome, why, plan, days, busy, cost_usd, ceiling_usd)
+             VALUES ($1, $2, $3, $4, $5, $6::text::jsonb, $7, $8, $9, $10) RETURNING plan_id",
+            &[&p.build, &p.profile, &layers, &outcome, &why, &json!({"describe": lines}).to_string(), &days, &p.busy, &cost, &ceiling],
+        )
+        .await
+        .map_err(db)?
+        .get(0);
     let mut jobs = 0u64;
     let mut failed: Option<String> = None;
     let mut queued: Vec<Value> = Vec::new();
-    if held.is_none() {
+    if outcome == "SCHEDULED" {
+        let tag = json!(plan_id);
         for g in p.groups.iter().filter(|g| g.schedulable) {
             let Some(plan) = &g.plan else { continue };
             let why = reason(p, g);
-            let made: Result<u64, String> = match plan.choice {
-                Choice::Scoped => republish::schedule(client, &p.profile, &p.build, &plan.work, &plan.sessions, &why).await.map(|s| s.jobs.len() as u64),
-                Choice::Full => {
-                    let mut n = 0;
+            // (release-3 audit, Codex 18) what each run queued counts, also when a later one fails
+            let mut n = 0u64;
+            let made: Result<(), String> = match plan.choice {
+                Choice::Scoped => republish::schedule_tagged(client, &p.profile, &p.build, &plan.work, &plan.sessions, &why, Some(&tag)).await.map(|s| n += s.jobs.len() as u64),
+                Choice::Full | Choice::Passes => {
+                    let (kind, size, scope) = match plan.choice {
+                        // the block names what it recomputes, so a claim past the prints' retention can make
+                        // its days scoped (`work::guard_perished_blocks`)
+                        Choice::Full => (work::Kind::DayBlock, w.block as i32, json!({"recompute_plan": plan_id, "measurements": g.names, "reason": why})),
+                        _ => (work::Kind::OrderedPass, 1, json!({"recompute_plan": plan_id})),
+                    };
                     let mut out = Ok(());
                     for (a, b) in plan.runs() {
-                        match work::schedule(client, work::Kind::DayBlock, &p.profile, &p.build, &a, &b, w.block as i32).await {
+                        match work::schedule_scoped(client, kind, &p.profile, &p.build, &a, &b, size, Some(&scope)).await {
                             Ok(s) => n += s.jobs,
                             Err(e) => {
                                 out = Err(e);
@@ -360,91 +478,73 @@ async fn decide_locked(client: &mut Client, p: &Proposal, w: &RecomputeWatch, wa
                             }
                         }
                     }
-                    match out {
-                        Ok(()) => notice::log(&*client, &format!("Full recompute of {} sessions under build {} queued as {n} day blocks ({why}).", plan.sessions.len(), p.build))
-                            .await
-                            .map(|()| n),
-                        Err(e) => Err(e),
-                    }
-                }
-                Choice::Passes => {
-                    let mut n = 0;
-                    let mut out = Ok(n);
-                    for (a, b) in plan.runs() {
-                        match work::schedule(client, work::Kind::OrderedPass, &p.profile, &p.build, &a, &b, 1).await {
-                            Ok(s) => {
-                                n += s.jobs;
-                                out = Ok(n);
-                            }
-                            Err(e) => {
-                                out = Err(e);
-                                break;
-                            }
-                        }
+                    if out.is_ok() && plan.choice == Choice::Full {
+                        notice::log(&*client, &format!("Full recompute of {} sessions under build {} queued as {n} day blocks ({why}).", plan.sessions.len(), p.build)).await?;
                     }
                     out
                 }
             };
-            match made {
-                Ok(n) => {
-                    jobs += n;
-                    queued.push(json!({"names": g.names, "days": g.days.len(), "choice": plan.choice.name(), "jobs": n}));
-                }
-                Err(e) => {
-                    failed = Some(format!("[{}]: {e}", names_words(&g.names, 4)));
-                    break;
-                }
+            jobs += n;
+            queued.push(json!({"names": g.names, "days": g.days.len(), "choice": plan.choice.name(), "jobs": n}));
+            if let Err(e) = made {
+                failed = Some(format!("[{}]: {e}", names_words(&g.names, 4)));
+                break;
             }
         }
     }
-    let (outcome, why) = match (&held, &failed) {
-        _ if p.groups.is_empty() => ("NOTHING", None),
-        (Some(h), _) => ("HELD", Some(h.clone())),
-        (None, Some(f)) => ("FAILED", Some(format!("scheduling stopped part-way: {f}"))),
-        (None, None) if !schedulable => ("HELD", Some("no group of days can be scheduled by itself (see each)".to_owned())),
-        (None, None) => ("SCHEDULED", None),
+    let (outcome, why) = match failed {
+        Some(f) => ("FAILED", Some(format!("scheduling stopped part-way ({jobs} jobs queued before): {f}"))),
+        None => (outcome, why),
     };
-    let lines = describe(p, w.node_hour_usd);
-    let plan = json!({"describe": lines, "queued": queued, "busy": p.busy.len(), "waiting": p.waiting, "cost_usd": p.seconds() / 3600.0 * w.node_hour_usd});
     let tx = client.transaction().await.map_err(db)?;
-    let n = tx
-        .execute(
-            "INSERT INTO core.recompute_plan (engine_build, profile_id, layers, outcome, why, plan) VALUES ($1, $2, $3, $4, $5, $6::text::jsonb)
-             ON CONFLICT (engine_build, profile_id, layers) DO NOTHING",
-            &[&p.build, &p.profile, &layers, &outcome, &why, &plan.to_string()],
-        )
-        .await
-        .map_err(db)?;
-    if n == 1 {
+    tx.execute(
+        "UPDATE core.recompute_plan SET outcome = $2, why = $3, plan = plan || $4::text::jsonb WHERE plan_id = $1",
+        &[&plan_id, &outcome, &why, &json!({"queued": queued, "jobs": jobs}).to_string()],
+    )
+    .await
+    .map_err(db)?;
+    let commit = p.build.split('+').next().unwrap_or(&p.build).to_owned();
+    // the same held decision again (each hour, until the ceiling or the spend allows it) is not said again
+    let same = previous.as_ref().is_some_and(|(o, w)| o == outcome && w.as_deref() == why.as_deref() && outcome == "HELD");
+    if !same {
         let head = match outcome {
             "SCHEDULED" => format!("scheduled: {jobs} jobs"),
             "NOTHING" => "nothing to recompute".to_owned(),
             _ => format!("NOT scheduled: {}", why.clone().unwrap_or_default()),
         };
-        let key = format!("recompute {} {} {layers}", p.build, p.profile);
-        notice::progress(&tx, &key, &format!("♻️ Recompute after a method change ({head})\n{}", lines.join("\n"))).await?;
-        if matches!(outcome, "HELD" | "FAILED") {
-            notice::alert_once(
-                &tx,
-                &format!("{key} alert"),
-                &format!(
-                    "🔴 Recompute after build {} not scheduled: {}\nPublished numbers stay as they are, under their older methods, until recomputed.\nTo do: read the plan, then schedule it on your word (`vyreon-core republish`, or raise the ceiling): `vyreon-core recompute {} {} --plan`",
-                    p.build.split('+').next().unwrap_or(&p.build),
-                    why.clone().unwrap_or_default(),
-                    p.profile,
-                    p.build
-                ),
-            )
-            .await?;
-        }
+        notice::progress(&tx, &format!("recompute {plan_id}"), &format!("♻️ Recompute after a method change ({head})\n{}", lines.join("\n"))).await?;
+    }
+    let left: Vec<&Group> = p.groups.iter().filter(|g| !g.schedulable).collect();
+    let alert = match outcome {
+        "HELD" | "FAILED" => Some(why.clone().unwrap_or_default()),
+        // (release-3 audit, Gemini 12) groups left to the owner beside those scheduled
+        "SCHEDULED" if !left.is_empty() => Some(format!(
+            "{} groups of days ({} days) are left to you: {}",
+            left.len(),
+            left.iter().map(|g| g.days.len()).sum::<usize>(),
+            one_line(&left.iter().map(|g| format!("[{}] {}", names_words(&g.names, 3), g.why)).collect::<Vec<_>>().join("; "), 400)
+        )),
+        _ => None,
+    };
+    if let Some(text) = alert.filter(|_| !same) {
+        notice::alert(
+            &tx,
+            &format!(
+                "🔴 Recompute after build {commit}: {text}\nThose days' numbers stay published as they are, under their older methods, until recomputed.\nTo do: read the plan; schedule on your word (`vyreon-core republish`), or raise the ceiling (a held plan is decided again within the hour): `vyreon-core recompute {} {} --plan`",
+                p.profile, p.build
+            ),
+        )
+        .await?;
     }
     tx.commit().await.map_err(db)?;
-    Ok((n == 1).then_some(Decided { outcome, why, jobs }))
+    Ok(Decided { outcome, why, jobs })
 }
 
-/// The layers of `build` whose versions it has published and no plan has compared yet: the day's two
-/// layers together, once both are published; the history layer once its first pass has run.
-pub async fn uncompared(c: &impl GenericClient, profile: &str, build: &str) -> Result<Vec<&'static str>, String> {
+/// What is to be decided for `build`: (layers, only these days) — its layers no decision has compared yet
+/// (the day's two together once both are published, the history once its first pass has run); else, per
+/// layers, the newest decision HELD (decided again once an hour has passed and the ceiling changed or the
+/// spend was read since), or its busy days of which one is free now (decided again for those).
+pub async fn pending(c: &impl GenericClient, profile: &str, build: &str, ceiling: Option<f64>) -> Result<Option<(Vec<&'static str>, Option<Vec<String>>)>, String> {
     let row = c
         .query_one(
             &format!(
@@ -465,12 +565,45 @@ pub async fn uncompared(c: &impl GenericClient, profile: &str, build: &str) -> R
     if has("history") && (need.len() == 2 || covered.iter().any(|c| c == "base")) {
         need.push("history");
     }
-    Ok(need)
+    if !need.is_empty() {
+        return Ok(Some((need, None)));
+    }
+    // the newest decision of each set of layers
+    let rows = c
+        .query(
+            "SELECT DISTINCT ON (p.layers) p.layers, p.outcome, p.ceiling_usd, p.busy,
+                    p.planned_at < now() - interval '1 hour'
+                      AND EXISTS (SELECT FROM core.spend_reading s WHERE s.error IS NULL AND s.read_at > p.planned_at),
+                    ARRAY(SELECT d FROM unnest(p.busy) d
+                          WHERE NOT EXISTS (SELECT FROM core.job j WHERE j.kind IN ('DAY_BLOCK', 'REPUBLISH') AND j.profile_id = p.profile_id
+                                              AND j.state IN ('QUEUED', 'LEASED', 'FAILED')
+                                              AND d::date BETWEEN COALESCE(j.next_session, j.first_session) AND j.last_session))
+             FROM core.recompute_plan p WHERE p.engine_build = $1 AND p.profile_id = $2 ORDER BY p.layers, p.plan_id DESC",
+            &[&build, &profile],
+        )
+        .await
+        .map_err(db)?;
+    for r in rows {
+        let (layers, outcome, at_ceiling, busy, read_since, free): (String, String, Option<f64>, Vec<String>, bool, Vec<String>) =
+            (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5));
+        let layers: Vec<&'static str> = ["base", "day-local", "history"].into_iter().filter(|l| layers.split(',').any(|x| x == *l)).collect();
+        // (release-3 audit, Codex 11, Gemini 8) a raised ceiling, or the spend read since, decides it again
+        let ceiling_changed = at_ceiling.is_some() && ceiling.is_some() && at_ceiling != ceiling;
+        if outcome == "HELD" && (ceiling_changed || read_since || (at_ceiling.is_none() && ceiling.is_some())) {
+            return Ok(Some((layers, None)));
+        }
+        if !free.is_empty() {
+            // the still-busy days are carried into the new decision by `propose` itself
+            let _ = busy;
+            return Ok(Some((layers, Some(free))));
+        }
+    }
+    Ok(None)
 }
 
-/// What the watch compares next: the newest running build's `uncompared` layers, when no block of
-/// another build still drains (C-077: a draining block publishes its day under the old methods).
-pub async fn due(c: &impl GenericClient, profile: &str) -> Result<Option<(String, Vec<&'static str>)>, String> {
+/// What the watch decides next: the newest running build's `pending` work, when no block of another build
+/// still drains (C-077: a draining block publishes its day under the old methods).
+pub async fn due(c: &impl GenericClient, profile: &str, ceiling: Option<f64>) -> Result<Option<(String, Vec<&'static str>, Option<Vec<String>>)>, String> {
     let row = c
         .query_opt(
             "SELECT b.engine_build,
@@ -486,14 +619,31 @@ pub async fn due(c: &impl GenericClient, profile: &str) -> Result<Option<(String
     if draining {
         return Ok(None);
     }
-    let need = uncompared(c, profile, &build).await?;
-    Ok((!need.is_empty()).then_some((build, need)))
+    Ok(pending(c, profile, &build, ceiling).await?.map(|(l, only)| (build, l, only)))
 }
 
-/// The watch's step, each minute: the recompute of what `due` finds, proposed and decided once.
+/// The watch's step, each minute: the recompute of what `due` finds, proposed and decided.
 pub async fn auto(client: &mut Client, profile: &str, w: &RecomputeWatch, watch: Option<&spend::SpendWatch>, now: &str) -> Result<Option<Decided>, String> {
-    let Some((build, need)) = due(&*client, profile).await? else { return Ok(None) };
+    let Some((build, need, only)) = due(&*client, profile, watch.map(|s| s.ceiling_usd)).await? else { return Ok(None) };
     let today: String = client.query_one("SELECT ($1::text::timestamptz AT TIME ZONE 'UTC')::date::text", &[&now]).await.map_err(db)?.get(0);
-    let p = propose(&*client, profile, &build, &need, w.from.as_deref(), w.block, &today).await?;
+    let mut p = propose(&*client, profile, &build, &need, w.from.as_deref(), only.as_deref(), w.block, &today).await?;
+    if only.is_some() {
+        // the days of the earlier decision still busy stay pending in this one
+        let still: Vec<String> = client
+            .query(
+                "SELECT DISTINCT d FROM core.recompute_plan p, unnest(p.busy) d
+                 WHERE p.plan_id = (SELECT max(plan_id) FROM core.recompute_plan WHERE engine_build = $1 AND profile_id = $2 AND layers = $3)
+                   AND NOT d = ANY($4)",
+                &[&build, &profile, &need.join(","), &only.clone().unwrap_or_default()],
+            )
+            .await
+            .map_err(db)?
+            .iter()
+            .map(|r| r.get(0))
+            .collect();
+        p.busy.extend(still);
+        p.busy.sort();
+        p.busy.dedup();
+    }
     decide(client, &p, w, watch, now).await
 }

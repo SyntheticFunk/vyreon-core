@@ -24,3 +24,15 @@ CREATE TABLE core.drain (
     carried_job  bigint      REFERENCES core.job
 );
 CREATE INDEX drain_unsettled ON core.drain (lease_id) WHERE settled_at IS NULL;
+
+-- Whether build `p_to` reads what build `p_from`'s day blocks publish: every base and day-local profile
+-- revision of `p_from` (every profile revision, for a build that declares no layers) is one of `p_to`'s
+-- (C-064's rule; C-077: a block drains only where its successor can read its day).
+CREATE FUNCTION core.reads_days_of(p_to text, p_from text) RETURNS boolean LANGUAGE sql STABLE AS $$
+    SELECT NOT EXISTS (SELECT FROM core.expected_slot e
+                       WHERE e.engine_build = p_from
+                         AND (NOT EXISTS (SELECT FROM core.build_profile p WHERE p.engine_build = p_from)
+                              OR EXISTS (SELECT FROM core.build_profile p WHERE p.engine_build = p_from AND p.profile_revision = e.profile_revision
+                                           AND p.layer IN ('base', 'day-local')))
+                         AND NOT EXISTS (SELECT FROM core.expected_slot t WHERE t.engine_build = p_to AND t.profile_revision = e.profile_revision))
+$$;

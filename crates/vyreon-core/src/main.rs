@@ -632,22 +632,31 @@ fn watch_settings() -> Result<watch::Settings, String> {
 /// watch does (scheduled only within the ceiling, recorded once, said on the channels).
 async fn recompute(profile: &str, build: &str, schedule: bool) -> Result<(), String> {
     use core_db::recompute as rc;
+    // (release-3 audit, Codex 19, Gemini 7) the command reads the service's own settings (its block size
+    // too); without a node-hour price it plans but never schedules: an unpriced plan would pass any ceiling
     let w = match recompute_settings()? {
         Some(w) => w,
         None => rc::RecomputeWatch {
-            node_hour_usd: usd_setting("VYREON_CORE_NODE_HOUR_USD")?.unwrap_or(0.0),
-            block: 3,
+            node_hour_usd: usd_setting("VYREON_CORE_NODE_HOUR_USD")?.filter(|p| *p > 0.0).unwrap_or(0.0),
+            block: recompute_block()?,
             from: date_setting("VYREON_CORE_RECOMPUTE_FROM")?,
         },
     };
+    if schedule && w.node_hour_usd <= 0.0 {
+        return Err("--schedule needs VYREON_CORE_NODE_HOUR_USD (a worker node-hour's price): an unpriced plan is never scheduled; nothing was done".into());
+    }
+    let spend = spend_settings()?;
     let mut client = connect().await?;
     let now = watch::now(&client).await?;
     let today: String = client.query_one("SELECT ((now() AT TIME ZONE 'UTC')::date)::text", &[]).await.map_err(|e| e.to_string())?.get(0);
-    let layers: Vec<&str> = if schedule { rc::uncompared(&client, profile, build).await? } else { vec!["base", "day-local", "history"] };
-    if layers.is_empty() {
-        return Err(format!("build {build}'s published layers are compared already (core.recompute_plan), or it has published none"));
-    }
-    let p = rc::propose(&client, profile, build, &layers, w.from.as_deref(), w.block, &today).await?;
+    let (layers, only): (Vec<&str>, Option<Vec<String>>) = if schedule {
+        rc::pending(&client, profile, build, spend.as_ref().map(|s| s.ceiling_usd))
+            .await?
+            .ok_or_else(|| format!("nothing of build {build} is to be decided: its published layers are decided (core.recompute_plan), or it has published none"))?
+    } else {
+        (vec!["base", "day-local", "history"], None)
+    };
+    let p = rc::propose(&client, profile, build, &layers, w.from.as_deref(), only.as_deref(), w.block, &today).await?;
     for line in rc::describe(&p, w.node_hour_usd) {
         println!("{line}");
     }
@@ -655,12 +664,20 @@ async fn recompute(profile: &str, build: &str, schedule: bool) -> Result<(), Str
         println!("(not priced: VYREON_CORE_NODE_HOUR_USD is not set)");
     }
     if schedule {
-        match rc::decide(&mut client, &p, &w, spend_settings()?.as_ref(), &now).await? {
+        match rc::decide(&mut client, &p, &w, spend.as_ref(), &now).await? {
             Some(d) => println!("{}{}: {} jobs queued", d.outcome, d.why.map(|w| format!(" ({w})")).unwrap_or_default(), d.jobs),
-            None => println!("decided before, or being decided now: nothing done"),
+            None => println!("being decided now by the watch: nothing done"),
         }
     }
     Ok(())
+}
+
+/// VYREON_CORE_RECOMPUTE_BLOCK: the days of a full recompute's day block (default 3, as `republish`'s).
+fn recompute_block() -> Result<i64, String> {
+    match set("VYREON_CORE_RECOMPUTE_BLOCK") {
+        None => Ok(3),
+        Some(v) => v.parse::<i64>().ok().filter(|b| *b >= 1).ok_or_else(|| "VYREON_CORE_RECOMPUTE_BLOCK is not a number of days from 1".to_string()),
+    }
 }
 
 /// C-078: `spend`: the spend line as the morning's post says it now, and the newest reading's state.
@@ -712,10 +729,7 @@ fn recompute_settings() -> Result<Option<core_db::recompute::RecomputeWatch>, St
         None | Some("off") => Ok(None),
         Some("on") => {
             let node_hour_usd = usd_setting("VYREON_CORE_NODE_HOUR_USD")?.filter(|p| *p > 0.0).ok_or("VYREON_CORE_RECOMPUTE is on: VYREON_CORE_NODE_HOUR_USD (a worker node-hour's price, USD) must be set")?;
-            let block = match set("VYREON_CORE_RECOMPUTE_BLOCK") {
-                None => 3,
-                Some(v) => v.parse::<i64>().ok().filter(|b| *b >= 1).ok_or("VYREON_CORE_RECOMPUTE_BLOCK is not a number of days from 1")?,
-            };
+            let block = recompute_block()?;
             Ok(Some(core_db::recompute::RecomputeWatch { node_hour_usd, block, from: date_setting("VYREON_CORE_RECOMPUTE_FROM")? }))
         }
         Some(_) => Err("VYREON_CORE_RECOMPUTE is on or off".into()),

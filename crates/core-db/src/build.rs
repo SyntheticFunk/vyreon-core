@@ -276,6 +276,30 @@ pub struct Draining {
     pub until: String,
 }
 
+/// A running day block a hand-over lets finish its day.
+struct Drainable {
+    lease: i64,
+    job: i64,
+    worker: String,
+    /// The day it finishes.
+    day: String,
+    /// Its job's last session before the cut.
+    last: String,
+    /// When `day` is done already (its publish, archive or check is what runs): its job's next session.
+    after: Option<String>,
+    /// `day` is done already (`day_done` came): only its archive and reference check remain.
+    done: bool,
+}
+
+/// The day a worker's step names when it is a day's post-publication work (the engine's steps: `publish
+/// <date>`, `archive <date>`, `reference check <date>`, engine D-461), else None.
+pub fn post_work_day(step: &str) -> Option<String> {
+    ["publish ", "archive ", "reference check "].iter().find_map(|p| {
+        let d = step.strip_prefix(p)?.get(..10)?;
+        core_contract::is_date(d).then(|| d.to_owned())
+    })
+}
+
 /// What `hand_over` did, or, previewed, would do.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HandOver {
@@ -365,32 +389,59 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
     // in flight completes within a bound, nothing new starts). Only where the successor reads what that
     // day publishes (every base and day-local profile revision of the old build is one of its own; C-064):
     // otherwise its pass could never read the day, and the block stops as before
-    let drains: Vec<(i64, i64, String, String, String)> = if from_runs {
-        tx.query(
-            "SELECT l.lease_id, j.job_id, l.worker, j.next_session::text, j.last_session::text
-             FROM core.lease l JOIN core.job j USING (job_id)
-             WHERE j.engine_build = $1 AND j.kind = 'DAY_BLOCK' AND j.state = 'LEASED' AND j.next_session IS NOT NULL
-               AND l.ended_at IS NULL AND l.expires_at >= clock_timestamp()
-               AND NOT COALESCE(j.scope @> '{\"compare_only\": true}', false)
-               AND NOT EXISTS (SELECT FROM core.expected_slot e
-                               WHERE e.engine_build = $1
-                                 AND (NOT EXISTS (SELECT FROM core.build_profile p WHERE p.engine_build = $1)
-                                      OR EXISTS (SELECT FROM core.build_profile p WHERE p.engine_build = $1 AND p.profile_revision = e.profile_revision
-                                                   AND p.layer IN ('base', 'day-local')))
-                                 AND NOT EXISTS (SELECT FROM core.expected_slot t WHERE t.engine_build = $2 AND t.profile_revision = e.profile_revision))
-             ORDER BY j.job_id FOR UPDATE OF l, j",
-            &[&from, &to],
-        )
-        .await
-        .map_err(db)?
-        .iter()
-        .map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4)))
-        .collect()
+    let drains: Vec<Drainable> = if from_runs {
+        let rows = tx
+            .query(
+                "SELECT l.lease_id, j.job_id, l.worker, j.next_session::text, j.last_session::text,
+                        (SELECT st.step FROM core.lease_step st WHERE st.lease_id = l.lease_id)
+                 FROM core.lease l JOIN core.job j USING (job_id)
+                 WHERE j.engine_build = $1 AND j.kind = 'DAY_BLOCK' AND j.state = 'LEASED'
+                   AND l.ended_at IS NULL AND l.expires_at >= clock_timestamp()
+                   AND NOT COALESCE(j.scope @> '{\"compare_only\": true}', false)
+                   AND core.reads_days_of($2, $1)
+                 ORDER BY j.job_id FOR UPDATE OF l, j",
+                &[&from, &to],
+            )
+            .await
+            .map_err(db)?;
+        rows.iter()
+            .map(|r| {
+                let (lease, job, worker, next, last, step): (i64, i64, String, Option<String>, String, Option<String>) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5));
+                // (release-3 audit, Codex 4, Gemini 5) `next_session` moves on at `day_done`, before the day's
+                // archive and reference check: a worker whose step is still a done day's publish, archive or
+                // check finishes that day (and none after it); one with every day done finishes its last
+                let after = step.as_deref().and_then(post_work_day).filter(|d| next.as_deref().is_none_or(|n| d.as_str() < n));
+                match (after, next) {
+                    (Some(d), next) => Drainable { lease, job, worker, day: d, last, after: next, done: true },
+                    (None, None) => Drainable { lease, job, worker, day: last.clone(), last, after: None, done: true },
+                    (None, Some(n)) => Drainable { lease, job, worker, day: n.clone(), last, after: None, done: false },
+                }
+            })
+            .collect()
     } else {
         Vec::new()
     };
-    let drain_leases: Vec<i64> = drains.iter().map(|d| d.0).collect();
-    let drain_jobs: Vec<i64> = drains.iter().map(|d| d.1).collect();
+    // (release-3 audit, Gemini 15) a block of an earlier release still draining whose day this successor
+    // cannot read is stopped now: its day is then carried, and recomputed under a build that reads it
+    let unreadable_drains = tx
+        .execute(
+            "WITH s AS (UPDATE core.lease l SET ended_at = clock_timestamp(), outcome = 'CANCELLED',
+                                         failure = 'its day is in profile revisions the newest build does not read (C-077)'
+                        FROM core.drain d JOIN core.job j ON j.job_id = d.job_id
+                        WHERE d.lease_id = l.lease_id AND l.ended_at IS NULL AND j.engine_build <> $1 AND NOT core.reads_days_of($2, j.engine_build)
+                        RETURNING l.job_id)
+             UPDATE core.job SET state = CASE WHEN next_session IS NULL THEN 'DONE' ELSE 'QUEUED' END, attempts = GREATEST(attempts - 1, 0),
+                                 finished_at = CASE WHEN next_session IS NULL THEN clock_timestamp() END
+             WHERE job_id IN (SELECT job_id FROM s) AND state = 'LEASED'",
+            &[&from, &to],
+        )
+        .await
+        .map_err(db)?;
+    if unreadable_drains > 0 {
+        crate::notice::log(&tx, &format!("{unreadable_drains} draining day blocks of earlier builds stopped: build {to} does not read their days' profile revisions; their days are carried.")).await?;
+    }
+    let drain_leases: Vec<i64> = drains.iter().map(|d| d.lease).collect();
+    let drain_jobs: Vec<i64> = drains.iter().map(|d| d.job).collect();
     // the old build is withdrawn here when it still runs, in this transaction: nothing of it runs
     // between its withdrawal and the hand-over but its draining blocks' days (C-077)
     // the jobs its withdrawal stopped (their leases ended here): the hand-over's "restarted" (C-073,
@@ -482,17 +533,23 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
     let mut carried = Vec::new();
     // C-077: a draining block's days after the one it finishes, carried now (state DRAINING)
     let mut todo: Vec<(i64, String, String, String, String, String)> = Vec::new();
-    for (_, job, _, next, last) in &drains {
-        if let Some(after) = tx
-            .query_opt(
-                "SELECT (SELECT min(session) FROM core.session WHERE session > $2::text::date AND session <= $3::text::date)::text, profile_id FROM core.job WHERE job_id = $1",
-                &[job, next, last],
-            )
-            .await
-            .map_err(db)?
-            .and_then(|r| r.get::<_, Option<String>>(0).map(|a| (a, r.get::<_, String>(1))))
-        {
-            todo.push((*job, "DAY_BLOCK".into(), "DRAINING".into(), after.1, after.0, last.clone()));
+    for d in &drains {
+        // the first day after the one it finishes: its next session when that day is done already, else the
+        // session after it
+        let after: Option<(String, String)> = match &d.after {
+            Some(n) => tx.query_one("SELECT profile_id FROM core.job WHERE job_id = $1", &[&d.job]).await.map_err(db).map(|r| Some((n.clone(), r.get(0))))?,
+            None if d.done => None,
+            None => tx
+                .query_opt(
+                    "SELECT (SELECT min(session) FROM core.session WHERE session > $2::text::date AND session <= $3::text::date)::text, profile_id FROM core.job WHERE job_id = $1",
+                    &[&d.job, &d.day, &d.last],
+                )
+                .await
+                .map_err(db)?
+                .and_then(|r| r.get::<_, Option<String>>(0).map(|a| (a, r.get::<_, String>(1)))),
+        };
+        if let Some((first, profile)) = after {
+            todo.push((d.job, "DAY_BLOCK".into(), "DRAINING".into(), profile, first, d.last.clone()));
         }
     }
     todo.extend(rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5))));
@@ -525,7 +582,7 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
     let token = {
         let jobs: Vec<String> = carried.iter().map(|c| format!("{}:{}:{}", c.old_job, c.state, c.first)).collect();
         let verify: Vec<String> = verify_cancelled.iter().map(i64::to_string).collect();
-        let drained: Vec<String> = drains.iter().map(|(_, job, _, next, _)| format!("{job}:{next}")).collect();
+        let drained: Vec<String> = drains.iter().map(|d| format!("{}:{}:{}", d.job, d.day, d.done)).collect();
         core_contract::sha256_hex(
             format!("from {from} (running {from_runs}); to {to}; jobs {}; verify {}; draining {}", jobs.join(","), verify.join(","), drained.join(",")).as_bytes(),
         )[..16]
@@ -545,23 +602,29 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
         tx.execute("INSERT INTO core.hand_over_job (hand_over_id, old_job, new_job, restarted) VALUES ($1, $2, NULL, false)", &[&hand_over_id, job]).await.map_err(db)?;
     }
     let mut draining = Vec::new();
-    for (lease, job, worker, next, _) in &drains {
+    for d in &drains {
+        // the job keeps its days to the one it finishes (done already: no session left)
+        tx.execute(
+            "UPDATE core.job SET last_session = $2::text::date, next_session = CASE WHEN $3 THEN NULL ELSE next_session END WHERE job_id = $1",
+            &[&d.job, &d.day, &d.done],
+        )
+        .await
+        .map_err(db)?;
         let until: String = tx
             .query_one(
                 "INSERT INTO core.drain (lease_id, job_id, hand_over_id, session, until)
                  VALUES ($1, $2, $3, $4::text::date, clock_timestamp() + make_interval(secs => $5::float8 * 60))
                  RETURNING to_char(until AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')",
-                &[lease, job, &hand_over_id, next, &crate::work::DRAIN_MINUTES],
+                &[&d.lease, &d.job, &hand_over_id, &d.day, &crate::work::DRAIN_MINUTES],
             )
             .await
             .map_err(db)?
             .get(0);
-        draining.push(Draining { job: *job, lease: *lease, worker: worker.clone(), session: next.clone(), until });
+        draining.push(Draining { job: d.job, lease: d.lease, worker: d.worker.clone(), session: d.day.clone(), until });
     }
     for c in &mut carried {
         if c.state == "DRAINING" {
-            // C-077: the job keeps its days to the one it finishes; the days after it are the successor's
-            tx.execute("UPDATE core.job SET last_session = next_session WHERE job_id = $1", &[&c.old_job]).await.map_err(db)?;
+            // C-077: the job keeps its days to the one it finishes (cut above); the days after it are the successor's
             let new: i64 = tx
                 .query_one(
                     "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, max_attempts, priority)

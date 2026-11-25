@@ -47,6 +47,9 @@ pub struct Reading {
 pub const WARN_SHARE: f64 = 0.8;
 /// A reading older than this is no evidence of the spend now (core reads every hour).
 pub const STALE_HOURS: f64 = 3.0;
+/// DigitalOcean's figure (`generated_at`) older than this is no evidence either: it updates its usage a
+/// few times a day, so a day without a new figure is DigitalOcean's own gap (release-3 audit, Codex 7).
+pub const FIGURE_STALE_HOURS: f64 = 24.0;
 /// Readings are kept this many days (a month's highest figure stands in for its invoice until it is issued).
 pub const KEEP_DAYS: f64 = 120.0;
 
@@ -66,12 +69,17 @@ pub fn from_answers(balance: &Value, invoices: &Value, month_now: &str) -> Resul
     let month_to_date_usd = usd(&balance["month_to_date_usage"]).ok_or("DigitalOcean's balance has no month_to_date_usage")?;
     let generated_at = balance["generated_at"].as_str().map(str::to_owned);
     let month = generated_at.as_deref().filter(|g| g.len() >= 7 && g.as_bytes()[4] == b'-').map_or(month_now, |g| &g[..7]).to_owned();
+    // (release-3 audit, Gemini 20) an invoice whose month or amount cannot be read makes no reading, never a
+    // month counted short
     let invoices = invoices["invoices"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter_map(|i| Some((i["invoice_period"].as_str().filter(|p| p.len() == 7)?.to_owned(), usd(&i["amount"])?)))
-        .collect();
+        .map(|i| match (i["invoice_period"].as_str().filter(|p| p.len() == 7), usd(&i["amount"])) {
+            (Some(p), Some(u)) => Ok((p.to_owned(), u)),
+            _ => Err("DigitalOcean's invoices hold one whose invoice_period or amount cannot be read".to_owned()),
+        })
+        .collect::<Result<Vec<_>, String>>()?;
     Ok(Reading { month, month_to_date_usd, generated_at, invoices })
 }
 
@@ -105,17 +113,22 @@ pub enum Spend {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Known {
-    /// USD since the start.
+    /// USD since the start, as of DigitalOcean's figure (`asof`).
     pub spent: f64,
+    /// USD since the start now: `spent` and, at `rate`, the time since DigitalOcean's figure (its usage
+    /// is updated a few times a day: release-3 audit, Codex 7); what the alerts and the recompute gate use.
+    pub now: f64,
     pub ceiling: f64,
-    /// The start's date in the owner's zone ("Nov 21").
+    /// The start's date, UTC ("Nov 21"; the months counted are UTC months).
     pub since: String,
-    /// The reading's time in the owner's zone ("08:12").
-    pub read: String,
+    /// DigitalOcean's figure's time in the owner's zone ("Nov 24 00:30").
+    pub asof: String,
+    /// The same, as a timestamp (UTC text): work finished after it is not billed in `spent` yet.
+    pub asof_at: String,
     /// USD a day, and over what ("over the last 24 h", "since Nov 21"); None before a rate can be told.
     pub rate: Option<(f64, String)>,
-    /// At `rate`, when the ceiling is reached: (its date in the owner's zone, days from the reading);
-    /// None without a rate or once passed.
+    /// At `rate`, when the ceiling is reached: (its date in the owner's zone, days from now); None
+    /// without a rate or once passed.
     pub reached: Option<(String, f64)>,
 }
 
@@ -128,7 +141,8 @@ async fn spent_at(c: &impl GenericClient, w: &SpendWatch, id: i64) -> Result<Res
                         FROM r, generate_series(date_trunc('month', $2::text::timestamptz AT TIME ZONE 'UTC'), to_date(r.month, 'YYYY-MM'), interval '1 month') g)
              SELECT m.month,
                     CASE WHEN m.month = r.month THEN r.month_to_date_usd
-                         ELSE COALESCE((SELECT (i->>'usd')::float8 FROM jsonb_array_elements(r.invoices) i WHERE i->>'period' = m.month LIMIT 1),
+                         -- (release-3 audit, Gemini 20) every invoice of the month, summed
+                         ELSE COALESCE((SELECT sum((i->>'usd')::float8) FROM jsonb_array_elements(r.invoices) i WHERE i->>'period' = m.month),
                                        (SELECT max(o.month_to_date_usd) FROM core.spend_reading o
                                         WHERE o.month = m.month AND o.error IS NULL AND o.read_at <= r.read_at)) END
              FROM m, r ORDER BY 1",
@@ -149,12 +163,18 @@ async fn spent_at(c: &impl GenericClient, w: &SpendWatch, id: i64) -> Result<Res
     Ok(Ok(total))
 }
 
+/// A reading's time: DigitalOcean's `generated_at`, else when core read it.
+const AT: &str = "COALESCE(generated_at, read_at)";
+
 /// The spend at `now` from the readings core keeps.
 pub async fn spend(c: &impl GenericClient, w: &SpendWatch, now: &str) -> Result<Spend, String> {
     let newest = c
         .query_opt(
-            "SELECT reading_id, error, extract(epoch FROM $1::text::timestamptz - read_at)::float8 / 3600 FROM core.spend_reading
-             WHERE read_at <= $1::text::timestamptz ORDER BY read_at DESC, reading_id DESC LIMIT 1",
+            &format!(
+                "SELECT reading_id, error, extract(epoch FROM $1::text::timestamptz - read_at)::float8 / 3600,
+                        extract(epoch FROM $1::text::timestamptz - {AT})::float8 / 3600
+                 FROM core.spend_reading WHERE read_at <= $1::text::timestamptz ORDER BY read_at DESC, reading_id DESC LIMIT 1"
+            ),
             &[&now],
         )
         .await
@@ -165,34 +185,41 @@ pub async fn spend(c: &impl GenericClient, w: &SpendWatch, now: &str) -> Result<
     if let Some(e) = newest.get::<_, Option<String>>(1) {
         return Ok(Spend::Unread(e));
     }
-    let (id, hours): (i64, f64) = (newest.get(0), newest.get(2));
-    if hours > STALE_HOURS {
-        return Ok(Spend::Unread(format!("the newest reading is {} old", crate::watch::age((hours * 3600.0) as i64))));
+    let (id, read_hours, figure_hours): (i64, f64, f64) = (newest.get(0), newest.get(2), newest.get(3));
+    if read_hours > STALE_HOURS {
+        return Ok(Spend::Unread(format!("core's newest reading is {} old", crate::watch::age((read_hours * 3600.0) as i64))));
+    }
+    // (release-3 audit, Codex 7) DigitalOcean's figure itself, read again each hour, is no fresher for it
+    if figure_hours > FIGURE_STALE_HOURS {
+        return Ok(Spend::Unread(format!("DigitalOcean's newest figure is {} old", crate::watch::age((figure_hours * 3600.0) as i64))));
     }
     let spent = match spent_at(c, w, id).await? {
         Ok(s) => s,
         Err(why) => return Ok(Spend::Unread(why)),
     };
+    // (release-3 audit, Codex 14) the rate over the figure nearest to 24 h before this one (by DigitalOcean's
+    // times, 20 to 48 h before), else since the start
     let row = c
         .query_one(
-            "SELECT to_char($2::text::timestamptz AT TIME ZONE $3, 'Mon FMDD'), to_char(r.read_at AT TIME ZONE $3, 'HH24:MI'),
-                    extract(epoch FROM r.read_at - $2::text::timestamptz)::float8 / 86400,
-                    (SELECT o.reading_id FROM core.spend_reading o
-                     WHERE o.error IS NULL AND o.read_at <= r.read_at - interval '20 hours' AND o.read_at >= r.read_at - interval '48 hours'
-                       AND o.read_at >= $2::text::timestamptz
-                     ORDER BY o.read_at DESC LIMIT 1),
-                    (SELECT extract(epoch FROM r.read_at - o.read_at)::float8 / 86400 FROM core.spend_reading o
-                     WHERE o.error IS NULL AND o.read_at <= r.read_at - interval '20 hours' AND o.read_at >= r.read_at - interval '48 hours'
-                       AND o.read_at >= $2::text::timestamptz
-                     ORDER BY o.read_at DESC LIMIT 1),
-                    r.read_at::text
-             FROM core.spend_reading r WHERE r.reading_id = $1",
-            &[&id, &w.since, &ZONE],
+            &format!(
+                "WITH r AS (SELECT *, {AT} AS at FROM core.spend_reading WHERE reading_id = $1),
+                      e AS (SELECT o.reading_id, extract(epoch FROM r.at - {o_at})::float8 / 86400 AS days
+                            FROM core.spend_reading o, r
+                            WHERE o.error IS NULL AND {o_at} <= r.at - interval '20 hours' AND {o_at} >= r.at - interval '48 hours'
+                              AND {o_at} >= $2::text::timestamptz
+                            ORDER BY abs(extract(epoch FROM (r.at - interval '24 hours') - {o_at})), o.reading_id DESC LIMIT 1)
+                 SELECT to_char($2::text::timestamptz AT TIME ZONE 'UTC', 'Mon FMDD'), to_char(r.at AT TIME ZONE $3, 'Mon FMDD HH24:MI'),
+                        extract(epoch FROM r.at - $2::text::timestamptz)::float8 / 86400, (SELECT reading_id FROM e), (SELECT days FROM e),
+                        extract(epoch FROM $4::text::timestamptz - r.at)::float8 / 86400, r.at::text
+                 FROM r",
+                o_at = "COALESCE(o.generated_at, o.read_at)"
+            ),
+            &[&id, &w.since, &ZONE, &now],
         )
         .await
         .map_err(db)?;
-    let (since, read, days_since, earlier, earlier_days, read_at): (String, String, f64, Option<i64>, Option<f64>, String) =
-        (row.get(0), row.get(1), row.get(2), row.get(3), row.get(4), row.get(5));
+    let (since, asof, days_since, earlier, earlier_days, lag_days, asof_at): (String, String, f64, Option<i64>, Option<f64>, f64, String) =
+        (row.get(0), row.get(1), row.get(2), row.get(3), row.get(4), row.get(5), row.get(6));
     let rate = match (earlier, earlier_days) {
         (Some(e), Some(d)) if d > 0.0 => match spent_at(c, w, e).await? {
             Ok(before) => Some(((spent - before) / d, format!("over the last {:.0} h", d * 24.0))),
@@ -201,13 +228,14 @@ pub async fn spend(c: &impl GenericClient, w: &SpendWatch, now: &str) -> Result<
         _ => None,
     }
     .or_else(|| (days_since >= 1.0 / 24.0).then(|| (spent / days_since, format!("since {since}"))));
+    let now_spent = spent + rate.as_ref().map_or(0.0, |(r, _)| r.max(0.0) * lag_days.max(0.0));
     let reached = match rate {
-        Some((r, _)) if r > 0.0 && spent < w.ceiling_usd => {
-            let days = (w.ceiling_usd - spent) / r;
+        Some((r, _)) if r > 0.0 && now_spent < w.ceiling_usd => {
+            let days = (w.ceiling_usd - now_spent) / r;
             let date: String = c
                 .query_one(
                     "SELECT to_char(($1::text::timestamptz + make_interval(secs => $2::float8 * 86400)) AT TIME ZONE $3, 'Mon FMDD')",
-                    &[&read_at, &days.min(3650.0), &ZONE],
+                    &[&now, &days.min(3650.0), &ZONE],
                 )
                 .await
                 .map_err(db)?
@@ -216,7 +244,7 @@ pub async fn spend(c: &impl GenericClient, w: &SpendWatch, now: &str) -> Result<
         }
         _ => None,
     };
-    Ok(Spend::Known(Known { spent, ceiling: w.ceiling_usd, since, read, rate, reached }))
+    Ok(Spend::Known(Known { spent, now: now_spent, ceiling: w.ceiling_usd, since, asof, asof_at, rate, reached }))
 }
 
 /// "$1,234.56".
@@ -230,18 +258,30 @@ pub fn line(s: &Spend) -> String {
     match s {
         Spend::Unread(why) => format!("💵 Spend: not known ({}); the ceiling is not watched meanwhile", one_line(why, 200)),
         Spend::Known(k) => {
-            let share = if k.ceiling > 0.0 { 100.0 * k.spent / k.ceiling } else { 0.0 };
-            let mut out = format!("💵 Spend since {}: {} of the {} ceiling ({share:.0}%)", k.since, dollars(k.spent), dollars(k.ceiling));
+            let share = if k.ceiling > 0.0 { 100.0 * k.now / k.ceiling } else { 0.0 };
+            let lagged = (k.now - k.spent).abs() >= 0.005;
+            let mut out = format!(
+                "💵 Spend since {}: {}{} of the {} ceiling ({share:.0}%)",
+                k.since,
+                if lagged { "≈" } else { "" },
+                dollars(k.now),
+                dollars(k.ceiling)
+            );
+            if lagged {
+                out.push_str(&format!(" ({} at DigitalOcean's figure of {} MT, then at the rate)", dollars(k.spent), k.asof));
+            }
             if let Some((r, over)) = &k.rate {
                 out.push_str(&format!("; {} a day {over}", dollars(*r)));
             }
             match &k.reached {
                 Some((date, days)) if *days < 365.0 => out.push_str(&format!("; at that rate the ceiling is reached about {date} (in {days:.0} days)")),
                 Some(_) => out.push_str("; at that rate the ceiling is more than a year away"),
-                None if k.spent >= k.ceiling => out.push_str(&format!("; {} past the ceiling", dollars(k.spent - k.ceiling))),
+                None if k.now >= k.ceiling => out.push_str(&format!("; {} past the ceiling", dollars(k.now - k.ceiling))),
                 None => {}
             }
-            out.push_str(&format!(" (DigitalOcean's figures, whole account, read {} MT)", k.read));
+            if !lagged {
+                out.push_str(&format!(" (DigitalOcean's figures, whole account, of {} MT)", k.asof));
+            }
             out
         }
     }
@@ -264,20 +304,20 @@ pub async fn found(c: &impl GenericClient, w: &SpendWatch, now: &str, open: &[Op
         _ => String::new(),
     };
     let mut out = Vec::new();
-    if k.spent >= WARN_SHARE * k.ceiling {
+    if k.now >= WARN_SHARE * k.ceiling {
         out.push(Found {
             kind: "SPEND",
             key: "80%".into(),
-            summary: format!("Spend since {} is {}, {:.0}% of the {} ceiling{pace}", k.since, dollars(k.spent), 100.0 * k.spent / k.ceiling, dollars(k.ceiling)),
+            summary: format!("Spend since {} is {}, {:.0}% of the {} ceiling{pace}", k.since, dollars(k.now), 100.0 * k.now / k.ceiling, dollars(k.ceiling)),
             command: "vyreon-core spend".into(),
             detail: None,
         });
     }
-    if k.spent >= k.ceiling {
+    if k.now >= k.ceiling {
         out.push(Found {
             kind: "SPEND",
             key: "100%".into(),
-            summary: format!("Spend since {} is {}: past the {} ceiling{pace}", k.since, dollars(k.spent), dollars(k.ceiling)),
+            summary: format!("Spend since {} is {}: past the {} ceiling{pace}", k.since, dollars(k.now), dollars(k.ceiling)),
             command: "vyreon-core spend".into(),
             detail: None,
         });
@@ -306,21 +346,29 @@ mod tests {
     fn the_line_says_the_spend_its_rate_and_where_it_leads() {
         let k = Known {
             spent: 123.4,
+            now: 123.4,
             ceiling: 500.0,
             since: "Nov 21".into(),
-            read: "08:12".into(),
+            asof: "Nov 24 08:12".into(),
+            asof_at: "2026-11-24 15:12:00+00".into(),
             rate: Some((30.0, "over the last 24 h".into())),
             reached: Some(("Dec 7".into(), 12.6)),
         };
         assert_eq!(
             line(&Spend::Known(k.clone())),
-            "💵 Spend since Nov 21: $123.40 of the $500.00 ceiling (25%); $30.00 a day over the last 24 h; at that rate the ceiling is reached about Dec 7 (in 13 days) (DigitalOcean's figures, whole account, read 08:12 MT)"
+            "💵 Spend since Nov 21: $123.40 of the $500.00 ceiling (25%); $30.00 a day over the last 24 h; at that rate the ceiling is reached about Dec 7 (in 13 days) (DigitalOcean's figures, whole account, of Nov 24 08:12 MT)"
         );
-        let past = Known { spent: 512.0, rate: None, reached: None, ..k };
+        // DigitalOcean's figure hours old: the spend now at the rate since, said as such
+        let lagged = Known { now: 138.4, ..k.clone() };
+        assert!(line(&Spend::Known(lagged)).starts_with("💵 Spend since Nov 21: ≈$138.40 of the $500.00 ceiling (28%) ($123.40 at DigitalOcean's figure of Nov 24 08:12 MT, then at the rate)"));
+        let past = Known { spent: 512.0, now: 512.0, rate: None, reached: None, ..k };
         assert!(line(&Spend::Known(past)).contains("(102%); $12.00 past the ceiling"));
         assert_eq!(
             line(&Spend::Unread("no DigitalOcean token: the secret vyreon-core-do-billing is not made".into())),
             "💵 Spend: not known (no DigitalOcean token: the secret vyreon-core-do-billing is not made); the ceiling is not watched meanwhile"
         );
+        // (release-3 audit, Gemini 20) an invoice that cannot be read makes no reading
+        let bad = json!({"invoices": [{"amount": "n/a", "invoice_period": "2026-10"}]});
+        assert!(from_answers(&json!({"month_to_date_usage": "1"}), &bad, "2026-11").unwrap_err().contains("cannot be read"));
     }
 }

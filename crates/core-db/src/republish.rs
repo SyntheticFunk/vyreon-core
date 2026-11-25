@@ -394,10 +394,22 @@ impl Plan {
     pub fn scoped_total(&self) -> f64 {
         self.scoped.total() * self.sessions.len() as f64
     }
+    /// FULL's node-seconds: day blocks of `block` days within each run of consecutive sessions (release-3
+    /// audit, Codex 8: a gap starts a new block, its first day a cold start, as `runs` schedules them).
     pub fn full_total(&self) -> f64 {
-        let n = self.sessions.len() as i64;
-        let blocks = (n + self.block - 1) / self.block.max(1);
-        blocks as f64 * self.full_first.total() + (n - blocks) as f64 * self.full_next.total()
+        let b = self.block.max(1);
+        let all: Vec<&String> = {
+            let mut a: Vec<&String> = self.sessions.iter().chain(&self.unpublished).chain(&self.skipped).collect();
+            a.sort();
+            a
+        };
+        let mut total = 0.0;
+        for (first, last) in self.runs() {
+            let n = all.iter().filter(|s| s.as_str() >= first.as_str() && s.as_str() <= last.as_str()).count() as i64;
+            let blocks = (n + b - 1) / b;
+            total += blocks as f64 * self.full_first.total() + (n - blocks) as f64 * self.full_next.total();
+        }
+        total
     }
 }
 
@@ -406,25 +418,36 @@ impl Plan {
 /// cost each way, and the choice. `block`: the days a full recompute's day block covers.
 #[allow(clippy::too_many_arguments)]
 pub async fn plan(client: &impl GenericClient, profile: &str, build: &str, names: &[&str], first: &str, last: &str, block: i64, today: &str) -> Result<Plan, String> {
-    plan_in(client, profile, build, names, first, last, None, block, today).await
+    plan_in(client, profile, build, Scope::Names(names), first, last, None, block, today).await
 }
 
 /// C-079: `plan` over the listed sessions only (each a session; their runs of consecutive sessions are
 /// what FULL and the passes schedule).
-pub async fn plan_days(client: &impl GenericClient, profile: &str, build: &str, names: &[&str], sessions: &[String], block: i64, today: &str) -> Result<Plan, String> {
+/// `measurements` are measurements, never read as families (release-3 audit, Codex 6: a measurement named
+/// as its family, DLM-TECHNICAL, would recompute the family's seven).
+pub async fn plan_days(client: &impl GenericClient, profile: &str, build: &str, measurements: &[String], sessions: &[String], block: i64, today: &str) -> Result<Plan, String> {
     let (Some(first), Some(last)) = (sessions.iter().min(), sessions.iter().max()) else {
         return Err("no session to plan".into());
     };
-    plan_in(client, profile, build, names, first, last, Some(sessions), block, today).await
+    plan_in(client, profile, build, Scope::Measurements(measurements), first, last, Some(sessions), block, today).await
+}
+
+/// What a plan recomputes: names read as families first (the command's), or measurements only.
+enum Scope<'a> {
+    Names(&'a [&'a str]),
+    Measurements(&'a [String]),
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn plan_in(client: &impl GenericClient, profile: &str, build: &str, names: &[&str], first: &str, last: &str, only: Option<&[String]>, block: i64, today: &str) -> Result<Plan, String> {
+async fn plan_in(client: &impl GenericClient, profile: &str, build: &str, scope: Scope<'_>, first: &str, last: &str, only: Option<&[String]>, block: i64, today: &str) -> Result<Plan, String> {
     if !core_contract::is_date(first) || !core_contract::is_date(last) || !core_contract::is_date(today) {
         return Err(format!("{first} to {last}: dates are written YYYY-MM-DD"));
     }
     let plans = plans(client, build).await?;
-    let (families, measurements) = split_scope(&plans, names)?;
+    let (families, measurements) = match scope {
+        Scope::Names(names) => split_scope(&plans, names)?,
+        Scope::Measurements(m) => (Vec::new(), m.to_vec()),
+    };
     let work = compose(&plans, &families, &measurements)?;
     let rows = client
         .query(
@@ -467,8 +490,21 @@ async fn plan_in(client: &impl GenericClient, profile: &str, build: &str, names:
     let mut p = Plan { work, sessions, unpublished, skipped, stale, slots, scoped, full_first, full_next, block: block.max(1), measured, perished, choice: Choice::Full, why: String::new() };
     let (s, f) = (p.scoped_total(), p.full_total());
     let perishable: Vec<String> = set(&plans["perishable"]).into_iter().filter(|c| p.work.categories.contains(c)).collect();
+    // (release-3 audit, Codex 15) a day both past the prints' retention and in other profile revisions has
+    // no faithful recompute: a copy-forward cannot cross the revisions and a full one would withhold the prints'
+    let stale_perished: Vec<&String> = p.stale.iter().filter(|s| p.perished.contains(s)).collect();
     (p.choice, p.why) = if !p.work.worker() {
         (Choice::Passes, "the recompute set holds history sensors only: the ordered pass derives them again from the store, with no input fetched".into())
+    } else if let Some(first) = stale_perished.first() {
+        (
+            Choice::Full,
+            format!(
+                "no faithful recompute of {} of the sessions ({first}…): published in profile revisions build {build} does not publish, so a \
+                 copy-forward cannot cross them, and past the prints' retention, so a full recompute would publish [{}] withheld",
+                stale_perished.len(),
+                set(&plans["perishable"]).into_iter().collect::<Vec<_>>().join(",")
+            ),
+        )
     } else if !p.stale.is_empty() {
         (
             Choice::Full,
@@ -572,6 +608,12 @@ pub struct Scheduled {
 /// job's scope. Refused when a session has an unfinished day block or republish of the profile, the
 /// build is not registered with plans, or the reason is empty. All or none.
 pub async fn schedule(client: &mut Client, profile: &str, build: &str, work: &Work, sessions: &[String], reason: &str) -> Result<Scheduled, String> {
+    schedule_tagged(client, profile, build, work, sessions, reason, None).await
+}
+
+/// `schedule`, each job's scope carrying `recompute_plan` (C-079: the plan it is part of, for the
+/// spend reserved for it).
+pub async fn schedule_tagged(client: &mut Client, profile: &str, build: &str, work: &Work, sessions: &[String], reason: &str, plan: Option<&Value>) -> Result<Scheduled, String> {
     if reason.trim().is_empty() {
         return Err("a republish states its reason".into());
     }
@@ -592,7 +634,11 @@ pub async fn schedule(client: &mut Client, profile: &str, build: &str, work: &Wo
     if !runs {
         return Err(format!("engine build {build} is not admitted, or withdrawn: no worker would claim its republishes; nothing was scheduled"));
     }
-    let scope = work.scope(reason).to_string();
+    let mut scope = work.scope(reason);
+    if let Some(plan) = plan {
+        scope["recompute_plan"] = plan.clone();
+    }
+    let scope = scope.to_string();
     let mut jobs = Vec::new();
     for s in sessions {
         // (release-2 audit, Gemini 3; Codex 2) published in this build's profile revisions, and the prints it reads still served

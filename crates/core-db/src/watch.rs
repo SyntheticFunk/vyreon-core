@@ -1104,9 +1104,19 @@ const GROUP: &str = "CASE WHEN j.kind = 'DAY_BLOCK' AND j.priority = 1 THEN 'DAI
 /// problem (`JOB_FAILED`), one alert for one cause. A paused queue or a build not admitted makes
 /// nothing claimable: those are their own problems.
 async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> Result<(), String> {
+    // (release-3 audit, Gemini 14) a kind is leased by a build that runs: a withdrawn build's draining block
+    // (C-077) is no sign that the new build's pods of the kind start; it still counts for the chain below
+    let any_leased: bool = c
+        .query_one("SELECT EXISTS (SELECT FROM core.lease l WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz)", &[&now])
+        .await
+        .map_err(db)?
+        .get(0);
     let leased: Vec<String> = c
         .query(
-            &format!("SELECT DISTINCT {GROUP} FROM core.lease l JOIN core.job j USING (job_id) WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz"),
+            &format!(
+                "SELECT DISTINCT {GROUP} FROM core.lease l JOIN core.job j USING (job_id)
+                 WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz AND core.build_runs(j.engine_build)"
+            ),
             &[&now],
         )
         .await
@@ -1204,7 +1214,7 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
         .await
         .map_err(db)?;
     let (queued, kinds, paused): (i64, Option<String>, bool) = (r.get(0), r.get(1), r.get(2));
-    if any_claimable || !leased.is_empty() || paused || queued == 0 {
+    if any_claimable || any_leased || paused || queued == 0 {
         c.execute("DELETE FROM core.stall_seen WHERE kind = 'CHAIN'", &[]).await.map_err(db)?;
         return Ok(());
     }

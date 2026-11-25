@@ -1394,8 +1394,9 @@ struct Fallen {
 /// queued with fresh attempts, under a build that runs (C-062): the publishing build when it runs
 /// and publishes the fallen revision's profile, else the fallen revision's own build when it runs
 /// (the finished pass of that build is queued again; a pass under another build is a new job, the
-/// finished one stays DONE). With neither, no job is queued: a pass under a build no worker claims
-/// would never run. A day-local revision that fell with its day's base is the day block's to
+/// finished one stays DONE), else (C-077, release-3 audit, Codex 2: a draining publisher and the fallen
+/// revision's build both withdrawn) the newest running build that publishes the fallen revision's profile
+/// revision. With none, no job is queued: a pass under a build no worker claims would never run. A day-local revision that fell with its day's base is the day block's to
 /// publish again on the new base. What no job will derive again is said in a notice, never left
 /// silent.
 /// What made revisions fall, for `rederive`: the (earliest) day replaced, the notice's first clause,
@@ -1480,7 +1481,14 @@ async fn rederive(tx: &impl GenericClient, by: &Trigger<'_>, same_day: bool, fal
                                                    AND EXISTS (SELECT FROM core.expected_slot e WHERE e.engine_build = $5 AND e.profile_revision = f.profile_revision)
                                               THEN $5
                                               WHEN EXISTS (SELECT FROM core.engine_build r WHERE r.engine_build = f.engine_build AND r.admitted_at IS NOT NULL AND r.withdrawn_at IS NULL)
-                                              THEN f.engine_build END AS build
+                                              THEN f.engine_build
+                                              -- C-077 (release-3 audit, Codex 2): a draining block's publisher and the
+                                              -- fallen revision's build may both be withdrawn; the newest running build
+                                              -- that publishes the fallen revision's profile revision derives it again
+                                              ELSE (SELECT r.engine_build FROM core.engine_build r
+                                                    WHERE r.admitted_at IS NOT NULL AND r.withdrawn_at IS NULL
+                                                      AND EXISTS (SELECT FROM core.expected_slot e WHERE e.engine_build = r.engine_build AND e.profile_revision = f.profile_revision)
+                                                    ORDER BY r.admitted_at DESC, r.engine_build LIMIT 1) END AS build
                                   FROM fallen f
                                   WHERE NOT EXISTS ({unfinished})
                                     AND EXISTS (SELECT FROM core.job d WHERE d.kind = 'ORDERED_PASS' AND d.state = 'DONE'
