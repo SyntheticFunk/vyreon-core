@@ -442,3 +442,28 @@ async fn a_release_resumes_only_its_own_pause() {
     assert!(!paused);
     scratch.drop().await;
 }
+
+/// The progress headline counts a day published by any build once, against every session a backfill block was
+/// scheduled over (live, 2026-11-25: "17 of 599" with 18 published: 2024-08-15 was published by job 21821, whose
+/// remaining range a hand-over replaced, so it lay in no unfinished or done job).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_day_published_by_a_replaced_block_counts_once() {
+    let (scratch, mut client) = ready("c077_headline").await;
+    let old = registered(&mut client, "slice-old-image").await;
+    admit(&client, &old).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &old, DAYS[0], DAYS[2], 3).await.unwrap();
+    let a = work::claim(&mut client, Kind::DayBlock, &old, "pod-a", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &old, &a, DAYS[0]).await.unwrap();
+    work::day_done(&mut client, &a.token, DAYS[0]).await.unwrap();
+    // the block's range replaced whole (as job 21821's): its published day lies in no live or done job
+    client.execute("UPDATE core.lease SET ended_at = now(), outcome = 'CANCELLED' WHERE job_id = $1", &[&a.job_id]).await.unwrap();
+    client.execute("UPDATE core.job SET state = 'CANCELLED', finished_at = now() WHERE job_id = $1", &[&a.job_id]).await.unwrap();
+    let new = registered(&mut client, "slice-new-image").await;
+    admit(&client, &new).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &new, DAYS[1], DAYS[2], 3).await.unwrap();
+    let now: String = client.query_one("SELECT now()::text", &[]).await.unwrap().get(0);
+    let post = core_db::progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
+    assert!(post.contains("1 of 3 days published"), "{post}");
+    scratch.drop().await;
+}
