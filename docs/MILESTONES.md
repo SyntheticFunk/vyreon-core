@@ -1340,6 +1340,15 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   429 under budget now hunted as a BYPASS (requests on the key without a permit); droplet ruled out (timers 12:00/14:30 UTC).
   Prime suspect: the reference re-run's Python fetchers. Merged: eng-etha → eng-scope ad9a9283; D-464 carry failure class
   (077e51ea/69e94998/f399e80a); C-076 core 7dd8cea/0ab4966/7136cd5. Suites: engine 1,763/0, pytest 258/107, core 235/0.
+  **Bypass hunt (UTC−6 ~19:30):** no cluster path sends to Intrinio without a permit (every reqwest client draws one; bulk/
+  snapshot/replay files are presigned, keyless; the reference suite has no HTTP and no key). Guard: VYREON_BUDGET_REQUIRED=1 in
+  the worker image (D-464, 82b14153/a06f62ff/29c73c18/5e9aa54e). The only sender outside the budget is the agents' Intrinio MCP
+  (same account): no Claude or Codex session called it near 22:55Z 11-24 or 19:32Z 11-23. P-30 stays unexplained; now survivable
+  (carry retries on throttling; throttled refusals get one quick retry). Watch for recurrence.
+  **Release 2 merged (UTC−6 ~19:40):** engine worker 3d7567c8 (pushed), core main dd3f766 (image built). Worker image building.
+  Ship AFTER the 8 running blocks publish their first days (~20:00-21:00; a release deletes running Jobs): release.sh --core
+  dd3f766 (migrations 57, 58), then release.sh <worker tag>; then the DLM-TECHNICAL scoped cluster test (one recent day both
+  ways), then the DLM-TECHNICAL scoped republish of every day built before release 2.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
