@@ -1570,6 +1570,13 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   re-capture for the new reader identity (2023-05-24..today) with recompute by method version, the owner's STOP RULE counter
   and alert, re-runs back to "6", P-31..P-33. Then: release (core first), AMD bit-identity check of H5-FIELD (cargo test -p
   h5-field --test d114 on a worker), tape re-capture, reschedule phase 1 as one big block per node, scale in steps.
+  **PASS 1 STARTED (UTC−6 ~16:50):** core 0f71a7b (migration 63) then worker 93a04676+92be12604d32 via release.sh (evidence
+  ~/claude-artifacts/cluster-scratch/evidence-93a04676.json; step 10 resumed the queue; the 11-24 nightly drains on 70d83bbc).
+  `vyreon-core tape recapture` queued 880 TAPE jobs 2023-05-24..2026-11-24 (new reader identity). Phase 1 rescheduled on the
+  frozen build: 12 DAY_BLOCKs of 50 sessions over all 597 (every day recomputed: methods changed) + 597 ordered passes; day
+  blocks wait for their tape windows (existing gate). 15 stale re-runs of old-build days cancelled (recomputed anyway).
+  KEDA day-block max stays 8 for now; raise to 12 once the tapes are through and the budget is measured, then higher.
+  Still open: H5-FIELD bit-identity on an AMD worker (D-511).
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
