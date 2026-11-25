@@ -83,7 +83,8 @@ async fn each_attempt_leaves_its_evidence_once_and_it_is_read_back_whole() {
     // sent before the worker's fail: kept; sent again (its answer lost): the first stays
     assert!(evidence::put(&mut client, &first.token, &real()).await.unwrap());
     assert!(!evidence::put(&mut client, &first.token, &evidence::check(document(&account("2024-07-15"), "other")).unwrap()).await.unwrap());
-    assert!(work::fail(&mut client, &first.token, "day 2024-07-16", "refused by the input plan", "").await.unwrap());
+    // (its failure's own words are not the refusal's: C-075 holds a refused day at once, `day_refusal.rs`)
+    assert!(work::fail(&mut client, &first.token, "day 2024-07-16", "the worker stopped", "").await.unwrap());
 
     // the next attempt's worker lost its lease and stopped: its ended lease still leaves evidence
     let second = work::claim(&mut client, Kind::DayBlock, &base, "w2", HOUR).await.unwrap().unwrap();

@@ -21,6 +21,8 @@ pub enum Kind {
     /// C-073: a published day's reference check run again, against the revisions core holds
     /// published; queued by the watch (`refcheck::queue_reruns`), never scheduled by hand.
     Refcheck,
+    /// C-074: one session's scoped recompute (engine D-462), scheduled by `republish::schedule`.
+    Republish,
 }
 
 impl Kind {
@@ -30,6 +32,7 @@ impl Kind {
             Kind::DayBlock => "DAY_BLOCK",
             Kind::OrderedPass => "ORDERED_PASS",
             Kind::Refcheck => "REFCHECK",
+            Kind::Republish => "REPUBLISH",
         }
     }
 
@@ -39,7 +42,8 @@ impl Kind {
             "DAY_BLOCK" => Ok(Kind::DayBlock),
             "ORDERED_PASS" => Ok(Kind::OrderedPass),
             "REFCHECK" => Ok(Kind::Refcheck),
-            other => Err(format!("unknown job kind {other} (tape, day-block, ordered-pass, refcheck)")),
+            "REPUBLISH" => Ok(Kind::Republish),
+            other => Err(format!("unknown job kind {other} (tape, day-block, ordered-pass, refcheck, republish)")),
         }
     }
 }
@@ -103,6 +107,9 @@ pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &st
     if kind == Kind::Refcheck {
         return Err("reference-check re-runs are queued by core's watch (C-073), not scheduled".into());
     }
+    if kind == Kind::Republish {
+        return Err("a republish is scheduled with its scope and reason: `vyreon-core republish` (C-074)".into());
+    }
     if kind == Kind::DayBlock && block < 1 {
         return Err("a day block holds at least one session".into());
     }
@@ -153,18 +160,21 @@ pub async fn schedule(client: &mut Client, kind: Kind, profile: &str, build: &st
         tx.commit().await.map_err(db)?;
         return Ok(Scheduled { jobs, sessions, partitions, kept, replaced });
     }
-    let overlap: Option<i64> = tx
+    // C-074 (release-2 audit, Codex 5, Gemini 4): a day block and a republish of a day never run at once,
+    // whichever was scheduled first (`republish::schedule` checks the other way)
+    let kinds: Vec<&str> = if kind == Kind::DayBlock { vec!["DAY_BLOCK", "REPUBLISH"] } else { vec![kind.name()] };
+    let overlap: Option<(i64, String)> = tx
         .query_opt(
-            "SELECT job_id FROM core.job
-             WHERE kind = $1 AND profile_id = $2 AND state IN ('QUEUED', 'LEASED', 'FAILED')
+            "SELECT job_id, kind FROM core.job
+             WHERE kind = ANY($1) AND profile_id = $2 AND state IN ('QUEUED', 'LEASED', 'FAILED')
                AND first_session <= $4::text::date AND last_session >= $3::text::date LIMIT 1",
-            &[&kind.name(), &profile, &first, &last],
+            &[&kinds, &profile, &first, &last],
         )
         .await
         .map_err(db)?
-        .map(|r| r.get(0));
-    if let Some(job) = overlap {
-        return Err(format!("{first} to {last} overlaps unfinished {} job {job}", kind.name()));
+        .map(|r| (r.get(0), r.get(1)));
+    if let Some((job, other)) = overlap {
+        return Err(format!("{first} to {last} overlaps unfinished {other} job {job}"));
     }
     let jobs = tx
         .execute(
@@ -391,6 +401,20 @@ pub const FAILED_DAYS_PAUSE: i64 = 3;
 /// stays FAILED without a pause; a tape job pauses the queue at once (the day blocks wait on it).
 /// Returns true when the job was queued again.
 async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<bool, String> {
+    // C-074: a republish's base waits STAGED for its day-local revision; an attempt that ends without
+    // it leaves the day as it was, and its staged revisions are rejected
+    reject_staged(db_client, &[job], why).await?;
+    // C-074 (release-2 audit, Codex 4, Gemini 2): a republish whose day-local revision is published (its
+    // worker ended before saying the day done) has replaced its day: done, never leased again for it
+    db_client
+        .execute(
+            "UPDATE core.job j SET next_session = NULL WHERE j.job_id = $1 AND j.kind = 'REPUBLISH' AND j.state = 'LEASED'
+               AND EXISTS (SELECT FROM vyreon.day_revision d WHERE d.represented_date = j.first_session AND d.day_local AND d.state = 'PUBLISHED'
+                             AND d.republish_scope->>'job' = j.job_id::text)",
+            &[&job],
+        )
+        .await
+        .map_err(db)?;
     if let Some(done) = db_client
         .query_opt(
             &format!("UPDATE core.job SET state = 'DONE', finished_at = now() WHERE job_id = $1 AND state = 'LEASED' AND next_session IS NULL RETURNING {FINISHED}"),
@@ -463,6 +487,13 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         notice::log(db_client, &format!("Tape verify job {job} failed for the last time: {why}. Nothing waits on it.")).await?;
         return Ok(false);
     }
+    if kind == "REPUBLISH" {
+        // C-074: the day keeps the revisions it had (a republish replaces a day whole or not at all);
+        // nothing waits on it but the passes after it, which it no longer holds (FAILED); JOB_FAILED says so
+        let day: String = db_client.query_one("SELECT first_session::text FROM core.job WHERE job_id = $1", &[&job]).await.map_err(db)?.get(0);
+        notice::log(db_client, &format!("Republish of {day} failed for the last time (job {job}): {why}. The day keeps its revisions.")).await?;
+        return Ok(false);
+    }
     if kind == "REFCHECK" {
         // C-073: a re-run holds nothing back; the day's check stands not run (REFCHECK_NOT_RUN)
         let day: String = db_client.query_one("SELECT first_session::text FROM core.job WHERE job_id = $1", &[&job]).await.map_err(db)?.get(0);
@@ -520,6 +551,21 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         notice::log(db_client, &format!("Day {day} failed for the last time and is set aside (job {job}): {why}{after}{local}. The build goes on.")).await?;
     }
     Ok(false)
+}
+
+/// C-074: rejects the STAGED revisions the leases of republish `jobs` left (a base waiting for its
+/// day-local revision) when their attempt ends without it: a failure, a lost lease, a cancellation, a
+/// withdrawal or a retirement (release-2 audit, Codex 15, Gemini 14). The day keeps what it had.
+pub(crate) async fn reject_staged(db_client: &impl GenericClient, jobs: &[i64], why: &str) -> Result<u64, String> {
+    db_client
+        .execute(
+            "UPDATE vyreon.day_revision d SET state = 'REJECTED', rejection = 'its republish attempt ended before the day was published: ' || left($2, 500)
+             FROM core.lease_revision lr JOIN core.lease l USING (lease_id) JOIN core.job j USING (job_id)
+             WHERE d.revision_id = lr.revision_id AND d.state = 'STAGED' AND l.job_id = ANY($1) AND j.kind = 'REPUBLISH'",
+            &[&jobs, &why],
+        )
+        .await
+        .map_err(db)
 }
 
 /// C-061 amended (audit 2026-11-22 changes-core 2): when the job's day has its base published but
@@ -595,6 +641,27 @@ pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str
     // expired leases end first, each in its own transaction; one that cannot be ended is reported
     // by the service's sweeper every half minute and does not stop this claim
     let _ = sweep(client).await;
+    // C-074 (release-2 audit, Codex 2), in its own statements (a claim that leases nothing rolls back): a republish that reads EXQ01's prints is claimed only while the
+    // provider still serves its day's (`core.prints_perished`, as the planner reads it), whenever it was
+    // queued, retried or carried: one past them is FAILED with that cause, never run to publish withheld
+    if kind == Kind::Republish {
+        let t = client.transaction().await.map_err(db)?;
+        let gone = t
+            .query(
+                "UPDATE core.job j SET state = 'FAILED', finished_at = now()
+                 WHERE j.kind = 'REPUBLISH' AND j.state = 'QUEUED' AND j.engine_build = $1 AND COALESCE(j.scope->'categories' ? 'exq01', false)
+                   AND core.prints_perished(j.first_session, (now() AT TIME ZONE 'UTC')::date)
+                 RETURNING j.job_id, j.first_session::text",
+                &[&build],
+            )
+            .await
+            .map_err(db)?;
+        for r in &gone {
+            let (job, day): (i64, String) = (r.get(0), r.get(1));
+            notice::log(&t, &format!("Republish of {day} (job {job}) not run: the scope reads {day}'s option prints, which the provider no longer serves. The day keeps its revisions.")).await?;
+        }
+        t.commit().await.map_err(db)?;
+    }
     let tx = client.transaction().await.map_err(db)?;
     if kind == Kind::OrderedPass {
         tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
@@ -911,8 +978,43 @@ pub async fn session_done(db_client: &impl GenericClient, lease: &Held, session:
 pub async fn day_done(client: &mut Client, token: &str, session: &str) -> Result<(), LeaseError> {
     let tx = client.transaction().await.map_err(failed)?;
     let lease = held(&tx, token).await?;
+    if lease.kind == "REPUBLISH" {
+        // C-074: done once this lease published the day's day-local revision (with its staged base,
+        // promoted in the same transaction, when the scope held base sensors)
+        let published: bool = tx
+            .query_one(
+                "SELECT EXISTS (SELECT FROM core.lease_revision lr JOIN vyreon.day_revision d USING (revision_id)
+                                WHERE lr.lease_id = $1 AND d.represented_date = $2::text::date AND d.day_local AND d.state = 'PUBLISHED')",
+                &[&lease.lease_id, &session],
+            )
+            .await
+            .map_err(failed)?
+            .get(0);
+        if !published {
+            return Err(LeaseError::Refused(format!("republish job {} has not published {session}'s day-local revision", lease.job_id)));
+        }
+        session_done(&tx, &lease, session).await?;
+        return tx.commit().await.map_err(failed);
+    }
     if lease.kind != "DAY_BLOCK" {
         return Err(LeaseError::Refused(format!("job {} is not a day block", lease.job_id)));
+    }
+    // C-074 (release-2 audit, Codex 13): a compare-only day block's day is done with both revisions staged
+    if crate::publish::compare_only(&tx, &lease).await.map_err(|e| LeaseError::Failed(e.to_string()))? {
+        let staged: bool = tx
+            .query_one(
+                "SELECT EXISTS (SELECT FROM core.lease_revision lr JOIN vyreon.day_revision d USING (revision_id)
+                                WHERE lr.lease_id = $1 AND d.represented_date = $2::text::date AND d.day_local AND d.state = 'STAGED')",
+                &[&lease.lease_id, &session],
+            )
+            .await
+            .map_err(failed)?
+            .get(0);
+        if !staged {
+            return Err(LeaseError::Refused(format!("compare-only job {} has not staged {session}'s day-local revision", lease.job_id)));
+        }
+        session_done(&tx, &lease, session).await?;
+        return tx.commit().await.map_err(failed);
     }
     let published = tx
         .query_opt(
@@ -1010,9 +1112,100 @@ pub async fn fail(client: &mut Client, token: &str, stage: &str, message: &str, 
     )
     .await
     .map_err(failed)?;
+    // C-075: a day the engine's input plan refused is held (or retried once), never retried to the end
+    if matches!(lease.kind.as_str(), "DAY_BLOCK" | "REPUBLISH") {
+        refused(&tx, &lease, message).await.map_err(LeaseError::Failed)?;
+    }
     let again = requeue(&tx, lease.job_id, &format!("{stage}: {message}")).await.map_err(LeaseError::Failed)?;
     tx.commit().await.map_err(failed)?;
     Ok(again)
+}
+
+/// C-075: how the engine says a day was refused by its input plan (`stop: <date> not published: <date>
+/// refused by the input plan (plan.json)`, engine `day.rs`).
+pub const PLAN_REFUSED: &str = "refused by the input plan";
+
+/// C-075 (coordinator, 2026-11-24; an observability gap): a failed attempt that stopped on a day the
+/// engine's input plan refused (the worker's stop message, `PLAN_REFUSED`) is recorded
+/// in `core.day_refusal` with the refused inputs (the evidence's `refusals`, the plan's refusing entries).
+/// The same refusal comes back on every attempt, hours of node time each, so the job is held at once
+/// (its attempts spent: `requeue` makes it FAILED, the day set aside as any day out of attempts, the
+/// build going on), unless every refused input is a capture that failed here retryably
+/// (`refusal_inputs`), which may be transient: retried once, and held if it is refused again. The
+/// watch's DAY_REFUSED says so until the day is published; a new build's hand-over or `queue
+/// retry-failed` tries it again.
+async fn refused(c: &impl GenericClient, lease: &Held, message: &str) -> Result<(), String> {
+    // the worker's own stop message, as it reports the failure (its evidence, stored just before, has the
+    // plan's refusing entries)
+    if !message.contains(PLAN_REFUSED) {
+        return Ok(());
+    }
+    let evidence = c.query_opt("SELECT refusals::text, session::text FROM core.job_evidence WHERE lease_id = $1", &[&lease.lease_id]).await.map_err(db)?;
+    let (refusals, session): (Option<String>, Option<String>) = evidence.map_or((None, None), |r| (r.get(0), r.get(1)));
+    // the day the stop message names, else the evidence's, else the job's next
+    let named = |m: &str| m.strip_prefix("stop: ").and_then(|r| r.get(..10)).filter(|d| d.len() == 10 && d.as_bytes()[4] == b'-').map(str::to_owned);
+    let Some(day) = named(message).or(session).or_else(|| lease.next_session.clone()) else {
+        return Ok(());
+    };
+    let refusals: Value = refusals.and_then(|t| serde_json::from_str(&t).ok()).unwrap_or(Value::Null);
+    let (inputs, transient) = refusal_inputs(&refusals);
+    let earlier: i64 = c
+        .query_one("SELECT count(*) FROM core.day_refusal WHERE job_id = $1 AND session = $2::text::date", &[&lease.job_id, &day])
+        .await
+        .map_err(db)?
+        .get(0);
+    let hold = !transient || earlier > 0;
+    c.execute(
+        "INSERT INTO core.day_refusal (job_id, lease_id, profile_id, engine_build, session, inputs, transient, held)
+         VALUES ($1, $2, $3, $4, $5::text::date, $6, $7, $8) ON CONFLICT (lease_id) DO NOTHING",
+        &[&lease.job_id, &lease.lease_id, &lease.profile_id, &lease.engine_build, &day, &inputs, &transient, &hold],
+    )
+    .await
+    .map_err(db)?;
+    if hold {
+        c.execute("UPDATE core.job SET attempts = GREATEST(attempts, max_attempts) WHERE job_id = $1", &[&lease.job_id]).await.map_err(db)?;
+    }
+    let what = if hold { "held: nothing more is tried until a new build or `vyreon-core queue retry-failed`" } else { "every refused input a capture that failed here: tried once more" };
+    notice::log(c, &format!("Day {day} refused by the engine's input plan (job {}): {inputs}; {what}.", lease.job_id)).await
+}
+
+/// C-075: the refused inputs of a plan's refusing entries (the evidence's `refusals`: each with its
+/// `input`, `role`, `session`, `status`, `reason` and failing `assets`), readable on one line, and
+/// whether every one is a capture that failed here retryably or was not attempted (the engine's
+/// `ENGINE_FAULT: capture failed here (<category> retryable|not_attempted)` of an asset, or a day-wide
+/// capture's `capture: "<category> retryable"`, engine D-464: a fill that may succeed again, the
+/// provider's throttling or outage among them), never a provider's absence, a stale input or an engine
+/// rule.
+pub fn refusal_inputs(refusals: &Value) -> (String, bool) {
+    let Some(entries) = refusals.as_array().filter(|a| !a.is_empty()) else {
+        return ("the input plan's refusals were not reported (its plan.json is in the evidence)".into(), false);
+    };
+    let retryable = |why: &str| {
+        why.split("capture failed here (").nth(1).and_then(|r| r.split(')').next()).is_some_and(|how| how.ends_with(" retryable") || how.ends_with(" not_attempted"))
+    };
+    let mut transient = true;
+    let mut parts = Vec::new();
+    for e in entries {
+        let text = |k: &str| e[k].as_str().unwrap_or("").to_owned();
+        let assets: Vec<(String, String)> = e["assets"].as_object().map(|m| m.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned())).collect()).unwrap_or_default();
+        // C-076 (engine D-464): a day-wide capture (the carry inputs) says how the fill left it, `capture`:
+        // `carry retryable` is a capture a throttled or failing provider outlasted (2024-07-23, job 21818)
+        let capture = e["capture"].as_str().unwrap_or("");
+        let day_wide = assets.is_empty() && (capture.ends_with(" retryable") || capture.ends_with(" not_attempted"));
+        transient &= day_wide || (!assets.is_empty() && assets.iter().all(|(_, why)| retryable(why)));
+        let head = match capture {
+            "" => format!("{} ({} {}, {})", text("input"), text("role"), text("session"), text("status")),
+            c => format!("{} ({} {}, {}; the fill: {c})", text("input"), text("role"), text("session"), text("status")),
+        };
+        let named: Vec<String> = assets.iter().take(3).map(|(k, why)| format!("{k}: {}", crate::watch::one_line(why, 80))).collect();
+        let more = if assets.len() > 3 { format!(" and {} more", assets.len() - 3) } else { String::new() };
+        parts.push(match (named.is_empty(), text("reason")) {
+            (false, _) => format!("{head} {}{more}", named.join("; ")),
+            (true, r) if !r.is_empty() => format!("{head} {}", crate::watch::one_line(&r, 120)),
+            _ => head,
+        });
+    }
+    (crate::watch::one_line(&parts.join(" | "), 400), transient)
 }
 
 /// A worker's text as core keeps it: whole, or withheld whole when a credential pattern is in it
@@ -1136,6 +1329,7 @@ pub(crate) async fn cancel_in(tx: &impl GenericClient, jobs: &[i64]) -> Result<V
         .await
         .map_err(db)?;
     let cancelled: Vec<i64> = rows.iter().map(|r| r.get(0)).collect();
+    reject_staged(tx, &cancelled, "the job was cancelled").await?;
     let absent: Vec<(String, String, bool)> = tx
         .query(
             "SELECT DISTINCT j.first_session::text, j.profile_id FROM core.job j

@@ -292,7 +292,7 @@ async fn publish_day(State(app): Shared, headers: HeaderMap, body: Body) -> Repl
         Ok(p) => ok(json!({
             "revision_id": p.revision_id, "represented_date": p.represented_date, "profile_revision": p.profile_revision, "slots": p.slots,
             "streams": p.streams, "stream_bytes": p.stream_bytes, "reader_scalars": p.reader_scalars, "unusual_scores": p.unusual_scores,
-            "superseded": p.superseded, "already_published": p.already_published,
+            "superseded": p.superseded, "already_published": p.already_published, "staged": p.staged,
         })),
         Err(e) => {
             if e.0 == StatusCode::UNPROCESSABLE_ENTITY {
@@ -505,6 +505,8 @@ async fn refcheck_dump(State(app): Shared, headers: HeaderMap, Path(session): Pa
     if !core_contract::is_date(&session) {
         return Err(refused(format!("{session} is not a date written YYYY-MM-DD")));
     }
+    // one dump at a time: the spool holds its store and its tar until the worker has read it
+    let _one = app.dumping.lock().await;
     let n = app.spooled.fetch_add(1, Ordering::SeqCst);
     let path = app.config.spool.join(format!("refcheck-dump-{}-{n}.tar", std::process::id()));
     let mut client = app.db().await?;

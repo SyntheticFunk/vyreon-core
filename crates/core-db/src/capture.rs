@@ -163,6 +163,10 @@ pub async fn put(client: &mut Client, token: &str, session: &str, kind: &str, ca
     if lease.kind != "DAY_BLOCK" {
         return Err(LeaseError::Refused(format!("job {} is not a day block", lease.job_id)));
     }
+    // C-074: a compare-only day block keeps nothing (it publishes nothing either)
+    if crate::publish::compare_only(&tx, &lease).await.map_err(|e| LeaseError::Failed(e.to_string()))? {
+        return Err(LeaseError::Refused(format!("job {} is a compare-only day block: it keeps nothing", lease.job_id)));
+    }
     let published: Option<String> = tx
         .query_one(
             "SELECT max(represented_date)::text FROM vyreon.day_revision

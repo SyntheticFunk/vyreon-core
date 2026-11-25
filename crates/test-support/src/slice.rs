@@ -71,6 +71,7 @@ pub fn parts(revision: i64) -> (Header, Scalars, Vec<SlotFiles>) {
         report: None,
         day_local: false,
         listed_members: Some(listed_2025_12_10()),
+        republish: None,
         slots,
     };
     let reader_scalar = of("reader_scalar")

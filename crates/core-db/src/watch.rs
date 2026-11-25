@@ -259,6 +259,7 @@ const WATCH_LOG: &str = "kubectl -n vyreon logs deploy/vyreon-core";
 const DEADLINES: Part = Part { key: "deadlines", what: "check the sessions' publishing deadlines", kinds: &["SESSION_LATE", "REPORT_AT_RISK"] };
 const QUEUE: Part = Part { key: "queue", what: "check whether the work queue is paused", kinds: &["QUEUE_PAUSED"] };
 const FAILED_JOBS: Part = Part { key: "failed jobs", what: "check for work that failed for the last time", kinds: &["JOB_FAILED"] };
+const REFUSED: Part = Part { key: "refused days", what: "check for days the input plan refused", kinds: &["DAY_REFUSED"] };
 const PROVIDER: Part = Part { key: "provider", what: "check the provider's errors", kinds: &["PROVIDER_AUTH", "PROVIDER_ERRORS"] };
 const STALLS: Part = Part { key: "stalls", what: "check for stalled work", kinds: &["STALLED"] };
 const CLAIMS: Part = Part { key: "claims", what: "check for workers leaving while work waits", kinds: &["CLAIMS_EMPTY"] };
@@ -354,6 +355,13 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
         .part(c, &FAILED_JOBS, async {
             let mut found = Vec::new();
             failed_jobs(c, &mut found).await?;
+            Ok(found)
+        })
+        .await?;
+    checked
+        .part(c, &REFUSED, async {
+            let mut found = Vec::new();
+            refused_days(c, &mut found).await?;
             Ok(found)
         })
         .await?;
@@ -907,7 +915,10 @@ async fn failed_jobs(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(
              FROM core.job j
              LEFT JOIN LATERAL (SELECT l.lease_id FROM core.lease l WHERE l.job_id = j.job_id AND l.outcome IN ('FAILED', 'EXPIRED')
                                 ORDER BY l.lease_id DESC LIMIT 1) f ON true
-             WHERE j.state = 'FAILED' AND j.kind <> 'REFCHECK' ORDER BY j.job_id",
+             WHERE j.state = 'FAILED' AND j.kind <> 'REFCHECK'
+               -- C-075: a day held for the input plan's refusal is DAY_REFUSED's, one alert for one cause
+               AND NOT EXISTS (SELECT FROM core.day_refusal r WHERE r.job_id = j.job_id AND r.lease_id = f.lease_id AND r.held)
+             ORDER BY j.job_id",
             &[],
         )
         .await
@@ -919,6 +930,8 @@ async fn failed_jobs(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(
             "DAY_BLOCK" if first == last => format!("Day {first}"),
             "DAY_BLOCK" => format!("Days {first} to {last}"),
             "TAPE" => format!("Tape job for {first}"),
+            // C-074 (release-2 audit, Codex 16, Gemini 9): the day keeps the revisions it had
+            "REPUBLISH" => format!("Republish of {first} (its revisions stay as they were)"),
             _ => format!("Ordered pass for {first}"),
         };
         let why = evidence.or(lease).unwrap_or_else(|| "no reason recorded".into());
@@ -931,6 +944,40 @@ async fn failed_jobs(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(
         });
     }
     Ok(())
+}
+
+/// C-075 (an observability gap, 2026-11-24): a day the engine's input plan refused and core held
+/// (`work::fail`), until the day is published (a day-local revision of it published after the refusal):
+/// one problem per day, naming the refused inputs, the job and its build.
+async fn refused_days(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(), String> {
+    let rows = c
+        .query(
+            "SELECT DISTINCT ON (r.profile_id, r.session) r.session::text, r.job_id, r.engine_build, r.inputs, r.profile_id
+             FROM core.day_refusal r
+             WHERE r.held
+               AND NOT EXISTS (SELECT FROM vyreon.day_revision d
+                               WHERE d.represented_date = r.session AND d.profile_id = r.profile_id AND d.day_local
+                                 AND d.state = 'PUBLISHED' AND d.published_at > r.refused_at)
+             ORDER BY r.profile_id, r.session, r.refused_at DESC",
+            &[],
+        )
+        .await
+        .map_err(db)?;
+    for r in &rows {
+        let (day, job, build, inputs): (String, i64, String, String) = (r.get(0), r.get(1), r.get(2), r.get(3));
+        found.push(Found {
+            kind: "DAY_REFUSED",
+            key: format!("day {day}"),
+            summary: format!("Day {day} refused by the engine's input plan (job {job}, build {}): {}", short_build(&build), one_line(&inputs, 240)),
+            command: format!("vyreon-core evidence show {job}"),
+            detail: None,
+        });
+    }
+    Ok(())
+}
+
+fn short_build(build: &str) -> &str {
+    build.get(..8).unwrap_or(build)
 }
 
 /// (d) The provider failing, from the failure evidence's decisive text (its stop message and the
@@ -1008,12 +1055,19 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
 /// C-068 round 2 (`round2-core.md` 13): the daily session's blocks (DAY_BLOCK of priority 1) are a
 /// group of their own, as they have a ScaledJob of their own (`day-block-daily`): a backfill block's
 /// lease says nothing of the daily pod.
-const KINDS: [(&str, &str); 5] =
-    [("TAPE", "tape"), ("DAY_BLOCK", "day-block"), ("DAILY_BLOCK", "day-block-daily"), ("ORDERED_PASS", "ordered-pass"), ("REFCHECK", "refcheck")];
+const KINDS: [(&str, &str); 6] = [
+    ("TAPE", "tape"),
+    ("DAY_BLOCK", "day-block"),
+    ("DAILY_BLOCK", "day-block-daily"),
+    ("ORDERED_PASS", "ordered-pass"),
+    ("REFCHECK", "refcheck"),
+    // C-074
+    ("REPUBLISH", "republish"),
+];
 
 /// C-073: the kinds whose pods the scaler holds back while the request budget is pressed
 /// (`core.scaler_count`): a kind waiting for that reason is not stalled.
-const BUDGETED: [&str; 3] = ["TAPE", "DAY_BLOCK", "REFCHECK"];
+const BUDGETED: [&str; 4] = ["TAPE", "DAY_BLOCK", "REFCHECK", "REPUBLISH"];
 
 /// A job's stall group: its kind, or `DAILY_BLOCK` for a daily session's day block (`KINDS`).
 const GROUP: &str = "CASE WHEN j.kind = 'DAY_BLOCK' AND j.priority = 1 THEN 'DAILY_BLOCK' ELSE j.kind END";
@@ -1129,7 +1183,7 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
                                         OR EXISTS (SELECT FROM core.job d WHERE d.kind = 'DAY_BLOCK' AND d.profile_id = j.profile_id
                                                      AND d.state IN ('QUEUED', 'LEASED') AND j.first_session BETWEEN d.next_session AND d.last_session)))))
              SELECT (SELECT count(*) FROM q),
-                    (SELECT string_agg(n || ' ' || CASE kind WHEN 'DAY_BLOCK' THEN 'day blocks' WHEN 'TAPE' THEN 'tape jobs' WHEN 'REFCHECK' THEN 'reference-check re-runs' ELSE 'ordered passes' END, ', ' ORDER BY kind)
+                    (SELECT string_agg(n || ' ' || CASE kind WHEN 'DAY_BLOCK' THEN 'day blocks' WHEN 'TAPE' THEN 'tape jobs' WHEN 'REFCHECK' THEN 'reference-check re-runs' WHEN 'REPUBLISH' THEN 'republishes' ELSE 'ordered passes' END, ', ' ORDER BY kind)
                      FROM (SELECT kind, count(*) AS n FROM q GROUP BY kind) g),
                     (SELECT paused FROM core.queue_control)",
             &[],
@@ -1197,15 +1251,20 @@ async fn no_progress(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) 
         .query(
             "WITH live AS (
                  SELECT l.lease_id, l.job_id, l.worker, l.granted_at, j.kind, j.priority, j.next_session, j.first_session, j.last_session,
-                        s.step, s.step_since, s.reason,
+                        s.step, s.step_since, s.reason, s.progress,
                         -- a download step is a wait of its own bound (`DOWNLOAD_STEP_MAX_MINUTES`), the later of it and a declared one
-                        GREATEST(s.waiting_until, CASE WHEN lower(ltrim(s.step)) LIKE 'download%' OR lower(ltrim(s.step)) LIKE 'fill%'
+                        -- (engine D-462: a download that reports its progress is judged by it, 20 minutes without a new
+                        -- report, so a hung one alerts within them; the implicit bound is only for one that reports none)
+                        GREATEST(s.waiting_until, CASE WHEN (lower(ltrim(s.step)) LIKE 'download%' OR lower(ltrim(s.step)) LIKE 'fill%') AND s.progress IS NULL
                                                        THEN s.step_since + make_interval(secs => $5::float8 * 60) END) AS waiting_until,
-                        s.waiting_until IS NULL OR s.waiting_until < s.step_since + make_interval(secs => $5::float8 * 60) AS implicit
+                        s.progress IS NULL AND (s.waiting_until IS NULL OR s.waiting_until < s.step_since + make_interval(secs => $5::float8 * 60)) AS implicit
                  FROM core.lease l JOIN core.job j USING (job_id) JOIN core.lease_step s USING (lease_id)
                  WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz AND l.granted_at <= $1::text::timestamptz),
              p AS (
-                 SELECT live.*, GREATEST(live.granted_at, live.step_since,
+                 -- (C-074, release-2 audit, Codex 8) a download that reports its progress is judged by its progress
+                 -- alone: request traffic never hides a counter that stopped
+                 SELECT live.*, CASE WHEN live.progress IS NOT NULL AND (lower(ltrim(live.step)) LIKE 'download%' OR lower(ltrim(live.step)) LIKE 'fill%')
+                                     THEN GREATEST(live.granted_at, live.step_since) ELSE GREATEST(live.granted_at, live.step_since,
                      (SELECT max(b.granted_at) FROM core.budget_lease b
                       WHERE b.worker = live.worker AND b.granted_at >= live.granted_at AND b.granted_at <= $1::text::timestamptz
                         AND (b.used IS NULL OR b.used > 0)),
@@ -1228,7 +1287,7 @@ async fn no_progress(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) 
                      (SELECT max(i.stored_at) FROM core.input_capture i
                       WHERE live.kind = 'DAY_BLOCK' AND i.session BETWEEN live.first_session AND live.last_session
                         AND i.stored_at >= live.granted_at AND i.stored_at <= $1::text::timestamptz)
-                 ) AS last FROM live)
+                 ) END AS last FROM live)
              SELECT job_id, CASE WHEN kind = 'DAY_BLOCK' AND priority = 1 THEN 'DAILY_BLOCK' ELSE kind END, COALESCE(next_session, last_session)::text, worker, step,
                     to_char(last AT TIME ZONE $2, 'Dy HH24:MI'), to_char(waiting_until AT TIME ZONE $2, 'Dy HH24:MI'),
                     CASE WHEN implicit AND (lower(ltrim(step)) LIKE 'download%' OR lower(ltrim(step)) LIKE 'fill%')
@@ -1249,6 +1308,7 @@ async fn no_progress(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) 
             "DAY_BLOCK" => "Day block",
             "ORDERED_PASS" => "Ordered pass",
             "REFCHECK" => "Reference-check re-run",
+            "REPUBLISH" => "Republish",
             _ => "Tape job",
         };
         let wait = match (overstayed, until, reason) {
@@ -1440,7 +1500,7 @@ pub fn consequence(kind: &str) -> (&'static str, Option<&'static str>) {
         "REPORT_AT_RISK" => ("Sunday's report may go out with this week incomplete.", Some("See what is still missing:")),
         "QUEUE_PAUSED" => ("No new days are computed while paused; nothing published changes.", Some("Find the cause; once it is fixed, `vyreon-core queue resume`. Details:")),
         "JOB_FAILED" => (
-            "That day stays unpublished (shown to readers as missing, with its cause); published days are not affected.",
+            "A failed day block or pass leaves its day unpublished (shown to readers as missing, with its cause); a failed republish leaves its day as it was; published days are not affected.",
             Some("After a fix, `vyreon-core queue retry-failed`; why it failed:"),
         ),
         "PROVIDER_AUTH" => ("No new data can be fetched; published numbers are not affected.", Some("Check the Intrinio key and account:")),
@@ -1458,6 +1518,10 @@ pub fn consequence(kind: &str) -> (&'static str, Option<&'static str>) {
         "WATCH_FAILING" => ("Other problems may go unreported meanwhile.", Some("Read core's log:")),
         "JOB_THRASHING" => ("That work keeps restarting; its day stays unpublished until it finishes.", Some("Check the pods' exit reasons (out of memory?):")),
         "NO_PROGRESS" => ("That job is stuck; its day stays unpublished until it moves.", Some("Read the worker's log:")),
+        "DAY_REFUSED" => (
+            "That day stays unpublished (readers see it missing, with its cause); the build goes on; nothing more is tried on it.",
+            Some("Fix the refused input or the engine, then a new build's `vyreon-core build hand-over` or `vyreon-core queue retry-failed`; the refusal:"),
+        ),
         _ => ("", Some("To see more:")),
     }
 }
@@ -1863,6 +1927,7 @@ pub(crate) fn kind_words(kind: &str) -> &'static str {
         "DAY_BLOCK" => "day blocks",
         "ORDERED_PASS" => "ordered passes",
         "REFCHECK" => "reference-check re-runs",
+        "REPUBLISH" => "republishes",
         _ => "tape jobs",
     }
 }

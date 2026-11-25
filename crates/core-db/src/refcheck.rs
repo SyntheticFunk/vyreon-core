@@ -367,14 +367,42 @@ const CHECKING_D: &str = "EXISTS (SELECT FROM core.lease_revision lr JOIN core.l
                                     AND NOT EXISTS (SELECT FROM core.refcheck_report r WHERE r.lease_id = l.lease_id AND r.session = d.represented_date))";
 
 /// `DUE`'s columns, of the profile's published bases from `$2`: base, day, build, its day-local revision,
-/// whether its worker is still checking it.
+/// whether a worker that published either is still checking it. C-074 (release-2 audit, Codex 11, Gemini 7):
+/// the day's publication is the later of its base's and its day-local revision's, so a day-local-only
+/// republish is due `hours` after it, not after the base it kept.
 fn current_days() -> String {
     format!(
-        "SELECT d.revision_id AS base, d.represented_date AS day, d.engine_build, d.published_at, {LOCAL_OF_D} AS local, {CHECKING_D} AS checking
+        "SELECT d.revision_id AS base, d.represented_date AS day, d.engine_build, GREATEST(d.published_at, lp.published_at) AS published_at,
+                lp.revision_id AS local, ({CHECKING_D} OR {CHECKING_L}) AS checking
          FROM vyreon.day_revision d
+         LEFT JOIN LATERAL (SELECT l.revision_id, l.published_at FROM vyreon.day_revision l
+                            WHERE l.base_revision = d.revision_id AND l.day_local AND l.state = 'PUBLISHED' ORDER BY l.revision_id DESC LIMIT 1) lp ON true
          WHERE d.profile_id = $1 AND d.state = 'PUBLISHED' AND d.base_revision IS NULL AND d.represented_date >= $2::text::date"
     )
 }
+
+/// C-074: the worker that published the day-local revision `lp` (a republish's) still holds its lease.
+const CHECKING_L: &str = "EXISTS (SELECT FROM core.lease_revision lr JOIN core.lease l USING (lease_id)
+                                  WHERE lr.revision_id = lp.revision_id AND l.ended_at IS NULL
+                                    AND NOT EXISTS (SELECT FROM core.refcheck_report r WHERE r.lease_id = l.lease_id AND r.session = d.represented_date))";
+
+/// C-074 (release-2 audit, Codex 3 and 10, Gemini 1): the pair a republish's current (base, day-local)
+/// revisions replaced: the day-local revision's `replaces`, and the base's when the same job republished
+/// it (else the base it kept). Columns of `pred(day, base, local, cur_base, cur_local, depth)` over every
+/// published day-local revision of the profile `$1`, walked back through successive republishes.
+const PREDECESSORS: &str = "pred(day, base, local, cur_base, cur_local, depth) AS (
+        SELECT l.represented_date,
+               CASE WHEN b.republish_scope->>'job' = l.republish_scope->>'job' THEN (b.republish_scope->>'replaces')::bigint ELSE b.revision_id END,
+               (l.republish_scope->>'replaces')::bigint, b.revision_id, l.revision_id, 1
+        FROM vyreon.day_revision l JOIN vyreon.day_revision b ON b.revision_id = l.base_revision
+        WHERE l.profile_id = $1 AND l.state = 'PUBLISHED' AND l.day_local AND l.republish_scope IS NOT NULL
+        UNION ALL
+        SELECT p.day,
+               CASE WHEN b.republish_scope->>'job' = l.republish_scope->>'job' THEN (b.republish_scope->>'replaces')::bigint ELSE b.revision_id END,
+               (l.republish_scope->>'replaces')::bigint, p.cur_base, p.cur_local, p.depth + 1
+        FROM pred p JOIN vyreon.day_revision l ON l.revision_id = p.local JOIN vyreon.day_revision b ON b.revision_id = l.base_revision
+        WHERE l.republish_scope IS NOT NULL AND p.depth < 50
+          AND NOT EXISTS (SELECT FROM core.refcheck_report r WHERE r.outcome = 'COMPLETED' AND r.base_revision = p.base AND r.day_local_revision = p.local))";
 
 /// A re-run job `j` of the pair (`base`, `local`).
 fn job_of_pair(base: &str, local: &str) -> String {
@@ -386,6 +414,26 @@ fn job_of_pair(base: &str, local: &str) -> String {
 fn completed_for_pair(base: &str, local: &str) -> String {
     format!("r.base_revision = {base} AND r.outcome = 'COMPLETED' AND r.day_local_revision IS NOT DISTINCT FROM {local}")
 }
+
+/// C-074 (coordinator, 2026-11-24): a republished day's re-run checks only what its republish
+/// recomputed (the day-local revision's `recomputed`, and its base's when the same job republished it:
+/// the recompute set holds the seed's same-day dependants), when the pair it replaced has a COMPLETED
+/// check that found nothing unexplained and no reference error (release-2 audit, Codex 3, Gemini 1: a
+/// known disagreement on a carried reading is judged again by a whole check, never dropped by a subset;
+/// Codex 10: the base of an earlier republish, kept, is the predecessor's base). Else NULL: the whole
+/// day. Reads `todo.base` and `todo.local`.
+const SCOPED_MEASUREMENTS: &str = "(SELECT CASE WHEN l.republish_scope IS NOT NULL
+                  AND EXISTS (SELECT FROM core.refcheck_report r WHERE r.outcome = 'COMPLETED'
+                                AND r.base_revision = CASE WHEN b.republish_scope->>'job' = l.republish_scope->>'job'
+                                                           THEN (b.republish_scope->>'replaces')::bigint ELSE b.revision_id END
+                                AND r.day_local_revision = (l.republish_scope->>'replaces')::bigint
+                                AND COALESCE(r.failed_unexplained, r.failed, 0) = 0 AND COALESCE(r.reference_errors, 0) = 0)
+             THEN (SELECT COALESCE(jsonb_agg(DISTINCT m ORDER BY m), '[]'::jsonb)
+                   FROM jsonb_array_elements_text(COALESCE(l.republish_scope->'recomputed', '[]'::jsonb)
+                                                  || CASE WHEN b.republish_scope->>'job' = l.republish_scope->>'job'
+                                                          THEN COALESCE(b.republish_scope->'recomputed', '[]'::jsonb) ELSE '[]'::jsonb END) AS x(m))
+        END
+        FROM vyreon.day_revision b, vyreon.day_revision l WHERE b.revision_id = todo.base AND l.revision_id = todo.local)";
 
 /// C-073: queues a re-run (a REFCHECK job of the day's one session) for each day due (`DUE`), for the
 /// day's own build if it runs, else the running build admitted last; a day with no running build gets
@@ -442,11 +490,15 @@ pub async fn queue_reruns(c: &impl GenericClient, profile: &str, from: &str, hou
                           WHERE NOT EXISTS (SELECT FROM core.refcheck_report r WHERE {completed} AND r.stored_at <= $3::text::timestamptz)
                             AND NOT EXISTS (SELECT FROM core.job j WHERE {pair} AND j.state <> 'CANCELLED'))
                  INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, max_attempts)
-                 SELECT 'REFCHECK', $1, runner, day, day, day, jsonb_build_object('base_revision', base, 'day_local_revision', local), {RERUN_ATTEMPTS}
+                 SELECT 'REFCHECK', $1, runner, day, day, day,
+                        jsonb_build_object('base_revision', base, 'day_local_revision', local)
+                        || COALESCE((SELECT jsonb_build_object('measurements', x.m) FROM (SELECT {scoped} AS m) x WHERE x.m IS NOT NULL), '{{}}'::jsonb),
+                        {RERUN_ATTEMPTS}
                  FROM todo WHERE runner IS NOT NULL ORDER BY day
                  ON CONFLICT DO NOTHING
                  RETURNING first_session::text, job_id",
                 current = current_days(),
+                scoped = SCOPED_MEASUREMENTS,
                 completed = completed_for_pair("due.base", "due.local"),
                 pair = job_of_pair("due.base", "due.local"),
             ),
@@ -496,18 +548,37 @@ pub async fn dump_to(client: &mut Client, token: &str, session: &str, out: &std:
     let io = |e: std::io::Error| LeaseError::Failed(format!("the dump's file: {e}"));
     let tx = client.build_transaction().read_only(true).isolation_level(tokio_postgres::IsolationLevel::RepeatableRead).start().await.map_err(failed)?;
     let lease = work::identify(&tx, token).await?;
-    if lease.kind != "REFCHECK" {
-        return Err(LeaseError::Refused(format!("job {} is not a reference-check re-run", lease.job_id)));
+    if lease.kind != "REFCHECK" && lease.kind != "REPUBLISH" {
+        return Err(LeaseError::Refused(format!("job {} is not a reference-check re-run or a republish", lease.job_id)));
     }
     if session != lease.first_session {
-        return Err(LeaseError::Refused(format!("reference-check re-run job {} is of {}, not of {session}", lease.job_id, lease.first_session)));
+        return Err(LeaseError::Refused(format!("{} job {} is of {}, not of {session}", crate::watch::kind_words(&lease.kind), lease.job_id, lease.first_session)));
     }
-    let scope: Value = tx
-        .query_one("SELECT COALESCE(scope, '{}'::jsonb)::text FROM core.job WHERE job_id = $1", &[&lease.job_id])
-        .await
-        .map_err(failed)
-        .map(|r| serde_json::from_str(r.get::<_, &str>(0)).unwrap_or(Value::Null))?;
-    let (base, local) = scoped(&scope);
+    let (base, local) = if lease.kind == "REPUBLISH" {
+        // C-074: the day's published base and the day-local revision on it, which the republish
+        // carries forward (its bundles name them; a publish since makes them refused)
+        let row = tx
+            .query_opt(
+                "SELECT b.revision_id, (SELECT l.revision_id FROM vyreon.day_revision l WHERE l.base_revision = b.revision_id
+                                         AND l.represented_date = b.represented_date AND l.state = 'PUBLISHED' AND l.day_local)
+                 FROM vyreon.day_revision b
+                 WHERE b.represented_date = $1::text::date AND b.profile_id = $2 AND b.state = 'PUBLISHED' AND b.base_revision IS NULL",
+                &[&session, &lease.profile_id],
+            )
+            .await
+            .map_err(failed)?
+            .ok_or_else(|| LeaseError::Refused(format!("{session} has no published base revision to republish")))?;
+        // (release-2 audit, Gemini 16a) a republish replaces a whole day: one without its day-local revision is none
+        let local = row.get::<_, Option<i64>>(1).ok_or_else(|| LeaseError::Refused(format!("{session} has no published day-local revision on its base: no whole day to republish")))?;
+        (Some(row.get::<_, i64>(0)), Some(local))
+    } else {
+        let scope: Value = tx
+            .query_one("SELECT COALESCE(scope, '{}'::jsonb)::text FROM core.job WHERE job_id = $1", &[&lease.job_id])
+            .await
+            .map_err(failed)
+            .map(|r| serde_json::from_str(r.get::<_, &str>(0)).unwrap_or(Value::Null))?;
+        scoped(&scope)
+    };
     let base = base.ok_or_else(|| LeaseError::Failed(format!("re-run job {} names no base revision", lease.job_id)))?;
     let ids: Vec<i64> = std::iter::once(base).chain(local).collect();
     let store_path = out.with_extension("store");
@@ -736,7 +807,8 @@ pub async fn state(c: &impl GenericClient, profile: &str, from: Option<&str>, no
 pub async fn state_with(c: &impl GenericClient, profile: &str, from: Option<&str>, rerun_hours: Option<f64>, now: &str) -> Result<State, String> {
     let r = c
         .query_one(
-            &format!("WITH cur AS (SELECT * FROM ({current}) d WHERE $5::float8 IS NOT NULL AND $2::text IS NOT NULL),
+            &format!("WITH RECURSIVE cur AS (SELECT * FROM ({current}) d WHERE $5::float8 IS NOT NULL AND $2::text IS NOT NULL),
+             {PREDECESSORS},
              pending AS (
                  SELECT cur.day AS session FROM cur
                  WHERE EXISTS (SELECT FROM core.job j WHERE {pair} AND j.state IN ('QUEUED', 'LEASED') AND core.build_runs(j.engine_build))
@@ -749,17 +821,29 @@ pub async fn state_with(c: &impl GenericClient, profile: &str, from: Option<&str
                    AND (r.day_local_revision IS NULL
                         OR EXISTS (SELECT FROM vyreon.day_revision x WHERE x.revision_id = r.day_local_revision AND x.state = 'PUBLISHED'))
                  ORDER BY r.session, r.stored_at DESC, r.refcheck_report_id DESC),
+             -- C-074 (release-2 audit, Codex 3, Gemini 1): a republished day with no completed check of its own
+             -- carries what the latest check of the pair it replaced found (its unchanged readings are still published)
+             inherited AS (
+                 SELECT DISTINCT ON (r.session) r.* FROM pred p JOIN core.refcheck_report r
+                   ON r.base_revision = p.base AND r.day_local_revision = p.local AND r.outcome = 'COMPLETED' AND r.stored_at <= $3::text::timestamptz
+                 WHERE NOT EXISTS (SELECT FROM core.refcheck_report o WHERE o.base_revision = p.cur_base AND o.day_local_revision = p.cur_local
+                                     AND o.outcome = 'COMPLETED' AND o.stored_at <= $3::text::timestamptz)
+                 ORDER BY r.session, r.stored_at DESC, r.refcheck_report_id DESC),
+             judged AS (SELECT * FROM latest UNION ALL SELECT * FROM inherited WHERE session NOT IN (SELECT session FROM latest WHERE outcome = 'COMPLETED')),
              unreported AS (
                  SELECT d.represented_date AS session FROM vyreon.day_revision d
                  WHERE $2::text IS NOT NULL AND d.represented_date >= $2::text::date AND d.profile_id = $1 AND d.state = 'PUBLISHED'
-                   AND d.base_revision IS NULL AND d.published_at <= $3::text::timestamptz - make_interval(secs => $4::float8 * 3600)
+                   AND d.base_revision IS NULL
+                   AND GREATEST(d.published_at, (SELECT max(l.published_at) FROM vyreon.day_revision l
+                                                 WHERE l.base_revision = d.revision_id AND l.day_local AND l.state = 'PUBLISHED'))
+                       <= $3::text::timestamptz - make_interval(secs => $4::float8 * 3600)
                    AND d.represented_date NOT IN (SELECT session FROM pending)
                    AND NOT EXISTS (SELECT FROM core.refcheck_report r WHERE r.base_revision = d.revision_id AND r.stored_at <= $3::text::timestamptz
                                      AND (r.day_local_revision IS NULL
                                           OR EXISTS (SELECT FROM vyreon.day_revision x WHERE x.revision_id = r.day_local_revision AND x.state = 'PUBLISHED')))),
-             disagree AS (SELECT * FROM latest WHERE outcome = 'COMPLETED' AND failed_unexplained > 0),
-             untriaged AS (SELECT * FROM latest WHERE outcome = 'COMPLETED' AND failed_unexplained IS NULL AND failed > 0),
-             referr AS (SELECT * FROM latest WHERE outcome = 'COMPLETED' AND reference_errors > 0),
+             disagree AS (SELECT * FROM judged WHERE outcome = 'COMPLETED' AND failed_unexplained > 0),
+             untriaged AS (SELECT * FROM judged WHERE outcome = 'COMPLETED' AND failed_unexplained IS NULL AND failed > 0),
+             referr AS (SELECT * FROM judged WHERE outcome = 'COMPLETED' AND reference_errors > 0),
              unjudged AS (SELECT session FROM untriaged UNION SELECT session FROM referr)
              SELECT (SELECT count(*) FROM disagree), (SELECT COALESCE(sum(failed_unexplained), 0)::bigint FROM disagree),
                     (SELECT min(session)::text FROM disagree),

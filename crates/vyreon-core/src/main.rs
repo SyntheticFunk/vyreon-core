@@ -21,6 +21,19 @@
 //!                                                     ordered passes (C-062): a session keeps its unfinished pass of
 //!                                                     this build; one of a build that does not run is cancelled and
 //!                                                     replaced; one of another build that runs refuses the range
+//!   vyreon-core republish <profile> <build> <scope> <first> <last> "<reason>" [--plan] [--scoped|--full] [--block N]
+//!                                                     C-074 (engine D-104, D-462): recompute the families or measurements of
+//!                                                     <scope> (comma-separated; each a family, else a measurement) and every
+//!                                                     same-day dependant on each published day of the range. --plan prints
+//!                                                     the plan and schedules nothing: the recompute set, its share of the
+//!                                                     day's slots, the inputs and stages a day needs, the measured cost
+//!                                                     scoped and full, and the choice (SCOPED when its measured cost for
+//!                                                     the range is below FULL's). Without it the choice is scheduled:
+//!                                                     REPUBLISH jobs (one a day, copy-forward revisions), day blocks of
+//!                                                     --block days (default 3) for FULL, or ordered passes when the set
+//!                                                     holds history sensors only; --scoped or --full overrides the choice
+//!   vyreon-core compare-day <profile> <build> <date> C-074: a compare-only day block of the date: computed whole, its
+//!                                                     revisions staged and never published (the scoped check's comparison)
 //!   vyreon-core tape verify <profile> <build> <session>...  schedule a verify job per session (C-059): a tape worker
 //!                                                     downloads the session's replay files again, recomputes each member's
 //!                                                     cache and runs the tape reader on it; core keeps the verdict beside
@@ -191,6 +204,81 @@ async fn schedule(kind: &str, profile: &str, engine_build: &str, first: &str, la
         // does not run is replaced
         let replaced: Vec<String> = made.replaced.iter().map(i64::to_string).collect();
         println!("{} sessions kept their unfinished pass of {engine_build}; {} passes of builds that do not run replaced ({})", made.kept, replaced.len(), replaced.join(" "));
+    }
+    Ok(())
+}
+
+/// C-074: `republish <profile> <build> <scope> <first> <last> <reason> [--plan] [--scoped|--full] [--block N]`.
+async fn republish(profile: &str, build: &str, scope: &str, first: &str, last: &str, reason: &str, flags: &[&str]) -> Result<(), String> {
+    use core_db::republish::{self as rp, Choice};
+    let (mut only_plan, mut force, mut block) = (false, None, 3i64);
+    let mut it = flags.iter();
+    while let Some(f) = it.next() {
+        match *f {
+            "--plan" => only_plan = true,
+            "--scoped" => force = Some(Choice::Scoped),
+            "--full" => force = Some(Choice::Full),
+            "--block" => block = it.next().and_then(|b| b.parse().ok()).filter(|b| *b >= 1).ok_or("--block takes a number of days, at least 1")?,
+            other => return Err(format!("republish: unknown option {other}")),
+        }
+    }
+    if reason.trim().is_empty() {
+        return Err("a republish states its reason".into());
+    }
+    // (release-2 audit, Codex 20) a reason is stored, logged and posted: never a credential
+    if let Some(found) = core_db::evidence::unredacted(reason) {
+        return Err(format!("{found}: a republish's reason carries no credential; nothing was scheduled"));
+    }
+    let mut client = connect().await?;
+    let today: String = client.query_one("SELECT ((now() AT TIME ZONE 'UTC')::date)::text", &[]).await.map_err(|e| e.to_string())?.get(0);
+    let names: Vec<&str> = scope.split(',').collect();
+    let plan = rp::plan(&client, profile, build, &names, first, last, block, &today).await?;
+    // (release-2 audit, Codex 14) the choice the run would make, overrides applied, is what the plan says
+    let choice = match (force, plan.choice) {
+        (Some(Choice::Scoped), Choice::Passes) => return Err("--scoped: the scope holds history sensors only; no worker has anything to recompute".into()),
+        (Some(Choice::Scoped), _) if !plan.stale.is_empty() => return Err("--scoped: some days are published in other profile revisions; a copy-forward cannot cross them".into()),
+        (Some(f), _) => f,
+        (None, c) => c,
+    };
+    for line in rp::describe(&plan) {
+        println!("{line}");
+    }
+    if force.is_some() && force != Some(plan.choice) {
+        println!("overridden: {} (as asked)", choice.name());
+    }
+    if only_plan {
+        return Ok(());
+    }
+    // no faithful recompute (the scope reads inputs the provider no longer serves): only on the word
+    if plan.choice == Choice::Full && plan.why.starts_with("no faithful recompute") && force != Some(Choice::Full) {
+        return Err("nothing was scheduled: pass --full to recompute those days whole anyway".into());
+    }
+    // (release-2 audit, Codex 6, Gemini 5) only the published days the plan names, in runs of consecutive
+    // sessions: an unpublished or omitted day of the range is left as it is
+    let runs = plan.runs();
+    if runs.is_empty() {
+        return Err("no session of the range has a published day: nothing to recompute".into());
+    }
+    match choice {
+        Choice::Scoped => {
+            let made = rp::schedule(&mut client, profile, build, &plan.work, &plan.sessions, reason).await?;
+            println!("{} republish jobs: {}", made.jobs.len(), made.jobs.iter().map(i64::to_string).collect::<Vec<_>>().join(" "));
+        }
+        Choice::Full => {
+            let mut jobs = 0;
+            for (a, b) in &runs {
+                jobs += work::schedule(&mut client, work::Kind::DayBlock, profile, build, a, b, block as i32).await?.jobs;
+            }
+            notice::log(&client, &format!("Full recompute of {} sessions, {} to {}, under build {build} queued as {jobs} day blocks ({}).", plan.sessions.len(), runs[0].0, runs[runs.len() - 1].1, watch::one_line(reason, 200))).await?;
+            println!("{jobs} day blocks over {} sessions", plan.sessions.len());
+        }
+        Choice::Passes => {
+            let mut jobs = 0;
+            for (a, b) in &runs {
+                jobs += work::schedule(&mut client, work::Kind::OrderedPass, profile, build, a, b, 1).await?.jobs;
+            }
+            println!("{jobs} ordered passes over {} sessions", plan.sessions.len());
+        }
     }
     Ok(())
 }
@@ -1027,6 +1115,11 @@ async fn main() -> ExitCode {
         },
         ["schedule", kind, profile, engine_build, first, last] => schedule(kind, profile, engine_build, first, last, "30").await,
         ["schedule", kind, profile, engine_build, first, last, block] => schedule(kind, profile, engine_build, first, last, block).await,
+        ["republish", profile, engine_build, scope, first, last, reason, ref flags @ ..] => republish(profile, engine_build, scope, first, last, reason, flags).await,
+        ["compare-day", profile, engine_build, day] => match connect().await {
+            Ok(mut client) => core_db::republish::schedule_compare(&mut client, profile, engine_build, day).await.map(|job| println!("compare-only day block {job}")),
+            Err(e) => Err(e),
+        },
         ["tape", "verify", profile, engine_build, ref sessions @ ..] => tape_verify(profile, engine_build, sessions).await,
         ["tape", "checks"] => tape_checks().await,
         ["queue", ref change @ ..] => queue(change).await,

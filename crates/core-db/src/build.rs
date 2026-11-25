@@ -128,6 +128,28 @@ pub async fn register(client: &mut Client, inventory: &Value) -> Result<Register
             }
         }
     }
+    // C-074: the engine's republish plans (engine D-462), kept as the build declared them; a build
+    // registered again keeps its first (its inventory is the same: checked above)
+    if let Some(plans) = inventory.get("republish").filter(|p| !p.is_null()) {
+        if !plans["seeds"].is_object() {
+            return Err("inventory: republish has no seeds".into());
+        }
+        tx.execute(
+            "INSERT INTO core.build_republish (engine_build, plans) VALUES ($1, $2::text::jsonb) ON CONFLICT (engine_build) DO NOTHING",
+            &[&build, &plans.to_string()],
+        )
+        .await
+        .map_err(db)?;
+        // (release-2 audit, Gemini 16b) the same plans on both sides, as the slots, or it is refused
+        let same: bool = tx
+            .query_one("SELECT plans = $2::text::jsonb FROM core.build_republish WHERE engine_build = $1", &[&build, &plans.to_string()])
+            .await
+            .map_err(db)?
+            .get(0);
+        if !same {
+            return Err(format!("engine build {build} is already registered with other republish plans"));
+        }
+    }
     let slots: i64 = tx.query_one("SELECT count(*) FROM core.expected_slot WHERE engine_build = $1", &[&build]).await.map_err(db)?.get(0);
     tx.commit().await.map_err(db)?;
     Ok(Registered { engine_build: build, slots, new: !known })
@@ -214,6 +236,8 @@ async fn withdraw_in(tx: &tokio_postgres::Transaction<'_>, build: &str, reason: 
         .iter()
         .map(|r| r.get(0))
         .collect();
+    // C-074 (release-2 audit, Codex 15, Gemini 14): a stopped republish's staged base is rejected
+    crate::work::reject_staged(tx, &ended, "its engine build was withdrawn").await?;
     let mut sorted = stopped.clone();
     sorted.sort_unstable();
     let leases = match sorted.len() {
@@ -353,6 +377,27 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
     // successor reads (`core.day_published` for it) is a day it cannot read: with no day block to
     // compute it again, its pass would never be claimed and would hold every later one. Such days are
     // recomputed under the successor first: schedule its day blocks over them, then hand over.
+    // C-074 (release-2 audit, Gemini 3): a republish copies forward only within its day's profile
+    // revisions; one whose day the successor does not read in its own cannot move
+    let stale: Vec<(i64, String)> = tx
+        .query(
+            "SELECT j.job_id, j.first_session::text FROM core.job j
+             WHERE j.engine_build = $1 AND j.kind = 'REPUBLISH' AND j.state IN ('QUEUED', 'FAILED')
+               AND NOT core.day_published(j.first_session, j.profile_id, $2) ORDER BY 2",
+            &[&from, &to],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+    if let Some((job, day)) = stale.first() {
+        return Err(format!(
+            "republish job {job} ({day}) and {} more: their days are published in profile revisions build {to} does not publish, so they \
+             cannot be copied forward under it; cancel them and recompute those days whole; nothing was moved",
+            stale.len() - 1
+        ));
+    }
     let unreadable: Vec<String> = tx
         .query(
             "SELECT DISTINCT j.first_session::text FROM core.job j
@@ -387,7 +432,8 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
         let other: Option<(i64, String)> = tx
             .query_opt(
                 "SELECT job_id, engine_build FROM core.job
-                 WHERE kind = $1 AND profile_id = $2 AND engine_build <> $3 AND state IN ('QUEUED', 'LEASED', 'FAILED')
+                 WHERE (kind = $1 OR (kind IN ('DAY_BLOCK', 'REPUBLISH') AND $1 IN ('DAY_BLOCK', 'REPUBLISH')))
+                   AND profile_id = $2 AND engine_build <> $3 AND state IN ('QUEUED', 'LEASED', 'FAILED')
                    AND NOT (kind = 'TAPE' AND COALESCE(scope @> $6::text::jsonb, false))
                    -- C-073 (release audit, Gemini 5): re-runs of one session's different revisions may stand
                    -- side by side (one per revision pair, migration 0055's index); they never overlap
@@ -457,9 +503,23 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
         )
         .await
         .map_err(db)?;
+        if c.kind == "REPUBLISH" {
+            // C-074: the recompute set is the successor's graph's (its worker checks it against its own)
+            let old: serde_json::Value = tx
+                .query_one("SELECT scope::text FROM core.job WHERE job_id = $1", &[&c.old_job])
+                .await
+                .map_err(db)
+                .map(|r| serde_json::from_str(r.get::<_, &str>(0)).unwrap_or_default())?;
+            let names = |k: &str| old[k].as_array().into_iter().flatten().filter_map(|x| x.as_str().map(str::to_owned)).collect::<Vec<_>>();
+            let plans = crate::republish::plans(&tx, to).await.map_err(|e| format!("republish job {} cannot move to build {to}: {e}; cancel it first; nothing was moved", c.old_job))?;
+            let work = crate::republish::compose(&plans, &names("families"), &names("measurements"))
+                .map_err(|e| format!("republish job {} cannot move to build {to}: {e}; cancel it first; nothing was moved", c.old_job))?;
+            let scope = work.scope(old["reason"].as_str().unwrap_or_default()).to_string();
+            tx.execute("UPDATE core.job SET scope = $2::text::jsonb WHERE job_id = $1", &[&new, &scope]).await.map_err(db)?;
+        }
         c.new_job = Some(new);
     }
-    let counts: Vec<String> = ["TAPE", "DAY_BLOCK", "ORDERED_PASS", "REFCHECK"]
+    let counts: Vec<String> = ["TAPE", "DAY_BLOCK", "ORDERED_PASS", "REFCHECK", "REPUBLISH"]
         .iter()
         .filter_map(|k| {
             let n = carried.iter().filter(|c| c.kind == *k).count();
