@@ -454,6 +454,20 @@ const PREDECESSORS: &str = "pred(day, base, local, cur_base, cur_local, depth) A
           AND NOT EXISTS (SELECT FROM core.refcheck_report r WHERE r.outcome = 'COMPLETED' AND r.base_revision = p.base AND r.day_local_revision = p.local))";
 
 /// A re-run job `j` of the pair (`base`, `local`).
+/// C-073 amended (coordinator, 2026-11-26): an unfinished day block or republish of a running build will
+/// publish a new revision of the session `day` of profile `profile` (phase 1 recomputes every day on the frozen
+/// engine): checking the revision it replaces is hours of download and check for nothing, beside the tape
+/// re-capture's provider budget. Its re-run is not queued (a queued one is cancelled) and the day is not
+/// counted as not run; the new revision is checked as any published day is. A compare-only block publishes
+/// nothing and covers nothing.
+fn replacing(day: &str, profile: &str) -> String {
+    format!(
+        "EXISTS (SELECT FROM core.job w WHERE w.kind IN ('DAY_BLOCK', 'REPUBLISH') AND w.profile_id = {profile} AND w.state IN ('QUEUED', 'LEASED')
+                   AND {day} BETWEEN w.next_session AND w.last_session AND core.build_runs(w.engine_build)
+                   AND NOT COALESCE(w.scope @> '{{\"compare_only\": true}}', false))"
+    )
+}
+
 fn job_of_pair(base: &str, local: &str) -> String {
     format!("j.kind = 'REFCHECK' AND j.scope->>'base_revision' = {base}::text AND COALESCE(j.scope->>'day_local_revision', '') = COALESCE({local}::text, '')")
 }
@@ -508,11 +522,12 @@ pub async fn queue_reruns(c: &impl GenericClient, profile: &str, from: &str, hou
             &format!(
                 "UPDATE core.job j SET state = 'CANCELLED', finished_at = clock_timestamp()
                  WHERE j.kind = 'REFCHECK' AND j.state IN ('QUEUED', 'FAILED')
-                   AND (NOT core.build_runs(j.engine_build)
+                   AND (NOT core.build_runs(j.engine_build) OR {replaced}
                         OR NOT EXISTS (SELECT FROM vyreon.day_revision d
                                        WHERE d.revision_id = (j.scope->>'base_revision')::bigint AND d.state = 'PUBLISHED'
                                          AND COALESCE(j.scope->>'day_local_revision', '') = COALESCE({LOCAL_OF_D}::text, '')))
-                 RETURNING j.job_id"
+                 RETURNING j.job_id",
+                replaced = replacing("j.first_session", "j.profile_id")
             ),
             &[],
         )
@@ -523,13 +538,13 @@ pub async fn queue_reruns(c: &impl GenericClient, profile: &str, from: &str, hou
         .collect();
     if !cancelled.is_empty() {
         let ids: Vec<String> = cancelled.iter().map(i64::to_string).collect();
-        crate::notice::log(c, &format!("Reference-check re-runs cancelled (their revisions superseded, or their build does not run): jobs {}.", ids.join(" "))).await?;
+        crate::notice::log(c, &format!("Reference-check re-runs cancelled (their revisions superseded or about to be, or their build does not run): jobs {}.", ids.join(" "))).await?;
     }
     let rows = c
         .query(
             &format!(
                 "WITH due AS (SELECT * FROM ({current}) d
-                              WHERE d.local IS NOT NULL AND NOT d.checking
+                              WHERE d.local IS NOT NULL AND NOT d.checking AND NOT {replaced}
                                 AND d.published_at <= $3::text::timestamptz - make_interval(secs => $4::float8 * 3600)),
                       todo AS (
                           SELECT due.*, COALESCE(CASE WHEN core.build_runs(due.engine_build) THEN due.engine_build END,
@@ -547,6 +562,7 @@ pub async fn queue_reruns(c: &impl GenericClient, profile: &str, from: &str, hou
                  ON CONFLICT DO NOTHING
                  RETURNING first_session::text, job_id",
                 current = current_days(),
+                replaced = replacing("d.day", "$1"),
                 scoped = SCOPED_MEASUREMENTS,
                 completed = completed_for_pair("due.base", "due.local"),
                 pair = job_of_pair("due.base", "due.local"),
@@ -908,7 +924,8 @@ pub async fn state_with(c: &impl GenericClient, profile: &str, from: Option<&str
                  SELECT cur.day AS session FROM cur
                  WHERE EXISTS (SELECT FROM core.job j WHERE {pair} AND j.state IN ('QUEUED', 'LEASED') AND core.build_runs(j.engine_build))
                     OR (NOT EXISTS (SELECT FROM core.job j WHERE {pair} AND j.state <> 'CANCELLED')
-                        AND (cur.published_at > $3::text::timestamptz - make_interval(secs => $5::float8 * 3600) OR cur.checking))),
+                        AND (cur.published_at > $3::text::timestamptz - make_interval(secs => $5::float8 * 3600) OR cur.checking))
+                    OR {replaced}),
              latest AS (
                  SELECT DISTINCT ON (r.session) r.* FROM core.refcheck_report r
                  JOIN vyreon.day_revision d ON d.revision_id = r.base_revision AND d.state = 'PUBLISHED' AND d.profile_id = $1
@@ -953,6 +970,7 @@ pub async fn state_with(c: &impl GenericClient, profile: &str, from: Option<&str
                     (SELECT count(*) FROM unjudged), (SELECT min(session)::text FROM unjudged)",
                 current = current_days().replace("$2::text::date", "COALESCE($2::text, '-infinity')::date"),
                 pair = job_of_pair("cur.base", "cur.local"),
+                replaced = replacing("cur.day", "$1"),
             ),
             &[&profile, &from, &now, &GRACE_HOURS, &rerun_hours],
         )

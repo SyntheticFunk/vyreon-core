@@ -3761,3 +3761,15 @@ an upper bound and that whether each day is an engine fault that changes a publi
 provider's, is the coordinator's classification, verified before stopping. `vyreon-core stoprule <profile> [<build>]`
 lists the bad days with why. Days published by a republish (copy-forward) are not the build's own computation and are
 not counted. Test `freeze.rs::the_stop_rule_counts_bad_days_and_alerts_past_half_from_the_twentieth`.
+
+**C-073 amended (coordinator, 2026-11-26): no re-run of a revision about to be replaced.** Phase 1 recomputes every
+day on the frozen engine (93a04676), but the re-run watch kept queueing checks of days published by older builds
+(2024-07-10..09-05, 1ae946f7/1134003a) that the frozen build's queued day blocks will publish again: ~3.5 h of
+download and check per day, beside the tape re-capture's provider budget, judging a revision about to be replaced.
+Now a published day covered by an unfinished (QUEUED or LEASED) day block or republish of a running build (the day
+between its `next_session` and `last_session`; a compare-only block publishes nothing and covers nothing) gets no
+re-run, a queued or failed one is cancelled ("their revisions superseded or about to be"), and it is not counted as a
+check not run (REFCHECK_NOT_RUN); a re-run already running is left to finish. Once the block publishes the day, its new
+revision is checked as any published day is (its worker's check, else a re-run); if the block ends without publishing
+it (cancelled, failed), the old revision's re-run is queued again. Test
+`automation.rs::a_day_about_to_be_published_again_is_not_checked_until_then` (fails on the old watch).

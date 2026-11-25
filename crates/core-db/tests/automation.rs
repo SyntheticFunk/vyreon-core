@@ -13,7 +13,7 @@ use flate2::{Compression, write::GzEncoder};
 use serde_json::{Value, json};
 use std::io::{Read, Write};
 use test_support::Scratch;
-use test_support::slice::{BASE, bundle, day_local_parts, inventories, parts, with_day_local};
+use test_support::slice::{BASE, bundle, day_local_parts, inventories, parts, reading, with_day_local};
 use tokio_postgres::Client;
 
 const PROFILE: &str = "FREE_REPORT_64";
@@ -257,6 +257,63 @@ print(len(load_store(sys.argv[2], want)), sum(s["measurement_id"] in want for s 
     assert_eq!(count(&client, reruns).await, 1);
     // a day block's lease never sends a re-run's report for another job's day, nor a re-run's lease a
     // day block's (the old rule: a day block's own published day)
+    scratch.drop().await;
+}
+
+/// C-073 amended (coordinator, 2026-11-26: phase 1 recomputes every day on the frozen engine): a published day
+/// that an unfinished day block of a running build will publish again gets no re-run of the revision being
+/// replaced (one already queued is cancelled), and is not a check not run meanwhile; once that block no longer
+/// covers it without publishing (here cancelled), its re-run is queued again.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_day_about_to_be_published_again_is_not_checked_until_then() {
+    let (scratch, mut client, build) = ready("auto_rerun_replaced").await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &build, DAY, DAY, 30).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &build, "w1", HOUR).await.unwrap().unwrap();
+    let (header, scalars, files) = parts(BASE);
+    let path = bundle("auto-replaced-base", &header, &scalars, &files);
+    let base = publish_for_lease(&mut client, &path, &block.token).await.unwrap().revision_id;
+    std::fs::remove_file(&path).unwrap();
+    let (lh, ls, lf) = day_local_parts(&build, DAY, base);
+    let path = bundle("auto-replaced-day-local", &lh, &ls, &lf);
+    publish_for_lease(&mut client, &path, &block.token).await.unwrap();
+    std::fs::remove_file(&path).unwrap();
+    work::day_done(&mut client, &block.token, DAY).await.unwrap();
+    work::finish(&mut client, &block.token).await.unwrap();
+    let settings = Settings {
+        profile: PROFILE.into(),
+        deadlines_from: None,
+        volume_bytes: None,
+        deadline_hour: watch::DEADLINE_HOUR,
+        daily: None,
+        archive: None,
+        refcheck_from: Some(DAY.into()),
+        backup_days: None,
+        spend: None,
+        recompute: None,
+        refcheck_rerun_hours: Some(refcheck::RERUN_AFTER_HOURS),
+    };
+    let queued = "SELECT count(*) FROM core.job WHERE kind = 'REFCHECK' AND state = 'QUEUED'";
+    // due: queued, as before
+    { let at = after(&client, base, 7).await; watch::check(&mut client, &settings, &at).await }.unwrap();
+    assert_eq!(count(&client, queued).await, 1);
+    // the frozen build arrives with a day block over the day (phase 1 computes every day again)
+    let frozen = build::register(&mut client, &reading(inventories().remove(1))).await.unwrap().engine_build;
+    build::admit(&client, &frozen, &json!({"checklist": "automation test"})).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &frozen, "2025-12-08", "2025-12-12", 50).await.unwrap();
+    for hours in [8, 30] {
+        let at = after(&client, base, hours).await;
+        watch::check(&mut client, &settings, &at).await.unwrap();
+        assert_eq!(count(&client, queued).await, 0, "{hours} h: the revision being replaced is not checked");
+        assert!(open(&client, "REFCHECK_NOT_RUN").await.is_empty(), "{hours} h: a day about to be published again is no check not run");
+    }
+    assert_eq!(count(&client, "SELECT count(*) FROM core.job WHERE kind = 'REFCHECK' AND state = 'CANCELLED'").await, 1);
+    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE message LIKE 'Reference-check re-runs cancelled (their revisions superseded or about to be%'").await, 1);
+    // the block no longer covers it (cancelled: nothing will publish the day again): checked again
+    let blocks: Vec<i64> = client.query("SELECT job_id FROM core.job WHERE kind = 'DAY_BLOCK' AND engine_build = $1", &[&frozen]).await.unwrap().iter().map(|r| r.get(0)).collect();
+    work::cancel(&mut client, &blocks).await.unwrap();
+    { let at = after(&client, base, 31).await; watch::check(&mut client, &settings, &at).await }.unwrap();
+    assert_eq!(count(&client, queued).await, 1);
     scratch.drop().await;
 }
 
