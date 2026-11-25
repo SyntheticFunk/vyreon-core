@@ -1382,6 +1382,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   **Release-3 audit fixed (2026-11-25):** core Codex 19 + Gemini 20 findings, every real one fixed and tested (C-077..C-079
   table): core a981a24 code, d243536 tests, 6cb40c2 deploy; engine D-465 abb2d267/536393ce. Coordinator rulings: plans held
   while the spend is unknown; no-value method bumps not excluded.
+  **Releases 2+3 combined into one rollout (UTC−6 ~21:50):** release 3's fixes landed before release 2 shipped, so one cut
+  instead of two (later releases drain). Gemini engine audit of release 3 not run (weekly quota) — Codex's alone accepted
+  (audits rule). Merged: engine worker 1134003a, core main 635c3a4 (image built); worker image building. Ship once 09-05
+  and 07-15 publish: release.sh --core 635c3a4 (migrations 57-61), then release.sh <1134003a tag>.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
