@@ -1544,7 +1544,14 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   version and a new tape reader identity → every option source requoted and every tape re-captured at release. Bumps VS-O01@2,
   VS-O06@4, D111@12, EVC01@17, UPATH@15, UACT@8, UQTR@9, DLM-VWAP@3.2.9, IP01@2. Three ordinary items sent back (owner: fix
   everything): O03 current roles withheld on a T−5 refusal; absolute paths in inventories; FXI 2023 cash deliverable (outside
-  phase 1). eng-r6b (surface/m0/daily) running.
+  phase 1). eng-r6b (surface/m0/daily) DONE 543a0326/6a8a9e00/7077f865, D-490..501: 37 of 38 fixed (all held on real data);
+  bumps H5-SURFACE@25, M0-ANALYTICS@1.2.0, M0-IV-PROFILE@1.1.0, M0-IV-CHANGE@1.1.0, M0-GAMMA@1.3.0, M0-GAMMA-CHANGE@1.2.0,
+  DLM-EXPECTED-MOVE@2.5.0, DLM-MAX-PAIN@1.5.0, DLM-PREMIUM-YIELD@1.4.0, DLM-TECHNICAL@1.13.0, DLM-CANDLESTICK@1.3.0,
+  DLM-IV-CRUSH@2.1.0; UUP 2025-12-10 IV30 0.0962 → 0.1157 (D-185: 2 comparable pairs < 3 → borrows the 401-day carry); spot
+  for 15:50-snapshot sessions (2022-2024) = the bar's opening quote; QuantLib/TA-Lib independent checks. Reference must mirror
+  D-475 (sent back). Owner rulings pending (with recommendations): daily 11 (score the 1-year book's gamma too? D-101 asks a
+  single figure → recommend keep one), D-500 item 5 (list ~800k source ordinals per SPY day literally? → recommend a compact
+  content-addressed form), D-495 (surfaces before 2023-01-03 withheld until the calendar holds 2019 — outside phase 1).
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
