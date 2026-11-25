@@ -1473,7 +1473,16 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   long local unit (requote, quote window, bulk parse) — progress, not a wider bound. Day count: 20 at 10:00.
   **PHASE-1 POLICY — PROPOSED, NOT DECIDED (owner correction 2026-11-25 ~11:00 UTC−6: "we talked about freezing it yes but we didnt
   like, decide to freeze it"; "we should probably fix every problem we already found before we freeze it"). I recorded it as
-  decided without confirming — wrong. Direction now: fix every known problem first, one release, THEN freeze and crank.** "freeze the build, then crank
+  decided without confirming — wrong. Direction now: fix every known problem first, one release, THEN freeze and crank.**
+  **DECIDED (owner, 2026-11-25 ~11:20 UTC−6):** "a simple 'fix every fault we find' approach. Everything. One more full-engine
+  codex audit. Then remediate that too. Then freeze for phase 1." Plan: (1) fix every known fault (suite id-by-position + NOT_RUN
+  guard; progress in long local units; drain ends at publish; the three tape-reader items + ARKK re-capture path and the 158
+  sessions; bulk quote character; whatever the valid reference disagreements 07-15/07-11/08-14 trace to); (2) ONE full-engine
+  Codex audit (whole engine, Gemini out of quota to ~12-01); (3) fix all of its findings; (4) release + one tape re-capture
+  (reader identity changes, 6-12 h); (5) freeze the engine for phase 1, one big block per node, nodes scaled in steps. Cluster
+  stays at 8 nodes meanwhile (real data keeps finding faults). Note: the tape-reader bundle (3 items, not 9) was MY
+  recommendation to defer, never the owner's decision.
+ "freeze the build, then crank
   it and generate phase 1 with as many nodes as possible. Fix everything we find that we can trace to an engine fault. THEN
   selectively recompute where we have to." Why: since 11-21, 38 of 61 day publications (~62%) redid a published day across 11
   engine builds — fixes paid in installments. So: (1) engine frozen at worker 70d83bbc+04d2e67336c9 for the rest of phase 1;
