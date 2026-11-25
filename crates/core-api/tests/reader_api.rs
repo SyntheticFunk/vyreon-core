@@ -319,6 +319,12 @@ async fn the_engines_coordinates_view_is_stored_and_served_as_published() {
     .unwrap();
     let (mut header, scalars) = (header.unwrap(), scalars.unwrap());
     assert_eq!((header.slots.len(), header.slots.iter().filter(|s| s.coordinates_sha256.is_some()).count()), (5, 5));
+    // C-081 (engine D-512 item 1): a view may carry the body's terminal state and reason at its top level; the
+    // frozen engine's view of a body withheld whole (IBIT's M0-GAMMA of 2024-08-15) travels in the last slot
+    // (core reads no view's fields: it stores and serves the view as sent)
+    let terminal = test_support::COORDINATES_WITHHELD_WHOLE_IBIT.as_bytes().to_vec();
+    header.slots[4].coordinates_sha256 = Some(sha256_hex(&terminal));
+    files[4].coordinates = Some(terminal);
     let slots: Vec<Value> = header
         .slots
         .iter()
@@ -366,6 +372,8 @@ async fn the_engines_coordinates_view_is_stored_and_served_as_published() {
         stated += view["coordinates"].as_array().unwrap().iter().filter(|c| c["state"].is_string()).count();
     }
     assert!(stated > 20, "{stated}");
+    let last = &measurements[4]["coordinates"];
+    assert_eq!((last["terminal_state"].as_str(), last["terminal_reason"].as_str(), last["coordinates"].as_array().map(Vec::len)), (Some("WITHHELD"), Some("EMPTY_DELIVERED_POPULATION"), Some(0)));
     // the other details do not carry it
     assert!(get("").await["sessions"][0]["revisions"][0]["measurements"][0].get("coordinates").is_none());
     assert!(get("&detail=headline").await["sessions"][0]["revisions"][0]["measurements"][0].get("coordinates").is_none());

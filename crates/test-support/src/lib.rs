@@ -119,6 +119,11 @@ pub const ENGINE_FAULT_BODY_ARKK: &str = include_str!("../fixtures/engine-fault-
 /// IBIT's options were not listed yet).
 pub const PROVIDER_ABSENCE_BODY_IBIT: &str = include_str!("../fixtures/provider-absence-body-2024-08-15-IBIT-M0-GAMMA.json");
 
+/// That body's coordinates view as the frozen engine (93a04676, engine D-512 item 1) projects it
+/// (`vyreon_coordinates::project`, run on the body above): a body withheld whole states its terminal
+/// beside its empty coordinates (C-081).
+pub const COORDINATES_WITHHELD_WHOLE_IBIT: &str = include_str!("../fixtures/coordinates-2024-08-15-IBIT-M0-GAMMA-withheld-whole.json");
+
 /// A real reference-check report (C-054): the suite's report of 2025-12-16 from the engine's B0
 /// census (`python3 -m refcheck run` on the B0 panel's day, 2026-10-25), with its per-comparison
 /// `results` and `per_object` rows left out (as a worker leaves them out past core's limits),
