@@ -1417,6 +1417,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   summaries on all 705 sessions; pytest 262/107; check expected 2.1 → ~0.5 node-h/day. Independence kept (no engine code).
   **Release 4** = eng-refperf (+ declared waits for long legitimate waits) + core-fix10 (step 10, STALLED during drains); Codex
   audit running (Gemini out of quota to ~12-01). Cluster proof after deploy: one day's full report before/after equal.
+  Release-4 core audit (Codex): 5 ordinary + 3 rare, all real, all fixed on core-fix10 (a8794f2/7105ad9/c7ebbb2/0f83347; 249/0):
+  atomic `queue resume --expect <reason>`, --from 11/12 verification, no success while paused, drain line kept, overdue drain
+  never hidden, slot read from the draining pod, step guard checks each step's command. Engine audit (Codex): 2 ordinary
+  (memory, double parse) + 4 rare, no verdict change — fixing on eng-refperf with the declared waits. All 8 drained days
+  published by 01:00 UTC−6; leases end as their reference checks reach core.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
