@@ -9,9 +9,12 @@ use std::sync::{Arc, Mutex};
 
 const TOKEN: &str = "dop_v1_simulatedtokenfortests";
 
+/// What the simulated DigitalOcean saw: each request's path and whether it carried the token.
+type Seen = Arc<Mutex<Vec<(String, bool)>>>;
+
 /// A DigitalOcean answering each request with (status, body) in turn; records each request's path and
 /// whether it carried the token as its bearer.
-fn digitalocean(answers: Vec<(u16, &'static str)>) -> (String, Arc<Mutex<Vec<(String, bool)>>>) {
+fn digitalocean(answers: Vec<(u16, &'static str)>) -> (String, Seen) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}", listener.local_addr().unwrap());
     let seen = Arc::new(Mutex::new(Vec::new()));
