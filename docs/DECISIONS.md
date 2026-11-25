@@ -3657,3 +3657,42 @@ hand-over), logs one line ("Draining job J of build B sent D after its drained d
 paused"), and the worker is answered 410 (its lease gone), so it stops without reporting a failure. Every other refusal
 pauses as before. Test `core-api/tests/worker_api.rs::a_drained_blocks_overrun_ends_its_lease_and_pauses_nothing` (the
 existing refusal test still pauses).
+
+## C-080 A re-run's dump is written in the engine's key order; a check that could not read its dump is not run (live, 2026-11-25)
+
+**Cause.** Report 33, core's re-run of 2024-07-10 (job 23174, revisions 144 and 145), completed with 3,332 slots "not
+published" of 3,380 failures. Core's dump (`refcheck::dump_to`, C-073) built each `store.jsonl` line with serde_json,
+which in core sorts an object's keys (no `preserve_order`), so `measurement_id` came after the body. The frozen
+reference suite finds a slot's measurement id only in a line's first 400 characters (`published.load_store`), so no
+slot with a body over ~330 characters was found. The engine's own dump keeps its writer's order (`preserve_order`) and
+starts each line with `profile`, `measurement_id`. Every core re-run so far judged core's dump, not the day.
+
+**Fix, core only (the engine is frozen).** Each dump line is written in exactly the engine's order (`refcheck::dump_line`,
+`ordered`): `profile, measurement_id, object_id, revision_id, slot_state, method_version, science_version, body_sha256,
+body_text, receipt, stream`, and `revisions.jsonl` in the engine's order too. A receipt's own keys stay as Postgres's
+jsonb keeps them (the original order is not stored; the suite reads receipts by key). Not done: `preserve_order`
+workspace-wide (it would change every other output of core).
+
+**Guard.** The engine publishes every slot of a day, its absences stated. A completed check whose failure classes say
+a tenth or more of its dump's slots were "slot not published" (role `*`) could not read its dump: `refcheck::put`
+keeps it as NOT_RUN with why ("the suite found N of the dump's M slots not published: it could not read its dump …"),
+the document kept as sent, so REFCHECK_NOT_RUN says it and no REFCHECK_DISAGREES is raised. A check that found its
+slots is kept as completed. Re-runs already stored are not reclassified: the coordinator re-runs the affected days.
+`VYREON_CORE_REFCHECK_RERUN_HOURS` goes back to "6" with this release (it was "off" while the dump was wrong).
+
+**release.sh --core (two live defects of the same day).** (1) An image rebuilt at a commit that changed only
+`20-core.yaml` had the same content; the push reported a new index digest (a9fd0b5…), the node reported the digest it
+first pulled that content as (7f10da8…, 9bf80be's), and step 3 stopped although the right pod ran. Step 3 now compares
+the digest `docker push` reported (the local image's repo digest only as a fallback) and, when the pod's differs, the
+two indexes' platform manifests in the registry (`docker buildx imagetools inspect --raw`, attestations left out): the
+same manifests are the same image; anything else still stops. (2) `--from N` works for `--core` (1 to 4): the steps
+before N are skipped, the run file `run-core-<tag>.json` (written after every step) gives the pushed digest and the
+image replaced; a second start of a release that began is refused, as for workers.
+
+Tests: `automation.rs` (the bytes core serves: every line's keys in the engine's order and the measurement id within 400
+characters; read by the suite's own `load_store`, `VYREON_REFERENCE_SUITE`, every slot it asks for found; fails on the
+old writer); `refcheck.rs::a_check_that_could_not_read_its_dump_is_kept_as_not_run` (report 33's real document,
+`refcheck-rerun-2024-07-10-unread-slim.json.gz`); `deploy/k8s/ops/tests/release-core.sh` (stubbed docker and kubectl,
+run by `cargo test -p vyreon-core --test ops_scripts`; reproduces the live stop on the old script). Also: the progress
+test `an_event_committed_after_its_window_is_in_the_next_and_windows_are_kept_a_week` failed after 09:00 MT (the
+morning heartbeat, C-073's last item, posts in the first window); it now counts what the posts state.

@@ -6,7 +6,7 @@
 #
 # usage:
 #   release.sh [--dry-run] [--from N] [--old <build>] --evidence <file.json> <engine-image-tag> "<reason>"
-#   release.sh [--dry-run] --core <core-image-tag> "<reason>"
+#   release.sh [--dry-run] [--from N] --core <core-image-tag> "<reason>"
 #
 #   <engine-image-tag>  the local worker image vyreon-worker:<tag> (the engine's deploy/worker/build.sh)
 #   --evidence <file>   REQUIRED for a worker release: a JSON object with what the build passed, at least
@@ -17,7 +17,12 @@
 #   --core <tag>        deploy the local core image vyreon-core:<tag> instead (docker build -f
 #                       deploy/core/Dockerfile): push, then 20-core.yaml applied with it; nothing else.
 #                       A tag the Deployment already runs is refused (a same-tag rollout changes nothing),
-#                       and the pod's image digest must be the one pushed
+#                       and the pod must run what was pushed: the registry digest `docker push` reported,
+#                       or an image of the same content (C-080: a rebuild that changed no byte of the image
+#                       is reported by the node under the digest it first pulled that content as).
+#                       Steps: 1 preflight, 2 push, 3 apply and verify, 4 core answers; --from N skips the
+#                       steps before N (run file VYREON_RELEASE_DIR/run-core-<tag>.json, written after
+#                       every step, gives the pushed digest and the image replaced)
 #   --dry-run           every step printed with its command; only reads run (the image's identity, the
 #                       cluster's live state, `kubectl diff` of what would be applied, the daily build's
 #                       change included); nothing is pushed, registered, paused, applied or written to
@@ -114,8 +119,9 @@ while (($#)); do
   shift
 done
 if [[ -n $CORE_TAG ]]; then
-  ((${#args[@]} == 1)) || { echo "usage: release.sh [--dry-run] --core <core-image-tag> \"<reason>\"" >&2; exit 2; }
+  ((${#args[@]} == 1)) || { echo "usage: release.sh [--dry-run] [--from N] --core <core-image-tag> \"<reason>\"" >&2; exit 2; }
   REASON=${args[0]}
+  [[ $FROM =~ ^[1-4]$ ]] || { echo "release.sh: --from takes a step from 1 to 4 for --core" >&2; exit 2; }
 else
   ((${#args[@]} == 2)) || { echo "usage: release.sh [--dry-run] [--from N] [--old <build>] --evidence <file.json> <engine-image-tag> \"<reason>\"" >&2; exit 2; }
   TAG=${args[0]} REASON=${args[1]}
@@ -132,7 +138,7 @@ else
   "$(cd "$(dirname "$0")" && pwd)/kubeconfig.sh" --if-needed "$KUBECONFIG" || { echo "release.sh: the kubeconfig could not be refreshed (kubeconfig.sh above says why); nothing was done" >&2; exit 1; }
 fi
 
-RESUMED_AT="" STEP=0 DONE=() FAILED="" DOCKER_AUTH="" SCRATCH="" PAUSE_REASON="" OLD="" HAND_OVER="" TOKEN="" BUILD="" RUN="" RUN_OLD="" EVIDENCE=""
+RESUMED_AT="" STEP=0 DONE=() FAILED="" DOCKER_AUTH="" PUSHED="" RUN_DIGEST="" RUN_REPLACED="" RUNNING="" DIGEST="" SCRATCH="" PAUSE_REASON="" OLD="" HAND_OVER="" TOKEN="" BUILD="" RUN="" RUN_OLD="" EVIDENCE=""
 if ((DRY)); then
   # a rehearsal writes nothing where real releases keep their records
   SCRATCH=$(mktemp -d)
@@ -239,6 +245,17 @@ push() {
   say "   \$ docker --config <a config holding the token from \$VYREON_DO_TOKEN_FILE> push $remote"
   ((DRY)) && return 0
   docker tag "$local_ref" "$remote"
+  registry_auth
+  # the registry's manifest digest, as the push reports it (`<tag>: digest: sha256:… size: …`)
+  local out
+  out=$(docker --config "$DOCKER_AUTH" push "$remote") || fail "docker push $remote failed: $(tail -3 <<<"$out")"
+  say "   $(tail -1 <<<"$out")"
+  PUSHED=$(grep -oE 'digest: sha256:[0-9a-f]{64}' <<<"$out" | tail -1 | sed 's/^digest: //' || true)
+  rm -rf "$DOCKER_AUTH"
+  DOCKER_AUTH=""
+}
+registry_auth() {
+  : "${VYREON_DO_TOKEN_FILE:?set VYREON_DO_TOKEN_FILE to a DigitalOcean API token file}"
   DOCKER_AUTH=$(mktemp -d)
   python3 - "$VYREON_DO_TOKEN_FILE" "$DOCKER_AUTH/config.json" "${REG%%/*}" <<'PY'
 import base64, json, os, sys
@@ -250,20 +267,35 @@ fd = os.open(sys.argv[2], os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
 with os.fdopen(fd, "w") as f:
     json.dump({"auths": {sys.argv[3]: {"auth": auth}}}, f)
 PY
-  docker --config "$DOCKER_AUTH" push "$remote" | tail -1
-  rm -rf "$DOCKER_AUTH"
-  DOCKER_AUTH=""
+}
+# C-080: what an image in the registry is, whatever index wraps it: the digests of its platforms' manifests
+# (attestations, whose bytes change with every build, left out), or of the manifest itself. Two digests of
+# the same content (an identical rebuild pushed under a new tag) give the same lines
+content_of() {
+  DOCKER_CONFIG=$DOCKER_AUTH docker buildx imagetools inspect --raw "$1" | python3 -c '
+import hashlib, json, sys
+raw = sys.stdin.buffer.read()
+d = json.loads(raw)
+if "manifests" in d:
+    for m in sorted(d["manifests"], key=lambda m: m["digest"]):
+        p = m.get("platform") or {}
+        if p.get("os") == "unknown" or (m.get("annotations") or {}).get("vnd.docker.reference.type") == "attestation-manifest":
+            continue
+        print(p.get("os"), p.get("architecture"), p.get("variant") or "", m["digest"])
+else:
+    print("manifest", "sha256:" + hashlib.sha256(raw).hexdigest())'
 }
 digest_of() { docker image inspect "$1" --format '{{range .RepoDigests}}{{.}} {{end}}' 2>/dev/null | tr ' ' '\n' | grep -F "${REG}/" | head -1 || true; }
 # the run file: what a later --from needs (release audit, Codex 5 and 7)
 save_run() {
   ((DRY)) && return 0
   [[ -n $RUN ]] || return 0
-  python3 - "$RUN" "$STEP" "$BUILD" "$OLD" "$HAND_OVER" "$TOKEN" "$PAUSE_REASON" "${REMOTE:-}" "${RESUMED_AT:-}" "${HELD:-}" <<'PY'
+  python3 - "$RUN" "$STEP" "$BUILD" "$OLD" "$HAND_OVER" "$TOKEN" "$PAUSE_REASON" "${REMOTE:-}" "${RESUMED_AT:-}" "${HELD:-}" "${DIGEST:-}" "${RUNNING:-}" <<'PY'
 import json, sys
-path, step, build, old, hand_over, token, pause, image, resumed, held = sys.argv[1:]
+path, step, build, old, hand_over, token, pause, image, resumed, held, digest, replaced = sys.argv[1:]
 json.dump({"at_step": int(step), "build": build, "old": old or None, "hand_over": hand_over or None, "hand_over_token": token or None,
-           "pause_reason": pause or None, "image": image, "resumed_at": resumed or None, "held": held.split() or None}, open(path, "w"), indent=1)
+           "pause_reason": pause or None, "image": image, "resumed_at": resumed or None, "held": held.split() or None,
+           "digest": digest or None, "replaced": replaced or None}, open(path, "w"), indent=1)
 PY
 }
 load_run() {
@@ -272,7 +304,8 @@ load_run() {
 import json, shlex, sys
 d = json.load(open(sys.argv[1]))
 for k, v in (("RUN_OLD", d.get("old")), ("HAND_OVER", d.get("hand_over")), ("TOKEN", d.get("hand_over_token")), ("PAUSE_REASON", d.get("pause_reason")),
-             ("RESUMED_AT", d.get("resumed_at")), ("HELD", " ".join(d.get("held") or []) or None)):
+             ("RESUMED_AT", d.get("resumed_at")), ("HELD", " ".join(d.get("held") or []) or None),
+             ("RUN_DIGEST", d.get("digest")), ("RUN_REPLACED", d.get("replaced"))):
     print(f"{k}={shlex.quote(str(v) if v is not None else '')}")
 PY
 )"
@@ -286,26 +319,57 @@ STAMP=$(date -u +%Y%m%dT%H%M%SZ)
 # ---------------------------------------------------------------- core image
 if [[ -n $CORE_TAG ]]; then
   LOCAL=vyreon-core:$CORE_TAG REMOTE=$REG/vyreon-core:$CORE_TAG DIGEST=""
-  step 1 "preflight: the image, the live Deployment, the file's daily build"
-  docker image inspect "$LOCAL" >/dev/null 2>&1 || fail "no local image $LOCAL (docker build -f deploy/core/Dockerfile -t $LOCAL .)"
-  RUNNING=$(live_core_image) || fail "the live Deployment vyreon-core cannot be read"
-  [[ -n $RUNNING ]] || fail "the live Deployment vyreon-core has no core container"
-  # release audit (Codex 16): the same tag again changes no pod template; the new bytes would never run
-  [[ $RUNNING != "$REMOTE" ]] || fail "the Deployment already runs $REMOTE: tag the new image with its own commit"
-  [[ $(file_daily "$K8S/20-core.yaml") == "$(live_daily)" ]] || fail "20-core.yaml's VYREON_CORE_DAILY_BUILD ($(file_daily "$K8S/20-core.yaml")) is not the live one ($(live_daily)): commit what runs first"
-  record "running $RUNNING; daily build $(live_daily || true)"
-  step 2 "push $REMOTE"
-  push "$LOCAL" "$REMOTE"
-  ((DRY)) || { DIGEST=$(digest_of "$LOCAL"); [[ -n $DIGEST ]] || fail "the pushed image's registry digest cannot be read"; }
-  record "pushed $REMOTE $DIGEST"
-  step 3 "apply 20-core.yaml with $REMOTE (migrations run in its init container)"
-  apply_core "$K8S/20-core.yaml" "$REMOTE"
-  if ((DRY == 0)); then
-    [[ $(live_core_image) == "$REMOTE" ]] || fail "the Deployment does not run $REMOTE"
-    POD_DIGEST=$(kubectl -n "$NS" get pod -l app=vyreon-core -o jsonpath='{.items[0].status.containerStatuses[?(@.name=="core")].imageID}')
-    [[ $POD_DIGEST == *"${DIGEST##*@}" ]] || fail "the core pod runs $POD_DIGEST, not the pushed ${DIGEST##*@}"
+  # the run file: a stop resumes with --from N (the pushed digest, the image replaced)
+  RUN=$DIR/run-core-$CORE_TAG.json
+  if ((FROM > 1)); then
+    load_run
+    DIGEST=$RUN_DIGEST RUNNING=$RUN_REPLACED
+    [[ -f $RUN ]] || say "   no run file $RUN: the pushed digest is read from the local image, the image replaced is not known"
+  elif [[ -f $RUN ]] && ((DRY == 0)); then
+    fail "a run file of core $CORE_TAG exists ($RUN): a release of it began; resume it with --from <step>, or remove the file once you know it is over"
   fi
-  record "core runs $REMOTE ${DIGEST##*@}"
+  docker image inspect "$LOCAL" >/dev/null 2>&1 || fail "no local image $LOCAL (docker build -f deploy/core/Dockerfile -t $LOCAL .)"
+  step 1 "preflight: the image, the live Deployment, the file's daily build"
+  if ! skip; then
+    RUNNING=$(live_core_image) || fail "the live Deployment vyreon-core cannot be read"
+    [[ -n $RUNNING ]] || fail "the live Deployment vyreon-core has no core container"
+    # release audit (Codex 16): the same tag again changes no pod template; the new bytes would never run
+    [[ $RUNNING != "$REMOTE" ]] || fail "the Deployment already runs $REMOTE: tag the new image with its own commit"
+    [[ $(file_daily "$K8S/20-core.yaml") == "$(live_daily)" ]] || fail "20-core.yaml's VYREON_CORE_DAILY_BUILD ($(file_daily "$K8S/20-core.yaml")) is not the live one ($(live_daily)): commit what runs first"
+    record "running $RUNNING; daily build $(live_daily || true)"
+  fi
+  step 2 "push $REMOTE"
+  if ! skip; then
+    push "$LOCAL" "$REMOTE"
+    if ((DRY == 0)); then
+      DIGEST=${PUSHED:+$REG/vyreon-core@$PUSHED}
+      [[ -n $DIGEST ]] || DIGEST=$(digest_of "$LOCAL")
+      [[ -n $DIGEST ]] || fail "the pushed image's registry digest cannot be read"
+    fi
+    record "pushed $REMOTE $DIGEST"
+  fi
+  step 3 "apply 20-core.yaml with $REMOTE (migrations run in its init container)"
+  if ! skip; then
+    apply_core "$K8S/20-core.yaml" "$REMOTE"
+    if ((DRY == 0)); then
+      [[ -n $DIGEST ]] || DIGEST=$(digest_of "$LOCAL")
+      [[ -n $DIGEST ]] || fail "the pushed image's registry digest is in no run file and cannot be read from $LOCAL"
+      [[ $(live_core_image) == "$REMOTE" ]] || fail "the Deployment does not run $REMOTE"
+      POD_DIGEST=$(kubectl -n "$NS" get pod -l app=vyreon-core -o jsonpath='{.items[0].status.containerStatuses[?(@.name=="core")].imageID}')
+      if [[ ${POD_DIGEST##*@} != "${DIGEST##*@}" ]]; then
+        # C-080 (live, 2026-11-25): an identical rebuild; the node names its content by the digest it first
+        # pulled it as. The same platform manifests are the same image
+        [[ $POD_DIGEST == *@sha256:* ]] || fail "the core pod's image $POD_DIGEST has no registry digest"
+        registry_auth
+        POD_CONTENT=$(content_of "$REG/vyreon-core@${POD_DIGEST##*@}") || fail "the registry does not describe the core pod's image ${POD_DIGEST##*@}"
+        PUSHED_CONTENT=$(content_of "$REG/vyreon-core@${DIGEST##*@}") || fail "the registry does not describe the pushed image ${DIGEST##*@}"
+        rm -rf "$DOCKER_AUTH"; DOCKER_AUTH=""
+        [[ -n $POD_CONTENT && $POD_CONTENT == "$PUSHED_CONTENT" ]] || fail "the core pod runs ${POD_DIGEST##*@}, not the pushed ${DIGEST##*@} nor an image of its content"
+        say "   the pod's ${POD_DIGEST##*@} is the pushed ${DIGEST##*@}'s content (an identical rebuild): $(echo $PUSHED_CONTENT)"
+      fi
+    fi
+    record "core runs $REMOTE ${DIGEST##*@}"
+  fi
   step 4 "core answers"
   ((DRY)) || core queue >/dev/null || fail "core does not answer \`vyreon-core queue\`"
   if ((DRY == 0)); then
@@ -313,12 +377,13 @@ if [[ -n $CORE_TAG ]]; then
     python3 - "$EVIDENCE" "$REMOTE" "$RUNNING" "$REASON" "$STAMP" "$DIGEST" <<'PY'
 import json, sys
 path, image, was, reason, at, digest = sys.argv[1:]
-json.dump({"core_image": image, "digest": digest or None, "replaced": was, "reason": reason, "released_at": at,
+json.dump({"core_image": image, "digest": digest or None, "replaced": was or None, "reason": reason, "released_at": at,
            "released_by": "deploy/k8s/ops/release.sh --core"}, open(path, "w"), indent=1)
 PY
-    say ""; say "== released core $REMOTE (was $RUNNING); evidence $EVIDENCE"; cat "$EVIDENCE"; say ""
+    rm -f "$RUN"
+    say ""; say "== released core $REMOTE (was ${RUNNING:-not known}); evidence $EVIDENCE"; cat "$EVIDENCE"; say ""
   else
-    say ""; say "== dry run of a core release of $REMOTE (was $RUNNING): nothing was done, nothing kept"
+    say ""; say "== dry run of a core release of $REMOTE (was ${RUNNING:-not known}): nothing was done, nothing kept"
   fi
   exit 0
 fi

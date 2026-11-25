@@ -2594,28 +2594,33 @@ async fn an_event_committed_after_its_window_is_in_the_next_and_windows_are_kept
     let mut pauser = scratch.client().await;
     let pausing = pauser.transaction().await.unwrap();
     work::pause(&pausing, "a check failed").await.unwrap();
+    // the pause stated in the windows' posts (the clock is the real one: from 09:00 MT a window may also
+    // post the morning's heartbeat, which states the queue's state and no event)
+    let paused = "SELECT count(*) FROM core.notice WHERE channel = 'progress' AND message LIKE '% Queue paused: a check failed%'";
     let t0 = watch::now(&client).await.unwrap();
-    let first = progress::tick(&mut client, PROFILE, &t0).await.unwrap().unwrap();
-    assert_eq!(first.posts, 0, "the pause is not committed when the window is composed");
+    progress::tick(&mut client, PROFILE, &t0).await.unwrap().unwrap();
+    assert_eq!(count(&client, paused).await, 0, "the pause is not committed when the window is composed");
     pausing.commit().await.unwrap();
     let t1 = later(&client, &t0, 30).await;
     assert_eq!(progress::tick(&mut client, PROFILE, &t1).await.unwrap().unwrap().posts, 1);
-    let post: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'progress'", &[]).await.unwrap().get(0);
-    assert!(post.lines().any(|l| l.ends_with(" Queue paused: a check failed")), "{post}");
+    assert_eq!(count(&client, paused).await, 1, "stated in the next window");
     let t2 = later(&client, &t1, 30).await;
-    assert_eq!(progress::tick(&mut client, PROFILE, &t2).await.unwrap().unwrap().posts, 0, "stated once");
+    progress::tick(&mut client, PROFILE, &t2).await.unwrap().unwrap();
+    assert_eq!(count(&client, paused).await, 1, "stated once");
 
     // a week on: the windows before are gone with what they stated, the newest kept; the post
     // delivered is gone, one still to send is kept
-    let post_id = notice::next_on(&client, 120, Channel::Progress).await.unwrap().unwrap().id;
-    notice::sent(&client, post_id).await.unwrap();
+    while let Some(post) = notice::next_on(&client, 120, Channel::Progress).await.unwrap() {
+        notice::sent(&client, post.id).await.unwrap();
+    }
     notice::progress(&client, "progress test unsent", "Progress · unsent").await.unwrap();
     let week: String = client.query_one("SELECT (now() + interval '7 days 2 hours')::text", &[]).await.unwrap().get(0);
     assert_eq!(count(&client, "SELECT count(*) FROM core.progress_window").await, 3);
     progress::tick(&mut client, PROFILE, &week).await.unwrap().unwrap();
     assert_eq!(count(&client, "SELECT count(*) FROM core.progress_window").await, 1, "only the newest window is kept");
     assert_eq!(count(&client, "SELECT count(*) FROM core.progress_shown").await, 0);
-    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'progress'").await, 1, "the post not sent yet stays");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'progress' AND sent_at IS NOT NULL").await, 0, "the posts delivered are gone");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'progress' AND once = 'progress test unsent'").await, 1, "the post not sent yet stays");
     scratch.drop().await;
 }
 

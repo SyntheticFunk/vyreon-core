@@ -414,7 +414,8 @@ kubectl -n vyreon get scaledjob      # READY True for all five; ACTIVE True wher
 **C-073: `deploy/k8s/ops/release.sh <engine-image-tag> "<reason>"` runs all of this** (and the
 push, the evidence file, 20-core.yaml with the running core image, the old image's Jobs, the resume
 and a check that the new pods claim), stopping at the first refusal; `--dry-run` prints every step,
-`--core <tag>` deploys a core image. A release that carries both images: `release.sh --core <tag>`
+`--core <tag>` deploys a core image (`--from N` resumes it too; an identical-content rebuild verifies by its
+platform manifests, C-080). A release that carries both images: `release.sh --core <tag>`
 first (the triggers ask the database for `core.scaler_count`, migration 0055), then the worker
 release within 15 minutes (a REFCHECK re-run queued for the old build in between is carried by the
 hand-over; longer, and the `refcheck` kind's STALLED alert says so). Example:

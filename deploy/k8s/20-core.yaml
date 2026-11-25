@@ -131,10 +131,9 @@ spec:
             # C-073: a published day from VYREON_CORE_REFCHECK_FROM with no completed check, its
             # worker gone, gets a re-run (a REFCHECK job, ScaledJob `refcheck`) this many hours after
             # publishing; REFCHECK_NOT_RUN only when that fails too. `off`: none (the old alert)
-            # "off" 2026-11-25 (owner: backfill stopped until the engine freeze; core's dump order made every re-run
-            # invalid, C-073 fix pending): back to "6" with the release that fixes the dump.
+            # "off" on 2026-11-25 (core's dump order made every re-run invalid); "6" again with C-080's dump fix.
             - name: VYREON_CORE_REFCHECK_RERUN_HOURS
-              value: "off"
+              value: "off"   # off while the backfill is stopped (owner 2026-11-25); "6" when phase 1 resumes after the engine freeze
             # Daily runs (C-051): core queues each session from VYREON_CORE_DAILY_FROM by itself, at
             # 07:30 New York the next calendar day, for the admitted build VYREON_CORE_DAILY_BUILD
             # (both or neither; unset, nothing is queued and the backfill is scheduled by hand).

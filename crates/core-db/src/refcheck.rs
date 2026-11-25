@@ -81,6 +81,10 @@ pub struct Checked {
     /// the day-local revision); None where not stated (round cc, 5).
     pub base_revision: Option<i64>,
     pub day_local_revision: Option<i64>,
+    /// The slots the report found missing from its dump (its "slot not published" failures, role `*`):
+    /// many of them say the suite could not read the dump, not that the day lacks them (`put`). None
+    /// without a report.
+    pub missing_slots: Option<i64>,
     document: Vec<u8>,
     document_sha256: String,
 }
@@ -160,6 +164,20 @@ pub fn check(document: Vec<u8>, session: &str) -> Result<Checked, String> {
         }
         serde_json::from_str::<&serde_json::value::RawValue>(report).map_err(|e| format!("the report is not JSON: {e}"))?;
     }
+    // the slots the suite could not find in its dump ("slot not published", role "*"), from the report's
+    // failure classes
+    let missing_slots = (!report.is_empty())
+        .then(|| serde_json::from_str::<Value>(report).ok())
+        .flatten()
+        .map(|r| {
+            r["failure_classes"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|f| f["role_id"] == "*" && f["example"]["detail"] == "slot not published")
+                .filter_map(|f| f["count"].as_i64())
+                .sum::<i64>()
+        });
     // round cc, 5: the revisions checked, base first (engine `refcheck::Checked::revisions`)
     let (base_revision, day_local_revision) = match &a["revisions"] {
         Value::Null => (None, None),
@@ -191,6 +209,7 @@ pub fn check(document: Vec<u8>, session: &str) -> Result<Checked, String> {
         report_bytes: report.len() as u64,
         base_revision,
         day_local_revision,
+        missing_slots,
         document_sha256: sha256_hex(&document),
         document,
     })
@@ -250,6 +269,33 @@ pub async fn put(client: &mut Client, token: &str, c: &Checked) -> Result<(bool,
             lease.engine_build
         )));
     }
+    // C-080 (live, 2026-11-25: report 33 of 2024-07-10, 3,332 "slot not published") the engine publishes
+    // every slot of a day, its absences stated, so a completed check that found a tenth of its dump's
+    // slots missing could not read the dump: it judged the dump, not the day. Kept as not run, with why
+    // (REFCHECK_NOT_RUN says it), never as a disagreement
+    let unread: Option<Checked> = match (c.outcome.as_str(), c.missing_slots, c.base_revision) {
+        ("COMPLETED", Some(missing), Some(base)) if missing > 0 => {
+            let slots: i64 = tx
+                .query_one(
+                    "SELECT count(*) FROM vyreon.measurement WHERE represented_date = $1::text::date AND revision_id IN ($2::bigint, COALESCE($3::bigint, $2::bigint))",
+                    &[&c.session, &base, &c.day_local_revision],
+                )
+                .await
+                .map_err(failed)?
+                .get(0);
+            (missing * 10 >= slots).then(|| {
+                let mut n = c.clone();
+                n.outcome = "NOT_RUN".into();
+                n.why = Some(format!(
+                    "the suite found {missing} of the dump's {slots} slots not published: it could not read its dump, so it judged nothing of the day"
+                ));
+                n.counts = None;
+                n
+            })
+        }
+        _ => None,
+    };
+    let c = unread.as_ref().unwrap_or(c);
     let base = c.base_revision;
     let counts = c.counts;
     let get = |f: fn(&Counts) -> i32| counts.as_ref().map(f);
@@ -622,8 +668,8 @@ pub async fn dump_to(client: &mut Client, token: &str, session: &str, out: &std:
         while let Some(m) = rows.try_next().await.map_err(failed)? {
             let (measurement, object): (String, String) = (m.get(0), m.get(1));
             let receipt: Value = serde_json::from_str(m.get::<_, &str>(7)).map_err(|e| LeaseError::Failed(e.to_string()))?;
-            let stream = match m.get::<_, Option<String>>(8) {
-                None => Value::Null,
+            let stream: String = match m.get::<_, Option<String>>(8) {
+                None => "null".to_owned(),
                 Some(root) => {
                     let events: String = m.get(9);
                     let gz: &[u8] = m.get(12);
@@ -632,27 +678,42 @@ pub async fn dump_to(client: &mut Client, token: &str, session: &str, out: &std:
                     head.set_mode(0o644);
                     head.set_cksum();
                     archive.append_data(&mut head, format!("streams/{measurement}.{object}.{events}.jsonl.gz"), gz).map_err(io)?;
-                    json!({"root_sha256": root, "events_sha256": events, "event_count": m.get::<_, i64>(10), "byte_length": m.get::<_, i64>(11)})
+                    ordered(&[
+                        ("root_sha256", json!(root)),
+                        ("events_sha256", json!(events)),
+                        ("event_count", json!(m.get::<_, i64>(10))),
+                        ("byte_length", json!(m.get::<_, i64>(11))),
+                    ])
                 }
             };
-            let line = json!({
-                "profile": profile, "measurement_id": measurement, "object_id": object, "revision_id": id,
-                "slot_state": m.get::<_, String>(2), "method_version": m.get::<_, String>(3), "science_version": m.get::<_, String>(4),
-                // the body's file as the bundle carried it: core keeps it without its final newline
-                // (`publish`), the digest is over the file
-                "body_sha256": m.get::<_, String>(5), "body_text": format!("{}\n", m.get::<_, &str>(6)), "receipt": receipt, "stream": stream,
-            });
-            serde_json::to_writer(&mut store, &line).map_err(|e| LeaseError::Failed(e.to_string()))?;
-            store.write_all(b"\n").map_err(io)?;
+            // the body's file as the bundle carried it: core keeps it without its final newline
+            // (`publish`), the digest is over the file
+            let line = dump_line(
+                &profile,
+                &measurement,
+                &object,
+                *id,
+                m.get::<_, &str>(2),
+                m.get::<_, &str>(3),
+                m.get::<_, &str>(4),
+                m.get::<_, &str>(5),
+                &format!("{}\n", m.get::<_, &str>(6)),
+                &receipt,
+                &stream,
+            );
+            store.write_all(line.as_bytes()).map_err(io)?;
             slots += 1;
         }
-        revisions.push_str(
-            &json!({
-                "revision_id": id, "date": date, "profile": profile, "state": "PUBLISHED", "base_revision": (i > 0).then_some(base),
-                "engine_build": build, "snapshot_cutoff": cutoff, "slots": slots,
-            })
-            .to_string(),
-        );
+        revisions.push_str(&ordered(&[
+            ("revision_id", json!(id)),
+            ("date", json!(date)),
+            ("profile", json!(profile)),
+            ("state", json!("PUBLISHED")),
+            ("base_revision", json!((i > 0).then_some(base))),
+            ("engine_build", json!(build)),
+            ("snapshot_cutoff", json!(cutoff)),
+            ("slots", json!(slots)),
+        ]));
         revisions.push('\n');
     }
     tx.commit().await.map_err(failed)?;
@@ -666,6 +727,37 @@ pub async fn dump_to(client: &mut Client, token: &str, session: &str, out: &std:
     head.set_cksum();
     archive.append_data(&mut head, "revisions.jsonl", revisions.as_bytes()).map_err(io)?;
     archive.into_inner().map_err(io)?.flush().map_err(io)
+}
+
+/// A JSON object of `fields` in exactly their order. Core's serde_json sorts an object's keys (no
+/// `preserve_order`); the engine's dump keeps them in its writer's order (engine `refcheck::write_dump`),
+/// and the reference suite finds a slot's measurement id only in a line's first 400 characters
+/// (`published.load_store`): with the keys sorted, `measurement_id` came after the body and every slot of
+/// a re-run's dump was "not published" (live, 2026-11-25: report 33 of 2024-07-10).
+pub fn ordered(fields: &[(&str, Value)]) -> String {
+    let parts: Vec<String> = fields.iter().map(|(k, v)| format!("{}:{}", Value::String((*k).to_owned()), v)).collect();
+    format!("{{{}}}", parts.join(","))
+}
+
+/// One `store.jsonl` line of a dump, its keys in the engine's order (`refcheck::write_dump`): `profile`,
+/// `measurement_id`, `object_id`, `revision_id`, `slot_state`, `method_version`, `science_version`,
+/// `body_sha256`, `body_text`, `receipt`, `stream`; newline-terminated.
+#[allow(clippy::too_many_arguments)]
+pub fn dump_line(profile: &str, measurement: &str, object: &str, revision: i64, state: &str, method: &str, science: &str, sha: &str, body_text: &str, receipt: &Value, stream: &str) -> String {
+    let head = ordered(&[
+        ("profile", json!(profile)),
+        ("measurement_id", json!(measurement)),
+        ("object_id", json!(object)),
+        ("revision_id", json!(revision)),
+        ("slot_state", json!(state)),
+        ("method_version", json!(method)),
+        ("science_version", json!(science)),
+        ("body_sha256", json!(sha)),
+        ("body_text", json!(body_text)),
+        ("receipt", receipt.clone()),
+    ]);
+    // `stream`, an object already in order (`ordered`) or null
+    format!("{},\"stream\":{stream}}}\n", &head[..head.len() - 1])
 }
 
 /// The columns `list` and `show` read, `r` the report.

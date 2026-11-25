@@ -127,6 +127,13 @@ pub const PROVIDER_ABSENCE_BODY_IBIT: &str = include_str!("../fixtures/provider-
 /// failure classes over 108 measurements.
 pub const REFCHECK_REPORT_2025_12_16: &[u8] = include_bytes!("../fixtures/refcheck-report-2025-12-16-b0-slim.json.gz");
 
+/// The document of core's re-run of 2024-07-10's reference check (report 33, job 23174, revisions 144
+/// and 145, 2026-11-25), as its worker sent it: the account line, then the report with only its
+/// `dump`, `date`, `summary` and `failure_classes` kept, gzipped. The suite read core's dump with its
+/// keys sorted (C-080) and found 3,332 of its slots "not published": 18,567 comparisons checked, 3,380
+/// failed.
+pub const REFCHECK_RERUN_2024_07_10_UNREAD: &[u8] = include_bytes!("../fixtures/refcheck-rerun-2024-07-10-unread-slim.json.gz");
+
 /// The engine's two day holds as its worker reports a held day to core (`fail`'s message): `stop:
 /// <date> not published: ` and the hold (vyreon-cli `days.rs` `why`, `exports.rs` `hold_final`, at
 /// engine-v1 and the worker branch of 2026-11-21). No held day's real message is kept anywhere core
