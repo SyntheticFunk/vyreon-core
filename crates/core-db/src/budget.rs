@@ -3,8 +3,15 @@
 //!
 //! The rule: at any moment, the leases that could still put a request inside the last rolling
 //! minute sum to no more than the ceiling. A lease counts from its grant until 60 seconds after
-//! its end (its validity, or its release if earlier): at its full size while open, at what was
-//! used once released.
+//! its end (its validity, or its release if earlier, each with the requests' way to the provider,
+//! `TRANSIT_SECONDS`): at its full size while open, at what was used once released.
+//!
+//! C-076: this is a sliding-window reservation (the sliding-log limiter, kept per lease), and it
+//! bounds every rolling 60 s window, not a calendar minute: of the leases whose requests fall in a
+//! window [a, a + 60 s], take the last granted, at t <= a + 60 s; every other one was granted before
+//! it and ended at or after a >= t - 60 s, so the grant at t counted it, and the grant was made only
+//! with the sum within the ceiling. The calendar minutes of `core.request_usage` are a ledger booked at
+//! release, not the rule.
 use serde_json::Value;
 use tokio_postgres::Client;
 
@@ -44,10 +51,13 @@ pub enum Grant {
 }
 
 /// The sum the open and recently ended leases hold against the ceiling.
+/// C-076: a released lease ends `TRANSIT_SECONDS` after its release reached core (a request its worker
+/// was permitted just before still travels to the provider); an open one at its validity, which holds
+/// that allowance already.
 const COMMITTED: &str = "SELECT COALESCE(sum(COALESCE(used, granted)), 0)::int,
-                                EXTRACT(EPOCH FROM min(COALESCE(released_at, valid_until)) + interval '60 seconds' - now())::float8
+                                EXTRACT(EPOCH FROM min(COALESCE(released_at + interval '5 seconds', valid_until)) + interval '60 seconds' - now())::float8
                          FROM core.budget_lease
-                         WHERE COALESCE(released_at, valid_until) > now() - interval '60 seconds'";
+                         WHERE COALESCE(released_at + interval '5 seconds', valid_until) > now() - interval '60 seconds'";
 
 /// Draws up to `requests` for `worker`. A smaller lease than asked is granted when that is all
 /// that is free.

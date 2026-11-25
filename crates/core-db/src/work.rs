@@ -1172,8 +1172,10 @@ async fn refused(c: &impl GenericClient, lease: &Held, message: &str) -> Result<
 /// C-075: the refused inputs of a plan's refusing entries (the evidence's `refusals`: each with its
 /// `input`, `role`, `session`, `status`, `reason` and failing `assets`), readable on one line, and
 /// whether every one is a capture that failed here retryably or was not attempted (the engine's
-/// `ENGINE_FAULT: capture failed here (<category> retryable|not_attempted)`, a fill that may succeed
-/// again), never a provider's absence, a stale input or an engine rule.
+/// `ENGINE_FAULT: capture failed here (<category> retryable|not_attempted)` of an asset, or a day-wide
+/// capture's `capture: "<category> retryable"`, engine D-464: a fill that may succeed again, the
+/// provider's throttling or outage among them), never a provider's absence, a stale input or an engine
+/// rule.
 pub fn refusal_inputs(refusals: &Value) -> (String, bool) {
     let Some(entries) = refusals.as_array().filter(|a| !a.is_empty()) else {
         return ("the input plan's refusals were not reported (its plan.json is in the evidence)".into(), false);
@@ -1186,8 +1188,15 @@ pub fn refusal_inputs(refusals: &Value) -> (String, bool) {
     for e in entries {
         let text = |k: &str| e[k].as_str().unwrap_or("").to_owned();
         let assets: Vec<(String, String)> = e["assets"].as_object().map(|m| m.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap_or("").to_owned())).collect()).unwrap_or_default();
-        transient &= !assets.is_empty() && assets.iter().all(|(_, why)| retryable(why));
-        let head = format!("{} ({} {}, {})", text("input"), text("role"), text("session"), text("status"));
+        // C-076 (engine D-464): a day-wide capture (the carry inputs) says how the fill left it, `capture`:
+        // `carry retryable` is a capture a throttled or failing provider outlasted (2024-07-23, job 21818)
+        let capture = e["capture"].as_str().unwrap_or("");
+        let day_wide = assets.is_empty() && (capture.ends_with(" retryable") || capture.ends_with(" not_attempted"));
+        transient &= day_wide || (!assets.is_empty() && assets.iter().all(|(_, why)| retryable(why)));
+        let head = match capture {
+            "" => format!("{} ({} {}, {})", text("input"), text("role"), text("session"), text("status")),
+            c => format!("{} ({} {}, {}; the fill: {c})", text("input"), text("role"), text("session"), text("status")),
+        };
         let named: Vec<String> = assets.iter().take(3).map(|(k, why)| format!("{k}: {}", crate::watch::one_line(why, 80))).collect();
         let more = if assets.len() > 3 { format!(" and {} more", assets.len() - 3) } else { String::new() };
         parts.push(match (named.is_empty(), text("reason")) {
