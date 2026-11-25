@@ -1467,6 +1467,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   live), the new build claimed a reference re-run at once, step 12 drains the 8 release-3 blocks (first drain with D-465
   workers: they stop after their day). Next: measure the fast reference check and a block's per-day pace on 70d83bbc → a real
   phase-1 projection; investigate the 07-15/08-14 reference disagreements; the owner's three decisions.
+  **NO_PROGRESS false alarm #3 (UTC−6 10:03):** the nightly block's fill sat in its "quotes" unit (requote: local CPU 96%, no
+  API requests) >20 min with no progress report → alert while working. D-467 covered reference checks and drained waits, not
+  long LOCAL units inside a download. Next engine release: the fill reports progress per symbol (or per chunk) inside every
+  long local unit (requote, quote window, bulk parse) — progress, not a wider bound. Day count: 20 at 10:00.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
