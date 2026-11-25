@@ -161,6 +161,8 @@ pub struct HandOver {
     pub verify_cancelled: i64,
     /// The running jobs its withdrawal stopped (moved, to run again under the successor).
     pub restarted: i64,
+    /// C-077: the running day blocks it let finish their day.
+    pub draining: i64,
     /// Its successor has been admitted by the time the window is composed; when not, the line keeps
     /// the hand-over's instruction to admit it (audit c072, 2; never said of a successor admitted
     /// and then withdrawn, whose withdrawal is deliberate).
@@ -171,7 +173,7 @@ impl HandOver {
     /// One line: its builds, what it moved, the running jobs restarted, its reason cut to
     /// `REASON_MAX`, then its window's steps.
     pub fn line(&self) -> String {
-        let HandOver { id, from, to, reason, moved, refchecks, republishes, verify_cancelled, restarted, admitted } = self;
+        let HandOver { id, from, to, reason, moved, refchecks, republishes, verify_cancelled, restarted, draining, admitted } = self;
         let (verify_cancelled, restarted) = (*verify_cancelled, *restarted);
             let parts: Vec<String> = [(moved[0], "tape", "tapes"), (moved[1], "block", "blocks"), (moved[2], "pass", "passes"), (*refchecks, "re-run", "re-runs"), (*republishes, "republish", "republishes")]
             .iter()
@@ -186,6 +188,9 @@ impl HandOver {
         );
         if restarted > 0 {
             line.push_str(&format!(", {} restarted", counted(restarted, "running job", "running jobs")));
+        }
+        if *draining > 0 {
+            line.push_str(&format!(", {} first", counted(*draining, "running block finishing its day", "running blocks finishing their day")));
         }
         if verify_cancelled > 0 {
             line.push_str(&format!(", {} cancelled", counted(verify_cancelled, "tape verify job", "tape verify jobs")));
@@ -643,7 +648,8 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
                                      AND l.outcome = 'CANCELLED' AND l.failure = 'its engine build was withdrawn') END,
                         (SELECT b.admitted_at IS NOT NULL AND (b.withdrawn_at IS NULL OR b.withdrawn_at > h.handed_at)
                          FROM core.engine_build b WHERE b.engine_build = h.to_build),
-                        count(*) FILTER (WHERE j.kind = 'REPUBLISH' AND x.new_job IS NOT NULL)
+                        count(*) FILTER (WHERE j.kind = 'REPUBLISH' AND x.new_job IS NOT NULL),
+                        (SELECT count(*) FROM core.drain dr WHERE dr.hand_over_id = h.hand_over_id)
                  FROM core.hand_over h LEFT JOIN core.hand_over_job x USING (hand_over_id) LEFT JOIN core.job j ON j.job_id = x.old_job
                  WHERE ((h.handed_at > $1::text::timestamptz AND h.handed_at <= $2::text::timestamptz) OR h.hand_over_id = ANY($3))
                    AND {fresh}
@@ -667,6 +673,7 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
             verify_cancelled: r.get(7),
             refchecks: r.get(8),
             republishes: r.get(11),
+            draining: r.get(12),
             restarted: r.get(9),
             admitted: r.get(10),
         })
@@ -1048,7 +1055,7 @@ mod tests {
     fn a_hand_over_reads_in_one_line() {
         let reason = "D-460 r3 fixes: UPATH bin-0 false zero removed on every new day; strictly better than fc36eefb on wrong numbers";
         let h = |id: i64, from: &str, to: &str, moved: [i64; 3], verify_cancelled: i64, restarted: i64, reason: &str| {
-            HandOver { id, from: from.into(), to: to.into(), reason: reason.into(), moved, refchecks: 0, republishes: 0, verify_cancelled, restarted, admitted: true }.line()
+            HandOver { id, from: from.into(), to: to.into(), reason: reason.into(), moved, refchecks: 0, republishes: 0, verify_cancelled, restarted, draining: 0, admitted: true }.line()
         };
         let line = h(26, "fc36eefb+b1c8d00b5d79", "2dde1132+5f8d87f49bfc", [0, 42, 593], 0, 8, reason);
         assert_eq!(
@@ -1066,6 +1073,9 @@ mod tests {
         // C-074 (release-2 audit, Gemini 12): republishes are moved work too
         let republishes = HandOver { id: 7, from: "a".into(), to: "b".into(), reason: "x".into(), republishes: 3, admitted: true, ..HandOver::default() };
         assert_eq!(republishes.line(), "Hand-over 7: a → b, 3 republishes moved — x");
+        // C-077: the running blocks a release lets finish their day
+        let draining = HandOver { id: 8, from: "a".into(), to: "b".into(), reason: "x".into(), moved: [0, 8, 0], draining: 8, admitted: true, ..HandOver::default() };
+        assert_eq!(draining.line(), "Hand-over 8: a → b, 8 blocks moved, 8 running blocks finishing their day first — x");
         // audit c072, 2: a successor not admitted keeps the hand-over's instruction
         let waiting = HandOver { id: 5, from: "a+1".into(), to: "b+2".into(), reason: "x".into(), moved: [0, 3, 0], admitted: false, ..HandOver::default() };
         assert_eq!(waiting.line(), "Hand-over 5: a → b, 3 blocks moved — x · b not admitted yet");

@@ -326,7 +326,195 @@ pub async fn sweep(client: &mut Client) -> Result<u64, String> {
             Err(e) => errors.push(format!("lease {lease}: {e}")),
         }
     }
+    // C-077: the drains past their bound stop, and every drain whose lease ended is settled
+    if let Err(e) = settle_drains(client).await {
+        errors.push(e);
+    }
     if errors.is_empty() { Ok(ended) } else { Err(errors.join("; ")) }
+}
+
+/// C-077: how long a release lets a running day block of the old build finish the day it is computing
+/// (`build::hand_over`). The measured worst first day of a block on the cluster, 4 h 55 min (2024-07-16
+/// on 5f637983, MILESTONES: about 3 h of download and 2 h of compute; a later day is shorter), its
+/// archive (15 min) and a typical reference check, rounded up to 6 h. Past it the lease is stopped as a
+/// withdrawal stops one, and the day is carried to the successor.
+pub const DRAIN_MINUTES: f64 = 360.0;
+
+/// C-077: stops the draining leases past their bound and settles every drain whose lease ended: its day
+/// done (nothing to do), or not (its job, queued again or failed under the withdrawn build, is carried
+/// to the build the hand-overs from it lead to, as a hand-over carries a job). Each in its own
+/// transaction; an error names the leases it could not settle (the others are done).
+pub async fn settle_drains(client: &mut Client) -> Result<u64, String> {
+    let over: Vec<i64> = client
+        .query(
+            "SELECT d.lease_id FROM core.drain d JOIN core.lease l USING (lease_id) WHERE l.ended_at IS NULL AND d.until < now() ORDER BY 1",
+            &[],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let mut errors = Vec::new();
+    for lease in over {
+        if let Err(e) = stop_drain(client, lease).await {
+            errors.push(format!("drain of lease {lease}: {e}"));
+        }
+    }
+    let ended: Vec<i64> = client
+        .query(
+            "SELECT d.lease_id FROM core.drain d JOIN core.lease l USING (lease_id) WHERE d.settled_at IS NULL AND l.ended_at IS NOT NULL ORDER BY 1",
+            &[],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let mut settled = 0;
+    for lease in ended {
+        match settle_drain(client, lease).await {
+            Ok(true) => settled += 1,
+            Ok(false) => {}
+            Err(e) => errors.push(format!("drain of lease {lease}: {e}")),
+        }
+    }
+    if errors.is_empty() { Ok(settled) } else { Err(errors.join("; ")) }
+}
+
+/// A draining lease past its bound: ended as a withdrawal ends one (its attempt not counted), its job
+/// DONE when its day was done, else queued again under its build, for `settle_drain` to carry.
+async fn stop_drain(client: &mut Client, lease: i64) -> Result<(), String> {
+    let tx = client.transaction().await.map_err(db)?;
+    tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
+    let Some(row) = tx
+        .query_opt(
+            "UPDATE core.lease l SET ended_at = clock_timestamp(), outcome = 'CANCELLED', failure = 'its drain''s bound passed (C-077)'
+             FROM core.drain d WHERE d.lease_id = l.lease_id AND l.lease_id = $1 AND l.ended_at IS NULL AND d.until < clock_timestamp()
+             RETURNING l.job_id, d.session::text",
+            &[&lease],
+        )
+        .await
+        .map_err(db)?
+    else {
+        return Ok(());
+    };
+    let (job, day): (i64, String) = (row.get(0), row.get(1));
+    let done = tx
+        .query_one(
+            "UPDATE core.job SET state = CASE WHEN next_session IS NULL THEN 'DONE' ELSE 'QUEUED' END,
+                                 attempts = GREATEST(attempts - 1, 0),
+                                 finished_at = CASE WHEN next_session IS NULL THEN clock_timestamp() END
+             WHERE job_id = $1 AND state = 'LEASED' RETURNING state = 'DONE'",
+            &[&job],
+        )
+        .await
+        .map_err(db)?
+        .get::<_, bool>(0);
+    let what = if done { format!("{day} was done; its reference check, if it was still running, is re-run by the watch") } else { format!("{day} goes to the successor") };
+    notice::log(&tx, &format!("Draining day block job {job} stopped at its bound ({} h after its hand-over): {what}.", DRAIN_MINUTES / 60.0)).await?;
+    tx.commit().await.map_err(db)
+}
+
+/// A drain whose lease ended: settled once. False when there was nothing to settle (yet).
+async fn settle_drain(client: &mut Client, lease: i64) -> Result<bool, String> {
+    let tx = client.transaction().await.map_err(db)?;
+    tx.execute(PUBLISH_LOCK, &[]).await.map_err(db)?;
+    tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.job schedule', 0))", &[]).await.map_err(db)?;
+    let Some(row) = tx
+        .query_opt(
+            "SELECT d.job_id, d.session::text, j.state, j.next_session::text, j.engine_build, h.to_build, l.outcome, COALESCE(l.failure, '')
+             FROM core.drain d JOIN core.job j USING (job_id) JOIN core.hand_over h USING (hand_over_id) JOIN core.lease l USING (lease_id)
+             WHERE d.lease_id = $1 AND d.settled_at IS NULL AND l.ended_at IS NOT NULL FOR UPDATE OF d, j",
+            &[&lease],
+        )
+        .await
+        .map_err(db)?
+    else {
+        return Ok(false);
+    };
+    let (job, day, state, next, from, to, outcome, failure): (i64, String, String, Option<String>, String, String, String, String) =
+        (row.get(0), row.get(1), row.get(2), row.get(3), row.get(4), row.get(5), row.get(6), row.get(7));
+    let carried = match (state.as_str(), next) {
+        ("QUEUED" | "FAILED", Some(next)) => {
+            // where the hand-overs from the old build lead (a later release may have handed its
+            // successor's work on): the newest successor of each, from the drain's own
+            let mut successor = to.clone();
+            for _ in 0..32 {
+                match tx
+                    .query_opt("SELECT to_build FROM core.hand_over WHERE from_build = $1 ORDER BY handed_at DESC, hand_over_id DESC LIMIT 1", &[&successor])
+                    .await
+                    .map_err(db)?
+                {
+                    Some(r) if r.get::<_, String>(0) != from => successor = r.get(0),
+                    _ => break,
+                }
+            }
+            // the days it did: a finished job of their own, as a hand-over keeps them
+            tx.execute(
+                "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, state, attempts, max_attempts, finished_at, priority)
+                 SELECT kind, profile_id, engine_build, first_session,
+                        (SELECT max(session) FROM core.session WHERE session < j.next_session), NULL, scope, 'DONE', attempts, max_attempts, clock_timestamp(), priority
+                 FROM core.job j WHERE job_id = $1 AND next_session > first_session",
+                &[&job],
+            )
+            .await
+            .map_err(db)?;
+            tx.execute("UPDATE core.job SET first_session = next_session, state = 'CANCELLED', finished_at = clock_timestamp() WHERE job_id = $1", &[&job])
+                .await
+                .map_err(db)?;
+            let new: i64 = tx
+                .query_one(
+                    "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, max_attempts, priority)
+                     SELECT kind, profile_id, $2, next_session, last_session, next_session, scope, max_attempts, priority FROM core.job WHERE job_id = $1
+                     RETURNING job_id",
+                    &[&job, &successor],
+                )
+                .await
+                .map_err(db)?
+                .get(0);
+            let why = if failure.is_empty() { outcome.to_lowercase() } else { crate::watch::one_line(&failure, 160) };
+            notice::log(
+                &tx,
+                &format!("Draining day block job {job} of build {from} ended without {next} ({why}): the day is build {successor}'s, job {new}."),
+            )
+            .await?;
+            Some(new)
+        }
+        ("DONE", _) => {
+            notice::log(&tx, &format!("Draining day block job {job} of build {from} finished {day} and stopped (C-077).")).await?;
+            None
+        }
+        // cancelled by hand, or (impossible: its build is withdrawn) leased again: nothing to carry
+        ("CANCELLED", _) => None,
+        _ => return Ok(false),
+    };
+    tx.execute("UPDATE core.drain SET settled_at = clock_timestamp(), carried_job = $2 WHERE lease_id = $1", &[&lease, &carried]).await.map_err(db)?;
+    tx.commit().await.map_err(db)?;
+    Ok(true)
+}
+
+/// C-077: ends a draining lease once its day is done and that day's reference check is with core (the
+/// last thing a worker sends of a day, after its archive): the job DONE, the lease's outcome DONE. A
+/// worker of an engine before C-077 does not know its block was cut and goes on to the next day; its
+/// next call is answered that the lease is gone. False when `lease` is not such a lease.
+pub(crate) async fn end_drained(tx: &impl GenericClient, lease: &Held, session: &str) -> Result<bool, String> {
+    if lease.kind != "DAY_BLOCK" || lease.next_session.is_some() {
+        return Ok(false);
+    }
+    let draining = tx.query_opt("SELECT FROM core.drain WHERE lease_id = $1 AND session = $2::text::date", &[&lease.lease_id, &session]).await.map_err(db)?.is_some();
+    if !draining {
+        return Ok(false);
+    }
+    tx.execute("UPDATE core.lease SET ended_at = now(), outcome = 'DONE' WHERE lease_id = $1 AND ended_at IS NULL", &[&lease.lease_id]).await.map_err(db)?;
+    if let Some(job) = tx
+        .query_opt(&format!("UPDATE core.job SET state = 'DONE', finished_at = now() WHERE job_id = $1 AND state = 'LEASED' RETURNING {FINISHED}"), &[&lease.job_id])
+        .await
+        .map_err(db)?
+    {
+        finished(tx, &job, &lease.worker).await?;
+    }
+    Ok(true)
 }
 
 /// Ends one expired lease and moves its job, in one transaction. False when it was renewed or
@@ -975,7 +1163,11 @@ pub async fn session_done(db_client: &impl GenericClient, lease: &Held, session:
 /// of it: the day's base revision from the job's build must be the published one. What else a
 /// build publishes with a day (its day-local derived profile, C-031) is the engine's to send
 /// before this; the ordered pass refuses a day without it.
-pub async fn day_done(client: &mut Client, token: &str, session: &str) -> Result<(), LeaseError> {
+///
+/// Returns true when the job has no session left after it (C-077: the block's last day, or the day a
+/// draining block finishes): a worker with more days in its claim then stops after this day's archive
+/// and reference check.
+pub async fn day_done(client: &mut Client, token: &str, session: &str) -> Result<bool, LeaseError> {
     let tx = client.transaction().await.map_err(failed)?;
     let lease = held(&tx, token).await?;
     if lease.kind == "REPUBLISH" {
@@ -994,7 +1186,7 @@ pub async fn day_done(client: &mut Client, token: &str, session: &str) -> Result
             return Err(LeaseError::Refused(format!("republish job {} has not published {session}'s day-local revision", lease.job_id)));
         }
         session_done(&tx, &lease, session).await?;
-        return tx.commit().await.map_err(failed);
+        return done_left(tx, lease.job_id).await;
     }
     if lease.kind != "DAY_BLOCK" {
         return Err(LeaseError::Refused(format!("job {} is not a day block", lease.job_id)));
@@ -1014,7 +1206,7 @@ pub async fn day_done(client: &mut Client, token: &str, session: &str) -> Result
             return Err(LeaseError::Refused(format!("compare-only job {} has not staged {session}'s day-local revision", lease.job_id)));
         }
         session_done(&tx, &lease, session).await?;
-        return tx.commit().await.map_err(failed);
+        return done_left(tx, lease.job_id).await;
     }
     let published = tx
         .query_opt(
@@ -1038,7 +1230,14 @@ pub async fn day_done(client: &mut Client, token: &str, session: &str) -> Result
         )));
     }
     session_done(&tx, &lease, session).await?;
-    tx.commit().await.map_err(failed)
+    done_left(tx, lease.job_id).await
+}
+
+/// `day_done`'s commit and its answer: whether the job has no session left.
+async fn done_left(tx: tokio_postgres::Transaction<'_>, job: i64) -> Result<bool, LeaseError> {
+    let last: bool = tx.query_one("SELECT next_session IS NULL FROM core.job WHERE job_id = $1", &[&job]).await.map_err(failed)?.get(0);
+    tx.commit().await.map_err(failed)?;
+    Ok(last)
 }
 
 /// Ends the lease with the job done. Refused while sessions remain. Sent again, or late (after the

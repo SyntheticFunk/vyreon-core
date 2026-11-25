@@ -16,6 +16,12 @@
 //!                                                     a DONE job of <from>). --preview does it in a transaction rolled
 //!                                                     back and prints each job with a token; the hand-over itself
 //!                                                     takes --expect <that token>
+//!                                                     C-077: <from>'s running day blocks are not stopped where <to> reads
+//!                                                     what they publish: each finishes the day it computes (the days after it
+//!                                                     carried at once), its lease ending with that day's reference check, or
+//!                                                     stopped and its day carried after work::DRAIN_MINUTES
+//!   vyreon-core build drains                          C-077: the draining leases still running, one JSON object a line
+//!                                                     ({lease, job, worker, session, until, day_done, hand_over, from_build})
 //!   vyreon-core calendar load <sessions.json>         store the engine's trading sessions
 //!   vyreon-core schedule <tape|day-block|ordered-pass> <profile> <build> <first> <last> [block sessions]
 //!                                                     ordered passes (C-062): a session keeps its unfinished pass of
@@ -436,6 +442,12 @@ async fn build_hand_over(rest: &[&str]) -> Result<(), String> {
     }
     for j in &h.verify_cancelled {
         println!("TAPE verify job {j}: cancelled, not carried (a sample of build {from}'s caches)");
+    }
+    for d in &h.draining {
+        println!(
+            "DAY_BLOCK job {} (lease {}, worker {}) DRAINING: finishes {} under build {from}, then stops (by {} at the latest; C-077)",
+            d.job, d.lease, d.worker, d.session, d.until
+        );
     }
     match h.hand_over_id {
         Some(id) => println!("hand-over {id}: {} jobs of build {from} are build {to}'s; now admit build {to} (`vyreon-core build admit`)", h.carried.len()),
@@ -1109,6 +1121,14 @@ async fn main() -> ExitCode {
             Err(e) => Err(e),
         },
         ["build", "hand-over", ref rest @ ..] => build_hand_over(rest).await,
+        ["build", "drains"] => match connect().await {
+            Ok(client) => build::drains(&client).await.map(|d| {
+                for line in d {
+                    println!("{line}");
+                }
+            }),
+            Err(e) => Err(e),
+        },
         ["calendar", "load", file] => match (connect().await, json_file(file)) {
             (Ok(mut client), Ok(calendar)) => work::load_calendar(&mut client, &calendar).await.map(|n| println!("{n} sessions")),
             (Err(e), _) | (_, Err(e)) => Err(e),
