@@ -1369,6 +1369,19 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   Release-3 audit: Codex core 14 ordinary + 5 rare, Codex engine 0 ordinary + 4 rare, Gemini core in; **Gemini engine NOT run:
   weekly quota exhausted (resets in ~138 h, ~2026-12-01)** — recorded and moved on (audits rule); the engine half is small
   (D-465 last-day stop, build.sh). All findings to the builder on core-auto3/eng-auto3. 07-22 published 21:20.
+  **Release 3 built (2026-11-24/25, core-auto3 from main d0eda4d; eng-auto3 from worker 3d7567c8), not merged, not deployed:**
+  (1) C-077 draining release (core 7041ebd/5fdda4e/13f8fe4, migration 0059; engine D-465 3baaa44d/65361a8e: the worker
+  stops after the day core calls its last); (2) kubeconfig auto-refresh in release.sh + health.sh (13f8fe4);
+  (3) C-078 spend watch (5772296/e6120c1, migration 0060; 20-core.yaml 35a17c2: since 2026-11-21 06:09 UTC, baseline
+  $180.41, ceiling $500) — **needs the owner's read-only `billing:read` token** (README "Spend"); until then the
+  morning line says "not known"; (4) build.sh credential-free docker config (engine 5eae249f); (5) C-079 recompute
+  after a method change (26df9a6/7ff8124, migration 0061; on, from 2024-07-09, $0.167/node-h): held while the spend
+  is not known. Docs e5635e0, engine a1d7b5ef. Deploy order: release.sh --core (0059-0061) first, then the worker
+  release (its preflight needs 0059). Open questions for the coordinator: C-079's two (DECISIONS). Next: one audit
+  (Codex + Gemini) of both branches.
+  **Release-3 audit fixed (2026-11-25):** core Codex 19 + Gemini 20 findings, every real one fixed and tested (C-077..C-079
+  table): core a981a24 code, d243536 tests, 6cb40c2 deploy; engine D-465 abb2d267/536393ce. Coordinator rulings: plans held
+  while the spend is unknown; no-value method bumps not excluded.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the

@@ -16,6 +16,21 @@
 //!                                                     a DONE job of <from>). --preview does it in a transaction rolled
 //!                                                     back and prints each job with a token; the hand-over itself
 //!                                                     takes --expect <that token>
+//!                                                     C-077: <from>'s running day blocks are not stopped where <to> reads
+//!                                                     what they publish: each finishes the day it computes (the days after it
+//!                                                     carried at once), its lease ending with that day's reference check, or
+//!                                                     stopped and its day carried after work::DRAIN_MINUTES
+//!   vyreon-core spend                                 C-078: the spend since VYREON_CORE_SPEND_SINCE against the ceiling, as
+//!                                                     the morning's progress line says it, and the newest reading of
+//!                                                     DigitalOcean's billing (or why there is none)
+//!   vyreon-core recompute <profile> <build> (--plan | --schedule)   C-079: the published days whose method versions
+//!                                                     differ from what the build publishes, grouped by the measurements
+//!                                                     that differ, each group's planner choice (C-074) and the cost;
+//!                                                     --schedule decides it as the watch does after a release: queued
+//!                                                     only when the spend plus its cost stays within the ceiling, else
+//!                                                     held and alerted; recorded once per build and layers
+//!   vyreon-core build drains                          C-077: the draining leases still running, one JSON object a line
+//!                                                     ({lease, job, worker, session, until, day_done, hand_over, from_build})
 //!   vyreon-core calendar load <sessions.json>         store the engine's trading sessions
 //!   vyreon-core schedule <tape|day-block|ordered-pass> <profile> <build> <first> <last> [block sessions]
 //!                                                     ordered passes (C-062): a session keeps its unfinished pass of
@@ -112,6 +127,16 @@
 //!                                                     the backup plugin's record; unset: not checked), VYREON_CORE_PG_CLUSTER
 //!                                                     (the CloudNativePG Cluster whose plugin record core reads every 5 min
 //!                                                     from the Kubernetes API with its service account; unset: not read).
+//!                                                     C-078, the spend: VYREON_CORE_SPEND_SINCE (the start of the spend
+//!                                                     counted, RFC 3339 or a date; unset: not watched),
+//!                                                     VYREON_CORE_SPEND_CEILING_USD (required with it),
+//!                                                     VYREON_CORE_SPEND_BASELINE_USD (the start month's usage before the
+//!                                                     start; 0), VYREON_CORE_DO_TOKEN_FILE (a read-only billing:read
+//!                                                     DigitalOcean token's file; absent: the spend is said not known).
+//!                                                     C-079, the recompute after a method change: VYREON_CORE_RECOMPUTE
+//!                                                     (on | off, default off), VYREON_CORE_NODE_HOUR_USD (required with on),
+//!                                                     VYREON_CORE_RECOMPUTE_BLOCK (3), VYREON_CORE_RECOMPUTE_FROM (the first
+//!                                                     session planned; unset: every published day).
 //!                                                     Daily runs (C-051), both or neither: VYREON_CORE_DAILY_FROM (the first
 //!                                                     session core queues by itself; unset: none) and VYREON_CORE_DAILY_BUILD
 //!                                                     (the admitted engine build they are queued for).
@@ -437,6 +462,12 @@ async fn build_hand_over(rest: &[&str]) -> Result<(), String> {
     for j in &h.verify_cancelled {
         println!("TAPE verify job {j}: cancelled, not carried (a sample of build {from}'s caches)");
     }
+    for d in &h.draining {
+        println!(
+            "DAY_BLOCK job {} (lease {}, worker {}) DRAINING: finishes {} under build {from}, then stops (by {} at the latest; C-077)",
+            d.job, d.lease, d.worker, d.session, d.until
+        );
+    }
     match h.hand_over_id {
         Some(id) => println!("hand-over {id}: {} jobs of build {from} are build {to}'s; now admit build {to} (`vyreon-core build admit`)", h.carried.len()),
         None => println!(
@@ -579,7 +610,130 @@ fn watch_settings() -> Result<watch::Settings, String> {
         None => None,
         Some(v) => Some(v.parse::<i32>().ok().filter(|d| *d >= 1).ok_or_else(|| "VYREON_CORE_BACKUP_MAX_DAYS is not a whole number of days from 1".to_string())?),
     };
-    Ok(watch::Settings { profile, deadlines_from, volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64), deadline_hour, daily, archive, refcheck_from, backup_days, refcheck_rerun_hours })
+    let spend = spend_settings()?;
+    let recompute = recompute_settings()?;
+    Ok(watch::Settings {
+        profile,
+        deadlines_from,
+        volume_bytes: volume.map(|g| (g * (1u64 << 30) as f64) as i64),
+        deadline_hour,
+        daily,
+        archive,
+        refcheck_from,
+        backup_days,
+        refcheck_rerun_hours,
+        spend,
+        recompute,
+    })
+}
+
+/// C-079: `recompute <profile> <build> --plan | --schedule`: the published days whose method versions
+/// differ from the build's, and what the planner would do with them; `--schedule` decides it as the
+/// watch does (scheduled only within the ceiling, recorded once, said on the channels).
+async fn recompute(profile: &str, build: &str, schedule: bool) -> Result<(), String> {
+    use core_db::recompute as rc;
+    // (release-3 audit, Codex 19, Gemini 7) the command reads the service's own settings (its block size
+    // too); without a node-hour price it plans but never schedules: an unpriced plan would pass any ceiling
+    let w = match recompute_settings()? {
+        Some(w) => w,
+        None => rc::RecomputeWatch {
+            node_hour_usd: usd_setting("VYREON_CORE_NODE_HOUR_USD")?.filter(|p| *p > 0.0).unwrap_or(0.0),
+            block: recompute_block()?,
+            from: date_setting("VYREON_CORE_RECOMPUTE_FROM")?,
+        },
+    };
+    if schedule && w.node_hour_usd <= 0.0 {
+        return Err("--schedule needs VYREON_CORE_NODE_HOUR_USD (a worker node-hour's price): an unpriced plan is never scheduled; nothing was done".into());
+    }
+    let spend = spend_settings()?;
+    let mut client = connect().await?;
+    let now = watch::now(&client).await?;
+    let today: String = client.query_one("SELECT ((now() AT TIME ZONE 'UTC')::date)::text", &[]).await.map_err(|e| e.to_string())?.get(0);
+    let (layers, only): (Vec<&str>, Option<Vec<String>>) = if schedule {
+        rc::pending(&client, profile, build, spend.as_ref().map(|s| s.ceiling_usd))
+            .await?
+            .ok_or_else(|| format!("nothing of build {build} is to be decided: its published layers are decided (core.recompute_plan), or it has published none"))?
+    } else {
+        (vec!["base", "day-local", "history"], None)
+    };
+    let p = rc::propose(&client, profile, build, &layers, w.from.as_deref(), only.as_deref(), w.block, &today).await?;
+    for line in rc::describe(&p, w.node_hour_usd) {
+        println!("{line}");
+    }
+    if w.node_hour_usd == 0.0 {
+        println!("(not priced: VYREON_CORE_NODE_HOUR_USD is not set)");
+    }
+    if schedule {
+        match rc::decide(&mut client, &p, &w, spend.as_ref(), &now).await? {
+            Some(d) => println!("{}{}: {} jobs queued", d.outcome, d.why.map(|w| format!(" ({w})")).unwrap_or_default(), d.jobs),
+            None => println!("being decided now by the watch: nothing done"),
+        }
+    }
+    Ok(())
+}
+
+/// VYREON_CORE_RECOMPUTE_BLOCK: the days of a full recompute's day block (default 3, as `republish`'s).
+fn recompute_block() -> Result<i64, String> {
+    match set("VYREON_CORE_RECOMPUTE_BLOCK") {
+        None => Ok(3),
+        Some(v) => v.parse::<i64>().ok().filter(|b| *b >= 1).ok_or_else(|| "VYREON_CORE_RECOMPUTE_BLOCK is not a number of days from 1".to_string()),
+    }
+}
+
+/// C-078: `spend`: the spend line as the morning's post says it now, and the newest reading's state.
+async fn spend_now() -> Result<(), String> {
+    let w = spend_settings()?.ok_or("the spend is not watched: VYREON_CORE_SPEND_SINCE is not set")?;
+    let client = connect().await?;
+    let now = watch::now(&client).await?;
+    println!("{}", core_db::spend::line(&core_db::spend::spend(&client, &w, &now).await?));
+    if let Some(r) = client
+        .query_opt("SELECT read_at::text, COALESCE(error, month || ' month to date ' || month_to_date_usd::text || ' USD') FROM core.spend_reading ORDER BY read_at DESC LIMIT 1", &[])
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        println!("newest reading {}: {}", r.get::<_, String>(0), r.get::<_, String>(1));
+    }
+    Ok(())
+}
+
+/// A setting that, when set, is a number of US dollars from 0.
+fn usd_setting(name: &str) -> Result<Option<f64>, String> {
+    match set(name) {
+        None => Ok(None),
+        Some(v) => v.parse::<f64>().ok().filter(|x| x.is_finite() && *x >= 0.0).map(Some).ok_or_else(|| format!("{name} is not a number of US dollars")),
+    }
+}
+
+/// C-078: the spend watch, when VYREON_CORE_SPEND_SINCE is set (an RFC 3339 instant, or a date: its
+/// midnight UTC): VYREON_CORE_SPEND_CEILING_USD is then required (no ceiling is assumed) and
+/// VYREON_CORE_SPEND_BASELINE_USD is the start month's usage before it (default 0).
+fn spend_settings() -> Result<Option<core_db::spend::SpendWatch>, String> {
+    let Some(since) = set("VYREON_CORE_SPEND_SINCE") else {
+        return Ok(None);
+    };
+    let since = if core_contract::is_date(&since) {
+        format!("{since}T00:00:00Z")
+    } else {
+        since.parse::<jiff::Timestamp>().map_err(|_| "VYREON_CORE_SPEND_SINCE is not an RFC 3339 instant or a date".to_string())?.to_string()
+    };
+    let ceiling_usd = usd_setting("VYREON_CORE_SPEND_CEILING_USD")?.filter(|c| *c > 0.0).ok_or("VYREON_CORE_SPEND_SINCE is set: VYREON_CORE_SPEND_CEILING_USD (the owner's ceiling, USD) must be too")?;
+    let baseline_usd = usd_setting("VYREON_CORE_SPEND_BASELINE_USD")?.unwrap_or(0.0);
+    Ok(Some(core_db::spend::SpendWatch { since, baseline_usd, ceiling_usd }))
+}
+
+/// C-079: the recompute after a method change, when VYREON_CORE_RECOMPUTE is `on`: VYREON_CORE_NODE_HOUR_USD
+/// (a worker node-hour's list price) is then required; VYREON_CORE_RECOMPUTE_BLOCK the days of a full
+/// recompute's day block (default 3, as `republish`'s).
+fn recompute_settings() -> Result<Option<core_db::recompute::RecomputeWatch>, String> {
+    match set("VYREON_CORE_RECOMPUTE").as_deref() {
+        None | Some("off") => Ok(None),
+        Some("on") => {
+            let node_hour_usd = usd_setting("VYREON_CORE_NODE_HOUR_USD")?.filter(|p| *p > 0.0).ok_or("VYREON_CORE_RECOMPUTE is on: VYREON_CORE_NODE_HOUR_USD (a worker node-hour's price, USD) must be set")?;
+            let block = recompute_block()?;
+            Ok(Some(core_db::recompute::RecomputeWatch { node_hour_usd, block, from: date_setting("VYREON_CORE_RECOMPUTE_FROM")? }))
+        }
+        Some(_) => Err("VYREON_CORE_RECOMPUTE is on or off".into()),
+    }
 }
 
 /// A Discord webhook's URL from the file a setting names; None (said, never the URL, nor the
@@ -838,6 +992,11 @@ async fn serve() -> Result<(), String> {
     // C-068 round 2: the backup plugin's record, read from the Kubernetes API, is the backups' evidence
     if let Some(cluster) = set("VYREON_CORE_PG_CLUSTER") {
         core_api::backups::spawn(app.clone(), core_api::backups::Kube::in_cluster(), cluster, std::time::Duration::from_secs(300));
+    }
+    // C-078: DigitalOcean's billing, read every hour when the spend is watched (a token absent is said, never fatal)
+    if settings.spend.is_some() {
+        let token = set("VYREON_CORE_DO_TOKEN_FILE").map(std::path::PathBuf::from);
+        core_api::spend::spawn(app.clone(), core_api::spend::Billing::new(token, core_api::spend::API)?, core_api::spend::EVERY);
     }
     core_api::notices::spawn_watch(app.clone(), settings, std::time::Duration::from_secs(60));
     if let Some(webhook) = webhook {
@@ -1109,6 +1268,16 @@ async fn main() -> ExitCode {
             Err(e) => Err(e),
         },
         ["build", "hand-over", ref rest @ ..] => build_hand_over(rest).await,
+        ["spend"] => spend_now().await,
+        ["recompute", profile, build, flag @ ("--plan" | "--schedule")] => recompute(profile, build, flag == "--schedule").await,
+        ["build", "drains"] => match connect().await {
+            Ok(client) => build::drains(&client).await.map(|d| {
+                for line in d {
+                    println!("{line}");
+                }
+            }),
+            Err(e) => Err(e),
+        },
         ["calendar", "load", file] => match (connect().await, json_file(file)) {
             (Ok(mut client), Ok(calendar)) => work::load_calendar(&mut client, &calendar).await.map(|n| println!("{n} sessions")),
             (Err(e), _) | (_, Err(e)) => Err(e),

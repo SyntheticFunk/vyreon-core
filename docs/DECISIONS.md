@@ -3469,3 +3469,150 @@ cluster's: **the agents' Intrinio MCP server shares the account and draws no per
 it). It is the one sender left outside the budget; whether agents queried Intrinio near 22:55 UTC on
 11-24 (or 19:32 UTC on 11-23) is for the session logs to say. Options, the owner's: lower the ceiling by
 the agents' share, or give the MCP server its own key.
+
+## C-077 A worker release drains the old build's running day blocks (owner, 2026-11-24: automation debt 1, "1-5 can all get built up")
+**Before.** `build hand-over` withdrew the old build, which ended every live lease of it, and release.sh
+step 9 deleted the old image's Jobs: a block on its first day (about 5 hours, 3 of them its download) lost
+it all, 8 blocks at once on 2026-11-23/24.
+**Standard followed.** Kubernetes' graceful termination and node drain (a terminating pod is sent no new
+work and is given `terminationGracePeriodSeconds` to finish what it holds, then killed; `kubectl drain`
+evicts within a timeout): in-flight work finishes within a bound, nothing new starts, past the bound it is
+stopped as before. **Where it lives: core's leases, not release.sh.** The hand-over is the one place that
+knows which job a pod holds, its day, and what the successor reads; release.sh only removes pods.
+- **The drain (core).** In the hand-over (`build::hand_over`), a live lease of a DAY_BLOCK job of the old
+  build (not compare-only) is kept, not ended, when the successor reads every base and day-local profile
+  revision the old build publishes (or every profile revision, for a build that declares none): C-064's
+  rule, so the successor's pass can read the day it publishes. Its job is cut to the day it is on (its
+  next session); the days after it are carried to the successor at once (a `Carried` of state DRAINING,
+  in the hand-over's token and notice); `core.drain` (migration 0059) records the lease, its day, the
+  hand-over and its bound. The old build is withdrawn as before: it claims nothing; a draining lease may
+  only publish the day it holds (C-070 unchanged: one published revision per layer; the successor does
+  not hold that day). The successor's passes wait for it by the claim's own rule (an unfinished day block
+  with `next_session` at or before their day).
+- **Its end.** The day's `day_done` answers `last: true` (no session left); the lease stays live for the
+  day's archive and reference check and ends with the check's report (`work::end_drained`: lease and job
+  DONE), or with the worker's `finish`. A worker of an engine before D-465 goes on to its next day and is
+  told at its next call that the lease is gone (D-465's worker stops by itself). **Its bound:**
+  `work::DRAIN_MINUTES` = 360, the measured worst first day of a block on the cluster (4 h 55 min,
+  2024-07-16 on 5f637983) plus its archive (15 min) and a typical check. Past it the sweep (every half
+  minute and at each claim) stops the lease as a withdrawal does (`stop_drain`; its attempt not counted).
+  **Settling:** a drain whose lease ended with its day not done (stopped, failed, expired) has its job
+  carried to the build the hand-overs from the old build lead to (`settle_drain`: its done days a DONE job
+  of their own, the rest a new job with fresh attempts, as a hand-over carries a job); a day done is
+  logged ("finished D and stopped"). A later hand-over leaves a live drain to the sweep.
+- **release.sh.** Preflight needs 0059. Step 9 deletes the unfinished Jobs of other images but those whose
+  pods hold a live drain (`vyreon-core build drains`: lease, job, worker pod, day, bound); new step 12
+  polls the drains each minute and deletes each one's Job once its lease has ended, until none is left;
+  a drain standing 15 minutes past its bound stops the script (core should have stopped it). An interrupt
+  leaves the drains to core; `--from 12` resumes the clean-up. The progress channel's hand-over line says
+  "N running blocks finishing their day first".
+- **Cost accepted.** A draining pod holds its node and its ScaledJob slot until its day ends (up to the
+  bound), so the successor's carried days start on the free slots meanwhile; with `day-block` at its cap
+  (8, phase 1's 8 blocks) they start as the drains end. Never slower than the old way: a slot finishes
+  the day's remaining part instead of computing the whole day again. Step 11 therefore does not wait for
+  a claim of a kind whose ScaledJob has draining Jobs (checked against live Job and pod labels, read-only). Other kinds (tapes, passes,
+  re-runs, republishes) are stopped as before: passes are minutes; a republish or tape drain is a later
+  extension if a release ever cuts one.
+Tests: `tests/drain.rs` (two running blocks: one finishes its day, its check ends the lease, a further
+publish is refused as gone, the pass of its day waits for it; the other is stopped at its bound and its day
+carried; the successor runs the rest and every pass in date order; no drain where the successor cannot read
+the day), the hand-over lines in `work.rs` and `digest_format.rs`, `progress.rs`'s line.
+
+## C-078 The spend is watched against the owner's ceiling (owner, 2026-11-24: automation debt 3)
+- **Figures.** DigitalOcean's own: `GET /v2/customers/my/balance` (`month_to_date_usage`, `generated_at`)
+  and `GET /v2/customers/my/invoices` (finished months), read every hour by core (`core_api::spend`) and kept
+  (`core.spend_reading`, 0060; a read that failed kept with why). The spend since the owner's start
+  (`VYREON_CORE_SPEND_SINCE`) is each month from the start's: a finished month's invoice, or before it is
+  issued the highest month-to-date figure read in it; the current month's month to date; less the start
+  month's usage before the start (`VYREON_CORE_SPEND_BASELINE_USD`). It is the whole account's, as the
+  owner's running total has counted it since 2026-11-21 06:09 UTC ($180.41 then; MILESTONES).
+- **Said.** Each morning (09:00 MT, with the digest) one line on the progress channel: spent of the
+  ceiling, the rate per day over the last 24 h (else since the start) and where that rate reaches the
+  ceiling. `SPEND` alerts (alerts channel) at 80% and at 100% of `VYREON_CORE_SPEND_CEILING_USD` (no
+  default: the owner's number, 500 in 20-core.yaml); a reading older than 3 h or failed opens and resolves
+  nothing (the line says "not known" and why). `vyreon-core spend` says it at any time.
+- **The token (decision).** Core in-cluster had no DigitalOcean token; it gets a read-only one: the owner
+  makes a custom-scoped token with `billing:read` only (DigitalOcean's custom scopes) and puts it in the
+  optional secret `vyreon-core-do-billing` (key `token`, from a file); it is read at each request, never
+  printed or logged, and a refusal keeps only the status. No key was made by the builder. Without it the
+  line states the absence; nothing fails (README "Spend").
+Tests: `tests/spend.rs` (the real figures: the spend, its rate and projection, a stale reading, the
+morning line once, 80% then 100% opened and kept while unread, a month boundary before and after its
+invoice), `core-api/tests/spend.rs` (a simulated DigitalOcean: no setting, no secret, a 401 said without the
+token, a reading with the bearer sent), the line's unit tests.
+
+## C-079 Recompute after a method change is planned and scheduled by core (owner, 2026-11-24: automation debt 5)
+- **A build's methods** are what it publishes: every row carries its measurement's science and method
+  version (engine D-273); the engine keeps no list of them, and the inventory has none. So core reads a
+  build's own labels per layer from its newest ordinary revision of each (a day block's base and
+  day-local, a pass's history; never a republish's, whose carried rows keep older versions). A published
+  day differs where a measurement of a layer it has published carries other labels, or none (a
+  measurement the build added). Read-only check on the live database (2026-11-24, against the running
+  build 1ae946f7's 2026-11-23): 11 of the published days differ, in two sets (the DLM day-local
+  families; and those plus the ACT, EXQ, EVC, PCR-UPATH and M0-PRINT-SIZE versions on 2a8f8c4f's days); the
+  comparison took about 1.5 s.
+- **When.** Each minute the watch looks at the newest running build: once it has published both day layers
+  (a whole day), its base and day-local layers are compared, once (`core.recompute_plan`, 0061); its
+  history layer once its first pass has run. Not while a block of another build drains (C-077: it
+  publishes under the old methods). Days with unfinished day blocks or republishes are left alone (being
+  computed); so are days before `VYREON_CORE_RECOMPUTE_FROM` (phase 1's first session in 20-core.yaml).
+- **What.** Days grouped by the measurements that differ; each group planned by the C-074 planner over
+  exactly those days (`republish::plan_days`; runs never span a day not asked for): SCOPED (one job a day)
+  when cheaper or on days past the prints' retention, FULL day blocks otherwise or across profile
+  revisions, ordered passes for history-only differences. A group the planner says has no faithful
+  recompute (its scope reads prints no longer served) or cannot plan is not scheduled: the owner's.
+- **Within the ceiling.** The plan's measured node-hours at `VYREON_CORE_NODE_HOUR_USD` (0.167, the day
+  pools' list price) added to the spend now (C-078) must stay within the ceiling; otherwise, or when the
+  spend is not watched or not known, it is held: the progress line says what it would do and the alerts
+  channel says why and what to do (`vyreon-core recompute <profile> <build> --plan`; the owner schedules
+  by hand or raises the ceiling). Scheduled work runs through the existing machinery (REPUBLISH jobs, at
+  most 4 at once, held back by the scaler while the request budget is pressed; day blocks; passes).
+- **Said.** One progress post per decision: the measurements, days and span per group, scoped or full and
+  its node-hours, the total and its dollars, days left alone. `vyreon-core recompute <profile> <build>
+  --plan` prints it without scheduling; `--schedule` decides it as the watch does.
+Tests: `tests/recompute.rs` (the real slice with M0-GAMMA-CHANGE's method moved on: nothing before the build
+publishes a whole day; a busy day and a day before the start left alone; held without a watched spend and
+past the ceiling, each said on both channels; scheduled within it, once).
+**Questions for the coordinator (product behaviour, not decided here):** (1) a plan is held whenever the
+spend is not known (no billing token yet), so until the owner makes the token every recompute waits for
+his word: is that the intended default, or should a plan within a fixed allowance go ahead? (2) The
+automatic plan republishes every published day whose versions differ, including days whose difference is
+a version bump that changed no value (the republish then narrows itself: D-104's value-unchanged rule);
+the owner may prefer to exclude named measurements (a list) rather than pay for them.
+
+**Release-3 audit (2026-11-25, `audits/2026-11-25-release3/core`: Codex 14 ordinary + 5 rare; Gemini 14 ordinary + 4 rare
++ 2 suspicions; the only audit of this release: every real finding fixed and tested). Coordinator's rulings on C-079's two
+questions: (1) a plan is held while the spend is not known (spending is the owner's call); (2) method bumps that change no
+value are not excluded (D-273: old days are another method in DLM-UNUSUALNESS's histories).**
+
+| Finding | Verdict and fix |
+|---|---|
+| Codex 1, Gemini 1, Codex 15 (C-079) a FULL recompute outlives the prints, or a stale profile bypasses the check: valid EXQ01 readings → WITHHELD | real. `work::guard_perished_blocks` at every day-block claim: a published day past the prints' retention is cut out of the block (its other days queued again), and becomes a scoped republish of the measurements the block names (C-079's blocks name them), unless that scope reads the prints, or the block names none: then it stays as published and the alerts channel says so. The planner: a day stale and perished has no faithful recompute (checked before the stale branch). Test `recompute.rs::a_full_recompute_never_runs_over_a_day_whose_prints_are_gone` |
+| Gemini 10 (C-079) perished and other days planned as one | real: days past the retention are grouped apart (the group says "prints no longer served") |
+| Codex 2, Gemini 2 (C-077) a draining publish drops later history no build derives | real: `rederive` targets, after the publisher and the fallen revision's build, the newest running build publishing the fallen profile revision. Test `drain.rs::a_draining_days_publish_has_its_later_history_derived_again_by_the_successor`; `work.rs`'s no-running-build case kept |
+| Codex 3 (C-077) step 12 of an earlier release deletes the newest build's Jobs | real: steps 9 and 12 delete only Jobs whose image is neither this release's nor the live ScaledJobs'. Checked with a stubbed kubectl (B's clean-up after C's release keeps C's Jobs) |
+| Codex 4, Gemini 5 (C-077) the drained day named by a cursor that moves at `day_done`: the last day's archive and check killed, or an extra day | real: a lease with every day done drains (its check ends it); one whose reported step is a done day's publish, archive or check finishes that day and none after. Test `drain.rs::a_hand_over_lets_a_done_days_archive_and_check_finish` |
+| Gemini 3 (C-077) a drain stopped after its base, before its day-local: half a day published | real: settling supersedes the base without its day-local revision (C-063's `drop_base_without_day_local`) |
+| Codex 16, Gemini 16 (C-077) a timed-out drain carried to a withdrawn intermediate build | real: the hand-over chain is followed (no cycle), and where its end no longer runs the newest running build that reads the day takes it (none: tried again next sweep). Test `drain.rs::a_drain_that_ends_without_its_day_leaves_no_half_day_and_finds_a_running_build` |
+| Gemini 15 (C-077) A drains while B→C changes profiles: C's pass of the day can never run | real: the hand-over stops earlier builds' drains whose days the successor cannot read; their days are carried |
+| Gemini 13 (C-077) a draining day's last failure pauses the queue | real: a drained job is not counted among the failed days (the sweep carries it). Same test |
+| Gemini 14 (C-077) a draining lease hides the new build's stalled kind | real: per-kind STALLED counts leases of running builds; the chain still sees every lease. Test in `a_hand_over_lets_a_done_days_archive_and_check_finish` |
+| Codex 17, Gemini 4 (C-077) a failed pod lookup removes a drain's protection | real: a lookup failing for any reason but "not found" deletes nothing that round (step 9 leaves it to step 12; step 11 stops) |
+| Codex 12 (C-077) the drain-held kinds never verified | real: after the drains end, step 12 verifies those kinds claim work of the new build |
+| Gemini 9 (C-077) `--from 12` reruns step 11 and fails | real: step 11 runs only from a run that resumed the queue |
+| Codex 5, Gemini 11 (C-079) busy days counted as covered for good | real: decisions record the busy days; once one is free it is decided again, alone. Test in `recompute.rs`'s main test |
+| Codex 6 (C-079) a measurement read as its family (DLM-TECHNICAL: 7) | real: `plan_days` takes measurements only. Test `a_measurement_is_never_read_as_its_family` |
+| Codex 7 (C-078) an unchanged figure read again counts as fresh | real: freshness by DigitalOcean's `generated_at` (24 h), and the spend now adds the rate over the figure's age (alerts and the gate use it; the line says both) |
+| Codex 14 (C-078) a 20 h window | real: the figure nearest 24 h before (20-48 h), by DigitalOcean's times |
+| Codex 8, Gemini 6 FULL priced as one span | real: `full_total` by the scheduled runs. Test `a_full_recompute_across_gaps_is_priced_by_its_runs` |
+| Codex 9 (C-079) re-runs and passes unpriced | real: a scoped day adds its reference-check re-run, passes their time: measured (median of the latest 20 leases) else the bound (600 min re-run, 30 min pass) |
+| Codex 10 (C-079) two plans spend one allowance | real: jobs name their plan; a plan's cost is reserved while any of its jobs is unfinished or finished after DigitalOcean's figure; the gate adds it |
+| Codex 11, Gemini 8 (C-079) a raised ceiling or a new token never releases a held plan | real: a held decision is decided again when the ceiling changes, or an hour on with a newer reading (said again only when its outcome changes) |
+| Codex 13 (C-078) health.sh compares the calendar month with the ceiling | real: health.sh prints core's spend line (`!!` from 80%) and the calendar month for reference only |
+| Codex 18 (C-079) partial scheduling reported as none | real: each run's jobs count; FAILED says how many were queued |
+| Codex 19, Gemini 7 (C-079) the command schedules unpriced; ignores the block size | real: `--schedule` refuses without `VYREON_CORE_NODE_HOUR_USD`; the block from `VYREON_CORE_RECOMPUTE_BLOCK` |
+| Gemini 12 (C-079) groups left to the owner beside scheduled ones are not alerted | real: the alerts channel names them |
+| Gemini 17 (C-079) a profile change or a removed measurement differs on nothing | real: a layer in a profile revision the build does not publish differs on all its measurements (FULL, or the owner's); a measurement the build dropped differs |
+| Gemini 18 (C-078) a bare-date start mislabelled in MT | real: the start's label is its UTC date (the months are UTC) |
+| Gemini 19 suspicion: per-slot version variance | not real: the live database holds one (science, method) label per measurement per revision on every published day checked (2024-07-15..17, read-only) |
+| Gemini 20 suspicion: several invoices a month, more than 24, an unreadable amount | real enough to close: a month's invoices summed, 200 a page, an unreadable invoice makes no reading |

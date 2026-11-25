@@ -13,6 +13,10 @@
 # ObjectStore it archives to) through the Kubernetes API, as the evidence that WAL is archived and a
 # base backup is recoverable. Its service account may `get` those two kinds in this namespace, and
 # nothing else.
+# C-078: secret `vyreon-core-do-billing` (key `token`: a DigitalOcean custom-scoped token with
+# `billing:read` only, made by the owner in DigitalOcean's control panel and put in the cluster from
+# a file, never printed; README "Spend") is mounted read-only; while it is absent the morning's spend
+# line says the spend is not known and nothing alerts on it.
 apiVersion: v1
 kind: ServiceAccount
 metadata:
@@ -158,6 +162,29 @@ spec:
               value: /etc/vyreon-core/spaces/secret
             # - name: VYREON_CORE_ARCHIVE_ALERT_DAYS
             #   value: "2"
+            # C-078: the spend since the owner's start against the ceiling (owner, 2026-11-21: $500 in
+            # total for phase 1 and its reruns; the start is the running total's, month to date $180.41
+            # at 2026-11-21 06:09 UTC). DigitalOcean's figures for the whole account, read every hour with
+            # the read-only token below; a progress line each morning, alerts at 80% and 100%.
+            - name: VYREON_CORE_SPEND_SINCE
+              value: "2026-11-21T06:09:00Z"
+            - name: VYREON_CORE_SPEND_BASELINE_USD
+              value: "180.41"
+            - name: VYREON_CORE_SPEND_CEILING_USD
+              value: "500"
+            - name: VYREON_CORE_DO_TOKEN_FILE
+              value: /etc/vyreon-core/do-billing/token
+            # C-079: after a new build publishes, core republishes the days whose method versions differ
+            # from its own (the C-074 planner's choice), scheduled only when its estimated cost at this
+            # node-hour price (s-8vcpu-16gb-amd and -intel, DigitalOcean's list price) keeps the spend
+            # under the ceiling; else held and alerted. `off`: nothing planned by itself
+            - name: VYREON_CORE_RECOMPUTE
+              value: "on"
+            # phase 1's first session: earlier published days (none in this database) wait for the owner
+            - name: VYREON_CORE_RECOMPUTE_FROM
+              value: "2024-07-09"
+            - name: VYREON_CORE_NODE_HOUR_USD
+              value: "0.167"
           ports:
             - containerPort: 8080
           readinessProbe:
@@ -178,6 +205,7 @@ spec:
             - {name: webhook, mountPath: /etc/vyreon-core/webhook, readOnly: true}
             - {name: progress-webhook, mountPath: /etc/vyreon-core/progress-webhook, readOnly: true}
             - {name: spaces, mountPath: /etc/vyreon-core/spaces, readOnly: true}
+            - {name: do-billing, mountPath: /etc/vyreon-core/do-billing, readOnly: true}
       volumes:
         - name: webhook
           secret: {secretName: vyreon-core-webhook, optional: true, defaultMode: 0440}
@@ -186,6 +214,9 @@ spec:
         # the bucket's key (C-052): core alone holds it; workers get one pre-signed URL per object
         - name: spaces
           secret: {secretName: vyreon-core-spaces, optional: true, defaultMode: 0440}
+        # C-078: DigitalOcean's billing, read-only (billing:read); optional
+        - name: do-billing
+          secret: {secretName: vyreon-core-do-billing, optional: true, defaultMode: 0440}
         # a day's bundle while it is checked: about 200 MB, one at a time
         - name: spool
           emptyDir: {sizeLimit: 4Gi}

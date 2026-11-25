@@ -116,6 +116,12 @@ pub struct Settings {
     /// C-068: the newest base backup must be at most this many days old (`VYREON_CORE_BACKUP_MAX_DAYS`;
     /// the weekly schedule plus a day); None: the base backups are not watched.
     pub backup_days: Option<i32>,
+    /// C-078: the spend against the owner's ceiling (`VYREON_CORE_SPEND_SINCE`, `_BASELINE_USD`,
+    /// `_CEILING_USD`); None: not watched.
+    pub spend: Option<crate::spend::SpendWatch>,
+    /// C-079: the republish of published days whose method versions differ from a newly admitted build's,
+    /// planned and scheduled by core; None: not done.
+    pub recompute: Option<crate::recompute::RecomputeWatch>,
 }
 
 /// What the watch checks of the perishable archive (C-052).
@@ -275,10 +281,13 @@ const DERIVED_AGAIN: Part = Part { key: "not derived", what: "check the days lef
 
 /// The tick's own parts beside the check (C-069). Their WATCH_FAILING problems are the tick's to
 /// open and resolve (`record`), never the check's: the check cannot see them.
+const SPEND: Part = Part { key: "spend", what: "check the spend against the ceiling", kinds: &["SPEND"] };
 const CHECK: Part = Part { key: "check", what: "run its checks, so no problem opens or resolves", kinds: &[] };
 const DIGEST: Part = Part { key: "digest", what: "queue the daily digest", kinds: &[] };
 const WEEKLY: Part = Part { key: "weekly check", what: "queue the weekly check", kinds: &[] };
-const TICK_PARTS: [&Part; 3] = [&CHECK, &DIGEST, &WEEKLY];
+const SPEND_LINE: Part = Part { key: "spend line", what: "queue the morning's spend line", kinds: &[] };
+const RECOMPUTE: Part = Part { key: "recompute", what: "plan the recompute of days a new build's methods changed", kinds: &[] };
+const TICK_PARTS: [&Part; 5] = [&CHECK, &DIGEST, &WEEKLY, &SPEND_LINE, &RECOMPUTE];
 
 /// The problem a part that failed is.
 fn failing(p: &Part, error: &str) -> Found {
@@ -485,6 +494,10 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
                 Ok(storage_found(&st, volume, is_open(open, "DATABASE_FULL", "volume")))
             })
             .await?;
+    }
+    // C-078: the spend at 80% and 100% of the owner's ceiling
+    if let Some(w) = &s.spend {
+        checked.part(c, &SPEND, crate::spend::found(c, w, now, open)).await?;
     }
     if let Some(days) = s.backup_days {
         checked
@@ -1091,9 +1104,19 @@ const GROUP: &str = "CASE WHEN j.kind = 'DAY_BLOCK' AND j.priority = 1 THEN 'DAI
 /// problem (`JOB_FAILED`), one alert for one cause. A paused queue or a build not admitted makes
 /// nothing claimable: those are their own problems.
 async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> Result<(), String> {
+    // (release-3 audit, Gemini 14) a kind is leased by a build that runs: a withdrawn build's draining block
+    // (C-077) is no sign that the new build's pods of the kind start; it still counts for the chain below
+    let any_leased: bool = c
+        .query_one("SELECT EXISTS (SELECT FROM core.lease l WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz)", &[&now])
+        .await
+        .map_err(db)?
+        .get(0);
     let leased: Vec<String> = c
         .query(
-            &format!("SELECT DISTINCT {GROUP} FROM core.lease l JOIN core.job j USING (job_id) WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz"),
+            &format!(
+                "SELECT DISTINCT {GROUP} FROM core.lease l JOIN core.job j USING (job_id)
+                 WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz AND core.build_runs(j.engine_build)"
+            ),
             &[&now],
         )
         .await
@@ -1191,7 +1214,7 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
         .await
         .map_err(db)?;
     let (queued, kinds, paused): (i64, Option<String>, bool) = (r.get(0), r.get(1), r.get(2));
-    if any_claimable || !leased.is_empty() || paused || queued == 0 {
+    if any_claimable || any_leased || paused || queued == 0 {
         c.execute("DELETE FROM core.stall_seen WHERE kind = 'CHAIN'", &[]).await.map_err(db)?;
         return Ok(());
     }
@@ -1518,6 +1541,10 @@ pub fn consequence(kind: &str) -> (&'static str, Option<&'static str>) {
         "WATCH_FAILING" => ("Other problems may go unreported meanwhile.", Some("Read core's log:")),
         "JOB_THRASHING" => ("That work keeps restarting; its day stays unpublished until it finishes.", Some("Check the pods' exit reasons (out of memory?):")),
         "NO_PROGRESS" => ("That job is stuck; its day stays unpublished until it moves.", Some("Read the worker's log:")),
+        "SPEND" => (
+            "Published numbers are not affected; the spend nears or passes the owner's ceiling.",
+            Some("Decide whether to go on (raise VYREON_CORE_SPEND_CEILING_USD, or stop the workers: deploy/k8s/README.md, Stopping everything); the spend:"),
+        ),
         "DAY_REFUSED" => (
             "That day stays unpublished (readers see it missing, with its cause); the build goes on; nothing more is tried on it.",
             Some("Fix the refused input or the engine, then a new build's `vyreon-core build hand-over` or `vyreon-core queue retry-failed`; the refusal:"),
@@ -2384,12 +2411,30 @@ pub async fn tick_within(client: &mut Client, s: &Settings, now: &str, budget: D
                     if saturday {
                         outcomes.extend(ran(post_once(client, &format!("weekly {date}"), s, now, true, until).await).map(|r| (&WEEKLY, r)));
                     }
+                    // C-078: the morning's spend line, on the progress channel
+                    if let Some(w) = &s.spend {
+                        outcomes.push((&SPEND_LINE, spend_line_once(&*client, w, now, &date).await));
+                    }
+                }
+                // C-079: a new build's methods compared with the published days', once
+                if let Some(r) = &s.recompute {
+                    outcomes.push((&RECOMPUTE, crate::recompute::auto(client, &s.profile, r, s.spend.as_ref(), now).await.map(|_| ())));
                 }
             }
         }
         record(client, now, &outcomes, &mut change).await?;
     }
     checked.map(|()| change)
+}
+
+/// C-078: the morning's spend line, queued once a day on the progress channel.
+async fn spend_line_once(c: &impl GenericClient, w: &crate::spend::SpendWatch, now: &str, date: &str) -> Result<(), String> {
+    let key = format!("spend {date}");
+    if notice::queued(c, &key).await? {
+        return Ok(());
+    }
+    let line = crate::spend::line(&crate::spend::spend(c, w, now).await?);
+    notice::progress(c, &key, &line).await.map(|_| ())
 }
 
 /// A post's outcome as `record` takes it: None when it was left for the next minute.

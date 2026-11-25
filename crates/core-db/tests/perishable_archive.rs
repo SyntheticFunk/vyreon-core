@@ -164,7 +164,7 @@ async fn a_published_days_perishables_are_requested_verified_kept_and_frozen() {
     assert!(archive::list(&client, Some("yesterday"), 10).await.is_err());
 
     // the watch: counted in the digest; a problem only past the configured age, resolved once kept
-    let mut settings = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
+    let mut settings = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
     settings.archive = Some(ArchiveWatch { expected_from: Some("2025-12-10".into()), alert_days: None });
     let digest = watch::digest(&mut client, &settings, &later).await.unwrap();
     assert!(digest.contains("Perishable archive: 1 missing (the oldest 2025-12-10 exq01-events, 3 days)"), "{digest}");
@@ -297,7 +297,7 @@ async fn asking_again_does_not_reset_a_missing_archives_age() {
         daily: None,
         archive: Some(ArchiveWatch { expected_from: None, alert_days: Some(1) }),
         refcheck_from: None,
-        backup_days: None,
+        backup_days: None, spend: None, recompute: None,
         refcheck_rerun_hours: None,
     };
     let archive_lines = |lines: Vec<String>| lines.into_iter().filter(|l| l.contains("Perishable archive")).collect::<Vec<_>>();

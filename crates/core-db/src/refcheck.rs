@@ -299,6 +299,9 @@ pub async fn put(client: &mut Client, token: &str, c: &Checked) -> Result<(bool,
     // C-073: a re-run's one session is done once its report is kept; the worker then finishes
     if rerun {
         work::session_done(&tx, &lease, &c.session).await?;
+    } else if inserted.is_some() {
+        // C-077: a draining day block's lease ends with its day's check
+        work::end_drained(&tx, &lease, &c.session).await.map_err(LeaseError::Failed)?;
     }
     let answer = match inserted {
         Some(r) => (true, r.get(0)),

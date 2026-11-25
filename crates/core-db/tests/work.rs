@@ -859,9 +859,11 @@ async fn a_pass_under_a_build_that_does_not_run_holds_nothing_and_is_replaced() 
     }
     assert_eq!(ran, days);
 
-    // neither the publisher (no derived profile) nor the fallen revisions' build runs: nothing is
-    // queued, the days are named and a problem is open
+    // neither the publisher (no derived profile) nor the fallen revisions' build runs, nor any build that
+    // publishes the derived profile (C-077, release-3 audit Codex 2: the newest such build that runs would
+    // derive them): nothing is queued, the days are named and a problem is open
     build::withdraw(&mut client, &w, "a later image").await.unwrap();
+    build::withdraw(&mut client, &d, "a later image").await.unwrap();
     base_by_hand(&mut client, days[0]).await;
     assert_eq!(count(&client, "SELECT count(*) FROM core.job WHERE kind = 'ORDERED_PASS' AND state IN ('QUEUED', 'LEASED', 'FAILED')").await, 0);
     let said = notices(&client).await;
@@ -1453,7 +1455,7 @@ async fn a_day_whose_block_failed_after_its_base_is_missing_for_the_passes() {
     assert_eq!(run_pass(&mut client, &d).await.as_deref(), Some(days[2]));
     assert_eq!(claimable_passes(&client).await, "2025-12-12");
     // the digest names the day set aside, with the base it left
-    let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
+    let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
     let now = watch::now(&client).await.unwrap();
     let digest = watch::digest(&mut client, &s, &now).await.unwrap();
     let line = format!("Set aside: Wed Dec 10, 2025 · FAILED · base revision {base10} superseded, no day-local revision was published on it; day-local derived: core answered 503");
@@ -1973,7 +1975,7 @@ async fn a_date_is_omitted_only_when_its_day_failed_for_the_provider() {
     assert_eq!(cause(&client, days[1]).await, ("FAILED".into(), first_line.clone()));
 
     // the digest: one line per day set aside or omitted, with its cause code
-    let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
+    let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
     let now = watch::now(&client).await.unwrap();
     let digest = watch::digest(&mut client, &s, &now).await.unwrap();
     assert!(digest.starts_with("🟡 Running; handled: 1 date omitted · "), "{digest}");
@@ -2538,7 +2540,8 @@ async fn a_hand_over_is_one_progress_line_and_hides_no_reason() {
     // the successor not admitted yet: the line says to admit it
     let now = watch::now(&client).await.unwrap();
     let post = progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
-    assert!(post.contains(&format!("Hand-over {id}: {old} → {new}, 5 blocks + 5 passes moved, 2 running jobs restarted — the rulings image · {new} not admitted yet")), "{post}");
+    // C-077: the two running one-day blocks finish their day (nothing of them left to move)
+    assert!(post.contains(&format!("Hand-over {id}: {old} → {new}, 3 blocks + 5 passes moved, 2 running blocks finishing their day first — the rulings image · {new} not admitted yet")), "{post}");
 
     admit(&client, &new).await;
     work::resume(&client).await.unwrap();
@@ -2547,9 +2550,9 @@ async fn a_hand_over_is_one_progress_line_and_hides_no_reason() {
     let lines: Vec<&str> = post.lines().collect();
     // C-073 (owner, 2026-11-24): each step one short line ("   HH:MM what"), its reason kept
     let line = |text: &str| lines.iter().any(|l| l.len() > 9 && &l[9..] == text);
-    assert!(line(&format!("Hand-over {id}: {old} → {new}, 5 blocks + 5 passes moved, 2 running jobs restarted — the rulings image")), "{post}");
+    assert!(line(&format!("Hand-over {id}: {old} → {new}, 3 blocks + 5 passes moved, 2 running blocks finishing their day first — the rulings image")), "{post}");
     assert!(line(&format!("Queue paused: {reason}")), "the pause keeps its reason: {post}");
-    assert!(line(&format!("Build {old} withdrawn: handed over to build {new}: the rulings image (2 running jobs stopped)")), "{post}");
+    assert!(line(&format!("Build {old} withdrawn: handed over to build {new}: the rulings image")), "{post}");
     assert!(line(&format!("Build {new} admitted")) && line("Queue resumed"), "{post}");
     assert!(!post.contains("Started") && !post.contains("w1"), "a plain start is the headline's building, no pod named: {post}");
 
@@ -2562,7 +2565,7 @@ async fn a_hand_over_is_one_progress_line_and_hides_no_reason() {
         daily: Some(Daily { profile: PROFILE.into(), build: old.clone(), from: "2099-01-02".into() }),
         archive: None,
         refcheck_from: None,
-        backup_days: None,
+        backup_days: None, spend: None, recompute: None,
         refcheck_rerun_hours: None,
     };
     work::pause(&client, "checking the new image's first day").await.unwrap();

@@ -41,7 +41,7 @@ fn settings(refcheck: bool) -> Settings {
         daily: None,
         archive: None,
         refcheck_from: refcheck.then(|| DAY.to_owned()),
-        backup_days: None,
+        backup_days: None, spend: None, recompute: None,
         refcheck_rerun_hours: refcheck.then_some(refcheck::RERUN_AFTER_HOURS),
     }
 }

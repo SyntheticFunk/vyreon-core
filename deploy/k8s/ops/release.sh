@@ -52,11 +52,23 @@
 #      old one), and 20-core.yaml applied with the RUNNING core image in place of VYREON_CORE_IMAGE
 #      (read from the live Deployment: the raw file once took core down), its diff printed first
 #   9  the unfinished worker Jobs of other images deleted (the withdrawn build's pods compute on with
-#      no lease and hold KEDA's slots: hand-over 5)
+#      no lease and hold KEDA's slots: hand-over 5), but not a Job whose pod holds a draining lease
+#      (C-077: the hand-over let the old build's running day blocks finish the day they compute)
 #   10 `vyreon-core queue resume`, only if the pause is still exactly this run's (a cause added while it
 #      ran, a bundle refused or a job failed for the last time, leaves it paused and stops here)
 #   11 every kind of work KEDA should start for the new build (`core.scaler_count`) gets a lease of the
-#      new build within VYREON_VERIFY_MINUTES
+#      new build within VYREON_VERIFY_MINUTES (a kind whose ScaledJob has draining Jobs, whose slots may
+#      all be theirs until they end, is verified at the end of step 12); skipped by `--from 12`
+#   12 C-077: the draining blocks (`vyreon-core build drains`) finish their day; each one's Job is deleted
+#      once its lease has ended (an engine before C-077 computes on into its next day, unleased); core
+#      itself stops a drain at its bound (work::DRAIN_MINUTES, 6 h) and carries its day. Polled every
+#      minute; an interrupt leaves the drains to core and `--from 12` resumes the clean-up. Steps 9 and 12
+#      delete only Jobs of an image neither this release's nor the live ScaledJobs' (a later release's
+#      Jobs are never touched), and nothing at all in a round where a draining pod cannot be looked up;
+#      then the kinds the drains held are verified to claim work
+#
+# Before anything, the operator's kubeconfig is refreshed when it is within 2 days of its end or the
+# cluster refuses it (`kubeconfig.sh --if-needed`; a dry run only says whether it would be).
 set -euo pipefail
 
 NS=vyreon
@@ -89,9 +101,16 @@ else
   TAG=${args[0]} REASON=${args[1]}
 fi
 [[ -n ${REASON// /} ]] || { echo "release.sh: a release needs a reason" >&2; exit 2; }
-[[ $FROM =~ ^([1-9]|1[01])$ ]] || { echo "release.sh: --from takes a step from 1 to 11" >&2; exit 2; }
+[[ $FROM =~ ^([1-9]|1[012])$ ]] || { echo "release.sh: --from takes a step from 1 to 12" >&2; exit 2; }
 : "${KUBECONFIG:?set KUBECONFIG to the kubeconfig of the cluster}"
 export KUBECONFIG
+# automation debt 2 (owner, 2026-11-24): a DOKS kubeconfig lives 7 days; a release never stops on an
+# expired one. A dry run writes nothing: it says whether the real run would refresh
+if ((DRY)); then
+  "$(cd "$(dirname "$0")" && pwd)/kubeconfig.sh" --check "$KUBECONFIG" || true
+else
+  "$(cd "$(dirname "$0")" && pwd)/kubeconfig.sh" --if-needed "$KUBECONFIG" || { echo "release.sh: the kubeconfig could not be refreshed (kubeconfig.sh above says why); nothing was done" >&2; exit 1; }
+fi
 
 STEP=0 DONE=() FAILED="" DOCKER_AUTH="" SCRATCH="" PAUSE_REASON="" OLD="" HAND_OVER="" TOKEN="" BUILD="" RUN="" RUN_OLD="" EVIDENCE=""
 if ((DRY)); then
@@ -301,6 +320,9 @@ PY
 # C-074 (release-2 audit, Gemini 10): a build registers its republish plans only with a core that keeps them (0057)
 [[ $(sql "SELECT to_regclass('core.build_republish') IS NOT NULL") == t ]] \
   || fail "core's database has no core.build_republish (migration 0057): deploy the core image first (release.sh --core <tag>)"
+# C-077: the hand-over drains running blocks, and step 9 and 12 read the drains, only with a core that keeps them (0059)
+[[ $(sql "SELECT to_regclass('core.drain') IS NOT NULL") == t ]] \
+  || fail "core's database has no core.drain (migration 0059): deploy the core image first (release.sh --core <tag>)"
 
 step 1 "build identity and inventory from $LOCAL; the old build, the queue, the file's daily build"
 BUILD=$(docker run --rm --entrypoint /opt/vyreon/bin/vyreon-worker "$LOCAL" build-identity /opt/vyreon/bin /opt/vyreon/bin | tail -1)
@@ -509,62 +531,110 @@ if ! skip; then
   record "core on $CORE_IMAGE${DAILY:+, daily build $BUILD} (commit deploy/k8s/20-core.yaml)"
 fi
 
-step 9 "delete the unfinished worker Jobs of other images"
-if ! skip; then
-  STALE=$(kubectl -n "$NS" get jobs -l scaledjob.keda.sh/name -o json | python3 -c '
+# C-077: the live drains (`vyreon-core build drains`, one JSON object a line) and the Jobs of their pods
+# (a lease's worker is its pod's name, VYREON_WORKER_NAME); fails when core cannot be asked
+DRAINS="" DRAIN_JOBS="" HELD=""
+read_drains() { DRAINS=$(core build drains) || fail "core does not answer \`vyreon-core build drains\`"; }
+# DRAIN_JOBS: the Jobs whose pods drain. Fails closed (release-3 audit, Codex 17, Gemini 4): a pod that
+# cannot be looked up (anything but "not found": it is gone) makes the function fail, and the caller then
+# deletes nothing this time
+draining_jobs() {
+  local w out
+  DRAIN_JOBS=""
+  for w in $(python3 -c 'import json, sys
+for l in sys.stdin:
+    if l.strip(): print(json.loads(l)["worker"])' <<<"$DRAINS"); do
+    if out=$(kubectl -n "$NS" get pod "$w" -o jsonpath='{.metadata.labels.job-name}' 2>&1); then
+      DRAIN_JOBS="$DRAIN_JOBS $out"
+    elif ! grep -q NotFound <<<"$out"; then
+      say "   cannot look up draining pod $w ($(tail -1 <<<"$out" | cut -c1-120)): nothing is deleted this time"
+      return 1
+    fi
+  done
+  return 0
+}
+# the ScaledJobs (kinds) of the draining Jobs: their slots may all be the drains' (fails closed as above)
+held_kinds() {
+  local j out
+  HELD=""
+  for j in $DRAIN_JOBS; do
+    if out=$(kubectl -n "$NS" get job "$j" -o jsonpath='{.metadata.labels.scaledjob\.keda\.sh/name}' 2>&1); then
+      HELD="$HELD $out"
+    elif ! grep -q NotFound <<<"$out"; then
+      return 1
+    fi
+  done
+  HELD=$(tr ' ' '\n' <<<"$HELD" | sort -u | tr '\n' ' ')
+}
+# the drains in a line: "<pod> <day>[ (day done, its check to come)] until HH:MM UTC; ..."
+drain_words() {
+  python3 -c '
 import json, sys
-image = sys.argv[1]
+out = []
+for line in sys.stdin:
+    if line.strip():
+        d = json.loads(line)
+        done = " (day done, its check to come)" if d["day_done"] else ""
+        out.append("%s %s%s until %s UTC" % (d["worker"], d["session"], done, d["until"][11:16]))
+print("; ".join(out))'
+}
+# the unfinished worker Jobs to delete: of an image that is neither this release's nor the one the live
+# ScaledJobs run now (release-3 audit, Codex 3: a later release's Jobs are never this run's to delete), and
+# not draining (DRAIN_JOBS, read just before); fails when the live ScaledJobs cannot be read
+stale_jobs() {
+  local live
+  live=$(scaledjob_image day-block)
+  [[ -n $live ]] || return 1
+  kubectl -n "$NS" get jobs -l scaledjob.keda.sh/name -o json | python3 -c '
+import json, sys
+images, keep = set(sys.argv[1].split()), set(sys.argv[2].split())
 for j in json.load(sys.stdin)["items"]:
     done = any(c["type"] in ("Complete", "Failed") and c["status"] == "True" for c in j.get("status", {}).get("conditions") or [])
-    if not done and j["spec"]["template"]["spec"]["containers"][0]["image"] != image:
-        print(j["metadata"]["name"])' "$REMOTE")
+    if not done and j["spec"]["template"]["spec"]["containers"][0]["image"] not in images and j["metadata"]["name"] not in keep:
+        print(j["metadata"]["name"])' "$REMOTE $live" "$DRAIN_JOBS"
+}
+# deletes the stale Jobs now, when every draining pod could be looked up; else nothing this time
+delete_stale() {
+  local stale
+  read_drains
+  draining_jobs || return 1
+  stale=$(stale_jobs) || { say "   the live ScaledJobs cannot be read: nothing is deleted this time"; return 1; }
+  STALE=$stale
   if [[ -n $STALE ]]; then
     say "   \$ kubectl -n $NS delete job --ignore-not-found $(echo $STALE)"
     # shellcheck disable=SC2086
     ((DRY)) || kubectl -n "$NS" delete job --ignore-not-found $STALE
-    record "deleted $(echo $STALE | wc -w) Jobs: $(echo $STALE)"
-  else
-    record "no unfinished Job of another image"
   fi
-fi
+}
 
-step 10 "resume the queue (only this run's pause)"
+step 9 "delete the unfinished worker Jobs of other images (a block finishing its day is left to step 12)"
 if ! skip; then
-  say "   \$ vyreon-core queue resume"
-  if ((DRY == 0)); then
-    QUEUE=$(queue_state)
-    if [[ $QUEUE == running ]]; then
-      say "   the queue is already running"
-    elif [[ -z $PAUSE_REASON ]]; then
-      fail "this run did not pause the queue (no run file says it did): resume it by hand once its pause is understood"
-    elif [[ $QUEUE != "paused"$'\t'"$PAUSE_REASON" ]]; then
-      # a bundle refused or a job failed for the last time while it ran (`also: ...`), or another pause
-      fail "the pause holds more than this run's: ${QUEUE#paused$'\t'} -- left paused for the owner"
-    else
-      out=$(core queue resume 2>&1) || fail "the resume was refused: $out"
-    fi
-    PAUSE_REASON=""
+  STALE=""
+  if delete_stale; then
+    if [[ -n $STALE ]]; then record "deleted $(echo $STALE | wc -w) Jobs: $(echo $STALE)${DRAIN_JOBS:+; draining (step 12):$DRAIN_JOBS}"
+    else record "no unfinished Job of another image to delete${DRAIN_JOBS:+; draining (step 12):$DRAIN_JOBS}"; fi
+  else
+    record "nothing deleted yet (a lookup failed): step 12 deletes them"
   fi
-  record "queue resumed"
 fi
 
-step 11 "every kind KEDA should start for $BUILD claims work (up to $VERIFY_MINUTES min)"
-if ((DRY)); then
-  say "   (dry run: polls core.scaler_count and the leases of $BUILD per kind)"
-else
-  SINCE=$(sql "SELECT now()")
-  deadline=$((SECONDS + VERIFY_MINUTES * 60)) needed="" missing=""
+# every kind KEDA should start for $BUILD (core.scaler_count) gets a lease of $BUILD granted since $1 (a
+# timestamp), within VERIFY_MINUTES; kinds in $2 are not waited for, and when $3 is given only its kinds are
+verify_claims() {
+  local since=$1 skip_kinds=$2 only=$3 deadline=$((SECONDS + VERIFY_MINUTES * 60)) needed="" missing="" rows
   while :; do
-    # per ScaledJob: what KEDA counts for the new build now, and its leases granted since the resume
+    # per ScaledJob: what KEDA counts for the new build now, and its leases granted since then
     rows=$(sql "SELECT v.k, core.scaler_count(v.kind, '$BUILD', v.daily),
                        (SELECT count(*) FROM core.lease l JOIN core.job j USING (job_id)
                         WHERE j.engine_build = '$BUILD' AND j.kind = v.kind AND (v.daily IS NULL OR (j.priority = 1) = v.daily)
-                          AND l.granted_at >= '$SINCE'::timestamptz)
+                          AND l.granted_at >= '$since'::timestamptz)
                 FROM (VALUES ('tape', 'TAPE', NULL::boolean), ('day-block', 'DAY_BLOCK', false), ('day-block-daily', 'DAY_BLOCK', true),
                              ('ordered-pass', 'ORDERED_PASS', NULL), ('refcheck', 'REFCHECK', NULL), ('republish', 'REPUBLISH', NULL)) v(k, kind, daily)") || rows=""
     missing=""
     while read -r k count leases; do
       [[ -z $k ]] && continue
+      [[ " $skip_kinds " == *" $k "* ]] && continue
+      [[ -n $only && " $only " != *" $k "* ]] && continue
       ((count > 0)) && [[ " $needed " != *" $k "* ]] && needed="$needed $k"
       [[ " $needed " == *" $k "* ]] && ((leases == 0)) && missing="$missing $k"
     done <<<"$rows"
@@ -574,6 +644,57 @@ else
     sleep 30
   done
   record "claimed by the new build:${needed:- nothing to claim}"
+}
+
+step 11 "every kind KEDA should start for $BUILD claims work (up to $VERIFY_MINUTES min)"
+if ((DRY)); then
+  say "   (dry run: polls core.scaler_count and the leases of $BUILD per kind)"
+elif ((FROM <= 11)); then
+  # (release-3 audit, Gemini 9) only in a run that resumed the queue: `--from 12` resumes the drains alone
+  SINCE=$(sql "SELECT now()")
+  # C-077: a ScaledJob whose Jobs drain may have every slot held by them (day-block's 8 by phase 1's 8
+  # blocks): its kind is verified once they end (step 12)
+  read_drains
+  draining_jobs && held_kinds || fail "the draining pods or their Jobs cannot be looked up: rerun with --from 11"
+  [[ -n ${HELD// /} ]] && say "   verified after the drains (their slots held by draining blocks, step 12): $HELD"
+  verify_claims "$SINCE" "$HELD" ""
+else
+  say "   (resumed at step 12: the claims were verified, or are verified after the drains)"
+fi
+
+step 12 "the old build's running blocks finish their day (C-077); each one's Job deleted once its lease ends"
+if ((DRY)); then
+  read_drains
+  say "   (dry run: polls \`vyreon-core build drains\` every minute and deletes each ended drain's Job; core stops a drain at its bound)"
+  if [[ -n $DRAINS ]]; then say "$DRAINS" | sed 's/^/     draining now: /'; fi
+else
+  if ((FROM == 12)); then
+    read_drains
+    draining_jobs && held_kinds || fail "the draining pods or their Jobs cannot be looked up: rerun with --from 12"
+  fi
+  WAITED=$HELD
+  while :; do
+    STALE=""
+    delete_stale || true
+    [[ -z $DRAINS ]] && break
+    # core stops a drain at its bound (its sweep, every half minute); one standing 15 minutes past it is core's fault
+    LATE=$(python3 -c 'import datetime, json, sys
+now = datetime.datetime.now(datetime.timezone.utc)
+for l in sys.stdin:
+    if not l.strip(): continue
+    d = json.loads(l)
+    if now > datetime.datetime.fromisoformat(d["until"].replace("Z", "+00:00")) + datetime.timedelta(minutes=15):
+        print(d["worker"])' <<<"$DRAINS")
+    [[ -z $LATE ]] || fail "drains past their bound by 15 minutes, which core should have stopped: $(echo $LATE) (vyreon-core build drains; core's log)"
+    say "   $(date -u +%H:%M:%S) draining: $(drain_words <<<"$DRAINS")"
+    sleep 60
+  done
+  record "no block of another build drains; their Jobs deleted"
+  # (release-3 audit, Codex 12) the kinds whose slots the drains held claim work of the new build now
+  if [[ -n ${WAITED// /} ]]; then
+    say "   the kinds the drains held:$WAITED"
+    verify_claims "${SINCE:-$(sql "SELECT now() - interval '6 hours 30 minutes'")}" "" "$WAITED"
+  fi
 fi
 
 say ""

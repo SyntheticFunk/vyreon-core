@@ -13,6 +13,9 @@
 //!   GET  /refcheck/{session}/dump                                       -> a tar: the reference suite's dump of the revisions
 //!                                                                          a REFCHECK job checks, from what core holds published (C-073)
 //!   POST /days                       body: a day bundle                 -> what was published
+//!   POST /days/{session}/done                                           -> {session, last}: the day block's day is done; `last`
+//!                                                                          when its job has no session left (C-077: a release's
+//!                                                                          draining block stops after this day)
 //!   PUT  /tape-caches/{session}/{asset}?method_version=V[&absence=WHY]  body: the packed cache -> {new}
 //!   POST /tape-caches/{session}/done[?method_version=V]                 the tape job's session is complete (under V; without
 //!                                                                          it, under the method of the session's newest cache)
@@ -413,8 +416,10 @@ async fn day_done(State(app): Shared, headers: HeaderMap, Path(session): Path<St
     if !core_contract::is_date(&session) {
         return Err(refused(format!("{session} is not a date written YYYY-MM-DD")));
     }
-    work::day_done(&mut client, bearer(&headers)?, &session).await?;
-    ok(json!({"session": session}))
+    // C-077: `last` when the job has no session left after this day (its block's last day, or the day a
+    // draining block finishes): a worker with more days in its claim stops after this day's check
+    let last = work::day_done(&mut client, bearer(&headers)?, &session).await?;
+    ok(json!({"session": session, "last": last}))
 }
 
 async fn tape_get(State(app): Shared, headers: HeaderMap, Path(session): Path<String>, Query(q): Query<TapeQuery>) -> Reply {

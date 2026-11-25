@@ -431,6 +431,21 @@ and stops), keeps a run file per build so `--from N` resumes after a stop, check
 is on the new build and image, unpaused and Ready, and waits for a claim of every kind KEDA should
 start. A dry run keeps nothing.
 
+**C-077: a release drains, it does not kill.** The hand-over keeps the old build's running day blocks
+(where the new build reads what they publish): each finishes the day it is on (its later days go to the
+new build at once), its lease ending with that day's reference check, or core stops it 6 hours after
+the hand-over (`work::DRAIN_MINUTES`) and carries its day. Step 9 deletes only the old Jobs that hold no
+drain; step 12 waits for the drains (`vyreon-core build drains`), deleting each Job as its lease ends.
+A block's first day takes about 5 hours, so step 12 can run that long: interrupting it is safe (core
+bounds the drains), and `release.sh --from 12 ...` finishes the clean-up later. Meanwhile each draining
+pod holds its node and its ScaledJob slot.
+
+**Kubeconfig (automation debt 2).** release.sh and health.sh first run `ops/kubeconfig.sh --if-needed`:
+the operator's kubeconfig (a DOKS one lives 7 days) is refreshed when it is within 2 days of its end
+(recorded beside it, `<kubeconfig>.expires`; else its last change plus 7 days) or the cluster refuses it
+(401, "must be logged in"); an unreachable cluster leaves it as it is. A dry run only says whether it
+would. It needs `VYREON_DO_TOKEN_FILE` (as do.sh).
+
 By hand, a new image (C-068), **in this order** (the order is what keeps history in date order):
 1. `vyreon-core build register <inventory>` for the new build. **Do not admit it yet.** An admitted
    successor's pod could claim a later day's pass while an earlier day's pass still belongs to the
@@ -615,6 +630,28 @@ What to watch, and what passes:
 5. **Idle stays idle:** an hour after the last pass, no Job and no node was started.
 Cost: two nodes for about 13 hours each (first day about 226 minutes, later days 100-134), about
 $4.50, plus the passes.
+
+## Spend (C-078) and recompute after a method change (C-079)
+
+Core reads DigitalOcean's billing every hour (month to date and finished months) and posts each morning
+(09:00 MT) on the progress channel the spend since `VYREON_CORE_SPEND_SINCE` against
+`VYREON_CORE_SPEND_CEILING_USD`, its rate a day and where that rate reaches the ceiling; `SPEND` alerts
+at 80% and 100%. `vyreon-core spend` says it at any time. It needs a read-only token, which the owner
+makes (never the builder; nothing printed):
+
+1. DigitalOcean control panel, API, Generate New Token: a **custom scoped** token with `billing:read` only,
+   expiry as the owner likes (a later refresh is the same two steps). Save it to a file (mode 600).
+2. `kubectl -n vyreon create secret generic vyreon-core-do-billing --from-file=token=<that file>`; core
+   reads it at its next hourly read (the mount is optional and the kubelet fills it once the secret
+   exists, within a minute or two; if `vyreon-core spend` still says no secret after the next hour,
+   `kubectl -n vyreon rollout restart deployment vyreon-core`). Until then the morning line says the spend is not known, and nothing alerts on it.
+
+With `VYREON_CORE_RECOMPUTE=on`, once a new build has published a whole day core compares its method
+versions with every published day's (from `VYREON_CORE_RECOMPUTE_FROM`) and plans the republish of the
+days that differ, as `vyreon-core republish --plan` would choose for each set of measurements; it
+schedules it only when the spend plus its cost (`VYREON_CORE_NODE_HOUR_USD` a node-hour) stays within the
+ceiling, else holds it and says why on the alerts channel. The progress channel gets what it decided.
+`vyreon-core recompute <profile> <build> --plan` shows the plan at any time.
 
 ## Perishable archive (C-052)
 

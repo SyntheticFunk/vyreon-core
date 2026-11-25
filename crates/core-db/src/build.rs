@@ -191,13 +191,14 @@ pub async fn admit(client: &Client, build: &str, evidence: &Value) -> Result<(),
 /// leases-then-jobs order every holder of the lock takes rows in leaves no cycle with `retire`.
 pub async fn withdraw(client: &mut Client, build: &str, reason: &str) -> Result<Vec<i64>, String> {
     let tx = client.transaction().await.map_err(db)?;
-    let sorted = withdraw_in(&tx, build, reason).await?;
+    let sorted = withdraw_in(&tx, build, reason, &[]).await?;
     tx.commit().await.map_err(db)?;
     Ok(sorted)
 }
 
-/// `withdraw` inside the caller's transaction (C-068: `hand_over` withdraws in its own).
-async fn withdraw_in(tx: &tokio_postgres::Transaction<'_>, build: &str, reason: &str) -> Result<Vec<i64>, String> {
+/// `withdraw` inside the caller's transaction (C-068: `hand_over` withdraws in its own). The leases
+/// `draining` (C-077: a hand-over's running day blocks finishing their day) are kept.
+async fn withdraw_in(tx: &tokio_postgres::Transaction<'_>, build: &str, reason: &str, draining: &[i64]) -> Result<Vec<i64>, String> {
     tx.execute(crate::work::PUBLISH_LOCK, &[]).await.map_err(db)?;
     // the clock, not the transaction's start, as a publish and a claim stamp theirs (core-r2 11): taken
     // after the locks, a lease's end is never before the publish or the grant the withdrawal waited for
@@ -213,9 +214,9 @@ async fn withdraw_in(tx: &tokio_postgres::Transaction<'_>, build: &str, reason: 
         .query(
             "UPDATE core.lease l SET ended_at = clock_timestamp(), outcome = 'CANCELLED', failure = 'its engine build was withdrawn'
              FROM core.job j
-             WHERE l.job_id = j.job_id AND j.engine_build = $1 AND l.ended_at IS NULL
+             WHERE l.job_id = j.job_id AND j.engine_build = $1 AND l.ended_at IS NULL AND NOT (l.lease_id = ANY($2))
              RETURNING l.job_id",
-            &[&build],
+            &[&build, &draining],
         )
         .await
         .map_err(db)?
@@ -253,13 +254,50 @@ async fn withdraw_in(tx: &tokio_postgres::Transaction<'_>, build: &str, reason: 
 pub struct Carried {
     pub old_job: i64,
     pub kind: String,
-    /// QUEUED or FAILED when it was carried.
+    /// QUEUED or FAILED when it was carried; DRAINING for the days after a draining block's day (C-077).
     pub state: String,
     /// The sessions carried: from the old job's next session to its last.
     pub first: String,
     pub last: String,
     /// The successor's new job; None in a preview.
     pub new_job: Option<i64>,
+}
+
+/// C-077: a running day block of the old build that a hand-over lets finish the day it is computing.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Draining {
+    pub job: i64,
+    pub lease: i64,
+    pub worker: String,
+    /// The day it finishes; its job is cut to it, the days after it carried (`Carried`, state DRAINING).
+    pub session: String,
+    /// Its bound, UTC (`work::DRAIN_MINUTES` after the hand-over): past it the lease is stopped as a
+    /// withdrawal stops one and its day carried to the successor.
+    pub until: String,
+}
+
+/// A running day block a hand-over lets finish its day.
+struct Drainable {
+    lease: i64,
+    job: i64,
+    worker: String,
+    /// The day it finishes.
+    day: String,
+    /// Its job's last session before the cut.
+    last: String,
+    /// When `day` is done already (its publish, archive or check is what runs): its job's next session.
+    after: Option<String>,
+    /// `day` is done already (`day_done` came): only its archive and reference check remain.
+    done: bool,
+}
+
+/// The day a worker's step names when it is a day's post-publication work (the engine's steps: `publish
+/// <date>`, `archive <date>`, `reference check <date>`, engine D-461), else None.
+pub fn post_work_day(step: &str) -> Option<String> {
+    ["publish ", "archive ", "reference check "].iter().find_map(|p| {
+        let d = step.strip_prefix(p)?.get(..10)?;
+        core_contract::is_date(d).then(|| d.to_owned())
+    })
 }
 
 /// What `hand_over` did, or, previewed, would do.
@@ -273,6 +311,8 @@ pub struct HandOver {
     /// `from`'s unfinished tape verify jobs, cancelled and not carried (C-068 round 2, 11: a sample of
     /// the old build's caches, which held a schedule of the successor's tapes refused as an overlap).
     pub verify_cancelled: Vec<i64>,
+    /// C-077: the old build's running day blocks that finish their day before they stop.
+    pub draining: Vec<Draining>,
     /// What moves, as a token: the old jobs with their states and next sessions, and the two builds.
     /// The hand-over itself is refused unless it is given the same.
     pub token: String,
@@ -291,6 +331,12 @@ pub struct HandOver {
 /// successor's blocks and passes for ever (the claim's gates count them, and must: a block may not
 /// run before every tape it reads, nor a pass before the block that computes its day), and its
 /// queued passes were claimed by no worker (C-066 counts the successor's jobs only).
+///
+/// C-077: where the successor reads what the old build's day blocks publish, a running day block of the
+/// old build is not stopped: it finishes the day it is computing (its job cut to that day, the days after
+/// it carried at once, as `Carried` with state DRAINING; `core.drain` records it with its bound,
+/// `work::DRAIN_MINUTES`), its lease ending with that day's reference check (`work::end_drained`) or its
+/// finish; past the bound the sweep stops it and carries the day (`work::settle_drains`).
 ///
 /// With `preview`, everything is done inside a transaction rolled back and the report says exactly
 /// what it would do, with its `token`; without it, `expect` must be that token, so nothing the
@@ -338,11 +384,69 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
     if to_leases > 0 {
         return Err(format!("build {to} has {to_leases} live leases: let them end first; nothing was moved"));
     }
+    // C-077 (owner, 2026-11-24: a release discarded the hours of its running blocks' days): a running day
+    // block of the old build finishes the day it is computing (Kubernetes' graceful termination: the work
+    // in flight completes within a bound, nothing new starts). Only where the successor reads what that
+    // day publishes (every base and day-local profile revision of the old build is one of its own; C-064):
+    // otherwise its pass could never read the day, and the block stops as before
+    let drains: Vec<Drainable> = if from_runs {
+        let rows = tx
+            .query(
+                "SELECT l.lease_id, j.job_id, l.worker, j.next_session::text, j.last_session::text,
+                        (SELECT st.step FROM core.lease_step st WHERE st.lease_id = l.lease_id)
+                 FROM core.lease l JOIN core.job j USING (job_id)
+                 WHERE j.engine_build = $1 AND j.kind = 'DAY_BLOCK' AND j.state = 'LEASED'
+                   AND l.ended_at IS NULL AND l.expires_at >= clock_timestamp()
+                   AND NOT COALESCE(j.scope @> '{\"compare_only\": true}', false)
+                   AND core.reads_days_of($2, $1)
+                 ORDER BY j.job_id FOR UPDATE OF l, j",
+                &[&from, &to],
+            )
+            .await
+            .map_err(db)?;
+        rows.iter()
+            .map(|r| {
+                let (lease, job, worker, next, last, step): (i64, i64, String, Option<String>, String, Option<String>) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5));
+                // (release-3 audit, Codex 4, Gemini 5) `next_session` moves on at `day_done`, before the day's
+                // archive and reference check: a worker whose step is still a done day's publish, archive or
+                // check finishes that day (and none after it); one with every day done finishes its last
+                let after = step.as_deref().and_then(post_work_day).filter(|d| next.as_deref().is_none_or(|n| d.as_str() < n));
+                match (after, next) {
+                    (Some(d), next) => Drainable { lease, job, worker, day: d, last, after: next, done: true },
+                    (None, None) => Drainable { lease, job, worker, day: last.clone(), last, after: None, done: true },
+                    (None, Some(n)) => Drainable { lease, job, worker, day: n.clone(), last, after: None, done: false },
+                }
+            })
+            .collect()
+    } else {
+        Vec::new()
+    };
+    // (release-3 audit, Gemini 15) a block of an earlier release still draining whose day this successor
+    // cannot read is stopped now: its day is then carried, and recomputed under a build that reads it
+    let unreadable_drains = tx
+        .execute(
+            "WITH s AS (UPDATE core.lease l SET ended_at = clock_timestamp(), outcome = 'CANCELLED',
+                                         failure = 'its day is in profile revisions the newest build does not read (C-077)'
+                        FROM core.drain d JOIN core.job j ON j.job_id = d.job_id
+                        WHERE d.lease_id = l.lease_id AND l.ended_at IS NULL AND j.engine_build <> $1 AND NOT core.reads_days_of($2, j.engine_build)
+                        RETURNING l.job_id)
+             UPDATE core.job SET state = CASE WHEN next_session IS NULL THEN 'DONE' ELSE 'QUEUED' END, attempts = GREATEST(attempts - 1, 0),
+                                 finished_at = CASE WHEN next_session IS NULL THEN clock_timestamp() END
+             WHERE job_id IN (SELECT job_id FROM s) AND state = 'LEASED'",
+            &[&from, &to],
+        )
+        .await
+        .map_err(db)?;
+    if unreadable_drains > 0 {
+        crate::notice::log(&tx, &format!("{unreadable_drains} draining day blocks of earlier builds stopped: build {to} does not read their days' profile revisions; their days are carried.")).await?;
+    }
+    let drain_leases: Vec<i64> = drains.iter().map(|d| d.lease).collect();
+    let drain_jobs: Vec<i64> = drains.iter().map(|d| d.job).collect();
     // the old build is withdrawn here when it still runs, in this transaction: nothing of it runs
-    // between its withdrawal and the hand-over
+    // between its withdrawal and the hand-over but its draining blocks' days (C-077)
     // the jobs its withdrawal stopped (their leases ended here): the hand-over's "restarted" (C-073,
     // audit c072 r4: counted from any earlier withdrawal's leases before)
-    let stopped = if from_runs { withdraw_in(&tx, from, &format!("handed over to build {to}: {reason}")).await? } else { Vec::new() };
+    let stopped = if from_runs { withdraw_in(&tx, from, &format!("handed over to build {to}: {reason}"), &drain_leases).await? } else { Vec::new() };
     let verify_cancelled: Vec<i64> = tx
         .query(
             "UPDATE core.job SET state = 'CANCELLED', finished_at = clock_timestamp()
@@ -360,16 +464,18 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
             "SELECT job_id, kind, state, profile_id, next_session::text, last_session::text
              FROM core.job
              WHERE engine_build = $1 AND state IN ('QUEUED', 'LEASED', 'FAILED') AND next_session IS NOT NULL
-               AND NOT (kind = 'TAPE' AND COALESCE(scope @> $2::text::jsonb, false))
+               AND NOT (kind = 'TAPE' AND COALESCE(scope @> $2::text::jsonb, false)) AND NOT (job_id = ANY($3))
+               -- C-077: a block an earlier hand-over let finish its day is settled by the sweep, not here
+               AND NOT EXISTS (SELECT FROM core.drain d JOIN core.lease l USING (lease_id) WHERE d.job_id = core.job.job_id AND l.ended_at IS NULL)
              ORDER BY CASE kind WHEN 'TAPE' THEN 0 WHEN 'DAY_BLOCK' THEN 1 ELSE 2 END, first_session, job_id FOR UPDATE",
-            &[&from, &crate::tape::VERIFY_SCOPE],
+            &[&from, &crate::tape::VERIFY_SCOPE, &drain_jobs],
         )
         .await
         .map_err(db)?;
     if let Some(r) = rows.iter().find(|r| r.get::<_, String>(2) == "LEASED") {
         return Err(format!("job {} of build {from} is under a live lease: let it end or cancel it first; nothing was moved", r.get::<_, i64>(0)));
     }
-    if rows.is_empty() && verify_cancelled.is_empty() {
+    if rows.is_empty() && verify_cancelled.is_empty() && drains.is_empty() {
         return Err(format!("build {from} has no unfinished work to hand over"));
     }
     // audit round 2 (round2-core.md) 6, C-064: a pass is carried only where the successor can run it.
@@ -406,9 +512,9 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
                AND EXISTS (SELECT FROM vyreon.day_revision b WHERE b.represented_date = j.first_session AND b.profile_id = j.profile_id
                              AND b.state = 'PUBLISHED' AND b.base_revision IS NULL)
                AND NOT EXISTS (SELECT FROM core.job d WHERE d.kind = 'DAY_BLOCK' AND d.profile_id = j.profile_id AND d.engine_build IN ($1, $2)
-                                 AND d.state IN ('QUEUED', 'FAILED') AND j.first_session BETWEEN d.next_session AND d.last_session)
+                                 AND (d.state IN ('QUEUED', 'FAILED') OR d.job_id = ANY($3)) AND j.first_session BETWEEN d.next_session AND d.last_session)
              ORDER BY 1",
-            &[&from, &to],
+            &[&from, &to, &drain_jobs],
         )
         .await
         .map_err(db)?
@@ -425,8 +531,29 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
         ));
     }
     let mut carried = Vec::new();
-    for r in &rows {
-        let (job, kind, state, profile, next, last): (i64, String, String, String, String, String) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5));
+    // C-077: a draining block's days after the one it finishes, carried now (state DRAINING)
+    let mut todo: Vec<(i64, String, String, String, String, String)> = Vec::new();
+    for d in &drains {
+        // the first day after the one it finishes: its next session when that day is done already, else the
+        // session after it
+        let after: Option<(String, String)> = match &d.after {
+            Some(n) => tx.query_one("SELECT profile_id FROM core.job WHERE job_id = $1", &[&d.job]).await.map_err(db).map(|r| Some((n.clone(), r.get(0))))?,
+            None if d.done => None,
+            None => tx
+                .query_opt(
+                    "SELECT (SELECT min(session) FROM core.session WHERE session > $2::text::date AND session <= $3::text::date)::text, profile_id FROM core.job WHERE job_id = $1",
+                    &[&d.job, &d.day, &d.last],
+                )
+                .await
+                .map_err(db)?
+                .and_then(|r| r.get::<_, Option<String>>(0).map(|a| (a, r.get::<_, String>(1)))),
+        };
+        if let Some((first, profile)) = after {
+            todo.push((d.job, "DAY_BLOCK".into(), "DRAINING".into(), profile, first, d.last.clone()));
+        }
+    }
+    todo.extend(rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5))));
+    for (job, kind, state, profile, next, last) in todo {
         // what else is unfinished on these sessions: none can be, since a schedule refuses an overlap
         // and a pass is one per session (0032), but a job queued by hand in SQL would make two
         let other: Option<(i64, String)> = tx
@@ -455,7 +582,10 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
     let token = {
         let jobs: Vec<String> = carried.iter().map(|c| format!("{}:{}:{}", c.old_job, c.state, c.first)).collect();
         let verify: Vec<String> = verify_cancelled.iter().map(i64::to_string).collect();
-        core_contract::sha256_hex(format!("from {from} (running {from_runs}); to {to}; jobs {}; verify {}", jobs.join(","), verify.join(",")).as_bytes())[..16]
+        let drained: Vec<String> = drains.iter().map(|d| format!("{}:{}:{}", d.job, d.day, d.done)).collect();
+        core_contract::sha256_hex(
+            format!("from {from} (running {from_runs}); to {to}; jobs {}; verify {}; draining {}", jobs.join(","), verify.join(","), drained.join(",")).as_bytes(),
+        )[..16]
             .to_owned()
     };
     if let Some(expected) = expect.filter(|e| !preview && *e != token) {
@@ -471,7 +601,46 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
     for job in &verify_cancelled {
         tx.execute("INSERT INTO core.hand_over_job (hand_over_id, old_job, new_job, restarted) VALUES ($1, $2, NULL, false)", &[&hand_over_id, job]).await.map_err(db)?;
     }
+    let mut draining = Vec::new();
+    for d in &drains {
+        // the job keeps its days to the one it finishes (done already: no session left)
+        tx.execute(
+            "UPDATE core.job SET last_session = $2::text::date, next_session = CASE WHEN $3 THEN NULL ELSE next_session END WHERE job_id = $1",
+            &[&d.job, &d.day, &d.done],
+        )
+        .await
+        .map_err(db)?;
+        let until: String = tx
+            .query_one(
+                "INSERT INTO core.drain (lease_id, job_id, hand_over_id, session, until)
+                 VALUES ($1, $2, $3, $4::text::date, clock_timestamp() + make_interval(secs => $5::float8 * 60))
+                 RETURNING to_char(until AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"')",
+                &[&d.lease, &d.job, &hand_over_id, &d.day, &crate::work::DRAIN_MINUTES],
+            )
+            .await
+            .map_err(db)?
+            .get(0);
+        draining.push(Draining { job: d.job, lease: d.lease, worker: d.worker.clone(), session: d.day.clone(), until });
+    }
     for c in &mut carried {
+        if c.state == "DRAINING" {
+            // C-077: the job keeps its days to the one it finishes (cut above); the days after it are the successor's
+            let new: i64 = tx
+                .query_one(
+                    "INSERT INTO core.job (kind, profile_id, engine_build, first_session, last_session, next_session, scope, max_attempts, priority)
+                     SELECT kind, profile_id, $2, $3::text::date, $4::text::date, $3::text::date, scope, max_attempts, priority FROM core.job WHERE job_id = $1
+                     RETURNING job_id",
+                    &[&c.old_job, &to, &c.first, &c.last],
+                )
+                .await
+                .map_err(db)?
+                .get(0);
+            tx.execute("INSERT INTO core.hand_over_job (hand_over_id, old_job, new_job, restarted) VALUES ($1, $2, $3, false)", &[&hand_over_id, &c.old_job, &new])
+                .await
+                .map_err(db)?;
+            c.new_job = Some(new);
+            continue;
+        }
         if c.kind == "DAY_BLOCK" {
             // the days it did: a finished job of their own, as `work::requeue` keeps them
             tx.execute(
@@ -529,17 +698,43 @@ pub async fn hand_over(client: &mut Client, from: &str, to: &str, reason: &str, 
     crate::notice::log(
         &tx,
         &format!(
-            "Hand-over {hand_over_id}: the unfinished work of build {from} ({}) is build {to}'s, the old jobs cancelled{}: {reason}. Admit build {to} now.",
+            "Hand-over {hand_over_id}: the unfinished work of build {from} ({}) is build {to}'s, the old jobs cancelled{}{}: {reason}. Admit build {to} now.",
             if counts.is_empty() { "nothing to carry".to_owned() } else { counts.join(", ") },
-            if verify_cancelled.is_empty() { String::new() } else { format!(", {} tape verify jobs cancelled", verify_cancelled.len()) }
+            if verify_cancelled.is_empty() { String::new() } else { format!(", {} tape verify jobs cancelled", verify_cancelled.len()) },
+            match draining.first() {
+                None => String::new(),
+                Some(d) => format!(", {} running day blocks finishing their day first (until {} UTC at the latest)", draining.len(), d.until[..16].replace('T', " ")),
+            }
         ),
     )
     .await?;
     if preview {
         tx.rollback().await.map_err(db)?;
         let carried = carried.into_iter().map(|c| Carried { new_job: None, ..c }).collect();
-        return Ok(HandOver { hand_over_id: None, withdrew: from_runs, carried, verify_cancelled, token });
+        return Ok(HandOver { hand_over_id: None, withdrew: from_runs, carried, verify_cancelled, draining, token });
     }
     tx.commit().await.map_err(db)?;
-    Ok(HandOver { hand_over_id: Some(hand_over_id), withdrew: from_runs, carried, verify_cancelled, token })
+    Ok(HandOver { hand_over_id: Some(hand_over_id), withdrew: from_runs, carried, verify_cancelled, draining, token })
+}
+
+/// C-077: the draining leases still running (a release waits for them before it removes their pods):
+/// each as `{lease, job, worker, session, until, day_done, hand_over, from_build}`, oldest first.
+pub async fn drains(client: &impl tokio_postgres::GenericClient) -> Result<Vec<Value>, String> {
+    let rows = client
+        .query(
+            "SELECT d.lease_id, d.job_id, l.worker, d.session::text, to_char(d.until AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"'),
+                    j.next_session IS NULL, d.hand_over_id, j.engine_build
+             FROM core.drain d JOIN core.lease l USING (lease_id) JOIN core.job j ON j.job_id = d.job_id
+             WHERE l.ended_at IS NULL ORDER BY d.lease_id",
+            &[],
+        )
+        .await
+        .map_err(db)?;
+    Ok(rows
+        .iter()
+        .map(|r| {
+            serde_json::json!({"lease": r.get::<_, i64>(0), "job": r.get::<_, i64>(1), "worker": r.get::<_, String>(2), "session": r.get::<_, String>(3),
+                               "until": r.get::<_, String>(4), "day_done": r.get::<_, bool>(5), "hand_over": r.get::<_, i64>(6), "from_build": r.get::<_, String>(7)})
+        })
+        .collect())
 }

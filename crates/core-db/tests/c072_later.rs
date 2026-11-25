@@ -139,7 +139,7 @@ async fn a_cause_during_an_open_pause_is_alerted() {
         daily: None,
         archive: None,
         refcheck_from: None,
-        backup_days: None,
+        backup_days: None, spend: None, recompute: None,
         refcheck_rerun_hours: None,
     };
     let now = watch::now(&client).await.unwrap();

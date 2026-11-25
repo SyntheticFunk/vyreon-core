@@ -121,7 +121,7 @@ async fn a_failure_is_named_and_its_alert_says_what_to_do() {
         daily: None,
         archive: None,
         refcheck_from: None,
-        backup_days: None,
+        backup_days: None, spend: None, recompute: None,
         refcheck_rerun_hours: None,
     };
     let now = watch::now(&client).await.unwrap();
@@ -180,8 +180,9 @@ async fn a_hand_over_is_a_few_short_lines() {
     let steps: Vec<&str> = post.lines().skip(1).map(|l| &l[9..]).collect();
     let b8 = b.split('+').next().unwrap();
     assert!(steps.contains(&"Queue paused: release c9c23ca5: D-461 rulings"), "{post}");
-    assert!(steps.contains(&format!("Build {b8} withdrawn: handed over to build {new}: D-461 rulings (1 running job stopped)").as_str()), "{post}");
-    assert!(steps.iter().any(|l| l.starts_with("Hand-over ") && l.contains(&format!("{b8} → c9c23ca5, 2 blocks moved, 1 running job restarted — D-461 rulings"))), "{post}");
+    assert!(steps.contains(&format!("Build {b8} withdrawn: handed over to build {new}: D-461 rulings").as_str()), "{post}");
+    // C-077: the running block finishes its day instead of being stopped and restarted
+    assert!(steps.iter().any(|l| l.starts_with("Hand-over ") && l.contains(&format!("{b8} → c9c23ca5, 2 blocks moved, 1 running block finishing its day first — D-461 rulings"))), "{post}");
     assert!(steps.contains(&"Build c9c23ca5 admitted") && steps.contains(&"Queue resumed"), "{post}");
     assert!(post.lines().all(|l| l.chars().count() < 160), "short lines: {post}");
     scratch.drop().await;
