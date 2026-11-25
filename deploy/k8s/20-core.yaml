@@ -104,6 +104,11 @@ spec:
             # C-073 (owner, 2026-11-24): the progress post's headline ("🟢 Phase 1: 4 of 597 days published ...")
             - name: VYREON_CORE_PROGRESS_LABEL
               value: "Phase 1"
+            # the phase's sessions, the headline's total (597: 2024-07-09..2026-11-20, C-060)
+            - name: VYREON_CORE_PROGRESS_FROM
+              value: "2024-07-09"
+            - name: VYREON_CORE_PROGRESS_TO
+              value: "2026-11-20"
             - name: VYREON_CORE_VOLUME_GIB      # 10-postgres.yaml's storage size
               value: "250"
             # C-068: the newest recoverable base backup (the plugin's record, below) older than this
