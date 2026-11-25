@@ -3632,3 +3632,18 @@ are held), the chain (every lease counts) and the digest are unaffected. One eng
 drained worker waits for the next day's download before its check under a plain step ("reference check D: the next day's
 download ends first"), which NO_PROGRESS would flag after 20 minutes if that download is long; it should be a declared
 wait (`status_waiting`, the download's bound) in the engine's next release.
+
+**Release-4 audit of the amendment (2026-11-25, `audits/2026-11-25-release4/core`, Codex 5 ordinary + 3 rare; Gemini out of
+quota). Every finding real; each fixed and tested.**
+
+| Finding | Fix |
+|---|---|
+| 1 the resume clears causes added after step 10's read | `vyreon-core queue resume --expect <reason>` (`work::resume_if`): one statement resumes only a pause that reads exactly so; release.sh uses it. Test `drain.rs::a_release_resumes_only_its_own_pause` |
+| 2 `--from 12` after the drains verifies nothing | the run file keeps the resume time and the kinds left to the end; `--from 12` verifies those and any draining now (an older run file: every kind) |
+| 3 verification reads a paused queue as "nothing to claim" | `verify_claims` stops when the queue is paused, naming the pause |
+| 4 `--from 11` ignores claims made before the retry | claims count from the recorded resume, and a live lease of the new build counts whenever granted |
+| 5 a quiet half hour drops the Draining line | drains make each window a post with the line. Test in `a_hand_over_lets_a_done_days_archive_and_check_finish` |
+| 6 an overdue drain hidden beside one within bound | a kind is excused only while every drain of it is within bound; the line names the first bound to come and any drain past its own. Same test |
+| 7 the slot inferred from the job's priority | the slot is the drain's pod's ScaledJob (its name, `day-block-daily-…` / `day-block-…`), else the job's group. Same test (day-block pods on daily blocks) |
+| 8 the guard checks labels, not operations | each worker step's body must hold its operation (step 10: `queue resume --expect`); checked by removing it from a copy (refused, exit 2) |
+release.sh's verification and recovery were also run against stubbed core and kubectl (a paused queue stops it; live claims count).
