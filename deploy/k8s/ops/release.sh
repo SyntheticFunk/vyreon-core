@@ -57,7 +57,8 @@
 #   10 `vyreon-core queue resume`, only if the pause is still exactly this run's (a cause added while it
 #      ran, a bundle refused or a job failed for the last time, leaves it paused and stops here)
 #   11 every kind of work KEDA should start for the new build (`core.scaler_count`) gets a lease of the
-#      new build within VYREON_VERIFY_MINUTES
+#      new build within VYREON_VERIFY_MINUTES (but a kind whose ScaledJob has draining Jobs: its slots may
+#      all be theirs until they end)
 #   12 C-077: the draining blocks (`vyreon-core build drains`) finish their day; each one's Job is deleted
 #      once its lease has ended (an engine before C-077 computes on into its next day, unleased); core
 #      itself stops a drain at its bound (work::DRAIN_MINUTES, 6 h) and carries its day. Polled every
@@ -603,6 +604,11 @@ if ((DRY)); then
 else
   SINCE=$(sql "SELECT now()")
   deadline=$((SECONDS + VERIFY_MINUTES * 60)) needed="" missing=""
+  # C-077: a ScaledJob whose Jobs drain may have every slot held by them (day-block's 8 by phase 1's 8
+  # blocks): its kind starts as they end (step 12), and is not waited for here
+  read_drains
+  HELD=$(for j in $(draining_jobs); do kubectl -n "$NS" get job "$j" -o jsonpath='{.metadata.labels.scaledjob\.keda\.sh/name}{"\n"}' 2>/dev/null || true; done | sort -u | tr '\n' ' ')
+  [[ -n ${HELD// /} ]] && say "   not waited for (their slots held by draining blocks, step 12): $HELD"
   while :; do
     # per ScaledJob: what KEDA counts for the new build now, and its leases granted since the resume
     rows=$(sql "SELECT v.k, core.scaler_count(v.kind, '$BUILD', v.daily),
@@ -614,6 +620,7 @@ else
     missing=""
     while read -r k count leases; do
       [[ -z $k ]] && continue
+      [[ " $HELD " == *" $k "* ]] && continue
       ((count > 0)) && [[ " $needed " != *" $k "* ]] && needed="$needed $k"
       [[ " $needed " == *" $k "* ]] && ((leases == 0)) && missing="$missing $k"
     done <<<"$rows"
