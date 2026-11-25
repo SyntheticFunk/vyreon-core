@@ -1685,15 +1685,20 @@ const COUNTED: &str = "SELECT d.revision_id, count(m.measurement_id)::int AS slo
          WHERE d.published_at IS NOT NULL AND $WHERE
          GROUP BY d.revision_id";
 
-/// (engine investigation, 2026-11-25) a measurement row `m` is an engine fault when its stated reason is:
-/// the body's terminal reason, or a role's, ENGINE_FAULT or PARENT_ENGINE_FAULT. Not the words anywhere in
-/// the body (a FIELD body lists other assets' reasons), and never the withheld slot's result id (every
-/// withheld slot's ends `/engine-fault`, a provider's absence too: IBIT/ETHA's EMPTY_DELIVERED_POPULATION
-/// before their options listed, PROVIDER_COVERAGE_START, CARRY_NOT_IDENTIFIED).
-pub const FAULT: &str = "(m.body->'measurement'->'value'->>'terminal_reason' IN ('ENGINE_FAULT', 'PARENT_ENGINE_FAULT')
+/// (engine investigation, 2026-11-25) a measurement row `m` is engine-caused when its stated reason is:
+/// the body's terminal reason, or a role's, one of `ENGINE_REASONS`. Not the words anywhere in the body (a
+/// FIELD body lists other assets' reasons), and never the withheld slot's result id (every withheld slot's
+/// ends `/engine-fault`, a provider's absence too: IBIT/ETHA's EMPTY_DELIVERED_POPULATION before their
+/// options listed, PROVIDER_COVERAGE_START, CARRY_NOT_IDENTIFIED). Every other stated reason is the
+/// provider's; core refuses no bundle for its reasons (they are the engine's to state).
+pub const FAULT: &str = "(m.body->'measurement'->'value'->>'terminal_reason' IN ('ENGINE_FAULT', 'PARENT_ENGINE_FAULT', 'TAPE_LISTING_RESTATED')
      OR EXISTS (SELECT FROM jsonb_array_elements(CASE WHEN jsonb_typeof(m.body->'measurement'->'value'->'roles') = 'array'
                                                      THEN m.body->'measurement'->'value'->'roles' ELSE '[]'::jsonb END) r
-                WHERE r->>'reason' IN ('ENGINE_FAULT', 'PARENT_ENGINE_FAULT')))";
+                WHERE r->>'reason' IN ('ENGINE_FAULT', 'PARENT_ENGINE_FAULT', 'TAPE_LISTING_RESTATED')))";
+
+/// The stated withholding reasons whose cause class is the engine (`FAULT` lists them): an engine fault,
+/// a parent's, and (engine D-468) a tape session not derivable again under a moved provider listing record.
+pub const ENGINE_REASONS: [&str; 3] = ["ENGINE_FAULT", "PARENT_ENGINE_FAULT", "TAPE_LISTING_RESTATED"];
 
 /// C-071: the revisions one statement counts. A statement counts its revisions' bodies whole, so
 /// its time grows with them; this bounds it (a day's history revision holds every slot of the 64).

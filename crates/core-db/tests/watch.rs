@@ -1210,3 +1210,31 @@ async fn an_engine_fault_is_one_by_its_stated_reason() {
     }
     scratch.drop().await;
 }
+
+/// Engine D-468: a tape session not derivable again under a moved provider listing record is withheld
+/// whole with the stated reason TAPE_LISTING_RESTATED, whose cause class is the engine's: counted with the
+/// engine faults (the digest's "withheld by engine bugs"), never as the provider's absence. The real IBIT
+/// body of 2024-08-15 (withheld whole) with that reason stated, as its terminal reason or a role's.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_restated_tape_listing_is_engine_caused() {
+    let scratch = Scratch::new("tally_restated").await;
+    let client = scratch.client().await;
+    assert!(watch::ENGINE_REASONS.iter().all(|r| watch::FAULT.matches(&format!("'{r}'")).count() == 2), "FAULT lists every engine reason, both ways");
+    let real: Value = serde_json::from_str(test_support::PROVIDER_ABSENCE_BODY_IBIT.trim()).unwrap();
+    let mut terminal = real.clone();
+    terminal["measurement"]["value"]["terminal_reason"] = json!("TAPE_LISTING_RESTATED");
+    let mut role = real.clone();
+    role["measurement"]["value"]["terminal_reason"] = Value::Null;
+    role["measurement"]["value"]["roles"] = json!([{"role_id": "gamma", "state": "WITHHELD", "reason": "TAPE_LISTING_RESTATED"}]);
+    for (body, fault) in [(real, false), (terminal, true), (role, true)] {
+        let text = body.to_string();
+        let is: bool = client
+            .query_one(&format!("SELECT {} FROM (SELECT $1::text::jsonb AS body) m", watch::FAULT), &[&text])
+            .await
+            .unwrap()
+            .get(0);
+        assert_eq!(is, fault, "{}", body["measurement"]["value"]["terminal_reason"]);
+    }
+    scratch.drop().await;
+}
