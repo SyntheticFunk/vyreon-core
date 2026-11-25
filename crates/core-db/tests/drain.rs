@@ -263,8 +263,8 @@ fn watch_settings() -> core_db::watch::Settings {
 /// Release-3 audit, Codex 4, Gemini 5: `next_session` moves on at `day_done`, before the day's archive and
 /// reference check. A block whose worker reports the check of a done day finishes that day (not the next),
 /// its later days carried; a block whose every day is done (its next session none) drains too, its lease
-/// kept for the check, never ended by the withdrawal. Gemini 14: meanwhile the new build's day blocks, claimable and
-/// claimed by no pod of the new build, are STALLED although the old build's drains hold leases.
+/// kept for the check, never ended by the withdrawal. Meanwhile the new build's day blocks wait for the drains'
+/// slots: no stall while they drain within their bound (said on the progress channel), STALLED once past it.
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn a_hand_over_lets_a_done_days_archive_and_check_finish() {
@@ -290,14 +290,40 @@ async fn a_hand_over_lets_a_done_days_archive_and_check_finish() {
     assert_eq!(carried, [("DRAINING".to_owned(), DAYS[1].to_owned(), DAYS[2].to_owned())]);
     assert!(work::heartbeat(&mut client, &a.token, HOUR).await.is_ok() && work::heartbeat(&mut client, &b.token, HOUR).await.is_ok());
     admit(&client, &new).await;
-    // Gemini 14: the new build's blocks claimable, no pod of it claims: stalled, whatever the drains lease
+    // the new build's blocks claimable and no pod of it claims: while the old build's blocks drain within
+    // their bound their slots explain it (live, 2026-11-25: a false STALLED with day-block's 8 slots all
+    // draining); the progress channel says so. Gemini 14: once a drain is past its bound, it no longer does
     let s = watch_settings();
+    // (release-4 audit, Codex 7) the slot is the pod's ScaledJob, named in its pod's name: day-block pods
+    // that claimed daily (priority 1) blocks hold day-block's slots, not the daily one's
+    client.execute("UPDATE core.job SET priority = 1 WHERE job_id = ANY($1)", &[&vec![a.job_id, b.job_id]]).await.unwrap();
+    client.execute("UPDATE core.lease SET worker = 'day-block-' || lease_id || '-pod' WHERE job_id = ANY($1)", &[&vec![a.job_id, b.job_id]]).await.unwrap();
     let t0: String = client.query_one("SELECT now()::text", &[]).await.unwrap().get(0);
     core_db::watch::check(&mut client, &s, &t0).await.unwrap();
-    let t1: String = client.query_one("SELECT ($1::text::timestamptz + interval '20 minutes')::text", &[&t0]).await.unwrap().get(0);
+    let at = |m: i32| format!("SELECT ($1::text::timestamptz + make_interval(mins => {m}))::text");
+    let t1: String = client.query_one(&at(20), &[&t0]).await.unwrap().get(0);
     client.execute("UPDATE core.lease SET expires_at = $1::text::timestamptz + interval '1 hour' WHERE ended_at IS NULL", &[&t1]).await.unwrap();
     core_db::watch::check(&mut client, &s, &t1).await.unwrap();
+    assert!(open_problems(&client, "STALLED").await.is_empty(), "the drains hold the slots: no stall");
+    let post = core_db::progress::preview(&mut client, PROFILE, &t1).await.unwrap().join("\n");
+    assert!(post.contains("Release: 2 blocks of the old version finishing their current day (2 checking their day), all by "), "{post}");
+    assert!(post.contains("new blocks start as they end"), "{post}");
+    // the half hours go by with nothing published: each window's post still says the blocks drain (release-4
+    // audit, Codex 5: a quiet window's one line dropped it)
+    core_db::progress::tick(&mut client, PROFILE, &t1).await.unwrap();
+    let t1b: String = client.query_one(&at(51), &[&t0]).await.unwrap().get(0);
+    core_db::progress::tick(&mut client, PROFILE, &t1b).await.unwrap();
+    let last: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'progress' ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    assert!(last.contains("Release: 2 blocks"), "{last}");
+    // one drain past its bound (the sweep did not stop it) beside one within it: the kind is not excused
+    // (release-4 audit, Codex 6); after the stall's minutes, STALLED
+    client.execute("UPDATE core.drain SET until = $1::text::timestamptz - interval '1 minute' WHERE job_id = $2", &[&t1, &b.job_id]).await.unwrap();
+    core_db::watch::check(&mut client, &s, &t1).await.unwrap();
+    let t2: String = client.query_one(&at(40), &[&t0]).await.unwrap().get(0);
+    client.execute("UPDATE core.lease SET expires_at = $1::text::timestamptz + interval '1 hour' WHERE ended_at IS NULL", &[&t2]).await.unwrap();
+    core_db::watch::check(&mut client, &s, &t2).await.unwrap();
     assert_eq!(open_problems(&client, "STALLED").await, ["DAY_BLOCK"]);
+    client.execute("UPDATE core.drain SET until = now() + interval '6 hours'", &[]).await.unwrap();
     // the done day's check ends its lease
     refcheck::put(&mut client, &a.token, &check(DAYS[0], base, local)).await.unwrap();
     assert_eq!(job(&client, a.job_id).await.0, "DONE");
@@ -392,5 +418,52 @@ async fn a_draining_days_publish_has_its_later_history_derived_again_by_the_succ
         .collect();
     assert_eq!(passes, [(new.clone(), "QUEUED".to_owned())], "the fallen history is derived again under the build that runs");
     assert!(open_problems(&client, "NOT_DERIVED").await.is_empty());
+    scratch.drop().await;
+}
+
+/// Release-4 audit, Codex 1: a release resumes only its own pause, atomically: a cause added after its read
+/// (a draining worker's bundle refused) leaves the queue paused, the causes kept.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_release_resumes_only_its_own_pause() {
+    let (scratch, client) = ready("c077_resume_if").await;
+    let mine = "release abc+def: release 4";
+    assert!(!work::resume_if(&client, mine).await.unwrap(), "not paused: nothing to resume");
+    work::pause(&client, mine).await.unwrap();
+    work::pause(&client, "bundle refused: 2024-07-23").await.unwrap();
+    let refused = work::resume_if(&client, mine).await.unwrap_err();
+    assert!(refused.contains("bundle refused: 2024-07-23") && refused.contains("left paused"), "{refused}");
+    let paused: bool = client.query_one("SELECT paused FROM core.queue_control", &[]).await.unwrap().get(0);
+    assert!(paused);
+    work::resume(&client).await.unwrap();
+    work::pause(&client, mine).await.unwrap();
+    assert!(work::resume_if(&client, mine).await.unwrap());
+    let paused: bool = client.query_one("SELECT paused FROM core.queue_control", &[]).await.unwrap().get(0);
+    assert!(!paused);
+    scratch.drop().await;
+}
+
+/// The progress headline counts a day published by any build once, against every session a backfill block was
+/// scheduled over (live, 2026-11-25: "17 of 599" with 18 published: 2024-08-15 was published by job 21821, whose
+/// remaining range a hand-over replaced, so it lay in no unfinished or done job).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_day_published_by_a_replaced_block_counts_once() {
+    let (scratch, mut client) = ready("c077_headline").await;
+    let old = registered(&mut client, "slice-old-image").await;
+    admit(&client, &old).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &old, DAYS[0], DAYS[2], 3).await.unwrap();
+    let a = work::claim(&mut client, Kind::DayBlock, &old, "pod-a", HOUR).await.unwrap().unwrap();
+    publish_day(&mut client, &old, &a, DAYS[0]).await.unwrap();
+    work::day_done(&mut client, &a.token, DAYS[0]).await.unwrap();
+    // the block's range replaced whole (as job 21821's): its published day lies in no live or done job
+    client.execute("UPDATE core.lease SET ended_at = now(), outcome = 'CANCELLED' WHERE job_id = $1", &[&a.job_id]).await.unwrap();
+    client.execute("UPDATE core.job SET state = 'CANCELLED', finished_at = now() WHERE job_id = $1", &[&a.job_id]).await.unwrap();
+    let new = registered(&mut client, "slice-new-image").await;
+    admit(&client, &new).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &new, DAYS[1], DAYS[2], 3).await.unwrap();
+    let now: String = client.query_one("SELECT now()::text", &[]).await.unwrap().get(0);
+    let post = core_db::progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
+    assert!(post.contains("1 of 3 days done"), "{post}");
     scratch.drop().await;
 }

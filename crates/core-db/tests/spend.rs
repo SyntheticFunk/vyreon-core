@@ -114,7 +114,7 @@ async fn the_spend_since_the_start_is_watched_against_the_ceiling() {
     watch::check(&mut client, &s, "2026-11-24 15:04:00+00").await.unwrap();
     assert_eq!(open(&client).await.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(), ["100%", "80%"]);
     let posted: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'alerts' AND post AND message LIKE '🔴 Spend%past%'", &[]).await.unwrap().get(0);
-    assert!(posted.contains("past the $90.00 ceiling") && posted.contains("To do: Decide whether to go on"), "{posted}");
+    assert!(posted.contains("past the $90.00 ceiling") && posted.contains("To do: decide whether to go on"), "{posted}");
     spend::put_reading(&client, Err("GET /v2/customers/my/balance: DigitalOcean answered 401 Unauthorized")).await.unwrap();
     client.execute("UPDATE core.spend_reading SET read_at = '2026-11-24 15:30:00+00' WHERE error IS NOT NULL AND read_at > '2026-11-24'", &[]).await.unwrap();
     watch::check(&mut client, &s, "2026-11-24 15:31:00+00").await.unwrap();

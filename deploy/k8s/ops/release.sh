@@ -78,6 +78,26 @@ K8S=$(cd "$HERE/.." && pwd)
 VERIFY_MINUTES=${VYREON_VERIFY_MINUTES:-20}
 SCALEDJOBS=(tape day-block day-block-daily ordered-pass refcheck republish)
 
+# Every step the header documents is defined (C-077 audit fix 6cb40c2 dropped step 10, the queue resume, unnoticed:
+# the 2026-11-25 release left the queue paused until the operator resumed it by hand).
+# (release-4 audit, Codex 8) and each does its operation: the worker release's step N (after its label, up to the
+# next step's) holds the command that does it
+python3 - "$0" <<'PY' || exit 2
+import re, sys
+text = open(sys.argv[1]).read()
+worker = text[text.index("# ---------------------------------------------------------------- worker image"):]
+ops = {1: "build-identity", 2: 'push "$LOCAL"', 3: "build register", 4: "queue pause", 5: "hand_over", 6: "build admit",
+       7: "50-keda.yaml", 8: "apply_core", 9: "delete_stale", 10: "queue resume --expect", 11: "verify_claims", 12: "delete_stale"}
+starts = {int(m.group(1)): m.start() for m in re.finditer(r'^step (\d+) "', worker, re.M)}
+for n, op in ops.items():
+    if n not in starts:
+        sys.exit(f"release.sh: step {n} is not defined in this script")
+    later = [p for k, p in starts.items() if p > starts[n]]
+    body = worker[starts[n]:min(later) if later else len(worker)]
+    if op not in body:
+        sys.exit(f"release.sh: step {n} does not do its operation ({op})")
+PY
+
 DRY=0 FROM=1 OLD_GIVEN="" EVIDENCE_IN="" CORE_TAG=""
 args=()
 while (($#)); do
@@ -112,7 +132,7 @@ else
   "$(cd "$(dirname "$0")" && pwd)/kubeconfig.sh" --if-needed "$KUBECONFIG" || { echo "release.sh: the kubeconfig could not be refreshed (kubeconfig.sh above says why); nothing was done" >&2; exit 1; }
 fi
 
-STEP=0 DONE=() FAILED="" DOCKER_AUTH="" SCRATCH="" PAUSE_REASON="" OLD="" HAND_OVER="" TOKEN="" BUILD="" RUN="" RUN_OLD="" EVIDENCE=""
+RESUMED_AT="" STEP=0 DONE=() FAILED="" DOCKER_AUTH="" SCRATCH="" PAUSE_REASON="" OLD="" HAND_OVER="" TOKEN="" BUILD="" RUN="" RUN_OLD="" EVIDENCE=""
 if ((DRY)); then
   # a rehearsal writes nothing where real releases keep their records
   SCRATCH=$(mktemp -d)
@@ -239,11 +259,11 @@ digest_of() { docker image inspect "$1" --format '{{range .RepoDigests}}{{.}} {{
 save_run() {
   ((DRY)) && return 0
   [[ -n $RUN ]] || return 0
-  python3 - "$RUN" "$STEP" "$BUILD" "$OLD" "$HAND_OVER" "$TOKEN" "$PAUSE_REASON" "${REMOTE:-}" <<'PY'
+  python3 - "$RUN" "$STEP" "$BUILD" "$OLD" "$HAND_OVER" "$TOKEN" "$PAUSE_REASON" "${REMOTE:-}" "${RESUMED_AT:-}" "${HELD:-}" <<'PY'
 import json, sys
-path, step, build, old, hand_over, token, pause, image = sys.argv[1:]
+path, step, build, old, hand_over, token, pause, image, resumed, held = sys.argv[1:]
 json.dump({"at_step": int(step), "build": build, "old": old or None, "hand_over": hand_over or None, "hand_over_token": token or None,
-           "pause_reason": pause or None, "image": image}, open(path, "w"), indent=1)
+           "pause_reason": pause or None, "image": image, "resumed_at": resumed or None, "held": held.split() or None}, open(path, "w"), indent=1)
 PY
 }
 load_run() {
@@ -251,7 +271,8 @@ load_run() {
   eval "$(python3 - "$RUN" <<'PY'
 import json, shlex, sys
 d = json.load(open(sys.argv[1]))
-for k, v in (("RUN_OLD", d.get("old")), ("HAND_OVER", d.get("hand_over")), ("TOKEN", d.get("hand_over_token")), ("PAUSE_REASON", d.get("pause_reason"))):
+for k, v in (("RUN_OLD", d.get("old")), ("HAND_OVER", d.get("hand_over")), ("TOKEN", d.get("hand_over_token")), ("PAUSE_REASON", d.get("pause_reason")),
+             ("RESUMED_AT", d.get("resumed_at")), ("HELD", " ".join(d.get("held") or []) or None)):
     print(f"{k}={shlex.quote(str(v) if v is not None else '')}")
 PY
 )"
@@ -621,13 +642,16 @@ fi
 # every kind KEDA should start for $BUILD (core.scaler_count) gets a lease of $BUILD granted since $1 (a
 # timestamp), within VERIFY_MINUTES; kinds in $2 are not waited for, and when $3 is given only its kinds are
 verify_claims() {
-  local since=$1 skip_kinds=$2 only=$3 deadline=$((SECONDS + VERIFY_MINUTES * 60)) needed="" missing="" rows
+  local since=$1 skip_kinds=$2 only=$3 deadline=$((SECONDS + VERIFY_MINUTES * 60)) needed="" missing="" rows q
   while :; do
+    # (release-4 audit, Codex 3) a paused queue counts nothing claimable: never read as "nothing to claim"
+    q=$(queue_state)
+    [[ $q == running ]] || fail "the queue is paused (${q#paused$'\t'}): nothing can be verified while it is; resume it once its cause is understood, then --from 11"
     # per ScaledJob: what KEDA counts for the new build now, and its leases granted since then
     rows=$(sql "SELECT v.k, core.scaler_count(v.kind, '$BUILD', v.daily),
                        (SELECT count(*) FROM core.lease l JOIN core.job j USING (job_id)
                         WHERE j.engine_build = '$BUILD' AND j.kind = v.kind AND (v.daily IS NULL OR (j.priority = 1) = v.daily)
-                          AND l.granted_at >= '$since'::timestamptz)
+                          AND (l.granted_at >= '$since'::timestamptz OR l.ended_at IS NULL))
                 FROM (VALUES ('tape', 'TAPE', NULL::boolean), ('day-block', 'DAY_BLOCK', false), ('day-block-daily', 'DAY_BLOCK', true),
                              ('ordered-pass', 'ORDERED_PASS', NULL), ('refcheck', 'REFCHECK', NULL), ('republish', 'REPUBLISH', NULL)) v(k, kind, daily)") || rows=""
     missing=""
@@ -646,17 +670,43 @@ verify_claims() {
   record "claimed by the new build:${needed:- nothing to claim}"
 }
 
+step 10 "resume the queue (only this run's pause)"
+if ! skip; then
+  say "   \$ vyreon-core queue resume"
+  if ((DRY == 0)); then
+    QUEUE=$(queue_state)
+    if [[ $QUEUE == running ]]; then
+      say "   the queue is already running"
+    elif [[ -z $PAUSE_REASON ]]; then
+      fail "this run did not pause the queue (no run file says it did): resume it by hand once its pause is understood"
+    elif [[ $QUEUE != "paused"$'\t'"$PAUSE_REASON" ]]; then
+      # a bundle refused or a job failed for the last time while it ran (`also: ...`), or another pause
+      fail "the pause holds more than this run's: ${QUEUE#paused$'\t'} -- left paused for the owner"
+    else
+      # (release-4 audit, Codex 1) core resumes only a pause that reads exactly this run's, in one statement:
+      # a cause added since this read (a refused bundle) is left paused for the owner
+      out=$(core queue resume --expect "$PAUSE_REASON" 2>&1) || fail "the resume was refused (left paused for the owner): $out"
+    fi
+    PAUSE_REASON=""
+  fi
+  RESUMED_AT=$( ((DRY)) || sql "SELECT now()")
+  record "queue resumed"
+fi
+
 step 11 "every kind KEDA should start for $BUILD claims work (up to $VERIFY_MINUTES min)"
 if ((DRY)); then
   say "   (dry run: polls core.scaler_count and the leases of $BUILD per kind)"
 elif ((FROM <= 11)); then
-  # (release-3 audit, Gemini 9) only in a run that resumed the queue: `--from 12` resumes the drains alone
-  SINCE=$(sql "SELECT now()")
+  # (release-3 audit, Gemini 9) only in a run that resumed the queue: `--from 12` resumes the drains alone.
+  # (release-4 audit, Codex 4) claims count from the queue's resume (the run file's, on `--from 11`), and a
+  # live lease of the new build counts whenever it was granted
+  SINCE=${RESUMED_AT:-$(sql "SELECT now()")}
   # C-077: a ScaledJob whose Jobs drain may have every slot held by them (day-block's 8 by phase 1's 8
   # blocks): its kind is verified once they end (step 12)
   read_drains
   draining_jobs && held_kinds || fail "the draining pods or their Jobs cannot be looked up: rerun with --from 11"
   [[ -n ${HELD// /} ]] && say "   verified after the drains (their slots held by draining blocks, step 12): $HELD"
+  save_run
   verify_claims "$SINCE" "$HELD" ""
 else
   say "   (resumed at step 12: the claims were verified, or are verified after the drains)"
@@ -669,8 +719,13 @@ if ((DRY)); then
   if [[ -n $DRAINS ]]; then say "$DRAINS" | sed 's/^/     draining now: /'; fi
 else
   if ((FROM == 12)); then
+    # (release-4 audit, Codex 2) the kinds step 11 left to the end: the run file's, and any draining now
+    KEPT_HELD=$HELD
     read_drains
     draining_jobs && held_kinds || fail "the draining pods or their Jobs cannot be looked up: rerun with --from 12"
+    HELD=$(tr ' ' '\n' <<<"$KEPT_HELD $HELD" | sort -u | tr '\n' ' ')
+    # a run file older than these records says none: every kind is verified at the end
+    [[ -n ${HELD// /} || -n $RESUMED_AT ]] || HELD="tape day-block day-block-daily ordered-pass refcheck republish"
   fi
   WAITED=$HELD
   while :; do
@@ -693,7 +748,7 @@ for l in sys.stdin:
   # (release-3 audit, Codex 12) the kinds whose slots the drains held claim work of the new build now
   if [[ -n ${WAITED// /} ]]; then
     say "   the kinds the drains held:$WAITED"
-    verify_claims "${SINCE:-$(sql "SELECT now() - interval '6 hours 30 minutes'")}" "" "$WAITED"
+    verify_claims "${SINCE:-${RESUMED_AT:-$(sql "SELECT now() - interval '6 hours 30 minutes'")}}" "" "$WAITED"
   fi
 fi
 

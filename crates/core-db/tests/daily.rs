@@ -214,7 +214,7 @@ async fn a_failed_queueing_is_a_problem_before_the_digest() {
     let open: Vec<String> = watch::open(&client, nine).await.unwrap().into_iter().map(|o| o.summary).collect();
     assert_eq!(open, [stopped]);
     let digest: String = client.query_one("SELECT message FROM core.notice WHERE once = 'digest 2025-12-11'", &[]).await.unwrap().get(0);
-    assert!(digest.starts_with(&format!("🔴 Needs you: {stopped}")), "{digest}");
+    assert!(digest.starts_with(&format!("🔴 Needs you: {}", core_db::plain::plain(stopped))), "{digest}");
     // queueing works again: the session is queued and the problem resolves
     client.batch_execute("DROP FUNCTION vyreon.ensure_months(date, date); ALTER FUNCTION vyreon.ensure_months_kept(date, date) RENAME TO ensure_months;").await.unwrap();
     let change = watch::tick(&mut client, &s, "2025-12-11 16:01:00+00").await.unwrap();

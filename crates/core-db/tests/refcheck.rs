@@ -232,7 +232,7 @@ async fn a_published_days_check_is_kept_once_and_judged_until_the_day_is_publish
         .map(|r| r.get(0))
         .collect();
     assert_eq!(alerts.len(), 2, "an alert, one resolved: {alerts:?}");
-    assert!(alerts[0].starts_with("🔴 Reference check did not run") && alerts[0].ends_with("To do: See which: `vyreon-core refcheck list`"), "{alerts:?}");
+    assert!(alerts[0].starts_with("🔴 Reference check did not run") && alerts[0].ends_with("To do: see which: `vyreon-core refcheck list`"), "{alerts:?}");
     assert!(alerts[1].starts_with("✅ Resolved: Reference check did not run"), "{alerts:?}");
     assert!(problems(&client).await.is_empty());
     // the digest counts the day's checks and what they cost, and says the day is not fully judged
@@ -453,7 +453,7 @@ async fn an_open_problem_says_what_holds_now_and_resolves_when_it_no_longer_hold
     let change = watch::check(&mut client, &settings, DIGEST_AT).await.unwrap();
     assert_eq!((ours(change.opened), ours(change.resolved), ours(change.restated)), (vec![], vec![CRASHED.to_string()], vec![DISAGREES.to_string()]));
     let posts: Vec<String> = client.query("SELECT message FROM core.notice WHERE post ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
-    assert_eq!(posts, [format!("✅ Resolved: {CRASHED} (it was open 25 h)")]);
+    assert_eq!(posts, [watch::posted_resolved(CRASHED, 25 * 3600)]);
     let after = watch::digest(&mut client, &settings, DIGEST_AT).await.unwrap();
     assert!(after.starts_with(&format!("🔴 Needs you: {DISAGREES} · Fri Nov 20\n")), "{after}");
     assert!(after.ends_with(&format!("Open problems (1):\n• {DISAGREES} · open 15 h · `vyreon-core refcheck list`")), "{after}");

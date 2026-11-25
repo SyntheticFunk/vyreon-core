@@ -129,7 +129,7 @@ async fn a_new_builds_method_change_is_recomputed_within_the_ceiling() {
     assert!(d.why.unwrap().contains("the spend is not watched"));
     assert_eq!(count(&client, jobs).await, 0);
     assert!(recompute::auto(&mut client, PROFILE, &w, None, NOW).await.unwrap().is_none(), "nothing new to decide");
-    let alert: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'alerts' AND message LIKE '🔴 Recompute%'", &[]).await.unwrap().get(0);
+    let alert: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'alerts' AND message LIKE '🔴 A recompute%'", &[]).await.unwrap().get(0);
     assert!(alert.contains("the spend is not watched") && alert.contains(&format!("vyreon-core recompute {PROFILE} {new} --plan")), "{alert}");
 
     // the spend watched (DigitalOcean's figure of 06:30): the plan's cost past a tight ceiling, held again
@@ -233,7 +233,7 @@ async fn a_full_recompute_never_runs_over_a_day_whose_prints_are_gone() {
     let claim = work::claim(&mut client, Kind::DayBlock, &new, "w9", HOUR).await.unwrap().unwrap();
     assert_eq!(claim.sessions, [DAYS[1]], "the published day past retention is cut out of the block");
     let republish: i64 = count(&client, "SELECT count(*) FROM core.job WHERE kind = 'REPUBLISH' AND first_session = '2025-12-09' AND scope ? 'recompute_plan'").await;
-    let alerted: i64 = count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'alerts' AND message LIKE '🔴 Full recompute of 2025-12-09%'").await;
+    let alerted: i64 = count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'alerts' AND message LIKE '🔴 Full recompute of Dec 9 %'").await;
     assert_eq!(republish + alerted, 1, "scoped, or (its scope reading the prints) left to the owner and said");
     // a block naming nothing: the day stays published, said
     work::finish(&mut client, &claim.token).await.unwrap_err();
@@ -241,7 +241,7 @@ async fn a_full_recompute_never_runs_over_a_day_whose_prints_are_gone() {
     client.execute("UPDATE core.lease SET ended_at = now(), outcome = 'CANCELLED' WHERE ended_at IS NULL", &[]).await.unwrap();
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &new, DAYS[0], DAYS[0], 1).await.unwrap();
     assert!(work::claim(&mut client, Kind::DayBlock, &new, "w9", HOUR).await.unwrap().is_none());
-    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'alerts' AND message LIKE '🔴 Full recompute of 2025-12-09%names no measurements%'").await, 1);
+    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'alerts' AND message LIKE '🔴 Full recompute of Dec 9 %names no measurements%'").await, 1);
     assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE represented_date = '2025-12-09' AND state = 'PUBLISHED'").await, 2);
     scratch.drop().await;
 }

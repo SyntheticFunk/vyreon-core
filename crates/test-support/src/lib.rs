@@ -110,6 +110,15 @@ pub const WORKER_LOG_REFUSED_DAY: &str = include_str!("../fixtures/worker-fill-l
 /// 9ac5010c), copied 2026-11-17. Its SHA-256 is the one its export index states (326760d7…).
 pub const ENGINE_FAULT_BODY_XLB: &str = include_str!("../fixtures/engine-fault-body-2025-12-10-XLB-SAI-EXQ01.json");
 
+/// ARKK's PCR-UPATH-I01 of 2024-08-15 as phase 1 published it (revision 183, read-only from the cluster's
+/// database 2026-11-25): withheld whole, its roles' reason ENGINE_FAULT, no terminal reason.
+pub const ENGINE_FAULT_BODY_ARKK: &str = include_str!("../fixtures/engine-fault-body-2024-08-15-ARKK-PCR-UPATH-I01.json");
+
+/// IBIT's M0-GAMMA of 2024-08-15 as phase 1 published it (revision 183): withheld whole, its result id
+/// ending `/engine-fault` like every withheld slot's, its reason the provider's (EMPTY_DELIVERED_POPULATION:
+/// IBIT's options were not listed yet).
+pub const PROVIDER_ABSENCE_BODY_IBIT: &str = include_str!("../fixtures/provider-absence-body-2024-08-15-IBIT-M0-GAMMA.json");
+
 /// A real reference-check report (C-054): the suite's report of 2025-12-16 from the engine's B0
 /// census (`python3 -m refcheck run` on the B0 panel's day, 2026-10-25), with its per-comparison
 /// `results` and `per_object` rows left out (as a worker leaves them out past core's limits),

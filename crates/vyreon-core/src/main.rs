@@ -55,7 +55,7 @@
 //!                                                     the stored cache only when the recomputed one equals it byte for byte
 //!   vyreon-core tape checks                           the sample (C-059): one line, then each session's checks and
 //!                                                     every member not passed
-//!   vyreon-core queue [pause <reason> | resume | retry-failed | cancel <job>...]   the queue at a glance, or change it
+//!   vyreon-core queue [pause <reason> | resume [--expect <reason>] | retry-failed | cancel <job>...]   the queue at a glance, or change it
 //!   vyreon-core omit <profile> <session> <reason...>  omit a date whose day failed for the provider (C-061): only while
 //!                                                     its day job stands FAILED, never for an engine fault (fixed and
 //!                                                     recomputed instead). Records the reason, cancels the failed day job
@@ -116,7 +116,9 @@
 //!                                                     there every 30 minutes, silently: days published with their counts
 //!                                                     and reference checks, blocks started, the logged events, the queue's
 //!                                                     counts; unset or absent: nothing is composed or posted for it);
-//!                                                     VYREON_CORE_PROGRESS_LABEL (C-073: its headline's name, "Phase 1").
+//!                                                     VYREON_CORE_PROGRESS_LABEL (C-073: its headline's name, "Phase 1"),
+//!                                                     VYREON_CORE_PROGRESS_FROM/_TO (the phase's first and last session: the
+//!                                                     headline's total; unset: every session a backfill block covers).
 //!                                                     The watch (C-050), also read by `problems` and `digest`:
 //!                                                     VYREON_CORE_WATCH_PROFILE (FREE_REPORT_64), VYREON_CORE_DEADLINES_FROM
 //!                                                     (the first session with a publishing deadline; unset: the daily
@@ -373,12 +375,19 @@ async fn queue(change: &[&str]) -> Result<(), String> {
             tx.commit().await.map_err(|e| e.to_string())?;
             println!("was paused for: {}", was.as_deref().unwrap_or("(it was not paused)"))
         }
+        // C-077 (release-4 audit, Codex 1): only the pause that reads exactly so is resumed, atomically
+        ["resume", "--expect", reason] => {
+            let tx = client.transaction().await.map_err(|e| e.to_string())?;
+            let resumed = work::resume_if(&tx, reason).await?;
+            tx.commit().await.map_err(|e| e.to_string())?;
+            println!("{}", if resumed { "resumed" } else { "it was not paused" })
+        }
         ["retry-failed"] => println!("{} failed jobs queued again", work::retry_failed(&client).await?),
         ["cancel", jobs @ ..] if !jobs.is_empty() => {
             let jobs: Vec<i64> = jobs.iter().map(|j| j.parse().map_err(|_| format!("job id: {j}"))).collect::<Result<_, _>>()?;
             println!("{} jobs cancelled", work::cancel(&mut client, &jobs).await?)
         }
-        _ => return Err("queue [pause <reason> | resume | retry-failed | cancel <job>...]".into()),
+        _ => return Err("queue [pause <reason> | resume [--expect <reason>] | retry-failed | cancel <job>...]".into()),
     }
     work::sweep(&mut client).await?;
     println!("{}", serde_json::to_string_pretty(&work::status(&client).await?).map_err(|e| e.to_string())?);
@@ -550,6 +559,16 @@ fn setting<T: std::str::FromStr>(name: &str, default: T) -> Result<T, String> {
 }
 
 /// C-073: the progress channel's headline label (`VYREON_CORE_PROGRESS_LABEL`, e.g. "Phase 1").
+/// (owner, 2026-11-25) the phase the progress headline counts, both or neither: VYREON_CORE_PROGRESS_FROM
+/// and VYREON_CORE_PROGRESS_TO (its first and last session; unset: every session a backfill block covers).
+fn progress_phase() -> Result<Option<(String, String)>, String> {
+    match (date_setting("VYREON_CORE_PROGRESS_FROM")?, date_setting("VYREON_CORE_PROGRESS_TO")?) {
+        (Some(a), Some(b)) => Ok(Some((a, b))),
+        (None, None) => Ok(None),
+        _ => Err("VYREON_CORE_PROGRESS_FROM and VYREON_CORE_PROGRESS_TO are set together or not at all".into()),
+    }
+}
+
 fn progress_label() -> String {
     set("VYREON_CORE_PROGRESS_LABEL").unwrap_or_else(|| core_db::progress::DEFAULT_LABEL.to_owned())
 }
@@ -906,7 +925,7 @@ async fn digest(weekly: bool) -> Result<(), String> {
 async fn progress_preview() -> Result<(), String> {
     let mut client = connect().await?;
     let now = watch::now(&client).await?;
-    let posts = core_db::progress::preview_as(&mut client, &watch_settings()?.profile, &progress_label(), &now).await?;
+    let posts = core_db::progress::preview_phase(&mut client, &watch_settings()?.profile, &progress_label(), progress_phase()?.as_ref(), &now).await?;
     if posts.is_empty() {
         println!("nothing happened in the last 30 minutes: no progress post");
     }
@@ -1003,7 +1022,7 @@ async fn serve() -> Result<(), String> {
         core_api::notices::spawn_sender(app.clone(), webhook, std::time::Duration::from_secs(15));
     }
     if let Some(webhook) = progress {
-        core_api::notices::spawn_progress(app.clone(), profile, progress_label(), std::time::Duration::from_secs(60));
+        core_api::notices::spawn_progress(app.clone(), profile, progress_label(), progress_phase()?, std::time::Duration::from_secs(60));
         core_api::notices::spawn_sender_on(app.clone(), webhook, std::time::Duration::from_secs(15), notice::Channel::Progress);
     }
     println!("vyreon-core listening on {listen} (the single-instance lock is held, C-053)");

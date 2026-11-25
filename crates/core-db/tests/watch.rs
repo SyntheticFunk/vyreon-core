@@ -101,7 +101,7 @@ async fn deadlines_follow_the_calendar_over_a_weekend_and_a_holiday() {
     assert_eq!(check(&mut client, &s, "2025-09-03 10:31:00-06").await, watch::Change::default());
     let said = posts(&client).await;
     assert_eq!(said.len(), 6, "three alerts, three resolutions: {said:?}");
-    assert_eq!(said[0], watch::alert_for("SESSION_LATE", "Fri Aug 29 not published by its Sat 10:00 MT deadline", "vyreon-core queue"));
+    assert_eq!(said[0], watch::posted_alert("SESSION_LATE", "Fri Aug 29 not published by its Sat 10:00 MT deadline", "vyreon-core queue"));
     assert_eq!(said[3], "✅ Resolved: Fri Aug 29 not published by its Sat 10:00 MT deadline (it was open 4 days)");
     assert_eq!(said[5], "✅ Resolved: Tue Sep 2 not published by its Wed 10:00 MT deadline (it was open 30 min)");
     scratch.drop().await;
@@ -173,9 +173,10 @@ async fn a_last_failure_and_a_provider_burst_are_problems_from_the_evidence() {
     let stop = "stop: 2024-07-16 not published: held: 512 of 2853 final slots are withheld for an engine fault (more than 0.1): AAPL--VS-O02 ...";
     let job = failed_attempt(&mut client, &b, stop).await;
     let now = watch::now(&client).await.unwrap();
-    let summary = format!("Day 2024-07-16 failed for the last time (job {job}): {stop}");
+    // (owner, 2026-11-25) the cause in plain words: the engine's reason, no job, no stop framing
+    let summary = "Day 2024-07-16 failed for the last time: held: 512 of 2853 final slots are withheld for an engine fault (more than 0.1): AAPL--VS-O02 ...".to_owned();
     assert_eq!(check(&mut client, &s, &now).await, opened(&[&summary]));
-    assert_eq!(posts(&client).await, [watch::alert_for("JOB_FAILED", &summary, &format!("vyreon-core evidence show {job}"))]);
+    assert_eq!(posts(&client).await, [watch::posted_alert("JOB_FAILED", &summary, &format!("vyreon-core evidence show {job}"))]);
     assert_eq!(work::retry_failed(&client).await.unwrap(), 1);
     assert_eq!(check(&mut client, &s, &now).await.resolved, [summary]);
     work::cancel(&mut client, &[job]).await.unwrap();
@@ -224,7 +225,8 @@ async fn a_final_failure_is_named_by_its_final_lease() {
     assert!(!work::fail(&mut client, &last.token, "day 2024-07-16", "worker ran out of disk", "").await.unwrap());
     let now = watch::now(&client).await.unwrap();
     let change = check(&mut client, &s, &now).await;
-    assert_eq!(change.opened, [format!("Day 2024-07-16 failed for the last time (job {}): day 2024-07-16: worker ran out of disk", last.job_id)]);
+    assert_eq!(change.opened, ["Day 2024-07-16 failed for the last time: day 2024-07-16: worker ran out of disk".to_owned()]);
+    let _ = &last;
     let reader: String = client.query_one("SELECT core.session_cause('2024-07-16', $1)->>'detail'", &[&PROFILE]).await.unwrap().get(0);
     assert!(reader.contains("worker ran out of disk") && !change.opened[0].contains("502"), "{reader}");
     scratch.drop().await;
@@ -367,7 +369,7 @@ async fn the_digest_leads_with_its_verdict() {
     let weekly: String = client.query_one("SELECT message FROM core.notice WHERE once = 'weekly 2025-12-13'", &[]).await.unwrap().get(0);
     let lines: Vec<&str> = weekly.lines().collect();
     // the queue is still paused: red, though no deadline is set (round w, 12)
-    assert_eq!(lines[0], format!("🔴 Weekly check: Sunday's report is not cleared while a problem is open: {paused}"));
+    assert_eq!(lines[0], core_db::plain::plain(&format!("🔴 Weekly check: Sunday's report is not cleared while a problem is open: {paused}")));
     assert_eq!(lines[1..6], [
         "Mon Dec 8: not published",
         "Tue Dec 9: published · 100.0% of its measurements have a value · 0 engine faults · history pass not published",
@@ -461,7 +463,7 @@ async fn a_digest_never_says_nothing_is_open_after_an_alert() {
     let posts: Vec<(i64, String)> =
         watching.query("SELECT notice_id, message FROM core.notice WHERE post ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| (r.get(0), r.get(1))).collect();
     assert_eq!(posts.len(), 2, "{posts:?}");
-    assert!(posts[0].1.starts_with("🔴 A republish left 1 days that no job derives again: 2025-12-11"), "{posts:?}");
+    assert!(posts[0].1.starts_with("🔴 A republish left 1 days that no job derives again: Dec 11"), "{posts:?}");
     assert!(posts[1].1.starts_with("🔴 Needs you: A republish left 1 days"), "the digest after the alert says it is open: {posts:?}");
     scratch.drop().await;
 }
@@ -559,7 +561,7 @@ async fn a_failing_part_of_the_check_stops_only_itself() {
     assert_eq!(open.iter().map(|o| o.kind.as_str()).collect::<Vec<_>>(), ["QUEUE_PAUSED", "WATCH_FAILING", "WATCH_FAILING"], "the pause stays open, not resolved by a part that could not look");
     let said = posts(&client).await;
     let digest = said.last().unwrap();
-    assert!(digest.starts_with("🔴 Needs you: Work queue paused") && digest.contains(&failing), "the digest is posted and names the failure: {said:?}");
+    assert!(digest.starts_with("🔴 Needs you: Work queue paused") && digest.contains(&core_db::plain::plain(&failing)), "the digest is posted and names the failure: {said:?}");
     client.batch_execute("ALTER TABLE core.queue_control_away RENAME TO queue_control").await.unwrap();
     let change = watch::tick(&mut client, &s, "2025-12-12 09:01:00-06").await.unwrap();
     assert_eq!((change.resolved, change.opened.len(), change.failing.len()), (vec![failing, stalls], 0, 0));
@@ -655,7 +657,7 @@ async fn claimable_work_with_no_worker_for_a_quarter_hour_is_a_stall() {
     let since: String = client.query_one("SELECT to_char(since AT TIME ZONE $1, 'Dy HH24:MI') FROM core.stall_seen WHERE kind = 'TAPE'", &[&watch::ZONE]).await.unwrap().get(0);
     let stalled = format!("Tape jobs stalled since {since} MT: 3 claimable and none leased, so no `tape` pod is running");
     assert_eq!(check_after(&mut client, &s, &t0, 15).await, opened(&[&stalled]));
-    assert_eq!(posts(&client).await, [watch::alert_for("STALLED", &stalled, "vyreon-core queue")]);
+    assert_eq!(posts(&client).await, [watch::posted_alert("STALLED", &stalled, "vyreon-core queue")]);
     // a worker claims: resolved, and the clock is gone
     let claim = work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();
     assert_eq!(check_after(&mut client, &s, &t0, 16).await.resolved, [stalled]);
@@ -998,7 +1000,7 @@ async fn the_digest_counts_the_ordered_passes_in_committed_batches_and_survives_
     assert_eq!(kept, first);
     let lines: Vec<&str> = digest.lines().collect();
     assert_eq!(lines[1], "Latest session stored: Fri Nov 20 · 66.7% of its measurements have a value (typical 66.7%) · 1 engine fault", "{digest}");
-    assert_eq!(lines[2], "Sessions published in the last 24 hours: 1 (2025-12-10)", "{digest}");
+    assert_eq!(lines[2], "Sessions published in the last 24 hours: 1 (Dec 10)", "{digest}");
     assert_eq!(lines[3], "Provider gaps recorded in the last 24 hours: none", "{digest}");
     scratch.drop().await;
 }
@@ -1169,5 +1171,42 @@ async fn the_digests_count_fails_within_its_limits_counts_what_is_left_and_resol
         .unwrap();
     assert_eq!(t, (3, 1, 0, 1), "its two delivered slots and the engine's faulted one");
     assert!(uncounted(&client, now).await.is_empty());
+    scratch.drop().await;
+}
+
+/// (engine investigation, 2026-11-25) a slot is an engine fault by its stated reason (the body's terminal
+/// reason or a role's), never by the withheld slot's result id, which ends `/engine-fault` for a provider's
+/// absence too. Three real bodies: XLB's SAI-EXQ01 of 2025-12-10 (terminal reason ENGINE_FAULT), ARKK's
+/// PCR-UPATH-I01 of 2024-08-15 (its roles' reason ENGINE_FAULT) and IBIT's M0-GAMMA of 2024-08-15 (withheld
+/// whole, EMPTY_DELIVERED_POPULATION: a provider absence, which the digest named as an engine fault).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn an_engine_fault_is_one_by_its_stated_reason() {
+    let scratch = Scratch::new("tally_reason").await;
+    let client = scratch.client().await;
+    let cases = [
+        (ENGINE_FAULT_BODY_XLB, "SAI-EXQ01", "XLB", "2025-12-10", true),
+        (test_support::ENGINE_FAULT_BODY_ARKK, "PCR-UPATH-I01", "ARKK", "2024-08-15", true),
+        (test_support::PROVIDER_ABSENCE_BODY_IBIT, "M0-GAMMA", "IBIT", "2024-08-15", false),
+    ];
+    for (body, measurement, object, day, fault) in cases {
+        let body = body.trim();
+        let row = client
+            .query_one(
+                &format!(
+                    "SELECT {}, strpos(m.body_text, m.measurement_id || '/' || m.object_id || '/' || $4 || '/engine-fault\"') > 0
+                     FROM (SELECT $1::text::jsonb AS body, $1::text AS body_text, $2::text AS measurement_id, $3::text AS object_id) m",
+                    watch::FAULT
+                ),
+                &[&body, &measurement, &object, &day],
+            )
+            .await
+            .unwrap();
+        let (is_fault, whole): (bool, bool) = (row.get(0), row.get(1));
+        assert_eq!(is_fault, fault, "{measurement} {object}");
+        if object != "XLB" {
+            assert!(whole, "{measurement} {object}: withheld whole, its result id ending /engine-fault whatever its reason");
+        }
+    }
     scratch.drop().await;
 }

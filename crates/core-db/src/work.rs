@@ -656,6 +656,53 @@ async fn settle_drain(client: &mut Client, lease: i64) -> Result<bool, String> {
     Ok(true)
 }
 
+/// C-077 (live, 2026-11-25 03:35 MT: job 21823 of 1ae946f7, an engine before D-465, sent 2024-09-06 after its
+/// drained 2024-09-05 and the refusal paused the whole queue): a bundle refused from a draining lease whose
+/// job has no day left is the drain's overrun (a worker that does not know its block was cut goes on to its
+/// claim's next day), not a bundle to look at: its lease ends (the job DONE, its later days the successor's
+/// already), one line says so, and nothing pauses. True when `lease` was such a lease; the caller answers
+/// the worker that its lease is gone. Every other refusal pauses as before.
+pub async fn drain_overrun(tx: &impl GenericClient, lease: &Held, refusal: &str) -> Result<bool, String> {
+    if lease.kind != "DAY_BLOCK" {
+        return Ok(false);
+    }
+    let Some(row) = tx
+        .query_opt(
+            "SELECT d.session::text, j.engine_build, h.to_build FROM core.drain d JOIN core.lease l USING (lease_id) JOIN core.job j ON j.job_id = d.job_id
+             JOIN core.hand_over h USING (hand_over_id)
+             WHERE d.lease_id = $1 AND l.ended_at IS NULL AND j.next_session IS NULL FOR UPDATE OF l, j",
+            &[&lease.lease_id],
+        )
+        .await
+        .map_err(db)?
+    else {
+        return Ok(false);
+    };
+    let (day, from, to): (String, String, String) = (row.get(0), row.get(1), row.get(2));
+    tx.execute("UPDATE core.lease SET ended_at = now(), outcome = 'DONE' WHERE lease_id = $1 AND ended_at IS NULL", &[&lease.lease_id]).await.map_err(db)?;
+    if let Some(job) = tx
+        .query_opt(&format!("UPDATE core.job SET state = 'DONE', finished_at = now() WHERE job_id = $1 AND state = 'LEASED' RETURNING {FINISHED}"), &[&lease.job_id])
+        .await
+        .map_err(db)?
+    {
+        finished(tx, &job, &lease.worker).await?;
+    }
+    let sent = refusal
+        .split_once("the bundle is ")
+        .and_then(|(_, r)| r.get(..10))
+        .filter(|d| core_contract::is_date(d))
+        .map_or_else(|| "a later day".to_owned(), str::to_owned);
+    notice::log(
+        tx,
+        &format!(
+            "Draining job {} of build {from} sent {sent} after its drained day {day} (a worker that does not stop at core's last day): refused, its lease ended, nothing paused; later days are build {to}'s.",
+            lease.job_id
+        ),
+    )
+    .await?;
+    Ok(true)
+}
+
 /// C-077: ends a draining lease once its day is done and that day's reference check is with core (the
 /// last thing a worker sends of a day, after its archive): the job DONE, the lease's outcome DONE. A
 /// worker of an engine before C-077 does not know its block was cut and goes on to the next day; its
@@ -1649,6 +1696,32 @@ pub async fn resume(db_client: &impl GenericClient) -> Result<Option<String>, St
         notice::log(db_client, "Queue resumed.").await?;
     }
     Ok(was)
+}
+
+/// C-077 (release-4 audit, Codex 1): resumes only a pause whose reason is exactly `expected` (a release's
+/// own), in one statement: a cause added meanwhile (`also: …`, a refused bundle) or another pause is left as
+/// it is. Returns whether it resumed; Err names what the pause holds when it is not that.
+pub async fn resume_if(db_client: &impl GenericClient, expected: &str) -> Result<bool, String> {
+    let expected = scrubbed(expected);
+    let resumed = db_client
+        .execute("UPDATE core.queue_control SET paused = false, reason = NULL, changed_at = clock_timestamp() WHERE paused AND reason = $1", &[&expected])
+        .await
+        .map_err(db)?;
+    if resumed == 1 {
+        notice::log(db_client, "Queue resumed.").await?;
+        return Ok(true);
+    }
+    let now: (bool, Option<String>) = {
+        let r = db_client.query_one("SELECT paused, reason FROM core.queue_control", &[]).await.map_err(db)?;
+        (r.get(0), r.get(1))
+    };
+    match now {
+        (false, _) => Ok(false),
+        (true, reason) => Err(format!(
+            "the pause is not only this one: {} -- left paused",
+            crate::watch::one_line(&reason.unwrap_or_default().replace(ALSO, "; also: "), 300)
+        )),
+    }
 }
 
 /// Puts FAILED jobs back in the queue with their attempts reset (after the cause is fixed). One

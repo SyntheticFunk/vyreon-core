@@ -3616,3 +3616,44 @@ value are not excluded (D-273: old days are another method in DLM-UNUSUALNESS's 
 | Gemini 18 (C-078) a bare-date start mislabelled in MT | real: the start's label is its UTC date (the months are UTC) |
 | Gemini 19 suspicion: per-slot version variance | not real: the live database holds one (science, method) label per measurement per revision on every published day checked (2024-07-15..17, read-only) |
 | Gemini 20 suspicion: several invoices a month, more than 24, an unreadable amount | real enough to close: a month's invoices summed, 200 a page, an unreadable invoice makes no reading |
+
+**C-077 amended (live, 2026-11-25, the first draining release).** (1) Core raised "Day blocks stalled since 22:17 MT: 45
+claimable and none leased" while day-block's 8 slots (its `maxReplicaCount`) were the old build's draining blocks: the
+release-3 audit's fix to Gemini 14 (per-kind STALLED counts only running builds' leases) made the drains invisible to it. A
+kind with a draining lease within its bound is now waiting for those slots, not stalled; the progress channel's state says
+"Draining: N blocks of build X finishing their day …; the new build's blocks start as they end". A drain past its bound
+explains nothing (STALLED after the usual minutes), and once the drains end the stall clock starts from the last lease's
+end. Trade-off accepted: a broken new image beside a partial drain is seen once the drains end (at most `DRAIN_MINUTES`),
+and by release.sh's final claim check of the drain-held kinds. Test `drain.rs::a_hand_over_lets_a_done_days_archive_and_check_finish`.
+(2) Release-3's 6cb40c2 dropped release.sh's step 10 (the queue's resume) in rewriting steps 9-12; restored by the
+coordinator (64f68f8, reviewed: the original code, in place) with a guard that every documented step is defined.
+(3) Other checks read against a drain: JOB_THRASHING (a drain is one lease), CLAIMS_EMPTY (no pod starts while the slots
+are held), the chain (every lease counts) and the digest are unaffected. One engine-side gap, not fixed here: D-465's
+drained worker waits for the next day's download before its check under a plain step ("reference check D: the next day's
+download ends first"), which NO_PROGRESS would flag after 20 minutes if that download is long; it should be a declared
+wait (`status_waiting`, the download's bound) in the engine's next release.
+
+**Release-4 audit of the amendment (2026-11-25, `audits/2026-11-25-release4/core`, Codex 5 ordinary + 3 rare; Gemini out of
+quota). Every finding real; each fixed and tested.**
+
+| Finding | Fix |
+|---|---|
+| 1 the resume clears causes added after step 10's read | `vyreon-core queue resume --expect <reason>` (`work::resume_if`): one statement resumes only a pause that reads exactly so; release.sh uses it. Test `drain.rs::a_release_resumes_only_its_own_pause` |
+| 2 `--from 12` after the drains verifies nothing | the run file keeps the resume time and the kinds left to the end; `--from 12` verifies those and any draining now (an older run file: every kind) |
+| 3 verification reads a paused queue as "nothing to claim" | `verify_claims` stops when the queue is paused, naming the pause |
+| 4 `--from 11` ignores claims made before the retry | claims count from the recorded resume, and a live lease of the new build counts whenever granted |
+| 5 a quiet half hour drops the Draining line | drains make each window a post with the line. Test in `a_hand_over_lets_a_done_days_archive_and_check_finish` |
+| 6 an overdue drain hidden beside one within bound | a kind is excused only while every drain of it is within bound; the line names the first bound to come and any drain past its own. Same test |
+| 7 the slot inferred from the job's priority | the slot is the drain's pod's ScaledJob (its name, `day-block-daily-…` / `day-block-…`), else the job's group. Same test (day-block pods on daily blocks) |
+| 8 the guard checks labels, not operations | each worker step's body must hold its operation (step 10: `queue resume --expect`); checked by removing it from a copy (refused, exit 2) |
+release.sh's verification and recovery were also run against stubbed core and kubectl (a paused queue stops it; live claims count).
+
+**C-077 amended (live, 2026-11-25 03:35 MT, the first real drain).** Job 21823 (build 1ae946f7, an engine before D-465,
+which ignores core's "last day") finished its drained day 2024-09-05, then computed and sent 2024-09-06; core refused it
+("job 21823 expects no further day …") and, as for any refused bundle, paused the whole queue (resumed by hand). A bundle
+refused from a draining lease whose job has no day left is the drain's overrun, the expected behaviour of such a worker,
+not a bundle to look at: `work::drain_overrun` ends the lease (the job DONE; its later days are the successor's since the
+hand-over), logs one line ("Draining job J of build B sent D after its drained day … refused, its lease ended, nothing
+paused"), and the worker is answered 410 (its lease gone), so it stops without reporting a failure. Every other refusal
+pauses as before. Test `core-api/tests/worker_api.rs::a_drained_blocks_overrun_ends_its_lease_and_pauses_nothing` (the
+existing refusal test still pauses).

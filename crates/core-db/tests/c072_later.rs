@@ -55,7 +55,8 @@ async fn a_block_set_aside_is_named_as_it_started() {
     assert_eq!(count(&client, "SELECT count(*) FROM core.job WHERE state = 'FAILED' AND first_session = '2025-12-10' AND last_session = '2025-12-10'").await, 1, "narrowed");
     let end = now_plus(&client, 1).await;
     let lines = progress::lines(&mut client, PROFILE, &before, &end).await.unwrap();
-    assert!(lines.iter().any(|l| l == "Restarted 1 block (2025): 12-09–12-12 (from 12-10)"), "{lines:?}");
+    // (owner, 2026-11-25) a restart is a thing to look at, in plain words, with its day
+    assert!(lines.iter().any(|l| l == "⚠ Needs a look: 1 block restarted after a failure (Dec 10)"), "{lines:?}");
     scratch.drop().await;
 }
 
@@ -88,20 +89,17 @@ async fn a_hand_over_is_stated_once_with_what_it_did() {
     let w = progress::tick(&mut client, PROFILE, &end).await.unwrap().unwrap();
     let posts: Vec<String> = client.query("SELECT message FROM core.notice WHERE channel = 'progress' ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
     let text = posts.join("\n");
-    let ours: Vec<&str> = text.lines().filter(|l| l.contains("Hand-over") || l.contains("Admit build")).collect();
+    // (owner, 2026-11-25) the release in plain words, once; the successor not switched on yet said so
+    let ours: Vec<&str> = text.lines().filter(|l| l.contains("A release started")).collect();
     assert_eq!(ours.len(), 1, "{text}");
-    assert!(ours[0].contains(&format!("Hand-over {id}: ")), "{}", ours[0]);
-    assert!(
-        ours[0].ends_with(&format!("2 tapes moved — the rulings image · {b} not admitted yet")),
-        "no restart counted from the earlier stop; the successor withdrawn before keeps its instruction: {}",
-        ours[0]
-    );
+    assert!(ours[0].ends_with("A release started: the new version takes over the queued work (the new version is not switched on yet)"), "{}", ours[0]);
+    let _ = id;
     assert!(w.lines > 0);
     // the next window states nothing of it again
     let later = now_plus(&client, 40).await;
     progress::tick(&mut client, PROFILE, &later).await.unwrap();
     let again: Vec<String> = client
-        .query("SELECT message FROM core.notice WHERE channel = 'progress' AND message LIKE '%Hand-over%' ORDER BY notice_id", &[])
+        .query("SELECT message FROM core.notice WHERE channel = 'progress' AND message LIKE '%A release started%' ORDER BY notice_id", &[])
         .await
         .unwrap()
         .iter()
@@ -112,7 +110,7 @@ async fn a_hand_over_is_stated_once_with_what_it_did() {
     client.execute("DELETE FROM core.progress_shown WHERE source = 'hand_over'", &[]).await.unwrap();
     let end = now_plus(&client, 70).await;
     let lines = progress::lines(&mut client, PROFILE, &t0, &end).await.unwrap();
-    assert!(!lines.iter().any(|l| l.contains("Hand-over")), "{lines:?}");
+    assert!(!lines.iter().any(|l| l.contains("A release started")), "{lines:?}");
     scratch.drop().await;
 }
 
@@ -153,7 +151,7 @@ async fn a_cause_during_an_open_pause_is_alerted() {
     pause(&mut client, "job 7 (2025-12-10): a bundle refused: the day's members differ").await;
     let after = posted(&client).await;
     assert_eq!(after.len(), first.len() + 1, "alerted at once, once: {after:?}");
-    assert_eq!(after.last().unwrap(), &watch::alert_for("QUEUE_PAUSED", "Work queue already paused; also: job 7 (2025-12-10): a bundle refused: the day's members differ", "vyreon-core queue"));
+    assert_eq!(after.last().unwrap(), &watch::posted_alert("QUEUE_PAUSED", "Work queue already paused; also: job 7 (2025-12-10): a bundle refused: the day's members differ", "vyreon-core queue"));
     let change = watch::check(&mut client, &s, &now).await.unwrap();
     assert!(change.opened.is_empty() && change.resolved.is_empty(), "{change:?}");
     assert_eq!(

@@ -83,19 +83,32 @@ async fn a_busy_half_hour_then_a_quiet_one() {
     let busy = last_post(&client).await;
     eprintln!("BUSY:\n{busy}\n");
     let lines: Vec<&str> = busy.lines().collect();
-    assert_eq!(lines[0], "🟢 Phase 1: 1 of 3 days published (33.3%) · 1 building · no failures", "{busy}");
-    assert_eq!(lines[1], "   +1 this half hour:");
-    assert!(lines[2].starts_with("   Dec 10, 2025 ✓ ") && lines[2].contains("% of readings · "), "{busy}");
-    assert_eq!(lines[3], "   History passes: 0 of 2 done · waiting for Dec 11 (they run in date order)");
-    assert!(lines[4].starts_with("   Daily 2026-11-23: computing since "), "{busy}");
-    assert_eq!(lines.len(), 5, "{busy}");
-    assert!(!busy.contains("day-7f2c") && !busy.contains("job "), "no pod, no job id: {busy}");
-    // nothing new in the next half hour: one line
+    // (owner, 2026-11-25) plain words: no mark when fine, "done", "computing", "nothing broken"
+    assert_eq!(lines[0], "Phase 1: 1 of 3 days done (33.3%) · 1 computing · nothing broken", "{busy}");
+    assert!(lines[1].starts_with("New: Dec 10 done in ") && lines[1].contains("% of readings"), "{busy}");
+    assert_eq!(lines[2], "History layer (IV30 etc.): 0 of 2 — waiting for Dec 11 to be rebuilt (they go in date order)");
+    assert!(lines[3].starts_with("Nightly (Nov 23): computing since "), "{busy}");
+    assert_eq!(lines.len(), 4, "{busy}");
+    assert!(!busy.contains("day-7f2c") && !busy.contains("job ") && !busy.contains("2025-"), "no pod, no job id, no ISO date: {busy}");
+    // nothing new in the next half hour (before the morning's heartbeat): nothing posted
+    let posts = "SELECT count(*) FROM core.notice WHERE channel = 'progress'";
+    let before: i64 = client.query_one(posts, &[]).await.unwrap().get(0);
     let t2 = later(&client, &t1, 30).await;
     progress::tick_as(&mut client, PROFILE, LABEL, &t2).await.unwrap();
-    let quiet = last_post(&client).await;
-    eprintln!("QUIET:\n{quiet}\n");
-    assert_eq!(quiet, "🟢 Phase 1: 1/3 · 1 building · nothing new");
+    let after: i64 = client.query_one(posts, &[]).await.unwrap().get(0);
+    let morning: bool = client.query_one("SELECT extract(hour FROM ($1::text::timestamptz AT TIME ZONE 'Etc/GMT+6')) >= 9", &[&t2]).await.unwrap().get(0);
+    if !morning {
+        assert_eq!(after, before, "a quiet half hour posts nothing");
+    }
+    // the morning's heartbeat: the first window from 09:00 MT posts the state whatever happened, once a day
+    let nine: String = client.query_one("SELECT ((date_trunc('day', $1::text::timestamptz AT TIME ZONE 'Etc/GMT+6') + interval '1 day 9 hours 1 minute') AT TIME ZONE 'Etc/GMT+6')::text", &[&t2]).await.unwrap().get(0);
+    progress::tick_as(&mut client, PROFILE, LABEL, &nine).await.unwrap();
+    let heartbeat = last_post(&client).await;
+    assert!(heartbeat.starts_with("Phase 1: 1 of 3 days done") && heartbeat.contains("History layer"), "{heartbeat}");
+    let n: i64 = client.query_one(posts, &[]).await.unwrap().get(0);
+    let later2 = later(&client, &nine, 30).await;
+    progress::tick_as(&mut client, PROFILE, LABEL, &later2).await.unwrap();
+    assert_eq!(client.query_one(posts, &[]).await.unwrap().get::<_, i64>(0), n, "one heartbeat a day");
     scratch.drop().await;
 }
 
@@ -129,9 +142,14 @@ async fn a_failure_is_named_and_its_alert_says_what_to_do() {
     let alert: String = client.query_one("SELECT message FROM core.notice WHERE post AND channel = 'alerts' AND message LIKE '🔴 Day%' ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
     eprintln!("ALERT:\n{alert}\n");
     let lines: Vec<&str> = alert.lines().collect();
-    assert!(lines[0].starts_with("🔴 Day 2025-12-09 failed for the last time (job "), "{alert}");
-    assert_eq!(lines[1], "A failed day block or pass leaves its day unpublished (shown to readers as missing, with its cause); a failed republish leaves its day as it was; published days are not affected.");
-    assert!(lines[2].starts_with("To do: After a fix, `vyreon-core queue retry-failed`; why it failed: `vyreon-core evidence show "), "{alert}");
+    // (owner, 2026-11-25) what happened, whether published numbers are affected, what to do; no job id,
+    // no ISO date, no code
+    assert_eq!(lines[0], "🔴 Day Dec 9 failed for the last time: the macro capture ran past its window", "{alert}");
+    assert!(
+        lines[1].starts_with("Published numbers affected: that day stays unpublished (readers see it missing, with its cause). To do: after a fix, retry the failed work (`vyreon-core queue retry-failed`); why it failed: `vyreon-core evidence show "),
+        "{alert}"
+    );
+    assert_eq!(lines.len(), 2, "{alert}");
     let t1 = later(&client, &t0, 30).await;
     progress::tick_as(&mut client, PROFILE, LABEL, &t1).await.unwrap();
     let post = {
@@ -140,14 +158,18 @@ async fn a_failure_is_named_and_its_alert_says_what_to_do() {
     };
     eprintln!("FAILURE:\n{post}\n");
     let lines: Vec<&str> = post.lines().collect();
-    assert_eq!(lines[0], "🔴 Phase 1: 0 of 2 days published (0%) · 0 building · 1 failed", "{post}");
-    assert!(post.contains("Restarted 1 block (2025): 12-09–12-10 (attempt 2)"), "the retry is named: {post}");
-    assert!(post.lines().any(|l| l.contains("Day 2025-12-09 failed for the last time and is set aside")), "the failure is named: {post}");
-    // an alert that needs nothing of the owner says so by having no "To do"
-    let provider = watch::alert_for("PROVIDER_ERRORS", "Provider (Intrinio) errors stopped 3 attempts in the last 30 minutes (HTTP 502)", "vyreon-core evidence list");
-    assert_eq!(provider, "🔴 Provider (Intrinio) errors stopped 3 attempts in the last 30 minutes (HTTP 502)\nWork is retried by itself; published numbers are not affected.");
+    // (owner, 2026-11-25) 🔴 only with an alert open; the retry a thing to look at; the failure in plain words
+    assert_eq!(lines[0], "🔴 Phase 1: 0 of 2 days done (0%) · 0 computing · 1 failed", "{post}");
+    assert!(post.contains("⚠ Needs a look: 1 block restarted after a failure (Dec 9)"), "the retry is named: {post}");
+    assert!(post.lines().any(|l| l.ends_with("⚠ Dec 9 could not be computed after its tries: set aside, the rest goes on")), "the failure is named: {post}");
+    // an alert that needs nothing of the owner says so
+    let provider = watch::posted_alert("PROVIDER_ERRORS", "Provider (Intrinio) errors stopped 3 attempts in the last 30 minutes (HTTP 502)", "vyreon-core evidence list");
+    assert_eq!(
+        provider,
+        "🔴 Provider (Intrinio) errors stopped 3 attempts in the last 30 minutes (HTTP 502)\nPublished numbers not affected: the work is retried by itself. Nothing to do: it is handled automatically."
+    );
     // a resolution keeps its duration
-    assert_eq!(watch::resolved_text("Work queue paused, nothing is handed out: release", 720), "✅ Resolved: Work queue paused, nothing is handed out: release (it was open 12 min)");
+    assert_eq!(watch::posted_resolved("Work queue paused, nothing is handed out: release", 720), "✅ Resolved: Work queue paused, nothing is handed out: release (it was open 12 min)");
     scratch.drop().await;
 }
 
@@ -177,13 +199,14 @@ async fn a_hand_over_is_a_few_short_lines() {
     progress::tick_as(&mut client, PROFILE, LABEL, &t1).await.unwrap();
     let post = last_post(&client).await;
     eprintln!("HAND-OVER:\n{post}\n");
-    let steps: Vec<&str> = post.lines().skip(1).map(|l| &l[9..]).collect();
-    let b8 = b.split('+').next().unwrap();
-    assert!(steps.contains(&"Queue paused: release c9c23ca5: D-461 rulings"), "{post}");
-    assert!(steps.contains(&format!("Build {b8} withdrawn: handed over to build {new}: D-461 rulings").as_str()), "{post}");
-    // C-077: the running block finishes its day instead of being stopped and restarted
-    assert!(steps.iter().any(|l| l.starts_with("Hand-over ") && l.contains(&format!("{b8} → c9c23ca5, 2 blocks moved, 1 running block finishing its day first — D-461 rulings"))), "{post}");
-    assert!(steps.contains(&"Build c9c23ca5 admitted") && steps.contains(&"Queue resumed"), "{post}");
+    // (owner, 2026-11-25) each step in plain words, no build, no code, no admission line
+    let steps: Vec<&str> = post.lines().skip(1).filter(|l| l.len() > 6 && l.as_bytes()[2] == b':').map(|l| &l[6..]).collect();
+    assert!(steps.contains(&"Queue paused: a release is switching versions"), "{post}");
+    assert!(steps.contains(&"A release started: 1 block of the old version finishes its current day, then the new version takes over"), "{post}");
+    assert!(steps.contains(&"Queue resumed"), "{post}");
+    assert!(!post.contains("c9c23ca5") && !post.contains("D-461") && !post.contains("admitted"), "{post}");
+    assert!(post.lines().any(|l| l.starts_with("Release: 1 block of the old version finishing its current day")), "{post}");
+    let _ = &b;
     assert!(post.lines().all(|l| l.chars().count() < 160), "short lines: {post}");
     scratch.drop().await;
 }
