@@ -888,6 +888,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   replay files can be regenerated from the SIP archive); Cboe permission reply pending.
 
 ## Decisions waiting on the owner
+- **Owner action, remind at EVERY status (owner, 2026-11-24: "ill make it in the morning but please remind me every status"):**
+  create a read-only DigitalOcean token for core's spend watch (automation debt 3) as a cluster secret (exact step in
+  deploy/k8s/README.md once release 3 documents it). Also pending: Intrinio Startup before Black Friday (12-month ≈ $5.9k >
+  the $5k cap; the cap would be raised deliberately).
 - RSS watchdog in place of the 2 GiB per-worker address-space cap (D-007; asked 2026-11-20).
 - D-404's consecutive-gap limit (WMO uses 5 days): not ruled.
 - Optimization items that change an integrity rule or a diagnostic: history endpoints trusting
