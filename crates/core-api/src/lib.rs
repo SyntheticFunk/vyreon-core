@@ -10,6 +10,7 @@ pub mod adjustments;
 pub mod backups;
 pub mod notices;
 pub mod reader;
+pub mod spend;
 pub mod worker;
 
 use axum::Json;

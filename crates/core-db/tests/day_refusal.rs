@@ -71,7 +71,7 @@ fn settings() -> Settings {
         daily: None,
         archive: None,
         refcheck_from: None,
-        backup_days: None,
+        backup_days: None, spend: None, recompute: None,
         refcheck_rerun_hours: None,
     }
 }

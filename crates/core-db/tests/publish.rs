@@ -592,7 +592,7 @@ async fn a_replaced_day_local_or_history_revision_takes_down_what_read_it() {
     assert_eq!(posted, [core_db::watch::alert_for("NOT_DERIVED", "A republish left 2 days that no job derives again: 2025-12-10, 2025-12-11", "vyreon-core log 20")]);
     // audit 2026-11-17 round w, 8 and 9: a job resolves nothing, queued or cancelled (a block may
     // be past the day already, a repair may be cancelled after); only the days derived again do
-    let settings = core_db::watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: 20, daily: None, archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
+    let settings = core_db::watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: 20, daily: None, archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
     let not_derived = async |client: &mut Client| {
         let now = core_db::watch::now(&*client).await.unwrap();
         core_db::watch::check(client, &settings, &now).await.unwrap();
@@ -647,7 +647,7 @@ async fn a_cancelled_repair_pass_leaves_its_day_a_problem() {
     build::admit(&client, &build, &json!({"checklist": "publish test", "by": "cargo test"})).await.unwrap();
     core_db::work::schedule(&mut client, core_db::work::Kind::OrderedPass, &profile, &build, "2025-12-10", "2025-12-10", 1).await.unwrap();
     client.execute("UPDATE core.job SET state = 'DONE', next_session = NULL, finished_at = now() WHERE kind = 'ORDERED_PASS'", &[]).await.unwrap();
-    let settings = core_db::watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: 20, daily: None, archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
+    let settings = core_db::watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: 20, daily: None, archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
     let not_derived = async |client: &mut Client| -> Vec<String> {
         let now = core_db::watch::now(&*client).await.unwrap();
         core_db::watch::check(client, &settings, &now).await.unwrap();

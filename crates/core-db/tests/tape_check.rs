@@ -112,7 +112,7 @@ async fn a_sample_check_keeps_the_verdict_only_beside_an_equal_cache_and_a_diffe
     assert_eq!(members.len(), 64);
     let b = build::register(&mut client, &inventories()[0]).await.unwrap().engine_build;
     build::admit(&client, &b, &json!({"checklist": "tape check test"})).await.unwrap();
-    let settings = Settings { profile: P.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
+    let settings = Settings { profile: P.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
 
     // nothing to verify before a cache is stored; a session that is not one is refused
     let e = work::schedule_verify(&mut client, P, &b, &[S]).await.unwrap_err();
@@ -291,7 +291,7 @@ async fn an_old_readers_fail_is_superseded_by_a_fixed_readers_pass_on_the_same_b
     let b = build::register(&mut client, &inventories()[0]).await.unwrap().engine_build;
     build::admit(&client, &b, &json!({"checklist": "tape reader order test"})).await.unwrap();
     reader_builds(&mut client).await;
-    let settings = Settings { profile: P.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
+    let settings = Settings { profile: P.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
     assert!(tape::put(&client, "AAPL", S, V1, &Cache::Body(TAPE_AAPL.to_vec())).await.unwrap());
     let whole = sha256_hex(TAPE_AAPL);
     let send = async |client: &mut tokio_postgres::Client, real: &str, change: &dyn Fn(&mut Value)| {

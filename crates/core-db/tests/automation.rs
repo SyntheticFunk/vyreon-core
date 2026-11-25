@@ -103,7 +103,7 @@ async fn a_check_that_never_reported_is_run_again_by_core_and_alerts_only_if_tha
         daily: None,
         archive: None,
         refcheck_from: Some(DAY.into()),
-        backup_days: None,
+        backup_days: None, spend: None, recompute: None,
         refcheck_rerun_hours: Some(refcheck::RERUN_AFTER_HOURS),
     };
     let reruns = "SELECT count(*) FROM core.job WHERE kind = 'REFCHECK'";
@@ -268,7 +268,7 @@ async fn the_scaler_starts_no_provider_work_while_the_budget_made_a_draw_wait() 
         daily: None,
         archive: None,
         refcheck_from: None,
-        backup_days: None,
+        backup_days: None, spend: None, recompute: None,
         refcheck_rerun_hours: None,
     };
     let at: Vec<String> = client
@@ -311,7 +311,7 @@ async fn a_job_that_keeps_losing_its_lease_is_one_alert_with_its_last_error() {
         daily: None,
         archive: None,
         refcheck_from: None,
-        backup_days: None,
+        backup_days: None, spend: None, recompute: None,
         refcheck_rerun_hours: None,
     };
     async fn lose(client: &mut Client, build: &str) -> Claim {
@@ -375,7 +375,7 @@ async fn a_worker_making_no_progress_is_one_alert_unless_it_declared_its_wait() 
         daily: None,
         archive: None,
         refcheck_from: None,
-        backup_days: None,
+        backup_days: None, spend: None, recompute: None,
         refcheck_rerun_hours: None,
     };
     async fn later(client: &Client, minutes: i32) -> String {
@@ -441,7 +441,7 @@ async fn a_download_step_is_its_own_wait_and_any_new_report_is_progress() {
         daily: None,
         archive: None,
         refcheck_from: None,
-        backup_days: None,
+        backup_days: None, spend: None, recompute: None,
         refcheck_rerun_hours: None,
     };
     async fn at(client: &Client, minutes: f64) -> String {

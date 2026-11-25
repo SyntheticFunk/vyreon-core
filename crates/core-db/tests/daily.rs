@@ -171,7 +171,7 @@ async fn a_build_that_cannot_work_queues_nothing_and_is_a_problem() {
     assert_eq!(refused, format!("daily runs: build {derived} is not admitted; 1 due sessions are not queued"));
     let n: i64 = client.query_one("SELECT count(*) FROM core.job", &[]).await.unwrap().get(0);
     assert_eq!(n, 0);
-    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d.clone()), archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
+    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d.clone()), archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
     let now = "2025-12-11 12:31:00+00";
     let stopped = format!("Daily runs stopped: build {derived} is not admitted, so no new session is queued");
     assert_eq!(watch::check(&mut client, &s, now).await.unwrap().opened, std::slice::from_ref(&stopped));
@@ -198,7 +198,7 @@ async fn a_build_that_cannot_work_queues_nothing_and_is_a_problem() {
 async fn a_failed_queueing_is_a_problem_before_the_digest() {
     let (scratch, mut client, b, _) = ready("daily_queue_failed").await;
     let d = daily(&b, "2025-12-10");
-    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d), archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
+    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d), archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
     client
         .batch_execute(
             "ALTER FUNCTION vyreon.ensure_months(date, date) RENAME TO ensure_months_kept;
@@ -287,7 +287,7 @@ async fn a_tick_waiting_on_a_hand_over_queues_nothing_under_the_withdrawn_build(
 async fn a_daily_table_that_cannot_be_read_is_said_and_the_other_checks_still_run() {
     let (scratch, mut client, b, _) = ready("daily_unreadable").await;
     let d = daily(&b, "2025-12-10");
-    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d), archive: None, refcheck_from: None, backup_days: None, refcheck_rerun_hours: None };
+    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d), archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
     client.batch_execute("ALTER TABLE core.daily_session RENAME TO daily_session_away").await.unwrap();
     work::pause(&client, "checking the watch's parts").await.unwrap();
     let now = "2025-12-11 12:31:00+00";

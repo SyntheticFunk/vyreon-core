@@ -121,7 +121,7 @@ async fn a_failure_is_named_and_its_alert_says_what_to_do() {
         daily: None,
         archive: None,
         refcheck_from: None,
-        backup_days: None,
+        backup_days: None, spend: None, recompute: None,
         refcheck_rerun_hours: None,
     };
     let now = watch::now(&client).await.unwrap();
