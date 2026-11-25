@@ -890,8 +890,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
 ## Decisions waiting on the owner
 - **Owner action, remind at EVERY status (owner, 2026-11-24: "ill make it in the morning but please remind me every status"):**
   create a read-only DigitalOcean token for core's spend watch (automation debt 3) as a cluster secret (exact step in
-  deploy/k8s/README.md once release 3 documents it). Also pending: Intrinio Startup before Black Friday (12-month ≈ $5.9k >
-  the $5k cap; the cap would be raised deliberately).
+  deploy/k8s/README.md once release 3 documents it).
+- **Intrinio Startup — DECIDED (owner, 2026-11-25):** Intrinio (support, after our bug reports) moved the account to Startup
+  effective 2026-12-01: every report we sent opened "We're a commercial customer (Vyreon Labs Inc.)" — drafted on our side,
+  untrue for the Individual Plan, and the trigger. Owner replied: buying Startup during the Black Friday sale; no
+  redistribution yet; offered to show how the data is used. Watch for Intrinio's answer (price/term/date). Bug reports from
+  now on: the data fault only — no company, customer or license wording — and the owner approves the text before sending.
 - RSS watchdog in place of the 2 GiB per-worker address-space cap (D-007; asked 2026-11-20).
 - D-404's consecutive-gap limit (WMO uses 5 days): not ruled.
 - Optimization items that change an integrity rule or a diagnostic: history endpoints trusting
