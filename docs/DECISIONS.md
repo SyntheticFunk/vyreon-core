@@ -3431,3 +3431,30 @@ Tests: `tests/day_refusal.rs` (the real refused day's `close_quotes` refusal hel
 once the real slice of 2025-12-10 is published after `retry-failed`; a failed-capture refusal retried once
 then held; the one-line inputs). `watch.rs`'s and `job_evidence.rs`'s failures that were refusals only by
 their wording now use another failure (a refusal is DAY_REFUSED's). Suite: 234.
+
+## C-076 The request ceiling holds over every rolling 60 s window, a release counted with its requests' way; a throttled carry refusal is transient (coordinator, 2026-11-24)
+**Finding.** Phase 1's 2024-07-23 was refused after Intrinio answered HTTP 429 (2026-11-24 ~22:55 UTC: the
+carry capture's `dividends/SPY`, company captures in the same minute; evidence 105) while the usage
+ledger's calendar minutes held 1,589-1,845 of the 1,900 ceiling (Intrinio's limit 2,000 a minute); the
+same on 2026-11-23 19:32 UTC. **Reading of the rule.** The budget is not a calendar-minute cap: it is a
+sliding-window reservation (the sliding-log limiter, held per lease; `budget.rs`): a lease counts at its
+full size from its grant, at what was used once released, until 60 s after its end, and a grant is made
+only with that sum within the ceiling. That bounds every rolling 60 s window [a, a + 60 s]: the last
+lease granted among those with requests in it was granted at t <= a + 60 s, and every other one ended at
+or after a >= t - 60 s, so that grant counted it. The ledger's calendar minutes (`core.request_usage`,
+booked at release) are no measure of it. **The gap closed.** A released lease ended at its release as
+core received it, though a request its worker was permitted just before still travels to the provider:
+it now ends `TRANSIT_SECONDS` (5 s) after its release, as an open lease's validity already allows. Cap
+setting unchanged (`VYREON_CORE_INTRINIO_PER_MINUTE`, 1,900 deployed).
+**Not established: why Intrinio answered 429 under it.** The guarantee is over the requests the workers
+draw permits for. A request on the same key outside core's budget (another machine's captures, the
+droplet's timers, an agent's provider calls) or one a capture sends without a permit would not be
+counted. To find out: Intrinio's account usage for those minutes against the ledger's bound
+(`vyreon-core budget ledger`), and an engine audit that every provider request draws a permit.
+**Refusals (C-075 amended; engine D-464).** A refused day's day-wide carry entry now says how the fill left
+the capture (`capture: "carry retryable"` after a throttled or failing provider); C-075 counts it transient
+(one quick retry), as an asset's retryably failed capture. Tests: `budget_tape.rs`
+`the_ceiling_holds_over_every_rolling_minute` (a full ceiling used in the previous calendar minute's last
+seconds holds the next minute's draws until 65 s after its releases) and the in-flight end in
+`the_budget_never_commits_more_than_its_ceiling`; `day_refusal.rs` (job 21818's carry refusal as the
+engine now states it: transient; fatal, unfinished, or without the class: held).
