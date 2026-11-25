@@ -168,7 +168,9 @@ async fn a_last_failure_and_a_provider_burst_are_problems_from_the_evidence() {
     let s = settings(None);
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2024-07-16", "2024-07-16", 1).await.unwrap();
     client.execute("UPDATE core.job SET max_attempts = 1", &[]).await.unwrap();
-    let stop = "stop: 2024-07-16 not published: 2024-07-16 refused by the input plan (plan.json)";
+    // (C-075: a day the input plan refused is DAY_REFUSED's, `day_refusal.rs`; this one a day held by the
+    // engine's fault share, as the engine words it)
+    let stop = "stop: 2024-07-16 not published: held: 512 of 2853 final slots are withheld for an engine fault (more than 0.1): AAPL--VS-O02 ...";
     let job = failed_attempt(&mut client, &b, stop).await;
     let now = watch::now(&client).await.unwrap();
     let summary = format!("Day 2024-07-16 failed for the last time (job {job}): {stop}");
