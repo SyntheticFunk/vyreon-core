@@ -114,6 +114,19 @@ fn the_refused_inputs_read_on_one_line_and_only_failed_captures_are_transient() 
     let fatal = json!([{"input": "options", "session": "2024-07-16", "role": "T", "status": "missing", "assets": {"ETHA": "ENGINE_FAULT: capture failed here (options fatal), not a provider absence: x"}}]);
     assert!(!work::refusal_inputs(&fatal).1);
     assert!(!work::refusal_inputs(&Value::Null).1);
+    // C-076 (engine D-464): job 21818's refusal of 2024-07-23, its carry capture outlasted by Intrinio's
+    // 429s, as the engine's plan now states it (the fill's class of the day-wide capture): transient
+    let carry = |how: &str| json!([{"input": "carry", "session": "2024-07-23", "role": "T", "status": "missing", "blocking": true,
+                                    "reason": "missing", "capture": how, "day": "2024-07-23"}]);
+    let (line, transient) = work::refusal_inputs(&carry("carry retryable"));
+    assert_eq!(line, "carry (T 2024-07-23, missing; the fill: carry retryable) missing");
+    assert!(transient);
+    assert!(!work::refusal_inputs(&carry("carry fatal")).1);
+    assert!(!work::refusal_inputs(&carry("carry: the fill did not run to its end, exit 1")).1);
+    // the same entry before D-464 (no `capture`): nothing says it was the fill's, held
+    let mut before = carry("");
+    before[0].as_object_mut().unwrap().remove("capture");
+    assert!(!work::refusal_inputs(&before).1);
 }
 
 #[tokio::test]

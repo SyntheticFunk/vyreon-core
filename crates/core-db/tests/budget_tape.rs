@@ -26,6 +26,42 @@ fn granted(grant: Grant) -> (i64, i32) {
     }
 }
 
+/// C-076 (phase 1, 2026-11-24: Intrinio answered 429 while the calendar minutes of the usage ledger
+/// held 1,589-1,845 of 1,900): the ceiling holds over every rolling 60 s window, never a calendar minute.
+/// A full ceiling used in the last seconds of one minute holds the next minute's first draws until those
+/// requests are 60 s old at the provider; the ledger's minutes are where releases were booked.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn the_ceiling_holds_over_every_rolling_minute() {
+    let (scratch, mut client) = migrated("budget_rolling").await;
+    let budget = Budget { per_minute: 1900, ..Budget::default() };
+    let mut ids = Vec::new();
+    for w in ["w1", "w2", "w3", "w4"] {
+        ids.push(granted(budget::draw(&mut client, budget, w, 600).await.unwrap()));
+    }
+    assert_eq!(ids.iter().map(|(_, n)| n).sum::<i32>(), 1900);
+    for ((id, n), w) in ids.iter().zip(["w1", "w2", "w3", "w4"]) {
+        budget::release(&mut client, *id, w, &json!({"options": n})).await.unwrap();
+    }
+    // used in the last ten seconds of the previous calendar minute: a new minute frees nothing
+    let shift = |secs: i32| format!(
+        "UPDATE core.budget_lease SET granted_at = granted_at - make_interval(secs => {secs}), released_at = released_at - make_interval(secs => {secs}),
+                valid_until = valid_until - make_interval(secs => {secs})"
+    );
+    client.execute(&shift(10), &[]).await.unwrap();
+    assert!(matches!(budget::draw(&mut client, budget, "w5", 1).await.unwrap(), Grant::Wait { .. }));
+    // 50 s on: still inside a rolling minute of them (with their way to the provider)
+    client.execute(&shift(50), &[]).await.unwrap();
+    match budget::draw(&mut client, budget, "w5", 1).await.unwrap() {
+        Grant::Wait { seconds } => assert!(seconds > 0.0 && seconds <= 6.0, "{seconds}"),
+        other => panic!("{other:?}"),
+    }
+    // past it: the whole ceiling again
+    client.execute(&shift(6), &[]).await.unwrap();
+    assert_eq!(granted(budget::draw(&mut client, budget, "w5", 600).await.unwrap()).1, 600);
+    scratch.drop().await;
+}
+
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn the_budget_never_commits_more_than_its_ceiling() {
@@ -64,8 +100,11 @@ async fn the_budget_never_commits_more_than_its_ceiling() {
     assert!(over.contains("700 requests on a lease of 600"), "{over}");
     assert_eq!(budget::committed(&client).await.unwrap(), 1900);
     assert!(matches!(budget::draw(&mut client, budget, "w5", 1).await.unwrap(), Grant::Wait { .. }));
-    // a lease stops counting a minute after its end
-    client.execute("UPDATE core.budget_lease SET released_at = released_at - interval '61 seconds', granted_at = granted_at - interval '2 minutes', valid_until = valid_until - interval '2 minutes' WHERE budget_lease_id = $1", &[&first]).await.unwrap();
+    // a lease stops counting a minute after its end; C-076: a released one's end is its release and the
+    // requests' way to the provider (a request permitted just before the release still reaches it after)
+    client.execute("UPDATE core.budget_lease SET released_at = released_at - interval '62 seconds', granted_at = granted_at - interval '2 minutes', valid_until = valid_until - interval '2 minutes' WHERE budget_lease_id = $1", &[&first]).await.unwrap();
+    assert_eq!(budget::committed(&client).await.unwrap(), 1900, "62 s after its release: its last requests may be 57 s old at the provider");
+    client.execute("UPDATE core.budget_lease SET released_at = released_at - interval '4 seconds' WHERE budget_lease_id = $1", &[&first]).await.unwrap();
     assert_eq!(budget::committed(&client).await.unwrap(), 1750);
     // what was used is kept by worker and category
     let usage: Vec<(String, String, i64)> = client
