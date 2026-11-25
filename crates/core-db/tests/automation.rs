@@ -179,6 +179,44 @@ async fn a_check_that_never_reported_is_run_again_by_core_and_alerts_only_if_tha
         }
     }
     let slots: Vec<Value> = store.lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+    // (live, 2026-11-25: report 33) each line's keys in the engine's order (`refcheck::write_dump`), its
+    // measurement id within the first 400 characters, where the reference suite looks for it
+    const ENGINE_ORDER: [&str; 11] = ["profile", "measurement_id", "object_id", "revision_id", "slot_state", "method_version", "science_version", "body_sha256", "body_text", "receipt", "stream"];
+    for line in store.lines() {
+        let at: Vec<usize> = ENGINE_ORDER.iter().map(|k| line.find(&format!("\"{k}\":")).unwrap_or_else(|| panic!("{k}"))).collect();
+        assert!(at.windows(2).all(|w| w[0] < w[1]) && at[0] == 1, "keys in the engine's order: {}", &line[..120.min(line.len())]);
+        assert!(line[..400.min(line.len())].contains("\"measurement_id\":"), "{}", &line[..120]);
+    }
+    let rev_order = ["revision_id", "date", "profile", "state", "base_revision", "engine_build", "snapshot_cutoff", "slots"];
+    for line in revisions.lines() {
+        let at: Vec<usize> = rev_order.iter().map(|k| line.find(&format!("\"{k}\":")).unwrap()).collect();
+        assert!(at.windows(2).all(|w| w[0] < w[1]), "{line}");
+    }
+    // the bytes core serves, through the reference suite's own loader: every slot found
+    let suite = std::env::var("VYREON_REFERENCE_SUITE").expect("VYREON_REFERENCE_SUITE: the engine's tools/reference, whose loader reads the dump");
+    let dir = std::env::temp_dir().join(format!("vyreon-dump-load-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("store.jsonl"), &store).unwrap();
+    // every measurement whose slots all carry roles (the bodies the suite compares; the others it never asks for)
+    let script = r#"import sys, json
+sys.path.insert(0, sys.argv[1])
+from refcheck.published import load_store, body_value
+slots = [json.loads(l) for l in open(sys.argv[2] + "/store.jsonl", encoding="utf-8")]
+rolled = {}
+for s in slots:
+    m = s["measurement_id"]
+    rolled[m] = rolled.get(m, True) and "roles" in body_value(json.loads(s["body_text"]))
+want = {m for m, ok in rolled.items() if ok}
+print(len(load_store(sys.argv[2], want)), sum(s["measurement_id"] in want for s in slots), len(want))"#;
+    let out = std::process::Command::new("python3").args(["-I", "-c", script, &suite, dir.to_str().unwrap()]).output().unwrap();
+    std::fs::remove_dir_all(&dir).unwrap();
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let said = String::from_utf8_lossy(&out.stdout);
+    let n: Vec<usize> = said.split_whitespace().map(|x| x.parse().unwrap()).collect();
+    // the slice's role-carrying bodies are over 2,000 characters: with the keys sorted, each line's
+    // measurement id came after its body, past the suite's 400, and none of these was found
+    assert!(n[2] >= 2, "the slice's role-carrying slots are asked for: {said}");
+    assert_eq!(n[0], n[1], "the suite finds every slot of core's dump it asks for: {said}");
     let held = count(&client, &format!("SELECT count(*) FROM vyreon.measurement WHERE revision_id IN ({base}, {local})")).await;
     assert_eq!(slots.len() as i64, held);
     for s in &slots {

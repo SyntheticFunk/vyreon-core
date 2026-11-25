@@ -123,6 +123,69 @@ fn a_document_is_checked_before_anything_is_stored() {
     refused(document(&a, ""), "failed_unexplained");
 }
 
+/// C-080 (live, 2026-11-25): report 33, core's re-run of 2024-07-10, completed with 3,332 of its dump's
+/// slots "not published": the suite could not read core's dump (its keys sorted), so it judged nothing of
+/// the day. Kept as not run, with why, never as a disagreement; a check that found its slots (B0's
+/// census, none missing) is kept as completed (the test above).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_check_that_could_not_read_its_dump_is_kept_as_not_run() {
+    let scratch = Scratch::new("refcheck_unread").await;
+    let mut client = scratch.client().await;
+    migrate::apply(&mut client, &migrate::embedded().unwrap()).await.unwrap();
+    work::load_calendar(&mut client, &serde_json::from_str(test_support::CALENDAR).unwrap()).await.unwrap();
+    let fixtures = test_support::fixtures();
+    let doc = universe::read_responses(&fixtures.join("engine-v1-PROFILE.json"), &fixtures.join("intrinio-universe")).unwrap();
+    universe::store(&mut client, &doc).await.unwrap();
+    let base_build = build::register(&mut client, &with_day_local(inventories().remove(0))).await.unwrap().engine_build;
+    build::admit(&client, &base_build, &json!({"checklist": "refcheck test"})).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &base_build, "2025-12-10", "2025-12-10", 30).await.unwrap();
+    let block = work::claim(&mut client, Kind::DayBlock, &base_build, "w1", HOUR).await.unwrap().unwrap();
+    let (header, scalars, files) = parts(BASE);
+    let path = bundle("refcheck-unread-base", &header, &scalars, &files);
+    let published = publish_for_lease(&mut client, &path, &block.token).await.unwrap();
+    std::fs::remove_file(&path).unwrap();
+    let (lh, ls, lf) = day_local_parts(&base_build, "2025-12-10", published.revision_id);
+    let path = bundle("refcheck-unread-day-local", &lh, &ls, &lf);
+    let day_local = publish_for_lease(&mut client, &path, &block.token).await.unwrap();
+    std::fs::remove_file(&path).unwrap();
+    work::day_done(&mut client, &block.token, "2025-12-10").await.unwrap();
+
+    // report 33's document, bound to this day's revisions
+    let mut text = String::new();
+    GzDecoder::new(test_support::REFCHECK_RERUN_2024_07_10_UNREAD).read_to_string(&mut text).unwrap();
+    let (line, report) = text.split_once('\n').unwrap();
+    let mut a: Value = serde_json::from_str(line).unwrap();
+    assert_eq!((a["outcome"].as_str(), a["counts"]["failed"].as_i64()), (Some("COMPLETED"), Some(3380)));
+    a["session"] = json!("2025-12-10");
+    a["revisions"] = json!([published.revision_id, day_local.revision_id]);
+    a.as_object_mut().unwrap().remove("rerun");
+    let c = refcheck::check(document(&a, report), "2025-12-10").unwrap();
+    assert_eq!(c.missing_slots, Some(3332));
+    let (new, id) = refcheck::put(&mut client, &block.token, &c).await.unwrap();
+    assert!(new);
+    let listed = refcheck::list(&client, Some("2025-12-01"), None, 10).await.unwrap();
+    let r = &listed[0];
+    assert_eq!((r["report_id"].as_i64(), r["outcome"].as_str(), r["checked"].as_i64(), r["failed"].as_i64()), (Some(id), Some("NOT_RUN"), None, None));
+    let why = r["why"].as_str().unwrap();
+    assert!(why.starts_with("the suite found 3332 of the dump's ") && why.contains("could not read its dump"), "{why}");
+    // the document is kept as sent, for the owner to read
+    let (_, _, kept) = refcheck::show(&client, "2025-12-10", None).await.unwrap().unwrap();
+    assert_eq!(kept, report);
+
+    // judged as a check that did not run, never as a disagreement
+    let at: String = client
+        .query_one("SELECT (published_at + interval '6 hours')::text FROM vyreon.day_revision WHERE revision_id = $1", &[&published.revision_id])
+        .await
+        .unwrap()
+        .get(0);
+    let settings = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None, refcheck_from: Some("2025-12-10".into()), backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
+    watch::check(&mut client, &settings, &at).await.unwrap();
+    let open = problems(&client).await;
+    assert_eq!(open.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(), ["REFCHECK_NOT_RUN"], "{open:?}");
+    scratch.drop().await;
+}
+
 /// The reference check's lines of a check's change (the calendar's end and the others are not ours).
 fn ours(lines: Vec<String>) -> Vec<String> {
     lines.into_iter().filter(|l| l.starts_with("Reference check")).collect()
