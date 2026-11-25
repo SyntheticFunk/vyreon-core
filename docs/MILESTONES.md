@@ -1409,6 +1409,14 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   $340-420 phase-1 projection did NOT include it — void until re-measured. Profiling agent (eng-refperf) running; options
   for the owner after: optimise the suite (keeps every check), run checks after the block / at lower priority, or sample
   (owner's call: weakens validation).
+  **Root cause found (UTC−6 ~00:45): a reference-suite REGRESSION**, not steady cost. From core.refcheck_report timings: the
+  "price and chain inputs" stage was 1,340-1,480 CPU-s/day up to build f7b08efe and 44k-76k from 2a8f8c4f on (11-23: 44,057 of
+  52,815 CPU-s): D-447..455 / D-461 witness / D-451 lookback re-read and re-parse up to ~60 earlier sessions' files per session.
+  Fix D-466 on eng-refperf (3e890636/dc3b9d0c code, 9cd041db tests, e15238b3/b9814e29 docs): one symbol per pool task, each
+  session's files read once; 12× on real 2024-07-19 data (1,847 → 151 CPU-s, five symbols incl. AVGO split), identical
+  summaries on all 705 sessions; pytest 262/107; check expected 2.1 → ~0.5 node-h/day. Independence kept (no engine code).
+  **Release 4** = eng-refperf (+ declared waits for long legitimate waits) + core-fix10 (step 10, STALLED during drains); Codex
+  audit running (Gemini out of quota to ~12-01). Cluster proof after deploy: one day's full report before/after equal.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
