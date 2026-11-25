@@ -606,3 +606,47 @@ async fn a_reruns_dump_is_streamed_and_leaves_nothing() {
     assert_eq!(std::fs::read_dir(&spool).unwrap().count(), 0);
     s.scratch.drop().await;
 }
+
+/// C-077 (live, 2026-11-25 03:35 MT): a drained block whose worker goes on past its drained day (an engine
+/// before D-465) sends the next day's bundle. It is refused, its lease ends and one line says so; the
+/// queue is not paused (it was, live, until resumed by hand). Its later day is the successor's already.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_drained_blocks_overrun_ends_its_lease_and_pauses_nothing() {
+    let s = service("api_drain_overrun").await;
+    let mut admin = s.scratch.client().await;
+    work::schedule(&mut admin, Kind::DayBlock, PROFILE, &s.base_build, "2025-12-10", "2025-12-11", 2).await.unwrap();
+    let day: Value = s.claim("day-block", &s.base_build, "day-block-x1-old").await.json().await.unwrap();
+    let token = day["lease_token"].as_str().unwrap();
+    // the release: a successor reading the same profiles, the block drained on its first day
+    let mut inv = test_support::slice::with_day_local(inventories().remove(0));
+    inv["engine_build"] = json!("slice-successor");
+    let new = build::register(&mut admin, &inv).await.unwrap().engine_build;
+    let preview = build::hand_over(&mut admin, &s.base_build, &new, "release 4", true, None).await.unwrap();
+    let handed = build::hand_over(&mut admin, &s.base_build, &new, "release 4", false, Some(&preview.token)).await.unwrap();
+    assert_eq!(handed.draining.len(), 1);
+    build::admit(&admin, &new, &json!({"checklist": "worker API test"})).await.unwrap();
+    // the drained day, whole
+    let (mut header, scalars, files) = parts(BASE);
+    (header.represented_date, header.engine_build) = ("2025-12-10".into(), s.base_build.clone());
+    let (status, published) = s.publish(token, &bundle("overrun-base-10", &header, &scalars, &files)).await;
+    assert_eq!(status, StatusCode::OK, "{published}");
+    let (h, sc, f) = test_support::slice::day_local_parts(&s.base_build, "2025-12-10", published["revision_id"].as_i64().unwrap());
+    assert_eq!(s.publish(token, &bundle("overrun-local-10", &h, &sc, &f)).await.0, StatusCode::OK);
+    let (status, done) = s.post("/days/2025-12-10/done", token, json!({})).await;
+    assert_eq!((status, done["last"].as_bool()), (StatusCode::OK, Some(true)));
+    // the worker goes on: the next day's bundle
+    header.represented_date = "2025-12-11".into();
+    let (status, said) = s.publish(token, &bundle("overrun-base-11", &header, &scalars, &files)).await;
+    assert_eq!(status, StatusCode::GONE, "{said}");
+    let q = work::status(&admin).await.unwrap();
+    assert_eq!(q["paused"], false, "{q}");
+    assert_eq!(s.post("/lease/heartbeat", token, json!({})).await.0, StatusCode::GONE, "its lease ended");
+    let job: String = admin.query_one("SELECT state FROM core.job WHERE job_id = $1", &[&day["job_id"].as_i64().unwrap()]).await.unwrap().get(0);
+    assert_eq!(job, "DONE");
+    let line: String = admin.query_one("SELECT message FROM core.notice WHERE message LIKE 'Draining job %' ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    assert!(line.contains("sent 2025-12-11 after its drained day 2025-12-10") && line.contains("nothing paused") && line.contains("build slice-successor's"), "{line}");
+    let carried: i64 = admin.query_one("SELECT count(*) FROM core.job WHERE engine_build = 'slice-successor' AND kind = 'DAY_BLOCK' AND first_session = '2025-12-11' AND state = 'QUEUED'", &[]).await.unwrap().get(0);
+    assert_eq!(carried, 1, "its later day is the successor's");
+    s.scratch.drop().await;
+}
