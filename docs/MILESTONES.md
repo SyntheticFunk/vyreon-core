@@ -896,6 +896,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   untrue for the Individual Plan, and the trigger. Owner replied: buying Startup during the Black Friday sale; no
   redistribution yet; offered to show how the data is used. Watch for Intrinio's answer (price/term/date). Bug reports from
   now on: the data fault only — no company, customer or license wording — and the owner approves the text before sending.
+  Pricing (Intrinio's AI sales agent, to be confirmed by a person): BLACKFRIDAY = 50% off the Startup base for 6 months →
+  year 1 $4,995 ($166.50/mo ×6 + $666/mo ×6; regular $5,994), annual commitment billed quarterly — under the $5k cap only with
+  the promo. Checkout shows no coupon field/discount; owner emailed Flavia + support (2026-11-25) to attach it before
+  2026-11-30 (promo end; auto-transition 12-01). Do not complete checkout until the discount shows. Chase ~11-28 if silent.
 - RSS watchdog in place of the 2 GiB per-worker address-space cap (D-007; asked 2026-11-20).
 - D-404's consecutive-gap limit (WMO uses 5 days): not ruled.
 - Optimization items that change an integrity rule or a diagnostic: history endpoints trusting
