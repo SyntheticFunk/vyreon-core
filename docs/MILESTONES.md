@@ -1454,6 +1454,14 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   + guard + atomic `queue resume --expect`, drain-aware STALLED, drained overruns don't pause, plain-language Discord (both
   channels; total 597 over the configured range), engine faults counted by stated reason (0062 re-tallies). Worker half of
   release 4 waits for the eng-faults audit: then merge eng-faults into worker (a79930e2 + D-468), rebuild, release.sh.
+  **eng-faults audit (Codex) fixed and merged (UTC−6 ~05:40): engine worker 70d83bbc** (8a0c3a13/1014ef5a/9d27e2cc/789e726d):
+  every reader restates before reading; 158 unrecoverable ARKK sessions stated TAPE_LISTING_RESTATED (engine cause) instead of
+  ENGINE_FAULT, windows not all-or-nothing (FIELD/EVC01 keep the other sessions); stale verify PASS handled; reopen/coverage
+  restate; StochRSI %K own window → DLM-TECHNICAL 1.12.0; short-history price levels stated; daily-row finality; basis count
+  check. Reader identity 36c70d1c unchanged on the frozen slice (436 files) — cluster tape verify must confirm before admission.
+  Suites 1,776/1 (the 1 = h3-asset address_bound test, fails only under memory pressure of a parallel full run; passes alone on
+  base and branch), pytest 268/107. Correction logged: the agent's first "6,826 passed" was wrong (run had stopped).
+  Next: core registers TAPE_LISTING_RESTATED (core-r4b) and ships FIRST; then the worker 70d83bbc release (drain, D-465).
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
