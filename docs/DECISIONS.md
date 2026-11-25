@@ -3397,3 +3397,12 @@ copied forward byte for byte. This is that mechanism on the cluster.
   `the_scoped_check_catches_a_lost_carried_slot_and_passes_a_correct_copy`, `a_compare_only_day_block_publishes_nothing`,
   `planning_retirement_failures_and_measurement`, the planner test's prints coverage), `progress.rs`'s hand-over line,
   `digest_format.rs`'s JOB_FAILED consequence. release.sh: syntax checked, the two checks read. The suite: 231.
+- **The engine half's plans (engine D-462 release-2 audit, 2026-11-24).** The engine's inventory changed, and
+  core's plans with it (`test-support/fixtures/engine-republish-plans.json` regenerated from the engine
+  binary): a scope reaching a day-local record that reads the option population or surface files (DLM-CHAIN,
+  DLM-IV, DLM-GREEKS, DLM-EVENTS, DLM-GAMMA, and base families reaching them) now recomputes and republishes
+  VS-O02, VS-O06 and VS-IVS01 with their dependants (a stateless worker holds none of the published files
+  those bodies name), so such a scope costs about a day; a company-only scope fetches the quotes too;
+  DLM-VWAP reads D111-TEMP01. The cheap day-local scopes are the daily-bar ones (DLM-TECHNICAL, its
+  measurements). The tests use DLM-TECHNICAL as their day-local scope and check DLM-CHAIN's new base. The
+  cluster test plan (deploy/k8s/README.md §11) should take DLM-TECHNICAL as its first scoped day. Suite: 231.
