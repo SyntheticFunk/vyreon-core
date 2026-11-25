@@ -1349,6 +1349,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   Ship AFTER the 8 running blocks publish their first days (~20:00-21:00; a release deletes running Jobs): release.sh --core
   dd3f766 (migrations 57, 58), then release.sh <worker tag>; then the DLM-TECHNICAL scoped cluster test (one recent day both
   ways), then the DLM-TECHNICAL scoped republish of every day built before release 2.
+  **Automation debts approved (owner, UTC−6 20:10): "1-5 can all get built up".** (1) draining release (running blocks finish
+  their current day instead of being deleted), (2) kubeconfig refresh — DONE: deploy/k8s/ops/kubeconfig.sh (618e048), run,
+  new kubeconfig valid 7 days (to ~12-01); release.sh auto-refresh in release 3, (3) spend watch (DO billing → daily progress
+  line, alerts at 80/100% of the $500), (4) build.sh credential-free docker config, (5) automatic recompute planning after a
+  method change. Builder on core-auto3 / eng-auto3 (from release-2 heads) → release 3, one audit by both.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
