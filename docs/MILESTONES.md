@@ -1329,6 +1329,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   plan-refused days (DAY_REFUSED, hold instead of burning attempts). Disk: eng-rel worktree + target (79 GB) removed (merged).
   Open question: are the Jan-Feb 2024 bulk files' quote characters valid CSV quoting (our reader too strict) or a provider fault?
   Files not retained; check one when convenient (costs only API requests meanwhile).
+  **Correction (UTC−6 ~18:45): 07-23 was refused by Intrinio throttling, not ETHA** (my hypothesis was wrong). Evidence 105:
+  `carry_inputs: dividends/SPY: HTTP 429` (exit 2 = fatal, no step retry) + company-capture 429s, while core's calendar-minute
+  usage was 1,589-1,845 (< cap 1,900 < Intrinio 2,000): a calendar-minute cap lets a rolling 60 s window exceed 2,000.
+  D-463 (eng-etha 6237e806/f7ba7d30/51ad931b): carry exits 3 on throttle/transport so the fill retries; ETHA's not-yet-T−5
+  cohort noise removed (ETHA's ACT01 is correctly withheld PROVIDER_COVERAGE_START, as 2a8f8c4f published). Release 2 also
+  gets: rolling-60 s budget in core (root cause), C-075 transient class for throttle refusals; eng-etha merged into eng-scope.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the

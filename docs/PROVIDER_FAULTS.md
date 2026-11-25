@@ -58,3 +58,12 @@ are not re-found; the handling each led to stays in force where noted.
 Not a provider fault either (recorded so it is not re-found): FLEX options are not delivered at all (no
 FLEX tickers among Intrinio's 7,668 option tickers); Vyreon's volume is listed standard and adjusted
 contracts, FLEX excluded, by definition (engine D-362).
+
+## P-30 — HTTP 429 below the published per-minute limit (2026-11-24)
+- **Evidence:** cluster job 21818 (day 2024-07-23, build 1ae946f7), core evidence 105: `carry_inputs: dividends/SPY: HTTP 429
+  Too Many Requests` and company-capture `TRANSPORT:HTTP 429 … after 5 attempts` at ~22:55 UTC 2026-11-24, while core's
+  recorded usage was 1,589–1,845 requests per calendar minute (core cap 1,900; Intrinio's published limit 2,000/min).
+- **Reading:** most likely Intrinio counts a rolling window, so two busy adjacent calendar minutes exceed 2,000 across the
+  boundary; not confirmed with Intrinio. Not a data fault: no wrong value, a refused day.
+- **Handling:** core budgets over a rolling 60 s window (release 2); carry capture retries on throttling (engine D-463).
+- **Reported:** no.
