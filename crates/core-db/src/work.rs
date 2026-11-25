@@ -352,8 +352,8 @@ pub async fn sweep(client: &mut Client) -> Result<u64, String> {
 /// said on the alerts channel when the owner must act. A first computation (an unpublished day) is never
 /// touched: nothing of it can be withheld that was published.
 pub async fn guard_perished_blocks(client: &mut Client, build: &str) -> Result<(), String> {
-    // a database before 0057 (the tests' older schemas) has no prints to lose
-    let known: bool = client.query_one("SELECT to_regprocedure('core.prints_perished(date,date,integer)') IS NOT NULL", &[]).await.map_err(db)?.get(0);
+    // a database before 0063 (the tests' older schemas) has no prints to lose by this rule
+    let known: bool = client.query_one("SELECT to_regprocedure('core.prints_perished_at(date,timestamp with time zone,integer)') IS NOT NULL", &[]).await.map_err(db)?.get(0);
     if !known {
         return Ok(());
     }
@@ -361,7 +361,7 @@ pub async fn guard_perished_blocks(client: &mut Client, build: &str) -> Result<(
         .query(
             "SELECT DISTINCT j.job_id FROM core.job j JOIN core.session s ON s.session BETWEEN j.next_session AND j.last_session
              WHERE j.kind = 'DAY_BLOCK' AND j.state = 'QUEUED' AND j.engine_build = $1 AND NOT COALESCE(j.scope @> '{\"compare_only\": true}', false)
-               AND core.prints_perished(s.session, (now() AT TIME ZONE 'UTC')::date) AND core.day_published(s.session, j.profile_id)",
+               AND core.prints_perished_at(s.session, now()) AND core.day_published(s.session, j.profile_id)",
             &[&build],
         )
         .await
@@ -377,7 +377,7 @@ pub async fn guard_perished_blocks(client: &mut Client, build: &str) -> Result<(
                 "SELECT j.profile_id, j.scope::text,
                         ARRAY(SELECT s.session::text FROM core.session s WHERE s.session BETWEEN j.next_session AND j.last_session ORDER BY 1),
                         ARRAY(SELECT s.session::text FROM core.session s WHERE s.session BETWEEN j.next_session AND j.last_session
-                                AND core.prints_perished(s.session, (now() AT TIME ZONE 'UTC')::date) AND core.day_published(s.session, j.profile_id) ORDER BY 1)
+                                AND core.prints_perished_at(s.session, now()) AND core.day_published(s.session, j.profile_id) ORDER BY 1)
                  FROM core.job j WHERE j.job_id = $1 AND j.state = 'QUEUED' FOR UPDATE SKIP LOCKED",
                 &[&job],
             )
@@ -1048,7 +1048,7 @@ pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str
     // by the service's sweeper every half minute and does not stop this claim
     let _ = sweep(client).await;
     // C-074 (release-2 audit, Codex 2), in its own statements (a claim that leases nothing rolls back): a republish that reads EXQ01's prints is claimed only while the
-    // provider still serves its day's (`core.prints_perished`, as the planner reads it), whenever it was
+    // provider still serves its day's (`core.prints_perished_at`: C-081, engine D-512, a session counts once it has opened), whenever it was
     // queued, retried or carried: one past them is FAILED with that cause, never run to publish withheld
     if kind == Kind::Republish {
         let t = client.transaction().await.map_err(db)?;
@@ -1056,7 +1056,7 @@ pub async fn claim_as(client: &mut Client, kind: Kind, build: &str, worker: &str
             .query(
                 "UPDATE core.job j SET state = 'FAILED', finished_at = now()
                  WHERE j.kind = 'REPUBLISH' AND j.state = 'QUEUED' AND j.engine_build = $1 AND COALESCE(j.scope->'categories' ? 'exq01', false)
-                   AND core.prints_perished(j.first_session, (now() AT TIME ZONE 'UTC')::date)
+                   AND core.prints_perished_at(j.first_session, now())
                  RETURNING j.job_id, j.first_session::text",
                 &[&build],
             )

@@ -848,14 +848,36 @@ async fn compose(c: &mut impl GenericClient, profile: &str, phase: Option<&(Stri
         .query_one(
             "SELECT count(*), count(*) FILTER (WHERE state = 'DONE'), count(*) FILTER (WHERE state IN ('QUEUED', 'LEASED')) FROM core.job j
              WHERE j.kind = 'TAPE' AND j.profile_id = $1 AND j.state <> 'CANCELLED' AND core.build_runs(j.engine_build)
-               AND NOT COALESCE(j.scope @> '{\"verify\": true}', false) AND j.priority = 0",
+               AND NOT COALESCE(j.scope @> '{\"verify\": true}', false) AND NOT COALESCE(j.scope @> '{\"recapture\": true}', false) AND j.priority = 0",
             &[&profile],
         )
         .await
         .map_err(db)?;
+    // C-083: the re-capture under a new tape-reader identity, apart, with what waits for it
+    let r = c
+        .query_one(
+            "SELECT count(*), count(*) FILTER (WHERE state = 'DONE'), min(first_session) FILTER (WHERE state IN ('QUEUED', 'LEASED', 'FAILED'))::text
+             FROM core.job j
+             WHERE j.kind = 'TAPE' AND j.profile_id = $1 AND j.state <> 'CANCELLED' AND core.build_runs(j.engine_build)
+               AND COALESCE(j.scope @> '{\"recapture\": true}', false)",
+            &[&profile],
+        )
+        .await
+        .map_err(db)?;
+    let (all, done, waiting): (i64, i64, Option<String>) = (r.get(0), r.get(1), r.get(2));
+    if let Some(w) = waiting.filter(|_| all > done) {
+        status.push(format!(
+            "Tapes for the new reader: {} of {} sessions captured; backfill days from {} wait for them",
+            thousands(done),
+            thousands(all),
+            crate::plain::day(&w).unwrap_or_else(|| w.clone())
+        ));
+    }
     if t.get::<_, i64>(2) > 0 {
         status.push(format!("Tapes: {} of {} done", thousands(t.get(1)), thousands(t.get(0))));
     }
+    // C-084: the phase-1 stop rule's running count
+    status.extend(crate::stoprule::tally(c, profile).await?.and_then(|t| t.line()));
     // the newest daily session: computing, waiting, failed, or published today
     if let Some(d) = c
         .query_opt(

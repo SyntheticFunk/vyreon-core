@@ -15,3 +15,28 @@ fn run(test: &str) {
 fn release_core() {
     run("release-core.sh");
 }
+
+/// C-081 (engine D-480: the IP01 registry view's embedded bytes changed; each home must hold the new one,
+/// and a worker refuses a home whose copy differs): every worker home on the cluster (`VYREON_HOME`, the
+/// `/work` mount) is an `emptyDir`, so each pod materialises the view its build carries and none keeps an
+/// older one.
+#[test]
+fn every_worker_home_on_the_cluster_is_empty_when_its_pod_starts() {
+    let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../deploy/k8s");
+    let mut homes = 0;
+    for entry in std::fs::read_dir(&dir).unwrap() {
+        let path = entry.unwrap().path();
+        if path.extension().and_then(|e| e.to_str()) != Some("yaml") {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        let lines: Vec<&str> = text.lines().collect();
+        for line in &lines {
+            let Some(name) = line.trim().strip_prefix("- {name: ").and_then(|l| l.strip_suffix(", mountPath: /work}")) else { continue };
+            homes += 1;
+            let volume = lines.iter().position(|l| l.trim() == format!("- name: {name}")).unwrap_or_else(|| panic!("{}: no volume {name}", path.display()));
+            assert_eq!(lines[volume + 1].trim(), "emptyDir: {}", "{}: the home {name} is not an emptyDir", path.display());
+        }
+    }
+    assert!(homes >= 12, "{homes} homes found");
+}

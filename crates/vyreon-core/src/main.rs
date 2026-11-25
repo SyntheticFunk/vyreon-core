@@ -55,6 +55,13 @@
 //!                                                     the stored cache only when the recomputed one equals it byte for byte
 //!   vyreon-core tape checks                           the sample (C-059): one line, then each session's checks and
 //!                                                     every member not passed
+//!   vyreon-core tape recapture <profile> <build> [<first> <last>]   C-083: every session's tape captured again under
+//!                                                     a build with a new tape-reader identity: one TAPE job a session from
+//!                                                     the replay files' first (2023-05-24) to the last before today; day
+//!                                                     blocks wait for the tapes up to their last session; run again, it
+//!                                                     queues only what is missing
+//!   vyreon-core stoprule <profile> [<build>]          C-084: the phase-1 stop rule's count for the newest running build
+//!                                                     (or <build>) and its bad days
 //!   vyreon-core queue [pause <reason> | resume [--expect <reason>] | retry-failed | cancel <job>...]   the queue at a glance, or change it
 //!   vyreon-core omit <profile> <session> <reason...>  omit a date whose day failed for the provider (C-061): only while
 //!                                                     its day job stands FAILED, never for an engine fault (fixed and
@@ -314,6 +321,31 @@ async fn republish(profile: &str, build: &str, scope: &str, first: &str, last: &
 async fn tape_verify(profile: &str, engine_build: &str, sessions: &[&str]) -> Result<(), String> {
     let jobs = work::schedule_verify(&mut connect().await?, profile, engine_build, sessions).await?;
     println!("{} verify jobs: {}", jobs.len(), jobs.iter().map(i64::to_string).collect::<Vec<_>>().join(" "));
+    Ok(())
+}
+
+/// C-083: `tape recapture <profile> <build> [<first> <last>]`.
+async fn tape_recapture(profile: &str, engine_build: &str, range: Option<(&str, &str)>) -> Result<(), String> {
+    let r = core_db::tape::recapture(&mut connect().await?, profile, engine_build, range.map(|r| r.0), range.map(|r| r.1)).await?;
+    println!("{} TAPE jobs queued for {engine_build}, {} to {}; {} sessions already held by a tape job", r.jobs, r.first, r.last, r.kept);
+    println!("the recompute of the tape families' published days is planned by core once {engine_build} publishes a whole day (C-079): `vyreon-core recompute {profile} {engine_build} --plan`");
+    Ok(())
+}
+
+/// C-084: `stoprule <profile> [<build>]`.
+async fn stoprule(profile: &str, engine_build: Option<&str>) -> Result<(), String> {
+    let client = connect().await?;
+    let build = match engine_build {
+        Some(b) => b.to_owned(),
+        None => core_db::stoprule::newest_build(&client).await?.ok_or("no running build")?,
+    };
+    let (t, bad) = core_db::stoprule::days(&client, profile, &build).await?;
+    println!("build {build}: {} days published, {} judged, {} look bad", t.published, t.judged(), t.bad());
+    println!("{}", t.line().unwrap_or_else(|| "Stop rule: nothing to count yet".into()));
+    for (day, why) in bad {
+        println!("  {day}  {why}");
+    }
+    println!("whether each is an engine fault that changes a published value is the coordinator's classification (MILESTONES, PHASE-1 RUN RULE)");
     Ok(())
 }
 
@@ -1310,6 +1342,10 @@ async fn main() -> ExitCode {
         },
         ["tape", "verify", profile, engine_build, ref sessions @ ..] => tape_verify(profile, engine_build, sessions).await,
         ["tape", "checks"] => tape_checks().await,
+        ["tape", "recapture", profile, engine_build] => tape_recapture(profile, engine_build, None).await,
+        ["tape", "recapture", profile, engine_build, first, last] => tape_recapture(profile, engine_build, Some((first, last))).await,
+        ["stoprule", profile] => stoprule(profile, None).await,
+        ["stoprule", profile, engine_build] => stoprule(profile, Some(engine_build)).await,
         ["queue", ref change @ ..] => queue(change).await,
         ["omit", profile, session, ref reason @ ..] if !reason.is_empty() => omit(profile, session, reason).await,
         ["days", "retire", ref rest @ ..] => days_retire(rest).await,
