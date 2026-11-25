@@ -4,7 +4,6 @@
 # Needs KUBECONFIG and VYREON_DOKS_CLUSTER; the DO token as for do.sh. Prints no secret.
 set -uo pipefail
 S=$(cd "$(dirname "$0")" && pwd); C=${VYREON_DOKS_CLUSTER:?set VYREON_DOKS_CLUSTER}
-CEILING=${VYREON_SPEND_CEILING:-500}
 NS=vyreon
 core() { kubectl -n $NS exec -c core deploy/vyreon-core -- vyreon-core "$@" 2>/dev/null; }
 sql() { kubectl -n $NS exec vyreon-pg-1 -c postgres -- psql -X -A -t -F ' ' -d vyreon -c "$1" 2>/dev/null; }
@@ -17,17 +16,21 @@ echo "$KC" | grep -v ' is current$' | grep . || true
 # MT is the owner's clock, UTC−6 all year (C-072; Etc/GMT+6 is UTC−6, the POSIX sign inverted)
 echo "== $(date -u '+%Y-%m-%d %H:%M UTC') ($(TZ=Etc/GMT+6 date '+%H:%M MT'))"
 
-# money: DigitalOcean's own month-to-date usage. C-068 (audit opsurface ops.md 11): an error answer
-# (do.sh exits 1 on anything but 2xx) or an answer without the figure is "unreadable", never $0.00
+# money (release-3 audit, Codex 13): the ceiling is the spend since the owner's start (C-078: core's
+# `vyreon-core spend`, from DigitalOcean's figures, the start month's usage before it taken off, finished
+# months by their invoices), never the calendar month's usage, which is shown beside it for reference
+SPEND=$(core spend | head -1)
+case "$SPEND" in
+  "") echo "!! spend: core does not answer \`vyreon-core spend\` (the spend watch off, or core unreachable)" ;;
+  *"not known"*) echo "!! $SPEND" ;;
+  *) PCT=$(grep -oE '\(([0-9]+)%\)' <<<"$SPEND" | head -1 | tr -dc '0-9')
+     if [ -n "$PCT" ] && [ "$PCT" -ge 80 ]; then echo "!! $SPEND"; else echo "$SPEND"; fi ;;
+esac
 if BAL=$("$S/do.sh" GET /v2/customers/my/balance 2>&1); then
   echo "$BAL" | python3 -c "
 import json,sys
-b=json.load(sys.stdin); u=b.get('month_to_date_usage')
-if u in (None, ''): print('!! spend: unreadable (no month_to_date_usage in the answer)'); sys.exit()
-u=float(u); flag='  !! within \$50 of the ceiling' if u > $CEILING-50 else ''
-print(f'spend: \${u:.2f} month to date (ceiling \${$CEILING}){flag}')" || echo "!! spend: unreadable (the answer is not JSON)"
-else
-  echo "!! spend: unreadable: $(echo "$BAL" | tail -1 | cut -c1-160)"
+u=json.load(sys.stdin).get('month_to_date_usage')
+print('   DigitalOcean calendar month to date: ' + ('unreadable' if u in (None, '') else '\$%.2f' % float(u)) + ' (whole account; not the ceiling\'s measure)')" || echo "   DigitalOcean calendar month to date: unreadable"
 fi
 
 # the queue: core's own summary and pause
