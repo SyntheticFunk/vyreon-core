@@ -1124,6 +1124,23 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
         .iter()
         .map(|r| r.get(0))
         .collect();
+    // C-077 (live, 2026-11-25 22:17 MT: "Day blocks stalled … 45 claimable and none leased" while the 8
+    // day-block slots were the old build's draining blocks): a kind with a draining lease within its bound
+    // is waiting for those slots, not stalled; the progress channel says so (`progress`'s "Draining" line).
+    // Once the drains end (or one passes its bound) the clock starts again from the last lease's end
+    let draining: Vec<String> = c
+        .query(
+            &format!(
+                "SELECT DISTINCT {GROUP} FROM core.drain d JOIN core.lease l USING (lease_id) JOIN core.job j ON j.job_id = d.job_id
+                 WHERE l.ended_at IS NULL AND l.expires_at >= $1::text::timestamptz AND d.until >= $1::text::timestamptz"
+            ),
+            &[&now],
+        )
+        .await
+        .map_err(db)?
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
     // every kind leased: no stall, and the claimability view (the queue's longest query) is not
     // read (audit round 2 of core-watch, the suspicion: the check holds the problem lock a publish
     // may wait for)
@@ -1156,7 +1173,7 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
         // Gemini 1: a daily tape's stall was hidden by backfill pressure)
         let held_back = pressed && BUDGETED.contains(&kind);
         let claimable = if held_back { claimable - row.map_or(0, |r| r.get::<_, i64>(2)) } else { claimable };
-        if claimable == 0 || leased.iter().any(|l| l == kind) {
+        if claimable == 0 || leased.iter().any(|l| l == kind) || draining.iter().any(|l| l == kind) {
             c.execute("DELETE FROM core.stall_seen WHERE kind = $1", &[&kind]).await.map_err(db)?;
             continue;
         }

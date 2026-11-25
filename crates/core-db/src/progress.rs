@@ -745,6 +745,28 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
         };
         status.push(format!("History passes: {} of {} done{now} · {what}", thousands(done), thousands(all)));
     }
+    // C-077: the old build's blocks finishing their day after a release: their slots are why the new
+    // build's blocks have not started (not a stall: the watch's STALLED waits for them)
+    let d = c
+        .query_one(
+            "SELECT count(*), string_agg(DISTINCT split_part(j.engine_build, '+', 1), ', '), to_char(max(d.until) AT TIME ZONE $2, 'HH24:MI'),
+                    count(*) FILTER (WHERE j.next_session IS NULL)
+             FROM core.drain d JOIN core.lease l USING (lease_id) JOIN core.job j ON j.job_id = d.job_id
+             WHERE l.ended_at IS NULL AND j.profile_id = $1",
+            &[&profile, &ZONE],
+        )
+        .await
+        .map_err(db)?;
+    if d.get::<_, i64>(0) > 0 {
+        let (n, builds, until, checking): (i64, Option<String>, Option<String>, i64) = (d.get(0), d.get(1), d.get(2), d.get(3));
+        let check = if checking > 0 { format!(" ({checking} with the day done, its check to come)") } else { String::new() };
+        status.push(format!(
+            "Draining: {} of build {} finishing their day{check}, by {} MT at the latest; the new build's blocks start as they end",
+            counted(n, "block", "blocks"),
+            builds.unwrap_or_default(),
+            until.unwrap_or_default()
+        ));
+    }
     // the tapes, while some are still to do
     let t = c
         .query_one(
