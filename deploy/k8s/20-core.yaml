@@ -180,6 +180,9 @@ spec:
             # under the ceiling; else held and alerted. `off`: nothing planned by itself
             - name: VYREON_CORE_RECOMPUTE
               value: "on"
+            # phase 1's first session: earlier published days (none in this database) wait for the owner
+            - name: VYREON_CORE_RECOMPUTE_FROM
+              value: "2024-07-09"
             - name: VYREON_CORE_NODE_HOUR_USD
               value: "0.167"
           ports:
