@@ -289,6 +289,13 @@ const SPEND_LINE: Part = Part { key: "spend line", what: "queue the morning's sp
 const RECOMPUTE: Part = Part { key: "recompute", what: "plan the recompute of days a new build's methods changed", kinds: &[] };
 const TICK_PARTS: [&Part; 5] = [&CHECK, &DIGEST, &WEEKLY, &SPEND_LINE, &RECOMPUTE];
 
+/// (owner, 2026-11-25) a failure's cause in plain words: the engine's reason, not its stop message's
+/// framing ("day D: stop: D not published: <reason>" says "<reason>").
+pub fn plain_cause(why: &str) -> String {
+    let tail = why.rsplit_once("not published: ").map(|(_, r)| r).or_else(|| why.rsplit_once("stop: ").map(|(_, r)| r)).unwrap_or(why);
+    tail.trim().to_owned()
+}
+
 /// The problem a part that failed is.
 fn failing(p: &Part, error: &str) -> Found {
     Found { kind: WATCH_FAILING, key: p.key.into(), summary: format!("Watch failing: cannot {} ({})", p.what, one_line(error, 240)), command: WATCH_LOG.into(), detail: None }
@@ -951,7 +958,7 @@ async fn failed_jobs(c: &impl GenericClient, found: &mut Vec<Found>) -> Result<(
         found.push(Found {
             kind: "JOB_FAILED",
             key: format!("job {job} after {leases} attempts"),
-            summary: format!("{what} failed for the last time (job {job}): {}", one_line(&why, 160)),
+            summary: format!("{what} failed for the last time: {}", one_line(&plain_cause(&why), 160)),
             command: format!("vyreon-core evidence show {job}"),
             detail: None,
         });
@@ -1537,56 +1544,59 @@ async fn open_one(c: &impl GenericClient, f: &Found, now: Option<&str>) -> Resul
     Ok(n == 1)
 }
 
-/// C-073 (owner, 2026-11-24: readable at a glance): what a problem of `kind` means for the numbers,
-/// and what the owner should do about it (None: nothing; it clears by itself or core acts).
-pub fn consequence(kind: &str) -> (&'static str, Option<&'static str>) {
+/// What a problem of `kind` means for the published numbers, in plain words (owner, 2026-11-24 and
+/// 2026-11-25): whether it affects them (yes or no) and how, and what the owner should do (None: nothing,
+/// it is handled).
+pub fn consequence(kind: &str) -> (bool, &'static str, Option<&'static str>) {
     match kind {
-        "SESSION_LATE" => ("That day has no published numbers yet; readers see it as not published.", Some("See why its work has not finished:")),
-        "REPORT_AT_RISK" => ("Sunday's report may go out with this week incomplete.", Some("See what is still missing:")),
-        "QUEUE_PAUSED" => ("No new days are computed while paused; nothing published changes.", Some("Find the cause; once it is fixed, `vyreon-core queue resume`. Details:")),
-        "JOB_FAILED" => (
-            "A failed day block or pass leaves its day unpublished (shown to readers as missing, with its cause); a failed republish leaves its day as it was; published days are not affected.",
-            Some("After a fix, `vyreon-core queue retry-failed`; why it failed:"),
-        ),
-        "PROVIDER_AUTH" => ("No new data can be fetched; published numbers are not affected.", Some("Check the Intrinio key and account:")),
-        "PROVIDER_ERRORS" => ("Work is retried by itself; published numbers are not affected.", None),
-        "DATABASE_FULL" => ("Publishing stops when the volume is full; published numbers are not affected.", Some("Grow the volume (deploy/k8s/README.md, Backups and the volume):")),
-        "CALENDAR_END" => ("Daily runs stop at the calendar's end.", Some("Load the engine's next calendar:")),
-        "NOT_DERIVED" => ("Those days' history readings (unusualness, windows) are absent until derived again.", Some("Queue their history passes:")),
-        "DAILY_STOPPED" => ("New sessions are not computed; published days are not affected.", Some("See the daily runs' settings:")),
-        "ARCHIVE_MISSING" => ("Published numbers are not affected; perishable inputs may be lost for later re-checks.", Some("See what is missing:")),
-        "REFCHECK_DISAGREES" => ("Published numbers may be wrong where the independent check disagrees; they stay published until judged.", Some("Review the disagreement:")),
-        "REFCHECK_NOT_RUN" => ("Those days are published but not independently checked (a re-run failed too).", Some("See which:")),
-        "STALLED" => ("No new days are computed meanwhile; published numbers are not affected.", Some("See the queue and the worker pods (`kubectl -n vyreon get pods`):")),
-        "CLAIMS_EMPTY" => ("Work waits while workers start and leave; published numbers are not affected.", Some("See the queue:")),
-        "WAL_ARCHIVING" | "BACKUP_STALE" => ("Published numbers are not affected; the database could not be restored to now.", Some("Check the backups:")),
-        "WATCH_FAILING" => ("Other problems may go unreported meanwhile.", Some("Read core's log:")),
-        "JOB_THRASHING" => ("That work keeps restarting; its day stays unpublished until it finishes.", Some("Check the pods' exit reasons (out of memory?):")),
-        "NO_PROGRESS" => ("That job is stuck; its day stays unpublished until it moves.", Some("Read the worker's log:")),
-        "SPEND" => (
-            "Published numbers are not affected; the spend nears or passes the owner's ceiling.",
-            Some("Decide whether to go on (raise VYREON_CORE_SPEND_CEILING_USD, or stop the workers: deploy/k8s/README.md, Stopping everything); the spend:"),
-        ),
-        "DAY_REFUSED" => (
-            "That day stays unpublished (readers see it missing, with its cause); the build goes on; nothing more is tried on it.",
-            Some("Fix the refused input or the engine, then a new build's `vyreon-core build hand-over` or `vyreon-core queue retry-failed`; the refusal:"),
-        ),
-        _ => ("", Some("To see more:")),
+        "SESSION_LATE" => (true, "that day shows as not published until its work finishes", Some("see why its work has not finished:")),
+        "REPORT_AT_RISK" => (true, "Sunday's report may go out with this week incomplete", Some("see what is still missing:")),
+        "QUEUE_PAUSED" => (false, "nothing new is computed while paused", Some("find the cause; once it is fixed, resume the queue:")),
+        "JOB_FAILED" => (true, "that day stays unpublished (readers see it missing, with its cause)", Some("after a fix, retry the failed work (`vyreon-core queue retry-failed`); why it failed:")),
+        "PROVIDER_AUTH" => (false, "no new data can be fetched", Some("check the Intrinio key and account:")),
+        "PROVIDER_ERRORS" => (false, "the work is retried by itself", None),
+        "DATABASE_FULL" => (false, "publishing stops when the volume is full", Some("grow the volume (deploy/k8s/README.md, Backups and the volume):")),
+        "CALENDAR_END" => (false, "the nightly runs stop at the calendar's end", Some("load the engine's next calendar:")),
+        "NOT_DERIVED" => (true, "those days' history readings (unusualness, windows) are missing until derived again", Some("queue their history passes:")),
+        "DAILY_STOPPED" => (false, "new sessions are not computed", Some("see the nightly runs' settings:")),
+        "ARCHIVE_MISSING" => (false, "inputs kept for later re-checks may be lost", Some("see what is missing:")),
+        "REFCHECK_DISAGREES" => (true, "numbers may be wrong where the independent check disagrees; they stay published until judged", Some("review the disagreement:")),
+        "REFCHECK_NOT_RUN" => (false, "those days are published but not independently checked", Some("see which:")),
+        "STALLED" => (false, "nothing new is computed meanwhile", Some("see the queue and the worker pods (kubectl -n vyreon get pods):")),
+        "CLAIMS_EMPTY" => (false, "work waits while workers start and leave", Some("see the queue:")),
+        "WAL_ARCHIVING" | "BACKUP_STALE" => (false, "the database could not be restored to now", Some("check the backups:")),
+        "WATCH_FAILING" => (false, "other problems may go unreported meanwhile", Some("read core's log:")),
+        "JOB_THRASHING" => (false, "that work keeps restarting; its day stays unpublished until it finishes", Some("check why the pods end (out of memory?):")),
+        "NO_PROGRESS" => (false, "that work is stuck; its day stays unpublished until it moves", Some("read the worker's log:")),
+        "DAY_REFUSED" => (true, "that day stays unpublished (readers see it missing, with its cause); nothing more is tried on it", Some("fix the refused input or the engine, then retry it (`vyreon-core queue retry-failed`); the refusal:")),
+        "SPEND" => (false, "the spend nears or passes the owner's ceiling", Some("decide whether to go on (raise the ceiling, or stop the workers: deploy/k8s/README.md, Stopping everything); the spend:")),
+        _ => (false, "", Some("to see more:")),
     }
 }
 
-/// An alert (C-073, owner 2026-11-24): what happened, then whether it touches published numbers or
-/// absences, then what to do, with the command, only when there is something to do.
+/// An alert in plain words (owner, 2026-11-25): what happened; whether it affects the published numbers
+/// (yes or no) and how; what to do, with the command that shows more, or that nothing is to be done.
 pub fn alert_for(kind: &str, summary: &str, command: &str) -> String {
-    let (effect, action) = consequence(kind);
-    let mut text = format!("🔴 {summary}");
+    let (affects, effect, action) = consequence(kind);
+    let mut text = format!("🔴 {}", summary.trim_end_matches('.'));
     if !effect.is_empty() {
-        text.push_str(&format!("\n{effect}"));
+        text.push_str(&format!("\nPublished numbers {}: {effect}.", if affects { "affected" } else { "not affected" }));
     }
-    if let Some(action) = action {
-        text.push_str(&format!("\nTo do: {action} `{command}`"));
+    match action {
+        Some(action) => text.push_str(&format!(" To do: {action} `{command}`")),
+        None => text.push_str(" Nothing to do: it is handled automatically."),
     }
     text
+}
+
+/// `alert_for` as the alerts channel carries it (`notice::alert`: in plain words, `plain::plain`).
+pub fn posted_alert(kind: &str, summary: &str, command: &str) -> String {
+    crate::plain::plain(&alert_for(kind, summary, command))
+}
+
+/// `resolved_text` as the alerts channel carries it.
+pub fn posted_resolved(summary: &str, age_seconds: i64) -> String {
+    crate::plain::plain(&resolved_text(summary, age_seconds))
 }
 
 pub fn resolved_text(summary: &str, age_seconds: i64) -> String {
@@ -1670,10 +1680,20 @@ const COUNTED: &str = "SELECT d.revision_id, count(m.measurement_id)::int AS slo
          LEFT JOIN LATERAL (
              SELECT m.measurement_id,
                     strpos(m.body_text, m.measurement_id || '/' || m.object_id || '/' || d.represented_date::text || '/engine-fault\"') > 0 AS whole,
-                    strpos(m.body_text, '\"ENGINE_FAULT\"') > 0 OR strpos(m.body_text, '\"PARENT_ENGINE_FAULT\"') > 0 AS fault
+                    $FAULT AS fault
              FROM vyreon.measurement m WHERE m.revision_id = d.revision_id AND m.represented_date = d.represented_date) m ON true
          WHERE d.published_at IS NOT NULL AND $WHERE
          GROUP BY d.revision_id";
+
+/// (engine investigation, 2026-11-25) a measurement row `m` is an engine fault when its stated reason is:
+/// the body's terminal reason, or a role's, ENGINE_FAULT or PARENT_ENGINE_FAULT. Not the words anywhere in
+/// the body (a FIELD body lists other assets' reasons), and never the withheld slot's result id (every
+/// withheld slot's ends `/engine-fault`, a provider's absence too: IBIT/ETHA's EMPTY_DELIVERED_POPULATION
+/// before their options listed, PROVIDER_COVERAGE_START, CARRY_NOT_IDENTIFIED).
+pub const FAULT: &str = "(m.body->'measurement'->'value'->>'terminal_reason' IN ('ENGINE_FAULT', 'PARENT_ENGINE_FAULT')
+     OR EXISTS (SELECT FROM jsonb_array_elements(CASE WHEN jsonb_typeof(m.body->'measurement'->'value'->'roles') = 'array'
+                                                     THEN m.body->'measurement'->'value'->'roles' ELSE '[]'::jsonb END) r
+                WHERE r->>'reason' IN ('ENGINE_FAULT', 'PARENT_ENGINE_FAULT')))";
 
 /// C-071: the revisions one statement counts. A statement counts its revisions' bodies whole, so
 /// its time grows with them; this bounds it (a day's history revision holds every slot of the 64).
@@ -1705,7 +1725,7 @@ async fn tally(c: &impl GenericClient, revisions: &[i64]) -> Result<(), String> 
         &format!(
             "INSERT INTO core.revision_tally (revision_id, slots, withheld, provider_withheld, engine_faults) {}
              ON CONFLICT (revision_id) DO NOTHING",
-            COUNTED.replace("$WHERE", "d.revision_id = ANY($1)")
+            COUNTED.replace("$FAULT", FAULT).replace("$WHERE", "d.revision_id = ANY($1)")
         ),
         &[&revisions],
     )
@@ -1828,7 +1848,7 @@ pub async fn session_tallies(c: &mut impl GenericClient, profile: &str, sessions
                  SELECT s.represented_date::text, sum(t.slots)::bigint, sum(t.withheld)::bigint, sum(t.provider_withheld)::bigint, sum(t.engine_faults)::bigint
                  FROM shown s JOIN t USING (revision_id)
                  GROUP BY 1",
-                COUNTED.replace(
+                COUNTED.replace("$FAULT", FAULT).replace(
                     "$WHERE",
                     "d.revision_id IN (SELECT revision_id FROM shown) AND NOT EXISTS (SELECT FROM core.revision_tally t WHERE t.revision_id = d.revision_id)"
                 )

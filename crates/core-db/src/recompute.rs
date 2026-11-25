@@ -503,7 +503,6 @@ async fn decide_locked(client: &mut Client, p: &Proposal, w: &RecomputeWatch, wa
     )
     .await
     .map_err(db)?;
-    let commit = p.build.split('+').next().unwrap_or(&p.build).to_owned();
     // the same held decision again (each hour, until the ceiling or the spend allows it) is not said again
     let same = previous.as_ref().is_some_and(|(o, w)| o == outcome && w.as_deref() == why.as_deref() && outcome == "HELD");
     if !same {
@@ -530,7 +529,7 @@ async fn decide_locked(client: &mut Client, p: &Proposal, w: &RecomputeWatch, wa
         notice::alert(
             &tx,
             &format!(
-                "🔴 Recompute after build {commit}: {text}\nThose days' numbers stay published as they are, under their older methods, until recomputed.\nTo do: read the plan; schedule on your word (`vyreon-core republish`), or raise the ceiling (a held plan is decided again within the hour): `vyreon-core recompute {} {} --plan`",
+                "🔴 A recompute after the new version's method changes was not scheduled by itself: {text}\nPublished numbers unchanged: those days stay under the older methods until recomputed. To do: read the plan; schedule it on your word, or raise the ceiling (a held plan is decided again within the hour): `vyreon-core recompute {} {} --plan`",
                 p.profile, p.build
             ),
         )
