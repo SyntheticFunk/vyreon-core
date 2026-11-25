@@ -52,11 +52,19 @@
 #      old one), and 20-core.yaml applied with the RUNNING core image in place of VYREON_CORE_IMAGE
 #      (read from the live Deployment: the raw file once took core down), its diff printed first
 #   9  the unfinished worker Jobs of other images deleted (the withdrawn build's pods compute on with
-#      no lease and hold KEDA's slots: hand-over 5)
+#      no lease and hold KEDA's slots: hand-over 5), but not a Job whose pod holds a draining lease
+#      (C-077: the hand-over let the old build's running day blocks finish the day they compute)
 #   10 `vyreon-core queue resume`, only if the pause is still exactly this run's (a cause added while it
 #      ran, a bundle refused or a job failed for the last time, leaves it paused and stops here)
 #   11 every kind of work KEDA should start for the new build (`core.scaler_count`) gets a lease of the
 #      new build within VYREON_VERIFY_MINUTES
+#   12 C-077: the draining blocks (`vyreon-core build drains`) finish their day; each one's Job is deleted
+#      once its lease has ended (an engine before C-077 computes on into its next day, unleased); core
+#      itself stops a drain at its bound (work::DRAIN_MINUTES, 6 h) and carries its day. Polled every
+#      minute; an interrupt leaves the drains to core and `--from 12` resumes the clean-up
+#
+# Before anything, the operator's kubeconfig is refreshed when it is within 2 days of its end or the
+# cluster refuses it (`kubeconfig.sh --if-needed`; a dry run only says whether it would be).
 set -euo pipefail
 
 NS=vyreon
@@ -89,9 +97,16 @@ else
   TAG=${args[0]} REASON=${args[1]}
 fi
 [[ -n ${REASON// /} ]] || { echo "release.sh: a release needs a reason" >&2; exit 2; }
-[[ $FROM =~ ^([1-9]|1[01])$ ]] || { echo "release.sh: --from takes a step from 1 to 11" >&2; exit 2; }
+[[ $FROM =~ ^([1-9]|1[012])$ ]] || { echo "release.sh: --from takes a step from 1 to 12" >&2; exit 2; }
 : "${KUBECONFIG:?set KUBECONFIG to the kubeconfig of the cluster}"
 export KUBECONFIG
+# automation debt 2 (owner, 2026-11-24): a DOKS kubeconfig lives 7 days; a release never stops on an
+# expired one. A dry run writes nothing: it says whether the real run would refresh
+if ((DRY)); then
+  "$(cd "$(dirname "$0")" && pwd)/kubeconfig.sh" --check "$KUBECONFIG" || true
+else
+  "$(cd "$(dirname "$0")" && pwd)/kubeconfig.sh" --if-needed "$KUBECONFIG" || { echo "release.sh: the kubeconfig could not be refreshed (kubeconfig.sh above says why); nothing was done" >&2; exit 1; }
+fi
 
 STEP=0 DONE=() FAILED="" DOCKER_AUTH="" SCRATCH="" PAUSE_REASON="" OLD="" HAND_OVER="" TOKEN="" BUILD="" RUN="" RUN_OLD="" EVIDENCE=""
 if ((DRY)); then
@@ -301,6 +316,9 @@ PY
 # C-074 (release-2 audit, Gemini 10): a build registers its republish plans only with a core that keeps them (0057)
 [[ $(sql "SELECT to_regclass('core.build_republish') IS NOT NULL") == t ]] \
   || fail "core's database has no core.build_republish (migration 0057): deploy the core image first (release.sh --core <tag>)"
+# C-077: the hand-over drains running blocks, and step 9 and 12 read the drains, only with a core that keeps them (0059)
+[[ $(sql "SELECT to_regclass('core.drain') IS NOT NULL") == t ]] \
+  || fail "core's database has no core.drain (migration 0059): deploy the core image first (release.sh --core <tag>)"
 
 step 1 "build identity and inventory from $LOCAL; the old build, the queue, the file's daily build"
 BUILD=$(docker run --rm --entrypoint /opt/vyreon/bin/vyreon-worker "$LOCAL" build-identity /opt/vyreon/bin /opt/vyreon/bin | tail -1)
@@ -509,22 +527,53 @@ if ! skip; then
   record "core on $CORE_IMAGE${DAILY:+, daily build $BUILD} (commit deploy/k8s/20-core.yaml)"
 fi
 
-step 9 "delete the unfinished worker Jobs of other images"
-if ! skip; then
-  STALE=$(kubectl -n "$NS" get jobs -l scaledjob.keda.sh/name -o json | python3 -c '
+# C-077: the live drains (`vyreon-core build drains`, one JSON object a line) and the Jobs of their pods
+# (a lease's worker is its pod's name, VYREON_WORKER_NAME); fails when core cannot be asked
+DRAINS=""
+read_drains() { DRAINS=$(core build drains) || fail "core does not answer \`vyreon-core build drains\`"; }
+draining_jobs() {
+  local w
+  for w in $(python3 -c 'import json, sys
+for l in sys.stdin:
+    if l.strip(): print(json.loads(l)["worker"])' <<<"$DRAINS"); do
+    kubectl -n "$NS" get pod "$w" -o jsonpath='{.metadata.labels.job-name}{"\n"}' 2>/dev/null || true
+  done | sort -u
+}
+# the drains in a line: "<pod> <day>[ (day done, its check to come)] until HH:MM UTC; ..."
+drain_words() {
+  python3 -c '
 import json, sys
-image = sys.argv[1]
+out = []
+for line in sys.stdin:
+    if line.strip():
+        d = json.loads(line)
+        done = " (day done, its check to come)" if d["day_done"] else ""
+        out.append("%s %s%s until %s UTC" % (d["worker"], d["session"], done, d["until"][11:16]))
+print("; ".join(out))'
+}
+# the unfinished worker Jobs of other images than the new one, but those whose pods drain
+stale_jobs() {
+  kubectl -n "$NS" get jobs -l scaledjob.keda.sh/name -o json | python3 -c '
+import json, sys
+image, keep = sys.argv[1], set(sys.argv[2].split())
 for j in json.load(sys.stdin)["items"]:
     done = any(c["type"] in ("Complete", "Failed") and c["status"] == "True" for c in j.get("status", {}).get("conditions") or [])
-    if not done and j["spec"]["template"]["spec"]["containers"][0]["image"] != image:
-        print(j["metadata"]["name"])' "$REMOTE")
+    if not done and j["spec"]["template"]["spec"]["containers"][0]["image"] != image and j["metadata"]["name"] not in keep:
+        print(j["metadata"]["name"])' "$REMOTE" "$(draining_jobs | tr '\n' ' ')"
+}
+
+step 9 "delete the unfinished worker Jobs of other images (a block finishing its day is left to step 12)"
+if ! skip; then
+  read_drains
+  STALE=$(stale_jobs)
+  KEPT=$(draining_jobs | tr '\n' ' ')
   if [[ -n $STALE ]]; then
     say "   \$ kubectl -n $NS delete job --ignore-not-found $(echo $STALE)"
     # shellcheck disable=SC2086
     ((DRY)) || kubectl -n "$NS" delete job --ignore-not-found $STALE
-    record "deleted $(echo $STALE | wc -w) Jobs: $(echo $STALE)"
+    record "deleted $(echo $STALE | wc -w) Jobs: $(echo $STALE)${KEPT:+; draining (step 12): $KEPT}"
   else
-    record "no unfinished Job of another image"
+    record "no unfinished Job of another image to delete${KEPT:+; draining (step 12): $KEPT}"
   fi
 fi
 
@@ -574,6 +623,36 @@ else
     sleep 30
   done
   record "claimed by the new build:${needed:- nothing to claim}"
+fi
+
+step 12 "the old build's running blocks finish their day (C-077); each one's Job deleted once its lease ends"
+if ((DRY)); then
+  read_drains
+  say "   (dry run: polls \`vyreon-core build drains\` every minute and deletes each ended drain's Job; core stops a drain at its bound)"
+  if [[ -n $DRAINS ]]; then say "$DRAINS" | sed 's/^/     draining now: /'; fi
+else
+  while :; do
+    read_drains
+    STALE=$(stale_jobs)
+    if [[ -n $STALE ]]; then
+      say "   \$ kubectl -n $NS delete job --ignore-not-found $(echo $STALE)"
+      # shellcheck disable=SC2086
+      kubectl -n "$NS" delete job --ignore-not-found $STALE
+    fi
+    [[ -z $DRAINS ]] && break
+    # core stops a drain at its bound (its sweep, every half minute); one standing 15 minutes past it is core's fault
+    LATE=$(python3 -c 'import datetime, json, sys
+now = datetime.datetime.now(datetime.timezone.utc)
+for l in sys.stdin:
+    if not l.strip(): continue
+    d = json.loads(l)
+    if now > datetime.datetime.fromisoformat(d["until"].replace("Z", "+00:00")) + datetime.timedelta(minutes=15):
+        print(d["worker"])' <<<"$DRAINS")
+    [[ -z $LATE ]] || fail "drains past their bound by 15 minutes, which core should have stopped: $(echo $LATE) (vyreon-core build drains; core's log)"
+    say "   $(date -u +%H:%M:%S) draining: $(drain_words <<<"$DRAINS")"
+    sleep 60
+  done
+  record "no block of another build drains; their Jobs deleted"
 fi
 
 say ""

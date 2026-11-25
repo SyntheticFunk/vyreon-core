@@ -9,6 +9,11 @@ NS=vyreon
 core() { kubectl -n $NS exec -c core deploy/vyreon-core -- vyreon-core "$@" 2>/dev/null; }
 sql() { kubectl -n $NS exec vyreon-pg-1 -c postgres -- psql -X -A -t -F ' ' -d vyreon -c "$1" 2>/dev/null; }
 
+# automation debt 2 (owner, 2026-11-24): the kubeconfig refreshed when within 2 days of its end or refused
+KC=$("$S/kubeconfig.sh" --if-needed 2>&1); KC_RC=$?
+echo "$KC" | grep -v ' is current$' | grep . || true
+[ "$KC_RC" = 0 ] || echo "!! kubeconfig: not refreshed (kubeconfig.sh says why above): the kubectl lines below may be unreadable"
+
 # MT is the owner's clock, UTC−6 all year (C-072; Etc/GMT+6 is UTC−6, the POSIX sign inverted)
 echo "== $(date -u '+%Y-%m-%d %H:%M UTC') ($(TZ=Etc/GMT+6 date '+%H:%M MT'))"
 
