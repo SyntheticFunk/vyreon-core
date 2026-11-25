@@ -281,7 +281,7 @@ async fn the_planner_chooses_by_the_measured_cost_of_the_range() {
     let (base1, _, _) = published_day(&mut client, &b, &d).await;
     // planned two sessions after the day, its prints still served
     let soon = "2025-12-12";
-    for names in [vec!["M0-GAMMA-CHANGE"], vec!["DLM-CHAIN"], vec!["CDD-FND01"], vec!["P"], vec!["DLM-CHAIN", "CDD-FND01"]] {
+    for names in [vec!["M0-GAMMA-CHANGE"], vec!["DLM-TECHNICAL"], vec!["DLM-CHAIN"], vec!["CDD-FND01"], vec!["P"], vec!["DLM-TECHNICAL", "CDD-FND01"]] {
         let p = rp::plan(&client, PROFILE, &b, &names, "2025-12-09", "2025-12-11", 3, soon).await.unwrap();
         assert!(p.perished.is_empty());
         assert_eq!(p.sessions, [DAY], "{names:?}");
@@ -291,12 +291,16 @@ async fn the_planner_chooses_by_the_measured_cost_of_the_range() {
         assert_eq!(p.choice == Choice::Scoped, p.scoped_total() < p.full_total(), "{names:?}: {lines:#?}");
         eprintln!("{names:?}\n  {}", lines.join("\n  "));
     }
-    // a day-local family runs no intent; one company sensor fetches its capture and the daily bars
-    let chain = rp::plan(&client, PROFILE, &b, &["DLM-CHAIN"], DAY, DAY, 3, soon).await.unwrap();
-    assert!(!chain.work.stages.contains("intents") && chain.work.stages.contains("surfaces") && chain.choice == Choice::Scoped);
+    // a day-local measurement reading no option file runs no intent; one company sensor fetches its capture,
+    // the daily bars and the option window's quotes; DLM-CHAIN (its records read the option population and
+    // surface files, engine D-462 release-2 audit) recomputes those base parents too
+    let tech = rp::plan(&client, PROFILE, &b, &["DLM-DRAWDOWN"], DAY, DAY, 3, soon).await.unwrap();
+    assert!(!tech.work.stages.contains("intents") && tech.work.stages.contains("surfaces") && tech.work.base.is_empty() && tech.choice == Choice::Scoped, "{:?}", tech.work);
     let fnd = rp::plan(&client, PROFILE, &b, &["CDD-FND01"], DAY, DAY, 3, soon).await.unwrap();
-    assert_eq!((fnd.work.categories.clone(), fnd.choice), (vec!["daily".to_owned(), "options".into(), "company".into()], Choice::Scoped));
-    assert!(fnd.scoped.total() < chain.scoped.total() && chain.scoped.total() < chain.full_first.total());
+    assert_eq!((fnd.work.categories.clone(), fnd.choice), (vec!["daily".to_owned(), "options".into(), "quotes".into(), "company".into()], Choice::Scoped));
+    assert!(fnd.scoped.total() < tech.scoped.total() && tech.scoped.total() < tech.full_first.total());
+    let chain = rp::plan(&client, PROFILE, &b, &["DLM-CHAIN"], DAY, DAY, 3, soon).await.unwrap();
+    assert!(["VS-O02", "VS-O06", "VS-IVS01", "M0-ANALYTICS"].iter().all(|m| chain.work.base.contains(*m)) && chain.work.stages.contains("intents"), "{:?}", chain.work);
     // the price family reaches nearly the whole day: alone, a day saves only intent B's other owners
     // (30 of 343 task-minutes) less the dump; over three days a full recompute's day blocks share their
     // download window (a later day's 32-48 min against a first day's 96) and win
@@ -347,7 +351,7 @@ async fn the_planner_chooses_by_the_measured_cost_of_the_range() {
 async fn a_hand_over_carries_a_republish_on_the_successors_plans() {
     let (scratch, mut client, b, d) = ready("rp_handover").await;
     published_day(&mut client, &b, &d).await;
-    let plan = rp::plan(&client, PROFILE, &b, &["DLM-CHAIN"], DAY, DAY, 3, TODAY).await.unwrap();
+    let plan = rp::plan(&client, PROFILE, &b, &["DLM-TECHNICAL"], DAY, DAY, 3, TODAY).await.unwrap();
     let job = rp::schedule(&mut client, PROFILE, &b, &plan.work, &plan.sessions, REASON).await.unwrap().jobs[0];
     let mut bare = with_day_local(inventories().remove(0));
     bare["engine_build"] = json!("eeeeeeee+000000000000");
@@ -364,7 +368,7 @@ async fn a_hand_over_carries_a_republish_on_the_successors_plans() {
         &client.query_one("SELECT scope::text FROM core.job WHERE job_id = $1", &[&carried.new_job.unwrap()]).await.unwrap().get::<_, String>(0),
     )
     .unwrap();
-    assert_eq!((scope["families"].clone(), scope["reason"].clone()), (json!(["DLM-CHAIN"]), json!(REASON)));
+    assert_eq!((scope["families"].clone(), scope["reason"].clone()), (json!(["DLM-TECHNICAL"]), json!(REASON)));
     assert_eq!(scope["recompute"]["day_local"], json!(plan.work.day_local));
     scratch.drop().await;
 }
@@ -396,12 +400,12 @@ async fn a_republished_days_reference_rerun_checks_what_was_recomputed() {
     work::finish(&mut client, &block.token).await.unwrap();
     let _ = d;
     // a day-local republish of DLM-MAX-PAIN's family
-    let plan = rp::plan(&client, PROFILE, &b, &["DLM-CHAIN"], DAY, DAY, 3, TODAY).await.unwrap();
+    let plan = rp::plan(&client, PROFILE, &b, &["DLM-TECHNICAL"], DAY, DAY, 3, TODAY).await.unwrap();
     let job = rp::schedule(&mut client, PROFILE, &b, &plan.work, &plan.sessions, REASON).await.unwrap().jobs[0];
     let lease = work::claim(&mut client, Kind::Republish, &b, "r1", HOUR).await.unwrap().unwrap();
     let recomputed: Vec<String> = plan.work.day_local.iter().cloned().collect();
     let names: Vec<&str> = recomputed.iter().map(String::as_str).collect();
-    let republish = Republish { job, replaces: local1, families: vec!["DLM-CHAIN".into()], measurements: vec![], recomputed: recomputed.clone(), value_changed: vec![], reason: REASON.into() };
+    let republish = Republish { job, replaces: local1, families: vec!["DLM-TECHNICAL".into()], measurements: vec![], recomputed: recomputed.clone(), value_changed: vec![], reason: REASON.into() };
     let local2 = send(&mut client, "rr-local2", local_of(&b, base1, &names, republish), &lease.token).await.unwrap().revision_id;
     work::day_done(&mut client, &lease.token, DAY).await.unwrap();
     work::finish(&mut client, &lease.token).await.unwrap();
@@ -515,22 +519,22 @@ async fn retries_overlaps_cancellation_and_counts() {
     scratch.drop().await;
 }
 
-/// Codex 1: a scope that asks for a history sensor (DLM-IV's DLM-IV30, its family's history members) has
+/// Codex 1: a scope that asks for a history sensor (DLM-HV-CONTEXT beside the DLM-TECHNICAL family) has
 /// the day's history derived again, whatever the day-local values.
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn a_requested_history_correction_is_never_skipped() {
     let (scratch, mut client, b, d) = ready("rp_a_hist").await;
     let (_, local1, hist1) = published_day(&mut client, &b, &d).await;
-    let plan = rp::plan(&client, PROFILE, &b, &["DLM-IV"], DAY, DAY, 3, TODAY).await.unwrap();
-    assert!(plan.work.seed_history.contains("DLM-IV30") && plan.choice != Choice::Passes, "{:?}", plan.work);
+    let plan = rp::plan(&client, PROFILE, &b, &["DLM-TECHNICAL", "DLM-HV-CONTEXT"], DAY, DAY, 3, TODAY).await.unwrap();
+    assert!(plan.work.seed_history.contains("DLM-HV-CONTEXT") && plan.work.base.is_empty() && plan.choice != Choice::Passes, "{:?}", plan.work);
     let job = rp::schedule(&mut client, PROFILE, &b, &plan.work, &plan.sessions, REASON).await.unwrap().jobs[0];
     let lease = work::claim(&mut client, Kind::Republish, &b, "r1", HOUR).await.unwrap().unwrap();
     let base: i64 = client.query_one("SELECT base_revision FROM vyreon.day_revision WHERE revision_id = $1", &[&local1]).await.unwrap().get(0);
     let rec: Vec<String> = plan.work.day_local.iter().cloned().collect();
-    let r = Republish { job, replaces: local1, families: vec!["DLM-IV".into()], measurements: vec![], recomputed: rec, value_changed: vec![], reason: REASON.into() };
+    let r = Republish { job, replaces: local1, families: vec!["DLM-TECHNICAL".into()], measurements: vec!["DLM-HV-CONTEXT".into()], recomputed: rec, value_changed: vec![], reason: REASON.into() };
     send(&mut client, "rh-local", local_of(&b, base, &[], r), &lease.token).await.unwrap();
-    assert_eq!(state(&client, hist1).await, "SUPERSEDED", "DLM-IV30's history is derived again");
+    assert_eq!(state(&client, hist1).await, "SUPERSEDED", "DLM-HV-CONTEXT's history is derived again");
     assert_eq!(client.query_one("SELECT count(*) FROM core.job WHERE kind = 'ORDERED_PASS' AND state = 'QUEUED'", &[]).await.unwrap().get::<_, i64>(0), 1);
     scratch.drop().await;
 }
@@ -557,7 +561,7 @@ async fn claims_bindings_and_scheduling_refusals() {
     assert_eq!(job_state(&client, gone).await, "FAILED");
     // a scope reading the tapes waits for the tapes of its session
     work::schedule(&mut client, Kind::Tape, PROFILE, &b, DAY, DAY, 1).await.unwrap();
-    let plan = rp::plan(&client, PROFILE, &b, &["DLM-CHAIN"], DAY, DAY, 3, TODAY).await.unwrap();
+    let plan = rp::plan(&client, PROFILE, &b, &["DLM-TECHNICAL"], DAY, DAY, 3, TODAY).await.unwrap();
     assert!(plan.work.categories.contains(&"consolidated".to_owned()));
     let job = rp::schedule(&mut client, PROFILE, &b, &plan.work, &plan.sessions, REASON).await.unwrap().jobs[0];
     assert!(work::claim(&mut client, Kind::Republish, &b, "r1", HOUR).await.unwrap().is_none(), "the tapes first");
@@ -565,7 +569,7 @@ async fn claims_bindings_and_scheduling_refusals() {
     work::cancel(&mut client, &[tape]).await.unwrap();
     let lease = work::claim(&mut client, Kind::Republish, &b, "r1", HOUR).await.unwrap().unwrap();
     // a day-local revision naming the history revision as its base is refused
-    let mut bad = local_of(&b, hist1, &["DLM-MAX-PAIN"], Republish { job, replaces: local1, families: vec!["DLM-CHAIN".into()], measurements: vec![], recomputed: plan.work.day_local.iter().cloned().collect(), value_changed: vec![], reason: REASON.into() });
+    let mut bad = local_of(&b, hist1, &["DLM-DRAWDOWN"], Republish { job, replaces: local1, families: vec!["DLM-TECHNICAL".into()], measurements: vec![], recomputed: plan.work.day_local.iter().cloned().collect(), value_changed: vec![], reason: REASON.into() });
     bad.0.base_profile_revision = Some(test_support::slice::slice()["day_revision"][1]["profile_revision"].as_str().unwrap().to_owned());
     refused(send(&mut client, "rc-bad", bad, &lease.token).await, "has no published");
     work::cancel(&mut client, &[job]).await.unwrap();
@@ -604,13 +608,13 @@ async fn reference_reruns_of_republished_days() {
     client.execute("UPDATE vyreon.day_revision SET published_at = published_at - interval '2 days' WHERE revision_id IN ($1, $2)", &[&base1, &local1]).await.unwrap();
     let settings = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None,
         refcheck_from: Some(DAY.into()), backup_days: None, refcheck_rerun_hours: Some(6.0) };
-    // a DLM-CHAIN republish (day-local only)
-    let plan = rp::plan(&client, PROFILE, &b, &["DLM-CHAIN"], DAY, DAY, 3, TODAY).await.unwrap();
+    // a DLM-TECHNICAL republish (day-local only)
+    let plan = rp::plan(&client, PROFILE, &b, &["DLM-TECHNICAL"], DAY, DAY, 3, TODAY).await.unwrap();
     let job = rp::schedule(&mut client, PROFILE, &b, &plan.work, &plan.sessions, REASON).await.unwrap().jobs[0];
     let lease = work::claim(&mut client, Kind::Republish, &b, "r1", HOUR).await.unwrap().unwrap();
     let rec: Vec<String> = plan.work.day_local.iter().cloned().collect();
     let names: Vec<&str> = rec.iter().map(String::as_str).collect();
-    let mk = |job: i64, replaces: i64| Republish { job, replaces, families: vec!["DLM-CHAIN".into()], measurements: vec![], recomputed: rec.clone(), value_changed: vec![], reason: REASON.into() };
+    let mk = |job: i64, replaces: i64| Republish { job, replaces, families: vec!["DLM-TECHNICAL".into()], measurements: vec![], recomputed: rec.clone(), value_changed: vec![], reason: REASON.into() };
     let local2 = send(&mut client, "rr-l2", local_of(&b, base1, &names, mk(job, local1)), &lease.token).await.unwrap().revision_id;
     work::day_done(&mut client, &lease.token, DAY).await.unwrap();
     work::finish(&mut client, &lease.token).await.unwrap();
@@ -625,7 +629,7 @@ async fn reference_reruns_of_republished_days() {
     refcheck::queue_reruns(&client, PROFILE, DAY, 6.0, &at(&client, "7 hours").await).await.unwrap();
     let scope: serde_json::Value = serde_json::from_str(&client.query_one("SELECT scope::text FROM core.job WHERE kind = 'REFCHECK' AND state = 'QUEUED'", &[]).await.unwrap().get::<_, String>(0)).unwrap();
     assert_eq!((scope["day_local_revision"].as_i64(), scope.get("measurements")), (Some(local2), None), "a whole check: the replaced pair disagreed");
-    // that check completes clean; a second correction (DLM-CHAIN again) is checked scoped to it alone
+    // that check completes clean; a second correction (DLM-TECHNICAL again) is checked scoped to it alone
     let rr = work::claim(&mut client, Kind::Refcheck, &b, "c2", HOUR).await.unwrap().unwrap();
     refcheck::put(&mut client, &rr.token, &account_for(json!([base1, local2]), 0)).await.unwrap();
     work::finish(&mut client, &rr.token).await.unwrap();
