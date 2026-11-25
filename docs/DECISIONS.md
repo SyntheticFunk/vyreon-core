@@ -3579,3 +3579,40 @@ his word: is that the intended default, or should a plan within a fixed allowanc
 automatic plan republishes every published day whose versions differ, including days whose difference is
 a version bump that changed no value (the republish then narrows itself: D-104's value-unchanged rule);
 the owner may prefer to exclude named measurements (a list) rather than pay for them.
+
+**Release-3 audit (2026-11-25, `audits/2026-11-25-release3/core`: Codex 14 ordinary + 5 rare; Gemini 14 ordinary + 4 rare
++ 2 suspicions; the only audit of this release: every real finding fixed and tested). Coordinator's rulings on C-079's two
+questions: (1) a plan is held while the spend is not known (spending is the owner's call); (2) method bumps that change no
+value are not excluded (D-273: old days are another method in DLM-UNUSUALNESS's histories).**
+
+| Finding | Verdict and fix |
+|---|---|
+| Codex 1, Gemini 1, Codex 15 (C-079) a FULL recompute outlives the prints, or a stale profile bypasses the check: valid EXQ01 readings → WITHHELD | real. `work::guard_perished_blocks` at every day-block claim: a published day past the prints' retention is cut out of the block (its other days queued again), and becomes a scoped republish of the measurements the block names (C-079's blocks name them), unless that scope reads the prints, or the block names none: then it stays as published and the alerts channel says so. The planner: a day stale and perished has no faithful recompute (checked before the stale branch). Test `recompute.rs::a_full_recompute_never_runs_over_a_day_whose_prints_are_gone` |
+| Gemini 10 (C-079) perished and other days planned as one | real: days past the retention are grouped apart (the group says "prints no longer served") |
+| Codex 2, Gemini 2 (C-077) a draining publish drops later history no build derives | real: `rederive` targets, after the publisher and the fallen revision's build, the newest running build publishing the fallen profile revision. Test `drain.rs::a_draining_days_publish_has_its_later_history_derived_again_by_the_successor`; `work.rs`'s no-running-build case kept |
+| Codex 3 (C-077) step 12 of an earlier release deletes the newest build's Jobs | real: steps 9 and 12 delete only Jobs whose image is neither this release's nor the live ScaledJobs'. Checked with a stubbed kubectl (B's clean-up after C's release keeps C's Jobs) |
+| Codex 4, Gemini 5 (C-077) the drained day named by a cursor that moves at `day_done`: the last day's archive and check killed, or an extra day | real: a lease with every day done drains (its check ends it); one whose reported step is a done day's publish, archive or check finishes that day and none after. Test `drain.rs::a_hand_over_lets_a_done_days_archive_and_check_finish` |
+| Gemini 3 (C-077) a drain stopped after its base, before its day-local: half a day published | real: settling supersedes the base without its day-local revision (C-063's `drop_base_without_day_local`) |
+| Codex 16, Gemini 16 (C-077) a timed-out drain carried to a withdrawn intermediate build | real: the hand-over chain is followed (no cycle), and where its end no longer runs the newest running build that reads the day takes it (none: tried again next sweep). Test `drain.rs::a_drain_that_ends_without_its_day_leaves_no_half_day_and_finds_a_running_build` |
+| Gemini 15 (C-077) A drains while B→C changes profiles: C's pass of the day can never run | real: the hand-over stops earlier builds' drains whose days the successor cannot read; their days are carried |
+| Gemini 13 (C-077) a draining day's last failure pauses the queue | real: a drained job is not counted among the failed days (the sweep carries it). Same test |
+| Gemini 14 (C-077) a draining lease hides the new build's stalled kind | real: per-kind STALLED counts leases of running builds; the chain still sees every lease. Test in `a_hand_over_lets_a_done_days_archive_and_check_finish` |
+| Codex 17, Gemini 4 (C-077) a failed pod lookup removes a drain's protection | real: a lookup failing for any reason but "not found" deletes nothing that round (step 9 leaves it to step 12; step 11 stops) |
+| Codex 12 (C-077) the drain-held kinds never verified | real: after the drains end, step 12 verifies those kinds claim work of the new build |
+| Gemini 9 (C-077) `--from 12` reruns step 11 and fails | real: step 11 runs only from a run that resumed the queue |
+| Codex 5, Gemini 11 (C-079) busy days counted as covered for good | real: decisions record the busy days; once one is free it is decided again, alone. Test in `recompute.rs`'s main test |
+| Codex 6 (C-079) a measurement read as its family (DLM-TECHNICAL: 7) | real: `plan_days` takes measurements only. Test `a_measurement_is_never_read_as_its_family` |
+| Codex 7 (C-078) an unchanged figure read again counts as fresh | real: freshness by DigitalOcean's `generated_at` (24 h), and the spend now adds the rate over the figure's age (alerts and the gate use it; the line says both) |
+| Codex 14 (C-078) a 20 h window | real: the figure nearest 24 h before (20-48 h), by DigitalOcean's times |
+| Codex 8, Gemini 6 FULL priced as one span | real: `full_total` by the scheduled runs. Test `a_full_recompute_across_gaps_is_priced_by_its_runs` |
+| Codex 9 (C-079) re-runs and passes unpriced | real: a scoped day adds its reference-check re-run, passes their time: measured (median of the latest 20 leases) else the bound (600 min re-run, 30 min pass) |
+| Codex 10 (C-079) two plans spend one allowance | real: jobs name their plan; a plan's cost is reserved while any of its jobs is unfinished or finished after DigitalOcean's figure; the gate adds it |
+| Codex 11, Gemini 8 (C-079) a raised ceiling or a new token never releases a held plan | real: a held decision is decided again when the ceiling changes, or an hour on with a newer reading (said again only when its outcome changes) |
+| Codex 13 (C-078) health.sh compares the calendar month with the ceiling | real: health.sh prints core's spend line (`!!` from 80%) and the calendar month for reference only |
+| Codex 18 (C-079) partial scheduling reported as none | real: each run's jobs count; FAILED says how many were queued |
+| Codex 19, Gemini 7 (C-079) the command schedules unpriced; ignores the block size | real: `--schedule` refuses without `VYREON_CORE_NODE_HOUR_USD`; the block from `VYREON_CORE_RECOMPUTE_BLOCK` |
+| Gemini 12 (C-079) groups left to the owner beside scheduled ones are not alerted | real: the alerts channel names them |
+| Gemini 17 (C-079) a profile change or a removed measurement differs on nothing | real: a layer in a profile revision the build does not publish differs on all its measurements (FULL, or the owner's); a measurement the build dropped differs |
+| Gemini 18 (C-078) a bare-date start mislabelled in MT | real: the start's label is its UTC date (the months are UTC) |
+| Gemini 19 suspicion: per-slot version variance | not real: the live database holds one (science, method) label per measurement per revision on every published day checked (2024-07-15..17, read-only) |
+| Gemini 20 suspicion: several invoices a month, more than 24, an unreadable amount | real enough to close: a month's invoices summed, 200 a page, an unreadable invoice makes no reading |

@@ -1364,6 +1364,9 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   is not known. Docs e5635e0, engine a1d7b5ef. Deploy order: release.sh --core (0059-0061) first, then the worker
   release (its preflight needs 0059). Open questions for the coordinator: C-079's two (DECISIONS). Next: one audit
   (Codex + Gemini) of both branches.
+  **Release-3 audit fixed (2026-11-25):** core Codex 19 + Gemini 20 findings, every real one fixed and tested (C-077..C-079
+  table): core a981a24 code, d243536 tests, 6cb40c2 deploy; engine D-465 abb2d267/536393ce. Coordinator rulings: plans held
+  while the spend is unknown; no-value method bumps not excluded.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
