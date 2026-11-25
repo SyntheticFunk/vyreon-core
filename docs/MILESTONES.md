@@ -1494,6 +1494,17 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   cancelled them again. release.sh --core defects seen: an identical-content rebuild fails step 3's digest check (local id vs
   registry digest), and --from 4 does not work for --core (both to the core-dump branch). Lesson: stopping the backfill = cancel
   jobs AND turn off every automation that queues backfill-type work (re-runs; C-079 recompute is already held by unknown spend).
+  Then cancelled the 588 queued priority-0 ORDERED_PASS too (one had started on 2024-07-19: history passes compute old numbers
+  as well); NOT_DERIVED for those days is expected until the backfill is rescheduled. Left: the nightly block + its 2 passes.
+  **Valid reference failures classified (UTC−6 ~10:45; 239 on 5 valid reports):** no unknown engine fault. ARKK tape families
+  140 (D-468, fixed; 07-11 missing from its list); dividend projected before the expiry (UUP Dec/Jan, XLE Mar: ex-dates on the
+  Monday after the third Friday; forward 441-576 bp off for UUP) 8 — ENGINE, open D-153 item; reference-suite faults ~59
+  (carry borrowing D-185 ignored, forward tolerance, σ-support floor test, P01 63-session hard-code, ETHA short history, AVGO
+  split-day zero counts); provider-quote-limited 28; unclassified 2 (TSLA σ 0.8081 vs 0.8039; NVDA VS-O04 2024-06-21 0.032165
+  vs 0.032980, can move a percentile rank — needs re-downloaded chains). All into eng-r5.
+  **Coordinator ruling (standards first):** the forward put-call pair tolerance becomes the no-arbitrage band (sum of both
+  legs' half-spreads; Hull) instead of the mean of the half-spreads — 12 of 13 such failures fall inside it. The owner's
+  2026-10-30 rule (offsets without a σ half-width stay flagged) is unchanged.
  "freeze the build, then crank
   it and generate phase 1 with as many nodes as possible. Fix everything we find that we can trace to an engine fault. THEN
   selectively recompute where we have to." Why: since 11-21, 38 of 61 day publications (~62%) redid a published day across 11
