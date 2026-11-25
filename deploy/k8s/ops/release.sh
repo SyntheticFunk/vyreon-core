@@ -78,6 +78,12 @@ K8S=$(cd "$HERE/.." && pwd)
 VERIFY_MINUTES=${VYREON_VERIFY_MINUTES:-20}
 SCALEDJOBS=(tape day-block day-block-daily ordered-pass refcheck republish)
 
+# Every step the header documents is defined (C-077 audit fix 6cb40c2 dropped step 10, the queue resume, unnoticed:
+# the 2026-11-25 release left the queue paused until the operator resumed it by hand).
+for n in 1 2 3 4 5 6 7 8 9 10 11 12; do
+  grep -q "^step $n \"" "$0" || { echo "release.sh: step $n is not defined in this script" >&2; exit 2; }
+done
+
 DRY=0 FROM=1 OLD_GIVEN="" EVIDENCE_IN="" CORE_TAG=""
 args=()
 while (($#)); do
@@ -645,6 +651,26 @@ verify_claims() {
   done
   record "claimed by the new build:${needed:- nothing to claim}"
 }
+
+step 10 "resume the queue (only this run's pause)"
+if ! skip; then
+  say "   \$ vyreon-core queue resume"
+  if ((DRY == 0)); then
+    QUEUE=$(queue_state)
+    if [[ $QUEUE == running ]]; then
+      say "   the queue is already running"
+    elif [[ -z $PAUSE_REASON ]]; then
+      fail "this run did not pause the queue (no run file says it did): resume it by hand once its pause is understood"
+    elif [[ $QUEUE != "paused"$'\t'"$PAUSE_REASON" ]]; then
+      # a bundle refused or a job failed for the last time while it ran (`also: ...`), or another pause
+      fail "the pause holds more than this run's: ${QUEUE#paused$'\t'} -- left paused for the owner"
+    else
+      out=$(core queue resume 2>&1) || fail "the resume was refused: $out"
+    fi
+    PAUSE_REASON=""
+  fi
+  record "queue resumed"
+fi
 
 step 11 "every kind KEDA should start for $BUILD claims work (up to $VERIFY_MINUTES min)"
 if ((DRY)); then
