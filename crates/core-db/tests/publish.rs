@@ -589,7 +589,7 @@ async fn a_replaced_day_local_or_history_revision_takes_down_what_read_it() {
     assert_eq!(open[0].get::<_, String>(0), "NOT_DERIVED");
     assert_eq!(open[0].get::<_, String>(1), "A republish left 2 days that no job derives again: 2025-12-10, 2025-12-11");
     let posted: Vec<String> = client.query("SELECT message FROM core.notice WHERE post", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
-    assert_eq!(posted, [core_db::watch::alert_for("NOT_DERIVED", "A republish left 2 days that no job derives again: 2025-12-10, 2025-12-11", "vyreon-core log 20")]);
+    assert_eq!(posted, [core_db::watch::posted_alert("NOT_DERIVED", "A republish left 2 days that no job derives again: 2025-12-10, 2025-12-11", "vyreon-core log 20")]);
     // audit 2026-11-17 round w, 8 and 9: a job resolves nothing, queued or cancelled (a block may
     // be past the day already, a repair may be cancelled after); only the days derived again do
     let settings = core_db::watch::Settings { profile: "FREE_REPORT_64".into(), deadlines_from: None, volume_bytes: None, deadline_hour: 20, daily: None, archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };

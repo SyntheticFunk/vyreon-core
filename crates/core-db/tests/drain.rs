@@ -306,15 +306,15 @@ async fn a_hand_over_lets_a_done_days_archive_and_check_finish() {
     core_db::watch::check(&mut client, &s, &t1).await.unwrap();
     assert!(open_problems(&client, "STALLED").await.is_empty(), "the drains hold the slots: no stall");
     let post = core_db::progress::preview(&mut client, PROFILE, &t1).await.unwrap().join("\n");
-    assert!(post.contains("Draining: 2 blocks of build slice-old-image finishing their day (2 with the day done, its check to come), the first bound "), "{post}");
-    assert!(post.contains("the new build's blocks start as they end"), "{post}");
+    assert!(post.contains("Release: 2 blocks of the old version finishing their current day (2 checking their day), all by "), "{post}");
+    assert!(post.contains("new blocks start as they end"), "{post}");
     // the half hours go by with nothing published: each window's post still says the blocks drain (release-4
     // audit, Codex 5: a quiet window's one line dropped it)
     core_db::progress::tick(&mut client, PROFILE, &t1).await.unwrap();
     let t1b: String = client.query_one(&at(51), &[&t0]).await.unwrap().get(0);
     core_db::progress::tick(&mut client, PROFILE, &t1b).await.unwrap();
     let last: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'progress' ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
-    assert!(last.contains("Draining: 2 blocks"), "{last}");
+    assert!(last.contains("Release: 2 blocks"), "{last}");
     // one drain past its bound (the sweep did not stop it) beside one within it: the kind is not excused
     // (release-4 audit, Codex 6); after the stall's minutes, STALLED
     client.execute("UPDATE core.drain SET until = $1::text::timestamptz - interval '1 minute' WHERE job_id = $2", &[&t1, &b.job_id]).await.unwrap();
@@ -464,6 +464,6 @@ async fn a_day_published_by_a_replaced_block_counts_once() {
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &new, DAYS[1], DAYS[2], 3).await.unwrap();
     let now: String = client.query_one("SELECT now()::text", &[]).await.unwrap().get(0);
     let post = core_db::progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
-    assert!(post.contains("1 of 3 days published"), "{post}");
+    assert!(post.contains("1 of 3 days done"), "{post}");
     scratch.drop().await;
 }
