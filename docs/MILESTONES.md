@@ -1518,6 +1518,14 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   the node, a re-run re-downloads ~3 h. Still open before the audit: E3 (NVDA VS-O04 2024-06-21, TSLA σ) by re-captured
   inputs; 08-14 volume_oscillator_5_20 failures. Core work after: register the build, re-capture tapes 2023-05-24..today
   (6-12 h), hold days until their tape windows exist, recompute by method version (C-079).
+  **eng-r5 complete (UTC−6 ~13:30, tip 9955bdbd):** D-471 reverted (rejected: check on node ~0.5 h vs re-run ~3 h); 08-14
+  volume_oscillator = suite fault (engine computes ruled EMA5/EMA20 per D-107; matches real AAPL/DIA to 3e-14); TSLA σ = the
+  referee's unconverged QuantLib grid (engine matches exact Black-Scholes; suite now refines to convergence); NVDA 2024-06-21:
+  re-captured inputs show today's code (D-441 + D-028 agree) yields the reference's 0.032980 — the published 0.032165 likely
+  came from a pre-D-441 build; PROOF = the post-release recompute's reference check on 2024-06-21. Suites: pytest 284/107,
+  cargo 1,782/1 (address_bound, fails on this laptop on the base build too).
+  **Full-engine Codex audit running (UTC−6 ~13:35):** all 9 engine scopes (daily, overlay, surface, m0, optsensors, field,
+  company, tape, orchestration) on eng-r5, whole-subsystem, `audits/2026-11-25-full-engine/`. Then remediate everything.
  "freeze the build, then crank
   it and generate phase 1 with as many nodes as possible. Fix everything we find that we can trace to an engine fault. THEN
   selectively recompute where we have to." Why: since 11-21, 38 of 61 day publications (~62%) redid a published day across 11
