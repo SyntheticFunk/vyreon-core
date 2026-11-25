@@ -1526,6 +1526,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   cargo 1,782/1 (address_bound, fails on this laptop on the base build too).
   **Full-engine Codex audit running (UTC−6 ~13:35):** all 9 engine scopes (daily, overlay, surface, m0, optsensors, field,
   company, tape, orchestration) on eng-r5, whole-subsystem, `audits/2026-11-25-full-engine/`. Then remediate everything.
+  **Full-engine audit results (UTC−6 13:49):** ~62 ORDINARY (≈12 wrong numbers on real data: AVGO split-day strike spacing and
+  double ladder, a stale quote erasing a traded print, FXI's 2023 cash deliverable, surface ×3, M0, option sensors, field,
+  company, tape; plus mislabelled measures and wrong absences) + ~54 RARE. All to be fixed (owner's rule). Three fixers in
+  parallel by subsystem on eng-r6a (overlay/optsensors/tape, D-477..489), eng-r6b (surface/m0/daily, D-490..502), eng-r6c
+  (company/field/orchestration, D-503..515), each from eng-r5; targeted tests only (shared laptop memory); the coordinator
+  merges and runs the full suite once.
  "freeze the build, then crank
   it and generate phase 1 with as many nodes as possible. Fix everything we find that we can trace to an engine fault. THEN
   selectively recompute where we have to." Why: since 11-21, 38 of 61 day publications (~62%) redid a published day across 11
