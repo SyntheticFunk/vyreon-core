@@ -304,6 +304,12 @@ async fn publish_day(State(app): Shared, headers: HeaderMap, body: Body) -> Repl
                 let mut client = app.db().await?;
                 let client: &mut Client = &mut client;
                 let tx = client.transaction().await.map_err(|e| failed(e.to_string()))?;
+                // C-077: a draining lease past its last day overran it: its lease ends, nothing pauses, and the
+                // worker is told its lease is gone
+                if work::drain_overrun(&tx, &lease, &e.1).await.map_err(failed)? {
+                    tx.commit().await.map_err(|e| failed(e.to_string()))?;
+                    return Err(ApiError(StatusCode::GONE, format!("no live lease has this token: its drained day is done ({})", e.1)));
+                }
                 work::pause(&tx, &format!("job {} ({}): bundle refused: {}", lease.job_id, lease.worker, e.1)).await.map_err(failed)?;
                 tx.commit().await.map_err(|e| failed(e.to_string()))?;
             }
