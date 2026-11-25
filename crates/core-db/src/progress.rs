@@ -702,8 +702,13 @@ async fn compose(c: &mut impl GenericClient, profile: &str, start: &str, end: &s
     // the state: the headline's numbers, and the passes, the daily run and the tapes in plain words
     let h = c
         .query_one(
+            // the backfill's sessions: every session a backfill day block (of any build, in any state) was
+            // scheduled over, so a day published by a block a hand-over later replaced counts once (live,
+            // 2026-11-25: 2024-08-15, job 21821, was left out); not a compare-only block's, nor an omitted session
             "WITH s AS (SELECT DISTINCT x.session FROM core.job j JOIN core.session x ON x.session BETWEEN j.first_session AND j.last_session
-                        WHERE j.kind = 'DAY_BLOCK' AND j.profile_id = $1 AND j.priority = 0 AND j.state <> 'CANCELLED')
+                        WHERE j.kind = 'DAY_BLOCK' AND j.profile_id = $1 AND j.priority = 0
+                          AND NOT COALESCE(j.scope @> '{\"compare_only\": true}', false)
+                          AND NOT EXISTS (SELECT FROM core.omitted_session o WHERE o.session = x.session AND o.profile_id = $1))
              SELECT (SELECT count(*) FROM s),
                     (SELECT count(*) FROM s WHERE EXISTS (
                         SELECT FROM vyreon.day_revision b WHERE b.represented_date = s.session AND b.profile_id = $1 AND b.state = 'PUBLISHED' AND b.base_revision IS NULL
