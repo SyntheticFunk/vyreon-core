@@ -1436,6 +1436,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   **Engine faults on every published day** (IBIT daily 10 slots, ETHA daily since listing, ARKK intraday families most days,
   AVGO/UUP/MSTR some): honestly withheld (no wrong number) but a systematic engine defect; investigation on eng-faults (D-468).
   Reference checks on 1ae946f7 days disagree: 07-15 (87 unexplained), 08-14 (22) — to investigate after release 4.
+  **First drain complete (UTC−6 04:14):** release.sh exited "released 1134003a+838b60481511"; all 8 old blocks published their
+  drained day (07-10, 07-15, 07-16, 07-18, 07-22, 07-25, 08-15, 09-05); the new build holds all 8 day-block slots at 04:15.
+  Next: release 4 (worker a79930e2 built; core-fix10 after the plain-language digest) — its drain will be the first with
+  D-465 workers. Then: re-measure throughput with the fast reference check; investigate the 07-15/08-14 disagreements.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
