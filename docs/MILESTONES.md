@@ -1505,6 +1505,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   **Coordinator ruling (standards first):** the forward put-call pair tolerance becomes the no-arbitrage band (sum of both
   legs' half-spreads; Hull) instead of the mean of the half-spreads — 12 of 13 such failures fall inside it. The owner's
   2026-10-30 rule (offsets without a σ half-width stay flagged) is unchanged.
+  **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
+  load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
+  manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
+  need VYREON_REFERENCE_SUITE=<engine>/tools/reference. Worker nodes scaling down (8 at 10:42).
  "freeze the build, then crank
   it and generate phase 1 with as many nodes as possible. Fix everything we find that we can trace to an engine fault. THEN
   selectively recompute where we have to." Why: since 11-21, 38 of 61 day publications (~62%) redid a published day across 11
