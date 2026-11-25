@@ -3616,3 +3616,19 @@ value are not excluded (D-273: old days are another method in DLM-UNUSUALNESS's 
 | Gemini 18 (C-078) a bare-date start mislabelled in MT | real: the start's label is its UTC date (the months are UTC) |
 | Gemini 19 suspicion: per-slot version variance | not real: the live database holds one (science, method) label per measurement per revision on every published day checked (2024-07-15..17, read-only) |
 | Gemini 20 suspicion: several invoices a month, more than 24, an unreadable amount | real enough to close: a month's invoices summed, 200 a page, an unreadable invoice makes no reading |
+
+**C-077 amended (live, 2026-11-25, the first draining release).** (1) Core raised "Day blocks stalled since 22:17 MT: 45
+claimable and none leased" while day-block's 8 slots (its `maxReplicaCount`) were the old build's draining blocks: the
+release-3 audit's fix to Gemini 14 (per-kind STALLED counts only running builds' leases) made the drains invisible to it. A
+kind with a draining lease within its bound is now waiting for those slots, not stalled; the progress channel's state says
+"Draining: N blocks of build X finishing their day …; the new build's blocks start as they end". A drain past its bound
+explains nothing (STALLED after the usual minutes), and once the drains end the stall clock starts from the last lease's
+end. Trade-off accepted: a broken new image beside a partial drain is seen once the drains end (at most `DRAIN_MINUTES`),
+and by release.sh's final claim check of the drain-held kinds. Test `drain.rs::a_hand_over_lets_a_done_days_archive_and_check_finish`.
+(2) Release-3's 6cb40c2 dropped release.sh's step 10 (the queue's resume) in rewriting steps 9-12; restored by the
+coordinator (64f68f8, reviewed: the original code, in place) with a guard that every documented step is defined.
+(3) Other checks read against a drain: JOB_THRASHING (a drain is one lease), CLAIMS_EMPTY (no pod starts while the slots
+are held), the chain (every lease counts) and the digest are unaffected. One engine-side gap, not fixed here: D-465's
+drained worker waits for the next day's download before its check under a plain step ("reference check D: the next day's
+download ends first"), which NO_PROGRESS would flag after 20 minutes if that download is long; it should be a declared
+wait (`status_waiting`, the download's bound) in the engine's next release.
