@@ -2538,7 +2538,8 @@ async fn a_hand_over_is_one_progress_line_and_hides_no_reason() {
     // the successor not admitted yet: the line says to admit it
     let now = watch::now(&client).await.unwrap();
     let post = progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
-    assert!(post.contains(&format!("Hand-over {id}: {old} → {new}, 5 blocks + 5 passes moved, 2 running jobs restarted — the rulings image · {new} not admitted yet")), "{post}");
+    // C-077: the two running one-day blocks finish their day (nothing of them left to move)
+    assert!(post.contains(&format!("Hand-over {id}: {old} → {new}, 3 blocks + 5 passes moved, 2 running blocks finishing their day first — the rulings image · {new} not admitted yet")), "{post}");
 
     admit(&client, &new).await;
     work::resume(&client).await.unwrap();
@@ -2547,9 +2548,9 @@ async fn a_hand_over_is_one_progress_line_and_hides_no_reason() {
     let lines: Vec<&str> = post.lines().collect();
     // C-073 (owner, 2026-11-24): each step one short line ("   HH:MM what"), its reason kept
     let line = |text: &str| lines.iter().any(|l| l.len() > 9 && &l[9..] == text);
-    assert!(line(&format!("Hand-over {id}: {old} → {new}, 5 blocks + 5 passes moved, 2 running jobs restarted — the rulings image")), "{post}");
+    assert!(line(&format!("Hand-over {id}: {old} → {new}, 3 blocks + 5 passes moved, 2 running blocks finishing their day first — the rulings image")), "{post}");
     assert!(line(&format!("Queue paused: {reason}")), "the pause keeps its reason: {post}");
-    assert!(line(&format!("Build {old} withdrawn: handed over to build {new}: the rulings image (2 running jobs stopped)")), "{post}");
+    assert!(line(&format!("Build {old} withdrawn: handed over to build {new}: the rulings image")), "{post}");
     assert!(line(&format!("Build {new} admitted")) && line("Queue resumed"), "{post}");
     assert!(!post.contains("Started") && !post.contains("w1"), "a plain start is the headline's building, no pod named: {post}");
 
