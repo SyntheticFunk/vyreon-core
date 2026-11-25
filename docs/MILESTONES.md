@@ -1398,6 +1398,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   Deploy after the drains end: merge core-fix10 → main, build core, release.sh --core. Engine gap for the next engine release:
   a drained release-3 worker waits for its next day's download under a plain step → NO_PROGRESS after 20 min; make it a
   declared wait.
+  **Drain observation (UTC−6 23:38):** 4 drained days published (07-10, 07-15, 08-15, 09-05; 07-10's history layer by the new
+  build's ordered pass, one revision per layer — C-070 holds). But a drain's lease ends only when the day's REFERENCE CHECK
+  reaches core (~1.5-2 h after publish), so 5 of 8 nodes sit in "day done, its check to come" while 45 new-build blocks wait
+  for slots. Improvement for the next core/engine release: end the drain at publish and hand the reference check to the
+  REFCHECK re-run machinery (or let the new build's blocks start beside a draining check), measured against today's numbers.
   **Roadmap beyond launch (owner):** repurposing research after phase 1 (needs data); full history after launch; then the
   forward-looking research and the no-signal line exactly as PRODUCT_INTENT.md states them (lines ~10, 57, 66, 328-331). New
   from the owner's legal consultation: current work is within the review's scope; incorporation is most of the defence; the
