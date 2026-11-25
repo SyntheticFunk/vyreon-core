@@ -3647,3 +3647,13 @@ quota). Every finding real; each fixed and tested.**
 | 7 the slot inferred from the job's priority | the slot is the drain's pod's ScaledJob (its name, `day-block-daily-…` / `day-block-…`), else the job's group. Same test (day-block pods on daily blocks) |
 | 8 the guard checks labels, not operations | each worker step's body must hold its operation (step 10: `queue resume --expect`); checked by removing it from a copy (refused, exit 2) |
 release.sh's verification and recovery were also run against stubbed core and kubectl (a paused queue stops it; live claims count).
+
+**C-077 amended (live, 2026-11-25 03:35 MT, the first real drain).** Job 21823 (build 1ae946f7, an engine before D-465,
+which ignores core's "last day") finished its drained day 2024-09-05, then computed and sent 2024-09-06; core refused it
+("job 21823 expects no further day …") and, as for any refused bundle, paused the whole queue (resumed by hand). A bundle
+refused from a draining lease whose job has no day left is the drain's overrun, the expected behaviour of such a worker,
+not a bundle to look at: `work::drain_overrun` ends the lease (the job DONE; its later days are the successor's since the
+hand-over), logs one line ("Draining job J of build B sent D after its drained day … refused, its lease ended, nothing
+paused"), and the worker is answered 410 (its lease gone), so it stops without reporting a failure. Every other refusal
+pauses as before. Test `core-api/tests/worker_api.rs::a_drained_blocks_overrun_ends_its_lease_and_pauses_nothing` (the
+existing refusal test still pauses).
