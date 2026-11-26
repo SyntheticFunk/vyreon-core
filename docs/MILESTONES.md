@@ -47,8 +47,12 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
 5. **Open on branches (stage 1 of the plan below):**
    - engine `eng-s1` (worktree `/home/diggz/wt/eng-s1`): memory gate D-515 (bbc913fb..66e416f8), D-516 (no change:
      a day waits for the previous day's check), VS-O04 withhold D-517 (f7007044, fedb96be), suite fixes + checker
-     completeness D-518 (62142510, 9438dbbf, c6da1dc4; docs 9df21217). Item B deferred; C and E in progress
-     (uncommitted work in `h5-company/src/bin/capture.rs` at 14:25).
+     completeness D-518 (62142510, 9438dbbf, c6da1dc4; docs 9df21217).
+     - B, restoring INT-IVSC01's ignored end-to-end test: deferred. The canary covers it, and the fixture gets
+       refrozen from a gate day's store.
+     - C, the intent logs labelling stated absences: in progress.
+     - E, company-capture 429 pacing: in progress (work in `h5-company/src/bin/capture.rs`).
+     - Then the compact provenance form (D-500 item 5), and reproducing VS-O04's cause.
    - engine `eng-s1b`: the forward rules — the 10-30 replacement (parity band), the one empty-chain reason, the
      general carry rule; decisions D-530 on. No commits yet.
    - core `core-s1` (566fef9..6e81c5f, migration 0064): ramp + one-real-day gate (C-086), backfill stop/resume flag
@@ -171,17 +175,17 @@ day is BAD.
    are safe early. First check what ORDERED_PASS carries forward across days (recent-first may force redoing passes).
 2. **Reporter:** starts ONCE the database is progressing smoothly and is just monitoring (owner: "we can't do
    anything without a database"); not before.
-3. **The nightly is pilot-critical:** the proving set includes a nightly run on the new build; a missed nightly
+3. **The nightly is pilot-critical:** the freeze canary includes a nightly run on the new build; a missed nightly
    alerts on its own.
-4. **The checker must check everything:** the proving gate requires every reference-check family to have run (an
-   import error silently skipped the M0 checks on 07-11).
+4. **The checker must check everything:** the canary and the gate require every reference-check family to have run
+   (an import error silently skipped the M0 checks on 07-11).
 5. **Small releases:** each batch merged into the frozen line has published one real day first (~$0.50), not only at
    release.
-6. **The proving set** adds ~4 random days to the hand-picked hard ones.
+6. **Random days, not only hand-picked hard ones:** covered by the full run. The brute-force pass is the population;
+   the proving set was dropped.
 7. **Operation:** steps that went wrong by hand become scripts and gates (stage 1 item 3); every scale-up step waits
    for its check to pass.
-Items 3, 4 and 6 name the proving set, which the brute-force revision dropped; they apply through the one-real-day
-gate and the canary (AGENTS) until the owner says otherwise. Estimates, unproven: 2.2 h/day/block was measured on
+Estimates, unproven: 2.2 h/day/block was measured on
 2024 days, one block alone.
 
 ## Steps to the MVP (the list shown to the owner on a status request; keep it current)
@@ -326,8 +330,11 @@ Next:
   replies delayed by the US holiday. Entitlements after the upgrade (access codes, 2026-11-26): all 16 of 2026-09-29
   kept, plus api, edi_otcb, historical_tick_otc_delayed. Also to ask Intrinio: an EEM 2023-12-20 dividend backfill and
   the by-day dividend/adjustment feeds (P-22).
+  Drafted for the owner, 2026-11-26:
+  - is there a concurrent, per-second or per-endpoint limit behind the 429s below 2,000/min? The owner suspects
+    simultaneous requests;
+  - can the REST limit be raised temporarily for the backfill? (Intrinio's FAQ: raised case by case.)
 - The 7 forward offsets inside the parity band: verify before rule (1) lands; rule (3) drafted and tested first.
-- How seven-ways items 3, 4 and 6 (the proving set) apply now that stage 2 is dropped.
 - RSS watchdog in place of the 2 GiB per-worker address-space cap (D-007; asked 2026-11-20).
 - D-404's consecutive-gap limit (WMO uses 5 days): not ruled.
 - D-495: surfaces before 2023-01-03 withheld until the calendar holds 2019 (outside phase 1).
