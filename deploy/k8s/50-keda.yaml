@@ -22,6 +22,9 @@
 # of the build was leased, and, until the build has published one real day with no engine-fault slot, 0
 # while one of its backfill blocks runs: they ramp up one at a time, the cap below only a ceiling. C-087:
 # while the backfill is stopped (`vyreon-core backfill stop`) its blocks, passes and re-runs count 0.
+# C-092 (migration 0066): after the budget's 5 minutes of pressure, the backfill's tapes, re-runs and
+# republishes start at most one pod of a kind a minute until 30 minutes from the last wait (a slow start,
+# so bursty tapes no longer stop and start all together).
 # Under `accurate` a 1 starts one pod (a pod not yet Running is pending and deducted); the one window,
 # a pod Running but not yet claimed, may start a second, which then claims a block too (the claim is not
 # gated, as C-073's budget). A claimed job leaves the count, so the count is the work no pod holds yet; with
