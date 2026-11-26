@@ -87,10 +87,23 @@ find nothing to claim. Releases only through `deploy/k8s/ops/release.sh` (`--cor
    - a normal review of everything changed.
 3. **Remediate every real finding, then FREEZE.** The freeze candidate passes the canary: one real day on one node,
    0 engine faults, every reference disagreement classified, memory peak within the node.
-4. **HANDOFF to a fresh session**, prepared by the coordinator: Resume here with the frozen build, the release and run
-   steps, what to watch, what is pre-authorized (AGENTS "Running the build"), and the open items. The new session
-   starts with the alignment talk, then runs the canary, the release and the build (the run design below), then one
-   fix pass and selective recompute; Reporter once the run is smooth.
+4. **HANDOFF to a fresh session** (owner, 2026-11-26, moved earlier). It happens once the four agents now running have
+   reported (eng-s1, eng-s1b, core-s1, the rulings census) and their results are verified and written here. The new
+   session does steps 1's integration, 2 and 3 (integration, the Codex audit, remediation, the freeze), then the
+   canary, the release and the build (the run design below), then one fix pass and selective recompute. Reporter starts
+   once the run is smooth. It begins with the alignment talk; the owner: "a fresh Claude's independence will be
+   valuable there anyway".
+5. **Golden days become known-good** (owner, 2026-11-26: "seems to be a decent plan"):
+   - Reuse the engine's golden dates: 2025-12-10 (main), the retained 2026-09-18, and the other two of the "four golden
+     days" (to identify from the engine records; not yet pinned).
+   - They prove "code moved without changing a number", NOT correctness (engine DECISIONS: "The golden runs show code
+     moved without changing a number, not that the numbers are right").
+   - After the fix pass: compute them on the frozen build and review them (reference check fully classified, the
+     Cboe/VIX cross-check, the owner's reasonableness eyeball). Explain every difference from the old golden values
+     by a named method change.
+   - Then they are the canary's comparison baseline.
+6. **Pilot checkpoint:** once the most recent ~300 sessions are done and checked (newest-first), the pilot is safe;
+   older history is valuable but off the January critical path.
 
 ### Run design after the freeze: brute-force phase 1, then one large fix pass (owner, 2026-11-26)
 Why the previous 3–4 days produced 3 keepable days: builds released to many nodes without one real day end to end,
