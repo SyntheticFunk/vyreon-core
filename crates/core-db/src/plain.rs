@@ -128,7 +128,7 @@ fn plain_line(line: &str) -> String {
         i += 1;
     }
     let mut s = out.into_iter().filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ");
-    let fixes = [("()", ""), ("[]", ""), (" ,", ","), (" .", "."), (" :", ":"), (" ;", ";"), ("( ", "("), (" )", ")"), ("(, ", "("), (", )", ")"), ("  ", " ")];
+    let fixes = [("(,)", ""), ("()", ""), ("[]", ""), (" ,", ","), (" .", "."), (" :", ":"), (" ;", ";"), ("( ", "("), (" )", ")"), ("(, ", "("), (", )", ")"), ("  ", " ")];
     loop {
         let before = s.clone();
         for (from, to) in fixes {
@@ -139,6 +139,80 @@ fn plain_line(line: &str) -> String {
         }
     }
     format!("{indent}{}", s.trim())
+}
+
+/// C-091 (owner, 2026-11-26: "no commands, secret names, file paths, job ids or decision codes in posts"): the
+/// alerts channel's text: `plain`, and before it every command in backticks taken out, every parenthesis that
+/// names a file, a setting or a secret, and any such word left. The commands stay behind `vyreon-core problems`.
+pub fn for_alert(text: &str) -> String {
+    // the backtick spans, and a "(`...`)" or ": `...`" around one
+    let mut out = String::new();
+    let mut parts = text.split('`');
+    if let Some(first) = parts.next() {
+        out.push_str(first);
+    }
+    for (i, part) in parts.enumerate() {
+        if i % 2 == 1 {
+            out.push_str(part);
+        }
+    }
+    let out = remove_parens(&out);
+    let words: Vec<String> = out
+        .lines()
+        .map(|line| line.split(' ').filter(|w| !internal(w)).collect::<Vec<_>>().join(" "))
+        .collect();
+    plain(&words.join("\n")).lines().map(str::trim_end).collect::<Vec<_>>().join("\n")
+}
+
+/// A word naming a file, a path, a setting or a secret.
+fn internal(word: &str) -> bool {
+    let (_, w, _) = split_punct(word);
+    w.contains("README")
+        || w.ends_with(".md")
+        || w.ends_with(".yaml")
+        || w.ends_with(".sh")
+        || w.starts_with("deploy/")
+        || w.starts_with("vyreon-core-")
+        || w == "kubectl"
+        || (w.starts_with("VYREON_") && w.chars().all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'))
+}
+
+/// `text` without the parentheses whose words name a file, a setting or a secret (`internal`).
+fn remove_parens(text: &str) -> String {
+    let mut out = String::new();
+    let mut rest = text;
+    while let Some(open) = rest.find('(') {
+        // its matching close, nested ones inside
+        let mut depth = 0;
+        let mut close = None;
+        for (i, ch) in rest[open..].char_indices() {
+            match ch {
+                '(' => depth += 1,
+                ')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        close = Some(open + i);
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+        let Some(close) = close else { break };
+        let inner = &rest[open + 1..close];
+        out.push_str(&rest[..open]);
+        if inner.split(' ').any(internal) || inner.trim().is_empty() {
+            // the space before it goes with it
+            while out.ends_with(' ') {
+                out.pop();
+            }
+        } else {
+            out.push_str(&rest[open..=close]);
+        }
+        rest = &rest[close + 1..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// (leading punctuation, the word, trailing punctuation).
@@ -152,6 +226,20 @@ fn split_punct(w: &str) -> (&str, &str, &str) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// C-091: the alerts carry no command, file, setting or secret name (the posts of 2026-11-26 named the
+    /// secret and the README).
+    #[test]
+    fn an_alert_names_no_command_file_or_secret() {
+        assert_eq!(
+            for_alert("🔴 Needs you: the spend is not known (no DigitalOcean token: the secret vyreon-core-do-billing is not made (deploy/k8s/README.md, Spend)), so the ceiling is not watched. To do: `vyreon-core spend`"),
+            "🔴 Needs you: the spend is not known, so the ceiling is not watched. To do:"
+        );
+        assert_eq!(for_alert("The watch cannot read the WAL: the core login lacks pg_monitor (deploy/k8s/README.md, Backups B0)"), "The watch cannot read the WAL: the core login lacks pg_monitor");
+        assert_eq!(for_alert("Backups unverified: never read (VYREON_CORE_PG_CLUSTER, its Role: README B0)"), "Backups unverified: never read");
+        assert_eq!(for_alert("⚠️ Problem: Day 2024-09-05 set aside (job 21823): stop: refused (C-075)."), "⚠️ Problem: Day Sep 5 set aside: stop: refused.");
+        assert_eq!(for_alert("18 of 597 days (3%) at 19:45"), "18 of 597 days (3%) at 19:45");
+    }
 
     #[test]
     fn codes_ids_and_iso_dates_go() {

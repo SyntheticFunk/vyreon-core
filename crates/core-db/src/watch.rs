@@ -122,6 +122,9 @@ pub struct Settings {
     /// C-079: the republish of published days whose method versions differ from a newly admitted build's,
     /// planned and scheduled by core; None: not done.
     pub recompute: Option<crate::recompute::RecomputeWatch>,
+    /// C-091: the phase's first and last session (`VYREON_CORE_PROGRESS_FROM`/`_TO`), the digest's database line's
+    /// total; None: every session a backfill block covers.
+    pub phase: Option<(String, String)>,
 }
 
 /// What the watch checks of the perishable archive (C-052).
@@ -230,7 +233,7 @@ pub async fn open(c: &impl GenericClient, now: &str) -> Result<Vec<Open>, String
     let rows = c
         .query(
             "SELECT problem_id, kind, key, summary, command, GREATEST(extract(epoch FROM $1::text::timestamptz - opened_at), 0)::bigint
-             FROM core.problem WHERE resolved_at IS NULL ORDER BY opened_at, problem_id",
+             FROM core.problem WHERE resolved_at IS NULL AND NOT quiet ORDER BY opened_at, problem_id",
             &[&now],
         )
         .await
@@ -1549,79 +1552,117 @@ fn short(build: &str) -> String {
     if build.chars().count() > 16 { build.chars().take(12).chain(['…']).collect() } else { build.to_owned() }
 }
 
-/// Opens a problem in the caller's transaction (with its alert), unless it is open already.
+/// C-091: the problems a stall that may heal itself is; opened quietly, alerted only once they have held
+/// `QUIET_MINUTES` (2026-11-26: a NO_PROGRESS alerted, then resolved itself 8 minutes later).
+pub const QUIET_KINDS: [&str; 1] = ["NO_PROGRESS"];
+pub const QUIET_MINUTES: f64 = 30.0;
+
+/// C-091: the problems a deliberate stop of the backfill causes itself (`vyreon-core backfill stop`: its cancelled
+/// passes leave days not derived, its days are left unchecked); neither opened nor resolved while it is stopped.
+pub const STOP_SUPPRESSED: [&str; 2] = ["NOT_DERIVED", "REFCHECK_NOT_RUN"];
+
+/// Whether the backfill is stopped (C-087), read in a savepoint: a database before 0064 (or a part of it renamed
+/// away, a test's) reads as not stopped.
+async fn backfill_stopped(c: &impl GenericClient) -> Result<bool, String> {
+    c.batch_execute("SAVEPOINT backfill_flag").await.map_err(db)?;
+    match c.query_one("SELECT backfill_stopped FROM core.queue_control", &[]).await {
+        Ok(r) => {
+            c.batch_execute("RELEASE SAVEPOINT backfill_flag").await.map_err(db)?;
+            Ok(r.get(0))
+        }
+        Err(_) => {
+            c.batch_execute("ROLLBACK TO SAVEPOINT backfill_flag; RELEASE SAVEPOINT backfill_flag").await.map_err(db)?;
+            Ok(false)
+        }
+    }
+}
+
+/// Opens a problem in the caller's transaction (with its alert, but for a quiet one), unless it is open already;
+/// not one the backfill's deliberate stop causes (C-091).
 async fn open_one(c: &impl GenericClient, f: &Found, now: Option<&str>) -> Result<bool, String> {
     // a publish opens NOT_DERIVED in its own transaction: it waits for a digest being composed
     c.execute(PROBLEM_LOCK, &[]).await.map_err(db)?;
+    if STOP_SUPPRESSED.contains(&f.kind) && backfill_stopped(c).await? {
+        return Ok(false);
+    }
+    let quiet = QUIET_KINDS.contains(&f.kind);
     let n = c
         .execute(
-            "INSERT INTO core.problem (kind, key, opened_at, summary, command, detail)
-             VALUES ($1, $2, COALESCE($3::text::timestamptz, now()), $4, $5, $6::text::jsonb)
+            "INSERT INTO core.problem (kind, key, opened_at, summary, command, detail, quiet)
+             VALUES ($1, $2, COALESCE($3::text::timestamptz, now()), $4, $5, $6::text::jsonb, $7)
              ON CONFLICT (kind, key) WHERE resolved_at IS NULL DO NOTHING",
-            &[&f.kind, &f.key, &now, &f.summary, &f.command, &f.detail.as_ref().map(Value::to_string)],
+            &[&f.kind, &f.key, &now, &f.summary, &f.command, &f.detail.as_ref().map(Value::to_string), &quiet],
         )
         .await
         .map_err(db)?;
-    if n == 1 {
+    if n == 1 && !quiet {
         notice::alert(c, &alert_for(f.kind, &f.summary, &f.command)).await?;
     }
     Ok(n == 1)
 }
 
 /// What a problem of `kind` means for the published numbers, in plain words (owner, 2026-11-24 and
-/// 2026-11-25): whether it affects them (yes or no) and how, and what the owner should do (None: nothing,
-/// it is handled).
+/// 2026-11-25): whether it affects them (yes or no) and how; and, for the problems only the owner can act on
+/// (`needs_you`), what to do, in plain words with no command (C-091).
 pub fn consequence(kind: &str) -> (bool, &'static str, Option<&'static str>) {
     match kind {
-        "SESSION_LATE" => (true, "that day shows as not published until its work finishes", Some("see why its work has not finished:")),
-        "REPORT_AT_RISK" => (true, "Sunday's report may go out with this week incomplete", Some("see what is still missing:")),
-        "QUEUE_PAUSED" => (false, "nothing new is computed while paused", Some("find the cause; once it is fixed, resume the queue:")),
-        "JOB_FAILED" => (true, "that day stays unpublished (readers see it missing, with its cause)", Some("after a fix, retry the failed work (`vyreon-core queue retry-failed`); why it failed:")),
-        "PROVIDER_AUTH" => (false, "no new data can be fetched", Some("check the Intrinio key and account:")),
+        "SESSION_LATE" => (true, "that day shows as not published until its work finishes", None),
+        "REPORT_AT_RISK" => (true, "Sunday's report may go out with this week incomplete", None),
+        "QUEUE_PAUSED" => (false, "nothing new is computed while paused", None),
+        "JOB_FAILED" => (true, "that day stays unpublished (readers see it missing, with its cause)", None),
+        "PROVIDER_AUTH" => (false, "no new data can be fetched", Some("check the Intrinio key and the account")),
         "PROVIDER_ERRORS" => (false, "the work is retried by itself", None),
-        "DATABASE_FULL" => (false, "publishing stops when the volume is full", Some("grow the volume (deploy/k8s/README.md, Backups and the volume):")),
-        "CALENDAR_END" => (false, "the nightly runs stop at the calendar's end", Some("load the engine's next calendar:")),
-        "NOT_DERIVED" => (true, "those days' history readings (unusualness, windows) are missing until derived again", Some("queue their history passes:")),
-        "DAILY_STOPPED" => (false, "new sessions are not computed", Some("see the nightly runs' settings:")),
-        "ARCHIVE_MISSING" => (false, "inputs kept for later re-checks may be lost", Some("see what is missing:")),
-        "REFCHECK_DISAGREES" => (true, "numbers may be wrong where the independent check disagrees; they stay published until judged", Some("review the disagreement:")),
-        "REFCHECK_NOT_RUN" => (false, "those days are published but not independently checked", Some("see which:")),
-        "STALLED" => (false, "nothing new is computed meanwhile", Some("see the queue and the worker pods (kubectl -n vyreon get pods):")),
-        "CLAIMS_EMPTY" => (false, "work waits while workers start and leave", Some("see the queue:")),
-        "WAL_ARCHIVING" | "BACKUP_STALE" => (false, "the database could not be restored to now", Some("check the backups:")),
-        "WATCH_FAILING" => (false, "other problems may go unreported meanwhile", Some("read core's log:")),
-        "JOB_THRASHING" => (false, "that work keeps restarting; its day stays unpublished until it finishes", Some("check why the pods end (out of memory?):")),
-        "NO_PROGRESS" => (false, "that work is stuck; its day stays unpublished until it moves", Some("read the worker's log:")),
-        "DAY_REFUSED" => (true, "that day stays unpublished (readers see it missing, with its cause); nothing more is tried on it", Some("fix the refused input or the engine, then retry it (`vyreon-core queue retry-failed`); the refusal:")),
-        "STOP_RULE" => (true, "systematic breakage: the owner's rule stops phase 1 for a fix and a restart", Some("the coordinator confirms it is the engine (not the provider) before anything stops; the days:")),
-        "SPEND" => (false, "the spend nears or passes the owner's ceiling", Some("decide whether to go on (raise the ceiling, or stop the workers: deploy/k8s/README.md, Stopping everything); the spend:")),
-        _ => (false, "", Some("to see more:")),
+        "DATABASE_FULL" => (false, "publishing stops when the volume is full", Some("approve a larger database volume (it costs money)")),
+        "CALENDAR_END" => (false, "the nightly runs stop at the calendar's end", None),
+        "NOT_DERIVED" => (true, "those days' history readings (unusualness, windows) are missing until derived again", None),
+        "DAILY_STOPPED" => (false, "new sessions are not computed", None),
+        "ARCHIVE_MISSING" => (false, "inputs kept for later re-checks may be lost", None),
+        "REFCHECK_DISAGREES" => (true, "numbers may be wrong where the independent check disagrees; they stay published until judged", None),
+        "REFCHECK_NOT_RUN" => (false, "those days are published but not independently checked", None),
+        "STALLED" => (false, "nothing new is computed meanwhile", None),
+        "CLAIMS_EMPTY" => (false, "work waits while workers start and leave", None),
+        "WAL_ARCHIVING" | "BACKUP_STALE" => (false, "the database could not be restored to now", None),
+        "WATCH_FAILING" => (false, "other problems may go unreported meanwhile", None),
+        "JOB_THRASHING" => (false, "that work keeps restarting; its day stays unpublished until it finishes", None),
+        "NO_PROGRESS" => (false, "that work is stuck; its day stays unpublished until it moves", None),
+        "DAY_REFUSED" => (true, "that day stays unpublished (readers see it missing, with its cause); nothing more is tried on it", None),
+        "STOP_RULE" => (true, "the owner's rule stops phase 1 for a fix and a restart, once the coordinator confirms it is the engine", None),
+        "SPEND" => (false, "the spend nears or passes the owner's ceiling", Some("decide whether to go on: raise the ceiling, or stop the workers")),
+        _ => (false, "", None),
     }
 }
 
-/// An alert in plain words (owner, 2026-11-25): what happened; whether it affects the published numbers
-/// (yes or no) and how; what to do, with the command that shows more, or that nothing is to be done.
-pub fn alert_for(kind: &str, summary: &str, command: &str) -> String {
+/// C-091 (owner, 2026-11-26): the problems only the owner can act on (money or the ceiling, a decision, the
+/// provider's account): 🔴 "Needs you". Every other problem is ⚠️ "Problem", the coordinator's to handle.
+pub fn needs_you(kind: &str) -> bool {
+    consequence(kind).2.is_some()
+}
+
+/// An alert in plain words (C-091, owner 2026-11-26): 🔴 "Needs you: what: what to do" for the owner's own
+/// actions; else ⚠️ "Problem: what", whether it affects the published numbers and how, and that the coordinator
+/// is on it. No command (`command` stays the problem's, for `vyreon-core problems`).
+pub fn alert_for(kind: &str, summary: &str, _command: &str) -> String {
     let (affects, effect, action) = consequence(kind);
-    let mut text = format!("🔴 {}", summary.trim_end_matches('.'));
+    let summary = summary.trim_end_matches('.');
+    if let Some(action) = action {
+        return format!("🔴 Needs you: {summary}: {action}.");
+    }
+    let mut text = format!("⚠️ Problem: {summary}.");
     if !effect.is_empty() {
         text.push_str(&format!("\nPublished numbers {}: {effect}.", if affects { "affected" } else { "not affected" }));
     }
-    match action {
-        Some(action) => text.push_str(&format!(" To do: {action} `{command}`")),
-        None => text.push_str(" Nothing to do: it is handled automatically."),
-    }
+    text.push_str(" The coordinator is on it.");
     text
 }
 
-/// `alert_for` as the alerts channel carries it (`notice::alert`: in plain words, `plain::plain`).
+/// `alert_for` as the alerts channel carries it (`notice::alert`: `plain::for_alert`).
 pub fn posted_alert(kind: &str, summary: &str, command: &str) -> String {
-    crate::plain::plain(&alert_for(kind, summary, command))
+    crate::plain::for_alert(&alert_for(kind, summary, command))
 }
 
 /// `resolved_text` as the alerts channel carries it.
 pub fn posted_resolved(summary: &str, age_seconds: i64) -> String {
-    crate::plain::plain(&resolved_text(summary, age_seconds))
+    crate::plain::for_alert(&resolved_text(summary, age_seconds))
 }
 
 pub fn resolved_text(summary: &str, age_seconds: i64) -> String {
@@ -1646,11 +1687,44 @@ async fn check_queued(client: &mut Client, s: &Settings, now: &str, queueing: Op
     tx.execute(PROBLEM_LOCK, &[]).await.map_err(db)?;
     let open = open(&tx, now).await?;
     let checked = current(&tx, s, now, &open, queueing).await?;
-    let found = checked.found;
+    // C-091: while the backfill is stopped by the owner, what the stop itself causes is neither opened nor resolved
+    let stopped = backfill_stopped(&tx).await?;
+    let found: Vec<Found> = checked.found.into_iter().filter(|f| !(stopped && STOP_SUPPRESSED.contains(&f.kind))).collect();
     let mut change = Change { failing: checked.failed.iter().map(|(p, e)| format!("{}: {e}", p.key)).collect(), ..Change::default() };
+    // C-091: the quiet problems (a stall that may heal itself): said once they have held QUIET_MINUTES, resolved
+    // without a word before
+    let quiet = tx
+        .query(
+            "SELECT problem_id, kind, key, summary, command, extract(epoch FROM $1::text::timestamptz - opened_at)::float8 / 60
+             FROM core.problem WHERE resolved_at IS NULL AND quiet",
+            &[&now],
+        )
+        .await
+        .map_err(db)?;
+    for q in &quiet {
+        let (id, kind, key, summary, command, minutes): (i64, String, String, String, String, f64) = (q.get(0), q.get(1), q.get(2), q.get(3), q.get(4), q.get(5));
+        match found.iter().find(|f| f.kind == kind && f.key == key) {
+            None => {
+                tx.execute("UPDATE core.problem SET resolved_at = GREATEST($2::text::timestamptz, opened_at) WHERE problem_id = $1", &[&id, &now]).await.map_err(db)?;
+            }
+            Some(f) if minutes >= QUIET_MINUTES => {
+                tx.execute("UPDATE core.problem SET quiet = false, summary = $2, command = $3 WHERE problem_id = $1", &[&id, &f.summary, &f.command]).await.map_err(db)?;
+                notice::alert(&tx, &alert_for(f.kind, &f.summary, &f.command)).await?;
+                change.opened.push(f.summary.clone());
+            }
+            Some(_) => {}
+        }
+        let _ = (summary, command);
+    }
+    let quiet: Vec<(String, String)> = quiet.iter().map(|q| (q.get(1), q.get(2))).collect();
     for f in &found {
+        if quiet.iter().any(|(k, key)| k == f.kind && *key == f.key) {
+            continue;
+        }
         if !is_open(&open, f.kind, &f.key) && open_one(&tx, f, Some(now)).await? {
-            change.opened.push(f.summary.clone());
+            if !QUIET_KINDS.contains(&f.kind) {
+                change.opened.push(f.summary.clone());
+            }
         }
         // C-050 amended 2026-11-20: an open problem says what holds now (its counts, its oldest
         // day), not what held when it opened; nothing is posted (one alert, one "Resolved")
@@ -1664,6 +1738,9 @@ async fn check_queued(client: &mut Client, s: &Settings, now: &str, queueing: Op
     for o in &open {
         // the tick's own parts are the tick's to resolve (`record`)
         if o.kind == WATCH_FAILING && TICK_PARTS.iter().any(|p| p.key == o.key) {
+            continue;
+        }
+        if stopped && STOP_SUPPRESSED.contains(&o.kind.as_str()) {
             continue;
         }
         if !found.iter().any(|f| f.kind == o.kind && f.key == o.key) {
@@ -2089,6 +2166,35 @@ pub async fn digest(c: &mut impl GenericClient, s: &Settings, now: &str) -> Resu
     Ok(digest_of(c, s, now, &open, None).await?.unwrap_or_default())
 }
 
+/// C-091 (owner, 2026-11-26: "keep it concise"): the 09:00 digest as posted, three lines: the verdict (🔴 when
+/// something needs the owner, ⚠️ when problems are open for the coordinator, else 🟢), the database's progress
+/// (`progress::database_line`), and what needs the owner or "Nothing needs you". Everything else is behind
+/// `vyreon-core digest` and `vyreon-core problems`.
+pub async fn digest_post(c: &mut impl GenericClient, s: &Settings, now: &str, open: &[Open]) -> Result<String, String> {
+    let today: String = c.query_one("SELECT to_char($1::text::timestamptz AT TIME ZONE $2, 'Dy Mon FMDD')", &[&now, &ZONE]).await.map_err(db)?.get(0);
+    let mut needs: Vec<String> = open.iter().filter(|o| needs_you(&o.kind)).map(|o| one_line(&o.summary, 160)).collect();
+    if let Some(w) = &s.spend
+        && let crate::spend::Spend::Unread(why) = crate::spend::spend(&*c, w, now).await?
+    {
+        needs.push(format!("the spend is not known ({}), so the ceiling is not watched", one_line(&why, 120)));
+    }
+    let problems = open.iter().filter(|o| !needs_you(&o.kind)).count();
+    let database = crate::progress::database_line(c, &s.profile, s.phase.as_ref(), now).await?;
+    Ok(digest_lines(&today, &needs, problems, &database))
+}
+
+/// The three lines of `digest_post`.
+pub fn digest_lines(today: &str, needs: &[String], problems: usize, database: &str) -> String {
+    let verdict = match (needs.is_empty(), problems) {
+        (false, _) => format!("🔴 Needs you · {today}"),
+        (true, 0) => format!("🟢 Running fine · {today}"),
+        (true, 1) => format!("⚠️ 1 problem open, the coordinator is on it · {today}"),
+        (true, n) => format!("⚠️ {n} problems open, the coordinator is on them · {today}"),
+    };
+    let needs = if needs.is_empty() { "Nothing needs you".to_owned() } else { format!("Needs you: {}", needs.join("; ")) };
+    format!("{verdict}\n{database}\n{needs}")
+}
+
 /// The digest at `now` for the problems `open`. C-071: None when its counting outlasts `until`
 /// (the watch's minute), composed the next minute.
 async fn digest_of(c: &mut impl GenericClient, s: &Settings, now: &str, open: &[Open], until: Option<Instant>) -> Result<Option<String>, String> {
@@ -2488,13 +2594,13 @@ pub async fn tick_within(client: &mut Client, s: &Settings, now: &str, budget: D
                     if saturday {
                         outcomes.extend(ran(post_once(client, &format!("weekly {date}"), s, now, true, until).await).map(|r| (&WEEKLY, r)));
                     }
-                    // C-078: the morning's spend line, on the progress channel
-                    if let Some(w) = &s.spend {
-                        outcomes.push((&SPEND_LINE, spend_line_once(&*client, w, now, &date).await));
-                    }
+                    // C-091: no spend line on the progress channel any more (the spend nearing the ceiling is
+                    // SPEND, and a spend not known is in the digest's "Needs you")
                 }
-                // C-079: a new build's methods compared with the published days', once
-                if let Some(r) = &s.recompute {
+                // C-079: a new build's methods compared with the published days', once; C-091: not while the
+                // backfill is stopped by the owner (a decision would queue blocks)
+                let stopped = crate::backfill::stopped(&*client).await.unwrap_or(false);
+                if let Some(r) = s.recompute.as_ref().filter(|_| !stopped) {
                     outcomes.push((&RECOMPUTE, crate::recompute::auto(client, &s.profile, r, s.spend.as_ref(), now).await.map(|_| ())));
                 }
             }
@@ -2504,15 +2610,6 @@ pub async fn tick_within(client: &mut Client, s: &Settings, now: &str, budget: D
     checked.map(|()| change)
 }
 
-/// C-078: the morning's spend line, queued once a day on the progress channel.
-async fn spend_line_once(c: &impl GenericClient, w: &crate::spend::SpendWatch, now: &str, date: &str) -> Result<(), String> {
-    let key = format!("spend {date}");
-    if notice::queued(c, &key).await? {
-        return Ok(());
-    }
-    let line = crate::spend::line(&crate::spend::spend(c, w, now).await?);
-    notice::progress(c, &key, &line).await.map(|_| ())
-}
 
 /// A post's outcome as `record` takes it: None when it was left for the next minute.
 fn ran(posted: Result<bool, String>) -> Option<Result<(), String>> {
@@ -2586,7 +2683,8 @@ async fn post_once(client: &mut Client, key: &str, s: &Settings, now: &str, week
     if !tally_untallied(client, &s.profile, now, Some(until)).await? {
         return Ok(false);
     }
-    let composed = if weekly_check { weekly_of(client, s, now, &read, Some(until)).await? } else { digest_of(client, s, now, &read, Some(until)).await? };
+    // C-091: the posted digest is three lines (`digest_post`); the full one is `vyreon-core digest`'s
+    let composed = if weekly_check { weekly_of(client, s, now, &read, Some(until)).await? } else { Some(digest_post(client, s, now, &read).await?) };
     let Some(text) = composed else {
         return Ok(false);
     };

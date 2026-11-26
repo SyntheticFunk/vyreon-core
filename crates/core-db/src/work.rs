@@ -489,7 +489,7 @@ pub async fn guard_perished_blocks(client: &mut Client, build: &str) -> Result<(
             notice::alert(
                 &*client,
                 &format!(
-                    "🔴 Full recompute of {} under build {build} not run: the provider no longer serves those days' option prints, so it would publish their sensors withheld; {why}.\nPublished numbers stay as they are.\nTo do: recompute them scoped (`vyreon-core republish {profile} {build} <scope> <first> <last> \"<reason>\" --scoped`), or leave them.",
+                    "🔴 Needs you: a full recompute of {} was not run: the provider no longer serves those days' option prints, so it would publish their sensors withheld; {why}. Published numbers stay as they are. Decide whether to recompute them scoped, or leave them.",
                     perished.join(" ")
                 ),
             )
@@ -910,7 +910,6 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         return Ok(false);
     };
     if again.get(0) {
-        nightly_setback(db_client, job, why).await?;
         return Ok(true);
     }
     let kind: String = db_client.query_one("SELECT kind FROM core.job WHERE job_id = $1", &[&job]).await.map_err(db)?.get(0);
@@ -992,37 +991,6 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         notice::log(db_client, &format!("Day {day} failed for the last time and is set aside (job {job}): {why}{after}{local}. The build goes on.")).await?;
     }
     Ok(false)
-}
-
-/// C-089 (owner, 2026-11-26: the nightly is pilot-critical): a nightly session's job (priority 1, C-051) whose
-/// attempt ended without finishing and which is queued again is said on the alert channel at once. On
-/// 2026-11-26 the nightly block lost its lease at 13:45 MT after core's outage and started its day again,
-/// about 3 h lost, and only an agent looking saw it: a retry was housekeeping, and the session's deadline
-/// (SESSION_LATE) is the next evening, and only from VYREON_CORE_DEADLINES_FROM. Out of attempts it is
-/// JOB_FAILED, as before. The backfill's retries stay in the log.
-async fn nightly_setback(db_client: &impl GenericClient, job: i64, why: &str) -> Result<(), String> {
-    let Some(r) = db_client
-        .query_opt("SELECT kind, next_session::text FROM core.job WHERE job_id = $1 AND priority = 1 AND next_session IS NOT NULL", &[&job])
-        .await
-        .map_err(db)?
-    else {
-        return Ok(());
-    };
-    let (kind, day): (String, String) = (r.get(0), r.get(1));
-    let what = match kind.as_str() {
-        "TAPE" => "tape capture",
-        "ORDERED_PASS" => "history pass",
-        _ => "run",
-    };
-    let shown = crate::plain::day(&day).unwrap_or_else(|| day.clone());
-    notice::alert(
-        db_client,
-        &format!(
-            "Nightly {what} of {shown} stopped before it finished ({}); it starts again by itself. If it cannot finish, the day's deadline alert follows.",
-            crate::watch::one_line(why, 160)
-        ),
-    )
-    .await
 }
 
 /// C-074: rejects the STAGED revisions the leases of republish `jobs` left (a base waiting for its

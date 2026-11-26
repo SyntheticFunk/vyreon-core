@@ -43,11 +43,11 @@ impl Billing {
     /// One reading, or why there is none.
     pub async fn read(&self, month_now: &str) -> Result<Reading, String> {
         let Some(file) = &self.token else {
-            return Err("no DigitalOcean token: VYREON_CORE_DO_TOKEN_FILE is not set (the owner makes a billing:read token, deploy/k8s/README.md, Spend)".into());
+            return Err("the billing token is missing".into());
         };
         let token = match std::fs::read_to_string(file) {
             Ok(t) if !t.trim().is_empty() => t.trim().to_owned(),
-            _ => return Err("no DigitalOcean token: the secret vyreon-core-do-billing is not made (deploy/k8s/README.md, Spend)".into()),
+            _ => return Err("the billing token is missing".into()),
         };
         let balance = self.get(&token, "/v2/customers/my/balance").await?;
         let invoices = self.get(&token, "/v2/customers/my/invoices?per_page=200").await?;

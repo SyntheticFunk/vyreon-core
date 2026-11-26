@@ -729,6 +729,7 @@ fn watch_settings() -> Result<watch::Settings, String> {
         refcheck_from,
         backup_days,
         refcheck_rerun_hours,
+        phase: progress_phase()?,
         spend,
         recompute,
     })
@@ -1114,6 +1115,8 @@ async fn serve() -> Result<(), String> {
         let token = set("VYREON_CORE_DO_TOKEN_FILE").map(std::path::PathBuf::from);
         core_api::spend::spawn(app.clone(), core_api::spend::Billing::new(token, core_api::spend::API)?, core_api::spend::EVERY);
     }
+    // C-091: workers' stops said with their causes (their pods' status, read in the cluster)
+    core_api::deaths::spawn(app.clone(), core_api::backups::Kube::in_cluster().ok(), std::time::Duration::from_secs(60));
     core_api::notices::spawn_watch(app.clone(), settings, std::time::Duration::from_secs(60));
     if let Some(webhook) = webhook {
         core_api::notices::spawn_sender(app.clone(), webhook, std::time::Duration::from_secs(15));

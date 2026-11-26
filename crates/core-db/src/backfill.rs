@@ -94,6 +94,8 @@ pub async fn stop(client: &mut Client, reason: &str) -> Result<Vec<Cancelled>, S
         count("REFCHECK")
     );
     if set == 1 {
+        // C-091: said once on the alerts channel; what the stop itself causes is not alerted while it holds
+        notice::alert(&tx, "Backfill stopped by the owner's decision; the nightly continues.").await?;
         notice::log(&tx, &format!("Backfill stopped ({what}; no backfill block, pass or re-run is started or queued until `vyreon-core backfill resume`): {reason}")).await?;
     } else {
         notice::log(&tx, &format!("Backfill already stopped, stopped again ({what}): {reason}")).await?;
@@ -112,6 +114,7 @@ pub async fn resume(client: &mut Client) -> Result<bool, String> {
         .await
         .map_err(db)?;
     if resumed == 1 {
+        notice::alert(&tx, "Backfill resumed by the owner's decision.").await?;
         let was = was.unwrap_or_default();
         notice::log(&tx, &format!("Backfill resumed (its cancelled blocks are not queued again by this: schedule them); it was stopped: {was}")).await?;
     }

@@ -142,6 +142,10 @@ pub async fn release(client: &mut Client, budget_lease_id: i64, worker: &str, us
 /// enough that a quiet budget is used again within the time a node takes to come up.
 pub const PRESSURE_MINUTES: f64 = 5.0;
 
+/// C-092: after `PRESSURE_MINUTES`, the backfill's provider work of a kind starts at most one pod a minute until this
+/// many minutes have passed since the last wait (`core.scaler_count`, migration 0066, which states the numbers).
+pub const SLOW_START_MINUTES: f64 = 30.0;
+
 /// C-073: when the budget last made a draw wait, if within `PRESSURE_MINUTES` of `now` (as text, UTC),
 /// and how many draws waited in the whole minutes inside that time (release audit, Codex 10: a minute
 /// that began before it also held earlier waits; its count is left out, so the number is never more
