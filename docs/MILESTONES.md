@@ -85,11 +85,14 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
          - the 2025 distribution had its ex-date on 12-22 at $0.9269, after $1.3171 in 2024; every expiry after
            12-22 holds it;
          - Intrinio's own IV on the 44-day expiry breaks (call 5.65%, put 28.7%).
-         HYPOTHESIS: 7.23% is too high, because the post-ex-date expiries rest on a projected dividend (D-138
-         projects from the trailing year: $1.32 against $0.93 actually paid). The market standard is the dividend
-         or forward implied by put–call parity. OPEN for the next session: check UUP's straddling expiries and
-         whether the projection should give way to the parity-implied dividend for funds whose payout follows
-         rates. Owner: find standards or references for checks like this.
+         CORRECTION (the owner caught it): IV30 is a constant-maturity variance interpolation between the expiries
+         around 30 days (the Cboe VIX method). The 16-day IV is only its lower bracket, so these references do NOT
+         decide between 5.77% and 7.23%. The open question is the upper bracket: every expiry after the 12-22
+         ex-date rests on the treatment of that dividend (D-138 projects from the trailing year, $1.32, against
+         $0.93 actually paid). The market standard is the dividend or forward implied by put–call parity.
+         OPEN for the next session: check UUP's straddling expiries and whether the projection should give way to
+         the parity-implied dividend for funds whose payout follows rates. Owner: find standards or references for
+         checks like this.
      - **D-561:** when T's own chain is empty, EMPTY_DELIVERED_POPULATION comes first in VS-O04 and VS-L01 (engine
        and suite; VS-O02's suite path is on eng-s1).
      - Suite-rulings pass: only ADX moved (Wilder's as the primary reading); the rest is NOT STARTED.
