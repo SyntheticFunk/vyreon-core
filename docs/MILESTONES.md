@@ -34,6 +34,22 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
 - **Coverage goal (80%):** per sensor over its asset-days, measured, never enforced. **Window floor
   (75%, D-404):** per history window, a rule. **Day hold (10%):** per day, a rule (`exports.rs`).
 
+## Resume here (new session, 2026-11-26 16:00 MT; the handoff below verified against the cluster)
+- **The handoff's "cluster runs only core plus the nightly" was false (proven, core log + core.recompute_plan):** at
+  14:43 MT the billing token made spend known, which released C-079's held recompute (plan 7); at 14:44:48 it queued
+  17 sessions as 8 full day blocks on 714e47a3 (2024-07-16..09-05, 2026-11-23..24). **Cancelled 2026-11-26 ~15:58 MT**
+  (owner: "go ahead and cancel things"), jobs 30078..30085; the nightly (30062, pass 30063) untouched; pods gone in 90 s.
+  C-079 plans once per build (plan 7 SCHEDULED, busy {}), so it does not re-queue them. core-s1's C-087/C-091 stop flag
+  covers this ("no recompute is decided" while stopped). Into the audit brief as a real case of automations conflicting.
+- **The owner's run model (2026-11-26, replaces plan steps 3–5 below where they differ):** the canary runs ON a golden
+  day (one step, not two); once it passes the system is frozen, scaled through core, and computes all of phase 1 while
+  monitored, recording ALL faults; at the end the catalog of faults is evaluated: fix all, then recompute selectively
+  if possible, fully if necessary. Owner: "We keep getting trapped encountering and diagnosing small issues, random
+  decisions" — so until the freeze only what blocks the canary is diagnosed; the rest is catalogued for the fix pass.
+- **UUP dividend (IV30 5.77% vs 7.23%):** investigated before the freeze (owner: "absolutely needs investigation, i
+  thought we had that one resolved").
+- **Owner request:** live jobs in the progress channel.
+
 ## Resume here (HANDOFF, 2026-11-26 ~15:35 MT)
 0. **HANDOFF STATE (15:35 MT):**
    - every agent of the old session is finished or stopped; all four branches are clean and committed; nothing
