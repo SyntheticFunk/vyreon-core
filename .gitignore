@@ -17,3 +17,4 @@ progress-webhook.txt
 pg-backup-key-id.txt
 pg-backup-secret.txt
 keda-pg-password
+billing-readonly.txt

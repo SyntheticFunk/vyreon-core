@@ -93,3 +93,13 @@ contracts, FLEX excluded, by definition (engine D-362).
 - **Handling:** the engine's readback and receipt count the distinct dates (`distinct_date_count`); values were
   unaffected (a repeated date is the same row).
 - **Reported:** no.
+
+## P-34: Unadjusted pre-split option codes still delivered weeks after a split (2026-11-26)
+- **Evidence:** the NVDA option chain for 2024-07-11 (re-fetched 2026-11-26) still lists unadjusted pre-split codes
+  such as NVDA240712P00500000 … P02000000. All 135 have no bid or ask, open interest 0 and no volume. NVDA's 10:1
+  split took effect 2024-06-10.
+- **Reading:** dead legacy contracts left in the chain, not tradable series. P-11 and P-29 cover only the ex-date.
+- **Handling:** the engine drops them (D-110 item 7). The reference suite counted them, which explains most of a
+  SURFACE-INPUTS row-count difference on 2024-07-11 (engine 8,195 rows, suite 14,492). The suite is being aligned to
+  treat these as dead rows.
+- **Reported:** no.
