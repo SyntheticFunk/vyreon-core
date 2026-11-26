@@ -68,7 +68,25 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   engine on a cross; changes published SAR values: CATALOG). Hammer family (#6, #39) vs TA-Lib's CDLHAMMER: CATALOG
   (TA-Lib wholesale or our own, on the population). Owner, 2026-11-26: the amassed owner rulings are likely overfit to
   sparse, picked dates; the populated phase-1 dataset is where sensors get examined and reworked.
-- **Owner request:** live jobs in the progress channel.
+- **STEP 1 (integration) DONE 2026-11-26 evening; STEP 2 (the audit) RUNNING:**
+  - **Engine candidate = branch `eng-s1`** (worktree `/home/diggz/wt/eng-s1`, head 42a5d083): eng-s1b merged in
+    (a4c0e83e); M0 pins renewed (D-562); D-561's test corrected (it failed on eng-s1b as committed: the handoff's
+    "verified" was wrong there; the engine code was right); UUP production case tested; six unused suite rulings retired
+    (57 left). Tests: the ten changed crates pass with the retained fixtures copied to `workspace/fixtures` (git-ignored,
+    489 MB, from `/home/diggz/vyreon-engine/workspace/fixtures`; without them 47 tests fail "missing fixture"), except
+    `the_m0_lockstep_leaves_a_bounded_worker_room` (laptop-dependent, not in the diff: CATALOG). Reference pytest: 292
+    pass, 107 SKIPPED for captures not on the laptop (golden dumps): not run anywhere for this batch; the canary's
+    in-worker reference check is what covers them.
+  - **Core candidate = branch `core-s1`** (head 4371627): main merged in (main's 20-core.yaml settings kept); C-093:
+    every progress post ends with "Running now: …", and the morning database line keeps "% of readings measured"
+    (owner). Unit tests and the 208 database tests pass.
+  - **D-560 census:** running on 7 saved sessions → `~/claude-artifacts/checks/forward-bounds-census-2026-11-26.txt`.
+  - **Audit:** Codex and Gemini on both candidates, scopes `~/claude-artifacts/audits/scopes-2026-11-27/`, reports
+    `~/claude-artifacts/audits/2026-11-26-stage1/`. Then triage, fix every real finding, release core (after a nightly
+    has published), the canary on golden day 2025-12-10.
+  - **Golden days (hypothesis, from engine DECISIONS):** 2025-12-10, 2026-01-14, 2026-09-18, 2026-10-16.
+  - **Not merged to main / the release line yet:** both candidates wait for the audit's fixes.
+- **Owner request:** live jobs in the progress channel: done on core-s1 (C-093).
 
 ## Resume here (HANDOFF, 2026-11-26 ~15:35 MT)
 0. **HANDOFF STATE (15:35 MT):**
