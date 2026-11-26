@@ -32,8 +32,8 @@ Everything the loop needs is in this directory, so a new session can run it with
 5. **Real day.** Each merged batch runs a real day on a test droplet (`tools/testbed/tb`) before the
    next batch starts, compared with the last clean day; the differences must be the ones the tracks
    declared.
-6. **Audit again** the scopes the batch touched. The engine is ready for the build when an audit of
-   the candidate leaves no finding above the cut line, not when an audit finds nothing.
+6. **Done.** One audit per release (owner, 2026-11-24; confirmed 2026-11-26): every real finding fixed, the real
+   day passes, no second audit round. Audits that follow a real fault go along its failure surface (below).
 
 ## Failure-surface audits (owner, 2026-11-16)
 When a real run exposes a fault, the fault is one point on a surface: the same assumption is

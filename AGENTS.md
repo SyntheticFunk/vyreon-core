@@ -92,9 +92,10 @@ Context is lost over time; the files are the memory. Sessions run for days on th
 - Production code hard-codes no machine paths.
 - Audits run without being asked: when a step or a merged batch lands (engine or core), start a
   read-only Codex audit **and a read-only Gemini 4 Neon audit** (`tools/audit/run-agy`, same scope) of what it touched,
-  in the background, and bring the owner the triage. Wherever Codex is invoked, Gemini is invoked too (owner,
-  2026-11-23); both are treated alike. The
-  loop is `tools/audit/` (README: audit, triage, cut line, fix, real day, audit again). Findings are
+  in the background, and bring the owner the triage. Wherever Codex is invoked, Gemini is invoked too when its
+  quota allows (owner, 2026-11-23; 2026-11-26: Codex alone when Gemini's quota is out, recorded); both are treated
+  alike. One audit per release. The loop is `tools/audit/` (README: audit, triage, fix, real day; no second audit
+  round). Findings are
   claims to verify, from either reviewer; neither does code work.
 - One status document, `docs/MILESTONES.md`, kept short: mutable current state. Git is the
   history, so merge by default. Where a rebase or other clean-up of pushed history is really needed, first

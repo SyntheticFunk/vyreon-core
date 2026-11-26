@@ -369,8 +369,8 @@ Next:
 ## Standing owner rulings that still govern the work
 - **Spend:** ceiling **$500 in total** (2026-11-21, for phase 1 and its reruns; was $400);
   running total kept here, owner warned before a step passes it; billing alert declined
-  (2026-11-21: "we will be watching"). Standing infrastructure is just "on"; worker nodes and test
-  droplets as many in parallel as testing needs, without asking, each deleted when idle (2026-11-16).
+  (2026-11-21: "we will be watching"). Standing infrastructure is just "on". *[Retired 2026-11-26 (owner, census
+  #6/#7): "worker nodes and test droplets … without asking"; slots scale only through core.]*
   *[Ceiling now $750 (owner, 2026-11-26): phase-1 brute force plus the fix pass; raise in steps rather than run
   unbounded. Worker slots scale only through core (AGENTS "Running the build").]*
 - **Sequence (2026-11-21):** phase 1 → verify phase 1 → Reporter → web, Reporter work beside phase 1;
@@ -407,15 +407,16 @@ Next:
 - **Change control:** byte identity retired (2026-11-18: "Byte identical is based on the assumption
   that the current system is perfect. We are repeatedly proving it is not"); image diff: float noise
   (~1e-12) reported, anything larger tied to a decision, no silent state change, changed flags
-  explained; optimizations and value fixes in separate commits; phase 1 from one image.
+  explained; optimizations and value fixes in separate commits. *["phase 1 from one image" retired 2026-11-26
+  (owner, census #35): blocker hotfixes through the gate are allowed (AGENTS).]*
   Optimization passes repeat while the measured gain pays for the effort ("reality judges").
   *[Production: science frozen, only blocker and operations fixes ship mid-run, each through the gate (AGENTS
   "Running the build", owner 2026-11-26).]*
 - **Audits:** C-041: every verified finding fixed; only one above the cut line (a wrong number in the
   database, or only a full rebuild corrects it) holds the step; failure-surface audits after a real
-  fault. Operations-feature audits stopped (2026-11-19) until operation shows a new failure. D-412's
-  build cut: regressions and broken production paths block; later tape-family findings reach the
-  store by scoped republish (D-099). At most three agents at once on the laptop.
+  fault. At most three agents at once on the laptop. *[Retired 2026-11-26 (owner, census #40/#41): the
+  operations-feature audit stop (its end condition was met) and "D-412's build cut", which was the coordinator's
+  own (commit 769c911: "(mine)").]*
 - **One audit per release (owner, 2026-11-24):** "make all changes, THEN audit once (both codex and gemini), then
   commit"; "fix everything the audits find … repeated audits is not helping. Time is not a valid reason to half ass
   things." ONE audit by both per release; EVERY real finding fixed (ordinary and rare), verified by tests and real
@@ -436,8 +437,9 @@ Next:
   behavior"); history-window sensors only. EVC01 189 of 252 plus its 20-sample minimum ("requiring
   75% coverage for the history required to compute a sensor requiring history is sensible"). The
   80% coverage target is a goal, not a rule.
-- **Recompute (owner, 2026-11-24):** recompute days where values change OR a method version changes (history
-  continuity, D-273); after phase 1 scoped recompute (D-104/D-462).
+- **Recompute (owner, 2026-11-26, census #58, replacing 2026-11-24's "OR a method version changes"):** recompute
+  only where published values change. A day whose values do not change keeps its older method label (truthful).
+  When it cannot be told whether values change, recompute. After phase 1: scoped recompute (D-104/D-462).
 - **Reference checks:** on every computed day in the worker before raws are deleted (2026-11-18);
   tape owners by the tape worker's verdict; pre-verdict caches "cache code verified by sample".
 - **Operations:** workers stateless and credential-free, core signs one-object upload URLs
