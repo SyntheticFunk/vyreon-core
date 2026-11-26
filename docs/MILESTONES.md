@@ -1590,6 +1590,13 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   budget wait, and tape jobs request in bursts (1,700 in the minute 19:18, ~3 in the quiet minutes) → oscillation, ~110/h net
   (done ~00:45). The 30 "Failed" tape Jobs in Kubernetes are history from 11-24's run, not new. Tuning item (core, after the
   re-capture): smooth tape request bursts or scale tapes by budget headroom instead of a 5-min stop after one wait.
+  **Pass 1 started properly 19:53** (block 1 2024-07-09..09-17); 5 blocks running by 21:50. Block 1's first-day download took
+  3.1 h (01:54→05:00Z). **Eviction 23:02 (block 26030, 2025-02-12..04-24):** node out of memory — the worker used 13.57 GB;
+  every block peaks ~13.37 GB against a node's 13.33 GiB allocatable, but requested only 10Gi, so tape pods (3Gi) were
+  co-scheduled beside blocks. Fix (infra, not engine — the freeze holds): full-day jobs (day-block, day-block-daily, refcheck,
+  republish) request 12Gi (ccda8f9, applied to the live ScaledJobs 23:20; new Jobs only). 26030 re-queued (attempts 0).
+  Stop-rule classification: an eviction from co-scheduling is infrastructure, not an engine fault. Open engine question for
+  the backlog: why a day needs ~13 GB (the 11-24 nightly peaked 6.5 GB in its quotes unit).
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
