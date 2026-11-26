@@ -187,8 +187,11 @@ spec:
             # from its own (the C-074 planner's choice), scheduled only when its estimated cost at this
             # node-hour price (s-8vcpu-16gb-amd and -intel, DigitalOcean's list price) keeps the spend
             # under the ceiling; else held and alerted. `off`: nothing planned by itself
+            # C-094 (audit 2026-11-26; owner: recompute only after the run, by method version): "off" for the
+            # phase-1 characterization run. With "on", core starting on this release would decide a held plan
+            # before `backfill stop` could be set, and would plan recomputes as soon as the canary's day published
             - name: VYREON_CORE_RECOMPUTE
-              value: "on"
+              value: "off"
             # phase 1's first session: earlier published days (none in this database) wait for the owner
             - name: VYREON_CORE_RECOMPUTE_FROM
               value: "2024-07-09"

@@ -11,7 +11,8 @@
 #
 # Refuses, applying nothing, when the running image cannot be read or is itself a placeholder, or when the
 # manifest with it in place still holds a placeholder (VYREON_CORE_IMAGE, or any `image:` that is not the
-# running image). Prints the diff (`kubectl diff`), applies, and waits for the rollout (15 min), then says
+# running image), or when the manifest's VYREON_CORE_DAILY_BUILD is not the live one (it would stop the
+# nightly). Prints the diff (`kubectl diff`), applies, and waits for the rollout (15 min), then says
 # which image runs. Needs KUBECONFIG; tools: kubectl, sed, grep.
 set -euo pipefail
 NS=vyreon
@@ -38,6 +39,13 @@ RENDERED=$(sed "s#VYREON_CORE_IMAGE#$IMAGE#g" "$MANIFEST")
 ! grep -q 'VYREON_CORE_IMAGE' <<<"$RENDERED" || refuse "the placeholder VYREON_CORE_IMAGE remains"
 OTHER=$(grep -nE '^[[:space:]-]*image:' <<<"$RENDERED" | grep -vF "image: $IMAGE" || true)
 [[ -z $OTHER ]] || refuse "an image that is not the running core image remains (a placeholder?): $OTHER"
+# C-094 (audit 2026-11-26): a checkout whose daily build lags the live one would revert it, and core then
+# queues no nightly session (as release.sh's preflight refuses). The build changes only through release.sh.
+FILE_DAILY=$(grep -A1 -- '- name: VYREON_CORE_DAILY_BUILD' <<<"$RENDERED" | sed -n 's/^ *value: "\(.*\)"$/\1/p' | head -1)
+LIVE_DAILY=$(kubectl -n "$NS" get deploy vyreon-core -o jsonpath='{.spec.template.spec.containers[?(@.name=="core")].env[?(@.name=="VYREON_CORE_DAILY_BUILD")].value}') \
+  || refuse "the live Deployment's VYREON_CORE_DAILY_BUILD cannot be read"
+[[ $FILE_DAILY == "$LIVE_DAILY" ]] \
+  || refuse "the manifest's VYREON_CORE_DAILY_BUILD ('$FILE_DAILY') is not the live one ('$LIVE_DAILY'): the nightly's build changes only through release.sh; apply from a checkout that holds what runs"
 
 echo "core runs $IMAGE; $(basename "$MANIFEST") against the live objects with it (kubectl diff):"
 rc=0

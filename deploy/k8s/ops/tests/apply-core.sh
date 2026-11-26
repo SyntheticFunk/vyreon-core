@@ -20,6 +20,7 @@ cat > "$T/bin/kubectl" <<'SH'
 S=$STUB_STATE
 echo "kubectl $*" >> "$S/calls"
 case "$*" in
+  *"get deploy vyreon-core"*VYREON_CORE_DAILY_BUILD*) cat "$S/live_daily" ;;
   *"get deploy vyreon-core"*) [[ -f $S/unreadable ]] && exit 1; cat "$S/live_image" ;;
   *"diff -f -"*) cat > "$S/diffed"; exit 1 ;;
   *"apply -f -"*) cat > "$S/applied"; sed -n 's/^ *image: \(.*\)$/\1/p' "$S/applied" | head -1 > "$S/live_image" ;;
@@ -32,7 +33,7 @@ export PATH="$T/bin:$PATH" STUB_STATE=$T/state KUBECONFIG=$T/kubeconfig
 run() { "$T/k8s/ops/apply-core.sh" "$@" > "$T/out" 2>&1; }
 ok() { echo "ok - $*"; }
 no() { echo "FAILED - $*"; sed 's/^/    /' "$T/out"; exit 1; }
-start() { rm -f "$T/state/calls" "$T/state/applied" "$T/state/diffed" "$T/state/unreadable"; echo "$REG/vyreon-core:9bf80be" > "$T/state/live_image"; }
+start() { rm -f "$T/state/calls" "$T/state/applied" "$T/state/diffed" "$T/state/unreadable"; echo "$REG/vyreon-core:9bf80be" > "$T/state/live_image"; grep -A1 -- '- name: VYREON_CORE_DAILY_BUILD' "$T/k8s/20-core.yaml" | sed -n 's/^ *value: "\(.*\)"$/\1/p' > "$T/state/live_daily"; }
 
 # 1. applied with the running image in both places (core and its migrate step), and the rollout waited for
 start
@@ -68,4 +69,12 @@ sed 's#image: VYREON_CORE_IMAGE#image: VYREON_WORKER_IMAGE#' "$T/k8s/20-core.yam
 grep -q "an image that is not the running core image remains" "$T/out" || no "says why"
 [[ ! -f $T/state/applied && ! -f $T/state/diffed ]] || no "nothing diffed or applied"
 ok "a placeholder left is refused"
+
+# 5. C-094: a manifest whose daily build is not the live one would stop the nightly: refused before the diff
+start
+echo "0000000+000000000000" > "$T/state/live_daily"
+! run || no "a daily build that is not the live one is refused"
+grep -q "VYREON_CORE_DAILY_BUILD" "$T/out" || no "says why"
+[[ ! -f $T/state/applied && ! -f $T/state/diffed ]] || no "nothing diffed or applied"
+ok "a lagging daily build is refused"
 echo "apply-core: all passed"
