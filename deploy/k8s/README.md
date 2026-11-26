@@ -72,6 +72,21 @@ sed "s#VYREON_CORE_IMAGE#registry.digitalocean.com/vyreon/vyreon-core:<tag>#" de
 kubectl -n vyreon rollout status deployment vyreon-core
 ```
 
+**Changing core's settings later** (any `VYREON_CORE_*` in `20-core.yaml`): never `kubectl apply -f
+deploy/k8s/20-core.yaml` raw. The file holds the placeholder `VYREON_CORE_IMAGE`; applied as it is, the
+Deployment takes the placeholder as its image and core stops (2026-11-26: down about 20 minutes with
+InvalidImageName, and a nightly block lost its lease). Use
+
+```sh
+deploy/k8s/ops/apply-core.sh --dry-run    # the diff with the running image in place; nothing applied
+deploy/k8s/ops/apply-core.sh              # applies it, waits for the rollout, says which image runs
+```
+
+It reads the image the Deployment runs now, puts it in place of the placeholder, and refuses, applying
+nothing, when that image cannot be read or a placeholder would remain. A new core image is deployed by
+`ops/release.sh --core`, not by this. The backfill's stop needs no settings change at all
+(`vyreon-core backfill stop`, "Stopping everything" below).
+
 ## Load and schedule (free)
 
 Inside the core pod (`kubectl -n vyreon exec deploy/vyreon-core -- vyreon-core ...`), in order:
@@ -154,7 +169,8 @@ starting anything, and worker nodes exist only while there is work:
 - **Core queues** session T at **07:30 New York on the calendar day after T** (a Friday's on
   Saturday; weekends and holidays are not sessions): one tape job, one day block and one ordered
   pass, claimed before any backfill work, each only if not already queued by hand, none if T is
-  already published, never twice (`core.daily_session`). Settings on core (`20-core.yaml`):
+  already published, never twice (`core.daily_session`). Settings on core (`20-core.yaml`, applied with
+  `ops/apply-core.sh`):
   `VYREON_CORE_DAILY_FROM` (the first session queued by core) and `VYREON_CORE_DAILY_BUILD` (an
   admitted build). Unset: nothing is queued. A build not admitted or withdrawn is the problem
   `DAILY_STOPPED` on the channel. The publishing deadline (C-050) then starts at the same session,
@@ -484,7 +500,11 @@ ScaledJob and Job.
   stay). C-073: the triggers count the work that calls the provider (tapes, backfill blocks,
   reference-check re-runs) only while no budget draw waited in the last 5 minutes
   (`core.scaler_count`); `vyreon-core budget` says whether the budget is pressed now. The caps stay
-  the hard limit; the budget only starts fewer pods. Day blocks: raise from 12 only from core's request ledger, the owner's rule (nodes only
+  the hard limit; the budget only starts fewer pods. C-086 (migration 0064): the backfill's day blocks
+  ramp up, one new block of a build at most every 20 minutes, and one at a time until the build has
+  published one real day with no engine-fault slot; `day-block`'s 12 is the ceiling, the ramp and the
+  budget decide how many run (`vyreon-core backfill status` shows, per running build, whether it is
+  proven and how many may start now). Day blocks: raise from 12 only from core's request ledger, the owner's rule (nodes only
   while the request budget has headroom): one node averaged 101 requests a minute over its wall
   time with bursts of 500-760 while a day downloads (2026-11-22); core grants at most 1,900 a minute
   (`VYREON_CORE_INTRINIO_PER_MINUTE`), so more nodes than the budget holds only wait in it, at node
@@ -551,6 +571,12 @@ correctly") and starts nothing; core's watch then raises STALLED after 15 minute
 
 ### 8. Stopping everything
 
+0. **Stop the backfill only** (C-087; the daily session's work goes on): `vyreon-core backfill stop
+   "<reason>"` cancels every queued or leased backfill day block and ordered pass and every queued
+   reference-check re-run, and sets a flag in the database: KEDA then starts no backfill block, pass or
+   re-run and core queues no re-run, with no restart and no setting changed. `vyreon-core backfill
+   status` prints it; `vyreon-core backfill resume` clears it (the cancelled blocks are scheduled again
+   with `vyreon-core schedule`).
 1. **No new work:** `vyreon-core queue pause "<reason>"`. Nothing is claimable, so KEDA starts
    nothing; running workers finish the job they hold. `queue resume` undoes it.
 2. **No new pods, whatever core holds** (a ScaledJob cannot be set to 0 replicas; its pause is the

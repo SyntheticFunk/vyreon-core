@@ -3789,3 +3789,65 @@ switches (D-405: each `off` restores the old order, the outputs are unchanged), 
 compute time per day. This applies to new block pods; running ones keep their spec.
 **Open, the owner's:** a memory-aware next-day download (an engine change, a freeze exception), or 32 GB nodes (cost).
 The pass-1 data decides it: whether blocks still die at 12 GiB, and the extra time per day.
+
+## C-086 The backfill's day blocks ramp up, one at a time until a build has proven itself (owner, 2026-11-26: approved)
+On 2026-11-26 seven backfill blocks started at once and shared the 1,900-a-minute request budget from their first minute:
+their first days downloaded in about 3.5 h instead of about 1.75 h. And the one-real-day gate (a build runs one block until
+it has published a real day clean) was kept by hand. **Decided** (migration 0064): KEDA's count for the backfill's day blocks
+(`core.scaler_count('DAY_BLOCK', build, false)`) is at most `core.backfill_block_room(build)`: 0 while a backfill block of the
+build was leased in the last 20 minutes (`work::RAMP_MINUTES`); else, until `core.build_proven(build)` (a base revision of the
+build's own computation, published, with slots, and a day-local revision on it, neither holding an engine-fault slot by the
+watch's count, `core.revision_tally`), 1 minus its live backfill-block leases; else 1. KEDA's `accurate` strategy deducts a
+pending Job, so a 1 starts one pod; its lease makes the count 0 for 20 minutes. The claim itself is not gated (as C-073's
+budget): a pod that started in the one window KEDA leaves (Running, not yet claimed, about a second of each 30 s poll) still
+claims, so a second block can start rarely; gating the claim would change every test that claims blocks and was not asked.
+The daily session's block is never held. The watch does not call a held block stalled (`core.backfill_held`). `day-block`'s
+cap is 12 again (owner, 2026-11-26), a ceiling only. `vyreon-core backfill status` shows each running build's state. Tests
+`backfill.rs::backfill_blocks_start_one_at_a_time_until_the_build_published_a_real_day_clean`,
+`a_block_the_ramp_holds_back_is_no_stall`.
+
+## C-087 The backfill's stop is one flag in the database (owner, 2026-11-26: approved)
+"Stop the backfill" was done by hand twice (2026-11-25, 11-26): every queued or leased backfill block and pass cancelled with
+`queue cancel`, the queued re-runs cancelled, and `VYREON_CORE_REFCHECK_RERUN_HOURS=off` set in 20-core.yaml, which needs a
+core restart (and the raw apply of that file took core down, C-088). **Decided:** `vyreon-core backfill stop <reason>` does it
+in one transaction (`backfill::stop`): `core.queue_control.backfill_stopped` set with the reason, every QUEUED or LEASED day
+block and ordered pass that is not a daily session's (priority 0) and every QUEUED reference-check re-run cancelled
+(`work::cancel_in`). While it is set the scaler counts no backfill block, pass or re-run, the watch queues no re-run (as the
+setting's `off`) and held work is no stall. `backfill resume` clears it (the cancelled blocks are scheduled again by hand,
+the owner's call); `backfill status` prints it. Both are logged and said on the progress channel with the reason. Test
+`backfill.rs::the_backfill_stops_and_resumes_by_one_flag`. Also (owner, 2026-11-26): `deploy/k8s/ops/apply-core.sh` applies
+20-core.yaml with the running core image in place of its placeholder and refuses while one would remain; release.sh step 11
+no longer stops on a kind whose work was cancelled before a pod claimed it (2026-11-25's false stop on `refcheck`), and still
+stops on one claimable with no claim (tests `ops_scripts.rs::apply_core`, `release_verify`).
+
+## C-088 Core's own downtime costs no lease (owner, 2026-11-26: approved)
+Core was down 13:28 to 13:48 MT on 2026-11-26 (InvalidImageName). The nightly block's worker (job 30062) went on downloading,
+its heartbeats failing; the restarted core's sweeper ended its lease for the missed heartbeats and the worker stopped, about
+3 h lost. **Decided:** at `serve` start, after the single-instance lock and before the sweeper or the API runs, every live
+lease gets at least the lease period from now (`work::grace_on_start`): the time a heartbeat has while core is up. The
+simplest correct rule: expiry then counts only time core was up, to within one lease period; a worker that died meanwhile is
+found one lease period (5 min) later. A lease with longer to run is not shortened; each lease past its expiry is logged.
+Test `backfill.rs::core_downtime_costs_no_lease`.
+
+## C-089 A nightly run that restarts is said at once (owner, 2026-11-26: the nightly is pilot-critical)
+What already alerts on the nightly: SESSION_LATE (a session's base not published by 20:00 MT the next day), REPORT_AT_RISK,
+DAILY_STOPPED (not queued, or its build stopped), JOB_FAILED (out of attempts), STALLED (no daily pod for 30 min),
+JOB_THRASHING, NO_PROGRESS. The gaps: (1) a lost lease or a failed attempt that is retried was housekeeping, so the
+2026-11-26 lease loss (13:45 MT, about 3 h redone) was seen only by an agent; (2) the deadline is the next evening, and only
+from `VYREON_CORE_DEADLINES_FROM`, live 2026-11-30, so the nightlies of 11-23 to 11-27 have no deadline alert (a setting,
+left to the owner). **Decided** (AGENTS.md: an observability gap becomes a notification): a daily session's job (priority 1)
+whose attempt ends unfinished and is queued again is posted on the alert channel at once ("Nightly run of Nov 25 stopped
+before it finished (its lease expired); it starts again by itself …"); out of attempts it is JOB_FAILED as before; the
+backfill's retries stay in the log. Test `backfill.rs::a_nightly_run_that_restarts_is_said_at_once`.
+
+## C-090 The stop rule stops only for systematic breakage (owner, 2026-11-26; amends C-084)
+C-084 counted unexplained reference failures toward the stop. **Decided:** STOP_RULE is raised for systematic breakage only:
+(1) days not published after a failure of the newest running build (an input-plan refusal not counted, as before), past half
+of the days the build attempted (published, or not published after a failure) from its 20th published day; the denominator
+is the attempted days, not C-084's checked days, since the reference checks no longer count; or (2) any published day on
+which one measurement was withheld for an engine-stated reason on every object it has, two or more (as M0-ANALYTICS and
+INT-IVSC01 on all ~62 assets): one such day raises it. The watch's count of each published revision now names those
+measurements (`core.revision_tally.whole_faults`, migration 0064, which drops the kept counts to count them again, as 0062).
+Local value errors, unexplained reference failures and engine-fault slots that are not a whole measurement, are counted and
+listed apart for the fix pass by `vyreon-core stoprule` and raise nothing. Test
+`freeze.rs::the_stop_rule_stops_for_systematic_breakage_only`.
