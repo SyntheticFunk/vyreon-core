@@ -16,6 +16,20 @@ fn release_core() {
     run("release-core.sh");
 }
 
+/// 2026-11-26: `apply-core.sh` applies 20-core.yaml with the running core image in place of its placeholder,
+/// and refuses, applying nothing, while a placeholder would remain (the raw apply took core down 20 minutes).
+#[test]
+fn apply_core() {
+    run("apply-core.sh");
+}
+
+/// 2026-11-25: `release.sh` step 11 no longer stops on a kind whose work was cancelled before a pod claimed it
+/// (the re-run watch's cancelled REFCHECK jobs), and still stops on one claimable with no claim.
+#[test]
+fn release_verify() {
+    run("release-verify.sh");
+}
+
 /// C-081 (engine D-480: the IP01 registry view's embedded bytes changed; each home must hold the new one,
 /// and a worker refuses a home whose copy differs): every worker home on the cluster (`VYREON_HOME`, the
 /// `/work` mount) is an `emptyDir`, so each pod materialises the view its build carries and none keeps an

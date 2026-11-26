@@ -5,6 +5,7 @@
 use core_db::publish::publish_for_lease;
 use core_db::watch::{self, Settings};
 use core_db::work::{self, Claim, Kind};
+use core_db::stoprule::Tally;
 use core_db::{build, migrate, progress, stoprule, tape, universe};
 use flate2::{Compression, write::GzEncoder};
 use serde_json::json;
@@ -144,14 +145,15 @@ async fn checked(client: &Client, lease: i64, day: &str, base: i64, local: i64, 
         .unwrap();
 }
 
-/// C-084 (owner, 2026-11-25: MILESTONES' PHASE-1 RUN RULE): core counts, for the newest running build, the
-/// days it failed to publish (an input-plan refusal is the provider's inputs, not counted) and the days whose
-/// current check completed with unexplained failures; the progress post carries the running share; past half
-/// of the judged days, from the build's 20th published day, the alert says so and that the classification
-/// is the coordinator's.
+/// C-084 (owner, 2026-11-25: MILESTONES' PHASE-1 RUN RULE), amended by C-090 (owner, 2026-11-26: stop only for
+/// systematic breakage): core counts, for the newest running build, the days it failed to publish (an
+/// input-plan refusal is the provider's inputs, not counted), past half of the attempted days from the 20th
+/// published day, and any day with a measurement withheld for an engine fault on every asset; those raise
+/// STOP_RULE. Unexplained reference failures and single-asset engine faults are local: counted and listed for
+/// the fix pass apart, never alerted.
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
-async fn the_stop_rule_counts_bad_days_and_alerts_past_half_from_the_twentieth() {
+async fn the_stop_rule_stops_for_systematic_breakage_only() {
     let (scratch, mut client, b) = ready("freeze_stop").await;
     client.query_one("SELECT vyreon.ensure_months('2025-10-01', '2025-12-31')", &[]).await.unwrap();
     let days: Vec<String> = client
@@ -166,9 +168,11 @@ async fn the_stop_rule_counts_bad_days_and_alerts_past_half_from_the_twentieth()
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, &days[0], &days[18], 30).await.unwrap();
     let block = work::claim(&mut client, Kind::DayBlock, &b, "day-a", 24.0 * HOUR).await.unwrap().unwrap();
     let lease: i64 = client.query_one("SELECT lease_id FROM core.lease WHERE job_id = $1", &[&block.job_id]).await.unwrap().get(0);
+    let mut revisions = Vec::new();
     for (i, day) in days[..19].iter().enumerate() {
         let (base, local) = publish_day(&mut client, &block, &b, day).await;
         checked(&client, lease, day, base, local, if i < 12 { 254 } else { 0 }).await;
+        revisions.push((base, local));
     }
     work::finish(&mut client, &block.token).await.unwrap();
     // day 20 fails on the engine's stop; day 21 the input plan refuses (the provider's inputs: not counted)
@@ -185,11 +189,11 @@ async fn the_stop_rule_counts_bad_days_and_alerts_past_half_from_the_twentieth()
     client.execute("UPDATE core.job SET state = 'FAILED' WHERE job_id = $1", &[&refused.job_id]).await.unwrap();
 
     let t = stoprule::tally(&client, PROFILE).await.unwrap().unwrap();
-    assert_eq!((t.published, t.checked, t.flagged, t.unpublished, t.judged(), t.bad()), (19, 19, 12, 1, 20, 13));
-    assert!(!t.over(), "13 of 20 judged, but only 19 days published: the sample is the first 20 published");
+    assert_eq!((t.published, t.unpublished, t.attempted(), t.checked, t.flagged, t.systematic, t.faulted), (19, 1, 20, 19, 12, 0, 0));
+    assert!(!t.over());
     assert_eq!(
         t.line().unwrap(),
-        "Stop rule: so far 13 of 20 judged days look bad (1 not published after a failure, 12 with unexplained reference failures); it judges from the 20th published day (19 so far)"
+        "Stop rule: so far 1 of 20 days not published after a failure, 0 with a whole measurement faulted; for the fix pass: 0 days with single-asset engine faults, 12 with unexplained reference failures; it judges failures from the 20th published day (19 so far)"
     );
     let now: String = client.query_one("SELECT now()::text", &[]).await.unwrap().get(0);
     watch::check(&mut client, &settings(), &now).await.unwrap();
@@ -198,36 +202,81 @@ async fn the_stop_rule_counts_bad_days_and_alerts_past_half_from_the_twentieth()
     }
     assert!(open(&client).await.is_empty());
 
-    // the 20th published day, checked with unexplained failures: 14 of 21 judged, past half
+    // the 20th published day, 13 of 20 with unexplained reference failures: local, no alert (before C-090, past half)
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, &days[21], &days[21], 30).await.unwrap();
     let more = work::claim(&mut client, Kind::DayBlock, &b, "day-d", HOUR).await.unwrap().unwrap();
     let (base, local) = publish_day(&mut client, &more, &b, &days[21]).await;
     let more_lease: i64 = client.query_one("SELECT lease_id FROM core.lease WHERE job_id = $1", &[&more.job_id]).await.unwrap().get(0);
     checked(&client, more_lease, &days[21], base, local, 31).await;
+    revisions.push((base, local));
+    // one slot of a day withheld for an engine fault (the engine's real faulted slot of 2025-12-10): local too
+    let fault = test_support::ENGINE_FAULT_BODY_XLB.trim_end();
+    let fault_json: serde_json::Value = serde_json::from_str(fault).unwrap();
+    let (b1, _) = revisions[1];
+    client
+        .execute(
+            "INSERT INTO vyreon.measurement (revision_id, measurement_id, object_id, represented_date, slot_state, science_version, method_version,
+                                             body_sha256, body_text, body, receipt)
+             SELECT revision_id, 'SAI-EXQ01-T', 'XLB', represented_date, 'DELIVERED', 'engine-fault', 'engine-fault', $2, $3, $4::text::jsonb, '{}'
+             FROM vyreon.day_revision WHERE revision_id = $1",
+            &[&b1, &core_contract::sha256_hex(fault.as_bytes()), &fault, &fault_json.to_string()],
+        )
+        .await
+        .unwrap();
+    let all: Vec<i64> = revisions.iter().flat_map(|(b, l)| [*b, *l]).collect();
+    watch::tally_batches(&mut client, &all, None).await.unwrap();
     let t = stoprule::tally(&client, PROFILE).await.unwrap().unwrap();
-    assert_eq!((t.published, t.judged(), t.bad(), t.over(), t.oldest.as_deref()), (20, 21, 14, true, Some(days[0].as_str())));
-    let (_, bad) = stoprule::days(&client, PROFILE, &b).await.unwrap();
-    assert_eq!(bad.len(), 14);
-    assert!(bad.iter().any(|(d, why)| *d == days[19] && why == "not published: h5-surface: the lattice solver did not converge"), "{bad:?}");
-    assert!(!bad.iter().any(|(d, _)| *d == days[20]), "an input-plan refusal is not counted");
-    let post = progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
-    assert!(
-        post.contains("Stop rule: 14 of 21 judged days look bad (67%): 1 not published after a failure, 13 with unexplained reference failures · the alert is at over half; engine, suite or provider is the coordinator's call"),
-        "{post}"
+    assert_eq!((t.published, t.attempted(), t.flagged, t.faulted, t.systematic, t.over()), (20, 21, 13, 1, 0, false));
+    let (_, listed) = stoprule::days(&client, PROFILE, &b).await.unwrap();
+    assert_eq!(listed.stop, [(days[19].clone(), "not published: h5-surface: the lattice solver did not converge".to_owned())]);
+    assert_eq!(listed.local.len(), 14, "{listed:?}");
+    assert!(listed.local.contains(&(days[1].clone(), "1 single-asset engine-fault slots".to_owned())), "{listed:?}");
+    assert!(!listed.stop.iter().chain(&listed.local).any(|(d, _)| *d == days[20]), "an input-plan refusal is not counted");
+    assert_eq!(
+        t.line().unwrap(),
+        "Stop rule: 1 of 21 days not published after a failure (5%), 0 with a whole measurement faulted; for the fix pass: 1 days with single-asset engine faults, 13 with unexplained reference failures · the alert is at over half not published, or any whole measurement faulted"
     );
+    watch::check(&mut client, &settings(), &now).await.unwrap();
+    assert!(open(&client).await.is_empty(), "local value errors raise nothing");
+
+    // one measurement withheld for the engine on every asset of a day (as M0-ANALYTICS, INT-IVSC01): systematic
+    let (b2, _) = revisions[2];
+    client
+        .execute(
+            "INSERT INTO vyreon.measurement (revision_id, measurement_id, object_id, represented_date, slot_state, science_version, method_version,
+                                             body_sha256, body_text, body, receipt)
+             SELECT revision_id, 'SAI-EXQ01-T', o, represented_date, 'DELIVERED', 'engine-fault', 'engine-fault', $2, $3, $4::text::jsonb, '{}'
+             FROM vyreon.day_revision, unnest(ARRAY['XLB', 'XLE', 'XLF']) o WHERE revision_id = $1",
+            &[&b2, &core_contract::sha256_hex(fault.as_bytes()), &fault, &fault_json.to_string()],
+        )
+        .await
+        .unwrap();
+    client.execute("DELETE FROM core.revision_tally WHERE revision_id = $1", &[&b2]).await.unwrap();
+    watch::tally_batches(&mut client, &[b2], None).await.unwrap();
+    let t = stoprule::tally(&client, PROFILE).await.unwrap().unwrap();
+    assert_eq!((t.systematic, t.faulted, t.over(), t.oldest.as_deref()), (1, 1, true, Some(days[2].as_str())));
+    let (_, listed) = stoprule::days(&client, PROFILE, &b).await.unwrap();
+    assert!(listed.stop.contains(&(days[2].clone(), "a whole measurement faulted on every asset: SAI-EXQ01-T".to_owned())), "{listed:?}");
     watch::check(&mut client, &settings(), &now).await.unwrap();
     let summary = open(&client).await;
     assert_eq!(summary.len(), 1);
-    assert!(summary[0].starts_with("Phase-1 stop rule: 14 of 21 judged days look bad (67%), over half") && summary[0].contains("the coordinator's classification"), "{summary:?}");
+    assert!(
+        summary[0].starts_with("Phase-1 stop rule, systematic breakage: 1 days with a measurement withheld for an engine fault on every asset")
+            && summary[0].contains("the coordinator's classification"),
+        "{summary:?}"
+    );
     let alert: String = client.query_one("SELECT message FROM core.notice WHERE post AND message LIKE '%stop rule%' ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
     assert!(alert.contains("Published numbers affected") && alert.contains("`vyreon-core stoprule FREE_REPORT_64`"), "{alert}");
 
-    // the rulings explain eight of the disagreements (each day's check, judged again): 6 of 21, resolved
-    client
-        .execute("UPDATE core.refcheck_report SET failed_unexplained = 0 WHERE session = ANY($1::text[]::date[])", &[&days[..8].to_vec()])
-        .await
-        .unwrap();
+    // failures to publish past half of the attempted days, from the 20th published day: systematic too
+    client.execute("DELETE FROM vyreon.measurement WHERE measurement_id = 'SAI-EXQ01-T' AND revision_id = $1", &[&b2]).await.unwrap();
+    client.execute("DELETE FROM core.revision_tally WHERE revision_id = $1", &[&b2]).await.unwrap();
+    watch::tally_batches(&mut client, &[b2], None).await.unwrap();
     watch::check(&mut client, &settings(), &now).await.unwrap();
-    assert!(open(&client).await.is_empty());
+    assert!(open(&client).await.is_empty(), "resolved once no day is systematic");
+    let t = Tally { published: 20, unpublished: 21, ..Tally::default() };
+    assert!(t.over() && t.summary().unwrap().contains("21 of 41 days not published after a failure (51%), over half"), "{:?}", t.summary());
+    assert!(!Tally { published: 19, unpublished: 30, ..Tally::default() }.over(), "before the 20th published day");
+    assert!(!Tally { published: 20, unpublished: 20, ..Tally::default() }.over(), "half is not past half");
     scratch.drop().await;
 }
