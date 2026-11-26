@@ -636,7 +636,8 @@ pub fn span(first: &str, last: &str) -> String {
     }
 }
 
-/// C-091: the database's progress at `now`, one line: "Database: 212 of 597 days kept (current build) · finish ~Dec 14".
+/// C-091: the database's progress at `now`, one line: "Database: 212 of 597 days kept (current build) · 99.4% of
+/// readings measured · finish ~Dec 14".
 /// The days kept are the phase's sessions (VYREON_CORE_PROGRESS_FROM/TO; unset: every session a backfill block
 /// covers) published whole (base and day-local) by the newest running build. The finish is at the build's own
 /// measured rate: its days kept in the last 24 hours (or since its first, if later), said once it has kept
@@ -652,21 +653,29 @@ pub async fn database_line(c: &impl GenericClient, profile: &str, phase: Option<
                         SELECT x.session FROM core.session x WHERE x.session BETWEEN $3::text::date AND $4::text::date
                           AND NOT EXISTS (SELECT FROM core.omitted_session o WHERE o.session = x.session AND o.profile_id = $1)),
                   cur AS (SELECT engine_build FROM core.engine_build WHERE core.build_runs(engine_build) ORDER BY admitted_at DESC, engine_build LIMIT 1),
-                  kept AS (SELECT s.session, l.published_at FROM s
+                  kept AS (SELECT s.session, l.published_at, b.revision_id AS base, l.revision_id AS local FROM s
                            JOIN vyreon.day_revision b ON b.represented_date = s.session AND b.profile_id = $1 AND b.state = 'PUBLISHED' AND b.base_revision IS NULL
                                 AND b.engine_build = (SELECT engine_build FROM cur)
-                           JOIN LATERAL (SELECT l.published_at FROM vyreon.day_revision l WHERE l.base_revision = b.revision_id AND l.day_local AND l.state = 'PUBLISHED'
+                           JOIN LATERAL (SELECT l.published_at, l.revision_id FROM vyreon.day_revision l WHERE l.base_revision = b.revision_id AND l.day_local AND l.state = 'PUBLISHED'
                                          ORDER BY l.revision_id DESC LIMIT 1) l ON true
                            WHERE l.published_at <= $2::text::timestamptz)
              SELECT (SELECT count(*) FROM s), (SELECT count(*) FROM kept),
                     (SELECT count(*) FROM kept WHERE published_at > $2::text::timestamptz - interval '24 hours'),
-                    extract(epoch FROM $2::text::timestamptz - GREATEST((SELECT min(published_at) FROM kept), $2::text::timestamptz - interval '24 hours'))::float8 / 3600",
+                    extract(epoch FROM $2::text::timestamptz - GREATEST((SELECT min(published_at) FROM kept), $2::text::timestamptz - interval '24 hours'))::float8 / 3600,
+                    (SELECT sum(t.slots)::bigint FROM kept k JOIN core.revision_tally t ON t.revision_id IN (k.base, k.local)),
+                    (SELECT sum(t.withheld)::bigint FROM kept k JOIN core.revision_tally t ON t.revision_id IN (k.base, k.local))",
             &[&profile, &now, &phase.map(|p| p.0.clone()), &phase.map(|p| p.1.clone())],
         )
         .await
         .map_err(db)?;
     let (total, kept, recent, hours): (i64, i64, i64, Option<f64>) = (r.get(0), r.get(1), r.get(2), r.get(3));
+    let (slots, withheld): (Option<i64>, Option<i64>) = (r.get(4), r.get(5));
     let mut line = if total > 0 { format!("Database: {} of {} days kept (current build)", thousands(kept), thousands(total)) } else { format!("Database: {} days kept (current build)", thousands(kept)) };
+    // (owner, 2026-11-26: "worth keeping the % of readings number") the share of the kept days' slots with a value,
+    // over the day's two layers as the watch has counted them (`core.revision_tally`)
+    if let (Some(slots), Some(withheld)) = (slots.filter(|n| *n > 0), withheld) {
+        line.push_str(&format!(" · {} of readings measured", percent(100.0 * (slots - withheld) as f64 / slots as f64)));
+    }
     if total > 0 && kept >= total {
         line.push_str(" · done");
     } else if let Some(h) = hours.filter(|h| *h >= ETA_MIN_HOURS && recent >= ETA_MIN_DAYS && total > kept) {
