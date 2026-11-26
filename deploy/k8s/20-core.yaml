@@ -176,7 +176,7 @@ spec:
             - name: VYREON_CORE_SPEND_BASELINE_USD
               value: "180.41"
             - name: VYREON_CORE_SPEND_CEILING_USD
-              value: "500"
+              value: "750"   # 500 → 750 (owner, 2026-11-26: phase 1 brute force + the fix pass; raise in steps rather than unbounded)
             - name: VYREON_CORE_DO_TOKEN_FILE
               value: /etc/vyreon-core/do-billing/token
             # C-079: after a new build publishes, core republishes the days whose method versions differ
