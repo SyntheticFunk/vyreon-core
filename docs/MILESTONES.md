@@ -99,6 +99,20 @@ A failure: fix it and rerun that day only. All pass: freeze, with the set as evi
 value recomputes nothing; one that does recomputes only the affected measurements, by method version (C-079),
 after the run.
 Money: about $195 since 11-21 (estimate) + about $260 = about $455 of the $500 ceiling. Warn before crossing.
+**Seven ways to improve the odds, all adopted (owner, 2026-11-26 ~16:30 MT):**
+1. **Secure the pilot first:** production runs newest-first, so the ~63 sessions before 2027-01-08 plus the nightlies
+   are safe early. First check what ORDERED_PASS carries forward across days (recent-first may force redoing passes).
+2. **Reporter:** starts ONCE the database is progressing smoothly and is just monitoring (owner: "we can't do
+   anything without a database"); not before.
+3. **The nightly is pilot-critical:** the proving set includes a nightly run on the new build; a missed nightly
+   alerts on its own.
+4. **The checker must check everything:** the proving gate requires every reference-check family to have run (an
+   import error silently skipped the M0 checks on 07-11).
+5. **Small releases:** each batch merged into the frozen line has published one real day first (~$0.50), not only at
+   release.
+6. **The proving set** adds ~4 random days to the hand-picked hard ones.
+7. **Operation:** steps that went wrong by hand become scripts and gates (stage 1 item 4); every scale-up step waits
+   for its check to pass.
 Estimates, unproven: 2.2 h/day/block was measured on 2024 days, one block alone.
 
 ## Steps to the MVP (the list shown to the owner on a status request; keep it current)
