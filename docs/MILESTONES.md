@@ -105,6 +105,16 @@ A failure: fix it and rerun that day only. All pass: freeze, with the set as evi
 value recomputes nothing; one that does recomputes only the affected measurements, by method version (C-079),
 after the run.
 Money: about $195 since 11-21 (estimate) + about $260 = about $455 of the $500 ceiling. Warn before crossing.
+**Ceiling $750 (owner, 2026-11-26):** phase-1 brute force plus the fix pass; raise in steps rather than
+run unbounded. Committed in 20-core.yaml; it goes live with the next core release (a restart now could cost the
+running nightly its lease before the lease-grace fix ships). Billing token in place 2026-11-26: measured spend
+from core's hourly read.
+**Audit rulings settled (owner, 2026-11-26, recommendations accepted):**
+- daily 11: one gamma figure (D-101), the 1-year book not scored separately;
+- D-500 item 5: source ordinals recorded in a compact content-addressed form (hash), not listed literally; for the
+  fix pass;
+- VS-L01's code name and company #17 (D-304): left to the census.
+Intrinio email sent (replies delayed by the US holiday).
 **REVISED (owner, 2026-11-26 ~17:00 MT): BRUTE FORCE phase 1, then one large fix pass.**
 This supersedes Stage 2 (the proving set); Stage 1 shrinks to what unattended production needs.
 1. Land:
