@@ -1586,6 +1586,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   byte-identical to the laptop's. No remedy needed: workers stay on both pools. Throwaway pods deleted, none left.
   Release of 93a04676 complete (release.sh exited "released", the 11-24 nightly drained and published 17:17). Tapes 18:21:
   168/880 done, 12 running, 0 failed, ~106/h → all by ~01:00 UTC−6; Intrinio 439 req/min (budget headroom).
+  19:23: 287/880, but only 1-5 tape pods at a time: core.scaler_count returns 0 for priority-0 work for 5 min after ANY
+  budget wait, and tape jobs request in bursts (1,700 in the minute 19:18, ~3 in the quiet minutes) → oscillation, ~110/h net
+  (done ~00:45). The 30 "Failed" tape Jobs in Kubernetes are history from 11-24's run, not new. Tuning item (core, after the
+  re-capture): smooth tape request bursts or scale tapes by budget headroom instead of a 5-min stop after one wait.
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
