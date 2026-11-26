@@ -342,6 +342,40 @@ pub async fn sweep(client: &mut Client) -> Result<u64, String> {
     if errors.is_empty() { Ok(ended) } else { Err(errors.join("; ")) }
 }
 
+/// C-088 (2026-11-26: core was down 13:28 to 13:48 MT with InvalidImageName; the daily block's worker, job
+/// 30062, downloaded on with its heartbeats failing, and the restarted core ended its lease for missed
+/// heartbeats, about 3 h of work lost): core's own downtime costs no lease. At the service's start, after it
+/// holds the single-instance lock and before its sweeper or its API runs, every live lease gets at least
+/// `lease_seconds` from now, the time a heartbeat has while core is up. A worker that died meanwhile is
+/// found one lease period later than it would have been. Returns the leases whose expiry had passed (each
+/// would have been ended by the first sweep), with one log line naming them.
+pub async fn grace_on_start(client: &mut Client, lease_seconds: f64) -> Result<Vec<i64>, String> {
+    let tx = client.transaction().await.map_err(db)?;
+    let rows = tx
+        .query(
+            "WITH g AS (SELECT lease_id, expires_at < clock_timestamp() AS lapsed FROM core.lease
+                        WHERE ended_at IS NULL AND expires_at < clock_timestamp() + make_interval(secs => $1) FOR UPDATE)
+             UPDATE core.lease l SET expires_at = clock_timestamp() + make_interval(secs => $1)
+             FROM g WHERE l.lease_id = g.lease_id
+             RETURNING l.lease_id, g.lapsed",
+            &[&lease_seconds],
+        )
+        .await
+        .map_err(db)?;
+    let mut lapsed: Vec<i64> = rows.iter().filter(|r| r.get::<_, bool>(1)).map(|r| r.get(0)).collect();
+    lapsed.sort_unstable();
+    if !lapsed.is_empty() {
+        let ids: Vec<String> = lapsed.iter().map(i64::to_string).collect();
+        notice::log(
+            &tx,
+            &format!("Core started with {} live leases past their expiry (core was not answering their heartbeats): each given {lease_seconds:.0} s to renew, leases {}.", lapsed.len(), ids.join(" ")),
+        )
+        .await?;
+    }
+    tx.commit().await.map_err(db)?;
+    Ok(lapsed)
+}
+
 /// C-079 (release-3 audit, Codex 1 and 15; coordinator: "print retention rechecked at claim for every job
 /// kind, FULL included; old days scoped regardless"): before a day block of `build` is claimed, each queued
 /// one whose remaining sessions include a published day past the prints' retention (`core.prints_perished`,
@@ -876,6 +910,7 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         return Ok(false);
     };
     if again.get(0) {
+        nightly_setback(db_client, job, why).await?;
         return Ok(true);
     }
     let kind: String = db_client.query_one("SELECT kind FROM core.job WHERE job_id = $1", &[&job]).await.map_err(db)?.get(0);
@@ -959,6 +994,37 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
     Ok(false)
 }
 
+/// C-089 (owner, 2026-11-26: the nightly is pilot-critical): a nightly session's job (priority 1, C-051) whose
+/// attempt ended without finishing and which is queued again is said on the alert channel at once. On
+/// 2026-11-26 the nightly block lost its lease at 13:45 MT after core's outage and started its day again,
+/// about 3 h lost, and only an agent looking saw it: a retry was housekeeping, and the session's deadline
+/// (SESSION_LATE) is the next evening, and only from VYREON_CORE_DEADLINES_FROM. Out of attempts it is
+/// JOB_FAILED, as before. The backfill's retries stay in the log.
+async fn nightly_setback(db_client: &impl GenericClient, job: i64, why: &str) -> Result<(), String> {
+    let Some(r) = db_client
+        .query_opt("SELECT kind, next_session::text FROM core.job WHERE job_id = $1 AND priority = 1 AND next_session IS NOT NULL", &[&job])
+        .await
+        .map_err(db)?
+    else {
+        return Ok(());
+    };
+    let (kind, day): (String, String) = (r.get(0), r.get(1));
+    let what = match kind.as_str() {
+        "TAPE" => "tape capture",
+        "ORDERED_PASS" => "history pass",
+        _ => "run",
+    };
+    let shown = crate::plain::day(&day).unwrap_or_else(|| day.clone());
+    notice::alert(
+        db_client,
+        &format!(
+            "Nightly {what} of {shown} stopped before it finished ({}); it starts again by itself. If it cannot finish, the day's deadline alert follows.",
+            crate::watch::one_line(why, 160)
+        ),
+    )
+    .await
+}
+
 /// C-074: rejects the STAGED revisions the leases of republish `jobs` left (a base waiting for its
 /// day-local revision) when their attempt ends without it: a failure, a lost lease, a cancellation, a
 /// withdrawal or a retirement (release-2 audit, Codex 15, Gemini 14). The day keeps what it had.
@@ -1000,6 +1066,11 @@ fn dropped_base_clause(base: Option<i64>, day: &str) -> String {
         )
     })
 }
+
+/// C-086: a backfill day block of a build starts at most once in this many minutes (`core.backfill_block_room`,
+/// migration 0064, which states the number): the blocks ramp up instead of sharing the request budget from
+/// one minute (2026-11-26: seven at once, their first days' downloads twice as long).
+pub const RAMP_MINUTES: i64 = 20;
 
 /// Taken by every publish before any row lock, and by the claim of an ordered pass: a pass is then
 /// claimed either before a publish (which stops it if it reads that day) or after it (and reads
@@ -1919,13 +1990,15 @@ pub async fn omit(client: &mut Client, profile: &str, session: &str, reason: &st
 }
 
 /// The queue at a glance: jobs by kind, state and build (C-068 round 2, 8: which build owns what), what
-/// is claimable, and the pause.
+/// is claimable, the pause and the backfill's stop (C-087).
 pub async fn status(db_client: &impl GenericClient) -> Result<Value, String> {
     let row = db_client
         .query_one(
             "SELECT jsonb_build_object(
                  'paused', (SELECT paused FROM core.queue_control),
                  'pause_reason', (SELECT reason FROM core.queue_control),
+                 'backfill_stopped', (SELECT backfill_stopped FROM core.queue_control),
+                 'backfill_reason', (SELECT backfill_reason FROM core.queue_control),
                  'jobs', COALESCE((SELECT jsonb_agg(jsonb_build_object('kind', kind, 'state', state, 'build', engine_build, 'jobs', n, 'first', first, 'last', last)
                                                     ORDER BY kind, state, engine_build)
                                    FROM (SELECT kind, state, engine_build, count(*) AS n, min(first_session) AS first, max(last_session) AS last

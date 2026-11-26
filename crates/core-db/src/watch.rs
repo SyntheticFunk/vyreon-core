@@ -490,7 +490,11 @@ async fn current(c: &impl GenericClient, s: &Settings, now: &str, open: &[Open],
         .part(c, &REFCHECK, async {
             // C-073: the days due get their re-run first, so a day whose re-run was just queued is
             // not counted as not run
-            let rerun = s.refcheck_rerun_hours.filter(|_| s.refcheck_from.is_some());
+            // C-087: none while the backfill is stopped (`vyreon-core backfill stop`), as with the setting `off`
+            let mut rerun = s.refcheck_rerun_hours.filter(|_| s.refcheck_from.is_some());
+            if rerun.is_some() && crate::backfill::stopped(c).await? {
+                rerun = None;
+            }
             if let (Some(hours), Some(from)) = (rerun, &s.refcheck_from) {
                 refcheck::queue_reruns(c, &s.profile, from, hours, now).await?;
             }
@@ -1173,16 +1177,20 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
         c.execute("DELETE FROM core.stall_seen", &[]).await.map_err(db)?;
         return Ok(());
     }
-    // (kind, claimable, not daily, oldest queued, earliest admission of a build with such work)
+    // (kind, claimable, not daily, oldest queued, earliest admission of a build with such work, not daily
+    // and held back by the scaler for the backfill's stop or its day blocks' ramp: C-086, C-087)
     let rows = c
         .query(
             &format!(
-                "WITH k AS (SELECT {GROUP} AS kind, j.priority, j.created_at, j.engine_build FROM core.claimable_job j)
+                "WITH k AS (SELECT {GROUP} AS kind, j.kind AS job_kind, j.priority, j.created_at, j.engine_build FROM core.claimable_job j),
+                      held AS (SELECT h.job_kind, h.engine_build FROM (SELECT DISTINCT job_kind, engine_build FROM k WHERE priority <> 1) h
+                               WHERE core.backfill_held(h.job_kind, h.engine_build, $1::text::timestamptz))
                  SELECT kind, count(*), count(*) FILTER (WHERE priority <> 1), min(created_at)::text,
-                        (SELECT min(b.admitted_at) FROM core.engine_build b WHERE b.engine_build IN (SELECT engine_build FROM k x WHERE x.kind = k.kind))::text
+                        (SELECT min(b.admitted_at) FROM core.engine_build b WHERE b.engine_build IN (SELECT engine_build FROM k x WHERE x.kind = k.kind))::text,
+                        count(*) FILTER (WHERE priority <> 1 AND (job_kind, engine_build) IN (SELECT job_kind, engine_build FROM held))
                  FROM k GROUP BY kind"
             ),
-            &[],
+            &[&now],
         )
         .await
         .map_err(db)?;
@@ -1197,13 +1205,16 @@ async fn stalled(c: &impl GenericClient, now: &str, found: &mut Vec<Found>) -> R
         // never held back (`core.scaler_count`), so it alone still counts (release audit, Codex 4,
         // Gemini 1: a daily tape's stall was hidden by backfill pressure)
         let held_back = pressed && BUDGETED.contains(&kind);
-        let claimable = if held_back { claimable - row.map_or(0, |r| r.get::<_, i64>(2)) } else { claimable };
+        // C-086, C-087: the backfill's work the scaler holds back for the stop or the ramp is not a stall either
+        let all_backfill = row.map_or(0, |r| r.get::<_, i64>(2));
+        let backfill = if held_back { 0 } else { all_backfill - row.map_or(0, |r| r.get::<_, i64>(5)) };
+        let claimable = claimable - all_backfill + backfill;
         if claimable == 0 || leased.iter().any(|l| l == kind) || draining.iter().any(|l| l == kind) {
             c.execute("DELETE FROM core.stall_seen WHERE kind = $1", &[&kind]).await.map_err(db)?;
             continue;
         }
         let row = row.expect("a kind with claimable work has its row");
-        let (backfill, queued, admitted): (i64, Option<String>, Option<String>) = (if held_back { 0 } else { row.get(2) }, row.get(3), row.get(4));
+        let (queued, admitted): (Option<String>, Option<String>) = (row.get(3), row.get(4));
         c.execute("INSERT INTO core.stall_seen (kind, since) VALUES ($1, $2::text::timestamptz) ON CONFLICT (kind) DO NOTHING", &[&kind, &now]).await.map_err(db)?;
         let limit = if backfill == 0 { DAILY_STALL_MINUTES } else { STALL_MINUTES };
         // audit round 2 of core-watch, 7: the clock never starts before the work could be claimed,
@@ -1582,7 +1593,7 @@ pub fn consequence(kind: &str) -> (bool, &'static str, Option<&'static str>) {
         "JOB_THRASHING" => (false, "that work keeps restarting; its day stays unpublished until it finishes", Some("check why the pods end (out of memory?):")),
         "NO_PROGRESS" => (false, "that work is stuck; its day stays unpublished until it moves", Some("read the worker's log:")),
         "DAY_REFUSED" => (true, "that day stays unpublished (readers see it missing, with its cause); nothing more is tried on it", Some("fix the refused input or the engine, then retry it (`vyreon-core queue retry-failed`); the refusal:")),
-        "STOP_RULE" => (true, "if most of these days are engine faults, the owner's rule stops phase 1 for a fix and a restart", Some("the coordinator classifies each day (engine, suite or provider) before anything stops; the days:")),
+        "STOP_RULE" => (true, "systematic breakage: the owner's rule stops phase 1 for a fix and a restart", Some("the coordinator confirms it is the engine (not the provider) before anything stops; the days:")),
         "SPEND" => (false, "the spend nears or passes the owner's ceiling", Some("decide whether to go on (raise the ceiling, or stop the workers: deploy/k8s/README.md, Stopping everything); the spend:")),
         _ => (false, "", Some("to see more:")),
     }
@@ -1688,8 +1699,13 @@ pub async fn not_derived(c: &impl GenericClient, days: &[(String, String, bool)]
 
 /// What a published revision holds, counted from its measurements: (revision_id, slots, withheld,
 /// provider_withheld, engine_faults) of the revisions `d` that `$WHERE` names.
+/// C-090: and the measurements an engine fault withheld on every object (`whole_faults`: two objects or more,
+/// each slot's stated reason the engine's), the systematic breakage the stop rule stops for.
 const COUNTED: &str = "SELECT d.revision_id, count(m.measurement_id)::int AS slots, (count(*) FILTER (WHERE m.whole))::int AS withheld,
-                (count(*) FILTER (WHERE m.whole AND NOT m.fault))::int AS provider_withheld, (count(*) FILTER (WHERE m.fault))::int AS engine_faults
+                (count(*) FILTER (WHERE m.whole AND NOT m.fault))::int AS provider_withheld, (count(*) FILTER (WHERE m.fault))::int AS engine_faults,
+                (SELECT COALESCE(array_agg(w.measurement_id ORDER BY w.measurement_id), '{}'::text[])
+                 FROM (SELECT m.measurement_id FROM vyreon.measurement m WHERE m.revision_id = d.revision_id AND m.represented_date = d.represented_date
+                       GROUP BY m.measurement_id HAVING count(DISTINCT m.object_id) >= 2 AND bool_and($FAULT)) w) AS whole_faults
          FROM vyreon.day_revision d
          LEFT JOIN LATERAL (
              SELECT m.measurement_id,
@@ -1742,7 +1758,7 @@ async fn tally(c: &impl GenericClient, revisions: &[i64]) -> Result<(), String> 
     }
     c.execute(
         &format!(
-            "INSERT INTO core.revision_tally (revision_id, slots, withheld, provider_withheld, engine_faults) {}
+            "INSERT INTO core.revision_tally (revision_id, slots, withheld, provider_withheld, engine_faults, whole_faults) {}
              ON CONFLICT (revision_id) DO NOTHING",
             COUNTED.replace("$FAULT", FAULT).replace("$WHERE", "d.revision_id = ANY($1)")
         ),
@@ -1859,11 +1875,11 @@ pub async fn session_tallies(c: &mut impl GenericClient, profile: &str, sessions
                               AND EXISTS (SELECT FROM vyreon.day_revision b WHERE b.represented_date = d.represented_date AND b.profile_id = d.profile_id
                                             AND b.state = 'PUBLISHED' AND b.base_revision IS NULL)),
                  counted AS ({}),
-                 kept AS (INSERT INTO core.revision_tally (revision_id, slots, withheld, provider_withheld, engine_faults)
+                 kept AS (INSERT INTO core.revision_tally (revision_id, slots, withheld, provider_withheld, engine_faults, whole_faults)
                           SELECT * FROM counted ON CONFLICT (revision_id) DO NOTHING),
                  t AS (SELECT t.revision_id, t.slots, t.withheld, t.provider_withheld, t.engine_faults FROM core.revision_tally t
                        WHERE t.revision_id IN (SELECT revision_id FROM shown)
-                       UNION ALL SELECT * FROM counted)
+                       UNION ALL SELECT revision_id, slots, withheld, provider_withheld, engine_faults FROM counted)
                  SELECT s.represented_date::text, sum(t.slots)::bigint, sum(t.withheld)::bigint, sum(t.provider_withheld)::bigint, sum(t.engine_faults)::bigint
                  FROM shown s JOIN t USING (revision_id)
                  GROUP BY 1",

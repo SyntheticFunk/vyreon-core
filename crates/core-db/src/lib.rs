@@ -2,6 +2,7 @@
 //! table and is the only writer (docs/DECISIONS.md C-019).
 pub mod api_key;
 pub mod archive;
+pub mod backfill;
 pub mod budget;
 pub mod build;
 pub mod capture;

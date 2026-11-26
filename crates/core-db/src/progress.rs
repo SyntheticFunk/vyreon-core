@@ -444,6 +444,13 @@ pub fn short_notice(message: &str) -> Option<String> {
         };
         return Some(format!("Queue paused: {why}"));
     }
+    // C-087: the backfill's stop and resume, with the owner's reason
+    if let Some((_, why)) = message.strip_prefix("Backfill stopped (").and_then(|r| r.split_once("): ")) {
+        return Some(format!("Backfill stopped: {}", one_line(why, 120)));
+    }
+    if message.starts_with("Backfill resumed (") {
+        return Some("Backfill resumed".into());
+    }
     if message == "Queue resumed." {
         return Some("Queue resumed".into());
     }
