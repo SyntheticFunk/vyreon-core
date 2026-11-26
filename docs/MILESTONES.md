@@ -105,6 +105,31 @@ A failure: fix it and rerun that day only. All pass: freeze, with the set as evi
 value recomputes nothing; one that does recomputes only the affected measurements, by method version (C-079),
 after the run.
 Money: about $195 since 11-21 (estimate) + about $260 = about $455 of the $500 ceiling. Warn before crossing.
+**REVISED (owner, 2026-11-26 ~17:00 MT): BRUTE FORCE phase 1, then one large fix pass.**
+This supersedes Stage 2 (the proving set); Stage 1 shrinks to what unattended production needs.
+1. Land:
+   - the memory gate (D-515, done);
+   - core's ramp, the one-real-day gate, the lease grace and the safe scripts;
+   - the VS-O04 withhold fix;
+   - the reference-suite fixes;
+   - one Codex audit of that batch.
+   Forward/carry rule, VS-O04 root cause and other science continue on branches.
+2. Release:
+   - core holds one block until a real day publishes with 0 ENGINE_FAULT, then ramps as the budget allows (ceiling
+     8 → 12);
+   - blocks run newest-first: the most recent ~252 sessions first, then the rest;
+   - every ordered pass is scheduled ONCE up front and runs oldest-first after the backfill (C-046: the 12 history
+     sensors read every earlier day; passes run early are redone and differ).
+3. All 597 days. Faults and reference disagreements are collected and classified as they come.
+4. One large fix pass over the population (also the census data), one release, recompute only what changed, by
+   method version.
+**Stop rule redefined:** stop only for systematic breakage: days failing to publish, or one fault hitting a whole
+measurement on every asset (as M0 and IVSC did). Local value errors are recorded for the fix pass. C-084's
+counting is to be amended to match.
+VS-O04 must be understood: the investigation runs in parallel; if it is not resolved before release, O04 is
+recomputed in the fix pass.
+Owner wants to discuss further what to do better (2026-11-26).
+
 **Seven ways to improve the odds, all adopted (owner, 2026-11-26 ~16:30 MT):**
 1. **Secure the pilot first:** production runs newest-first, so the ~63 sessions before 2027-01-08 plus the nightlies
    are safe early. First check what ORDERED_PASS carries forward across days (recent-first may force redoing passes).
