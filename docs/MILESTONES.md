@@ -1584,6 +1584,8 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   digest 39bb103fbe457875 (49.4 MB D114 endpoint result) on the laptop (i7-12700H), a `day` AMD node (EPYC Zen 2) and a
   `day-intel` node (Cascade Lake, AVX-512); MKL_CBWR=COMPATIBLE, 1 thread, sequential; the image's MKL libraries are
   byte-identical to the laptop's. No remedy needed: workers stay on both pools. Throwaway pods deleted, none left.
+  Release of 93a04676 complete (release.sh exited "released", the 11-24 nightly drained and published 17:17). Tapes 18:21:
+  168/880 done, 12 running, 0 failed, ~106/h → all by ~01:00 UTC−6; Intrinio 439 req/min (budget headroom).
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
