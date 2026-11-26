@@ -3912,3 +3912,28 @@ Amended the same day (owner: "worth keeping the % of readings number"; C-091 had
 database line carries the share of the kept days' slots with a value, "Database: 212 of 597 days kept (current build) ·
 99.4% of readings measured · finish ~Dec 14", over the day's two layers as the watch has counted them
 (`core.revision_tally`; a day not counted yet is not in the share). Test `digest_format.rs`.
+
+## C-094 Stage-1 audit (Codex and Gemini, 2026-11-26): eight blockers fixed at five sites, the rest catalogued
+Reports and triage: `~/claude-artifacts/audits/2026-11-26-stage1/` (`core-stage1.md`, `core-stage1.agy.md`,
+`triage/core-stage1.triage.md`). 30 distinct findings: 23 real (no wrong published number), 2 not real, 5 by decision.
+Fixed before the release, by the owner's run model (what can run backfill work while stopped, break the gate or the
+ramp, stop the nightly, or mislead the owner about the run's health):
+1. **Recompute is off for the run** (`20-core.yaml` `VYREON_CORE_RECOMPUTE` "off"). With "on", core starting on this
+   release (migration 0064 creates the stop flag false; the ceiling moves 500 → 750) could decide a held plan before
+   `backfill stop` was set, and C-079 would plan recomputes from the canary's first day without the build being proven.
+   The owner's rule is recompute after the run, by method version: turned on again then.
+2. **The engine-fault count** (`watch::FAULT`, `COUNTED`): never NULL (a healthy body with no terminal reason gave NULL,
+   which `bool_and` ignores, so ONE faulted asset read as "on every asset" and raised the stop rule); a direct owner's
+   body is read too (`failure_reason`, `coordinates[].reason`: M0-PRINT-SIZE's PARENT_ENGINE_FAULT on 15 of 15 counted as
+   no fault, so the gate could certify the day). **C-090 amended:** a whole fault is two or more objects faulted and
+   every other object withheld whole (IBIT's empty chain beside 62 faulted assets was "local" before and raised nothing).
+3. **The published revisions are counted every minute**, not only with the 09:00 digest: the one-real-day gate, the stop
+   rule and the readings share read these counts and lagged up to 24 h.
+4. **`apply-core.sh` refuses a manifest whose `VYREON_CORE_DAILY_BUILD` is not the live one** (a lagging checkout
+   would revert it and core would queue no nightly), as release.sh's preflight does.
+5. **"Running now" counts the other kinds** ("· also 3 tape captures, 1 history pass"): "nothing" only when no lease of
+   any kind is live.
+Tests: `freeze.rs` (the three body shapes), `progress` unit, `ops/tests/apply-core.sh` case 5; suite 273 ok.
+**For the owner (not changed):** `build_proven` has no override (a canary day with one accepted engine fault keeps the
+ramp at one block); three FAILED day blocks pause the whole queue, the nightly included (`FAILED_DAYS_PAUSE`), which
+sits badly with "record every fault and keep going". Catalogued: `docs/PHASE1_CATALOG.md`.
