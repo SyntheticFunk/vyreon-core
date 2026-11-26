@@ -76,7 +76,20 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
          ~1,070 expiries per session in saved runs, mostly 1–3-day expiries, 1–10 bp of spot. The census on this
          build's refit goes to `~/claude-artifacts/checks/forward-bounds-census-2026-11-26.txt` (pending).
        - D-153 is kept. Values change: σ, Greeks and fits on withheld expiries. **UUP 2025-12-03 IV30 0.0577 →
-         0.0723** (its 44-day expiry withheld): owner review.
+         0.0723** (its 44-day expiry withheld).
+       - **The owner CONFIRMED the bounds test in place of the neighbour test (2026-11-26: "standards are way better
+         than me").**
+       - **UUP check (Intrinio data, 2026-11-26):**
+         - realized vol to 12-03: 4.1–4.2% (20/30 sessions);
+         - Intrinio's ATM IV on the clean 16-day expiry (12-19, no dividend inside): 6.68% call, 6.11% put;
+         - the 2025 distribution had its ex-date on 12-22 at $0.9269, after $1.3171 in 2024; every expiry after
+           12-22 holds it;
+         - Intrinio's own IV on the 44-day expiry breaks (call 5.65%, put 28.7%).
+         HYPOTHESIS: 7.23% is too high, because the post-ex-date expiries rest on a projected dividend (D-138
+         projects from the trailing year: $1.32 against $0.93 actually paid). The market standard is the dividend
+         or forward implied by put–call parity. OPEN for the next session: check UUP's straddling expiries and
+         whether the projection should give way to the parity-implied dividend for funds whose payout follows
+         rates. Owner: find standards or references for checks like this.
      - **D-561:** when T's own chain is empty, EMPTY_DELIVERED_POPULATION comes first in VS-O04 and VS-L01 (engine
        and suite; VS-O02's suite path is on eng-s1).
      - Suite-rulings pass: only ADX moved (Wilder's as the primary reading); the rest is NOT STARTED.
