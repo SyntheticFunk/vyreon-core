@@ -820,15 +820,15 @@ async fn lost(tx: &impl GenericClient, job: i64, lease: i64, day: &str) -> Resul
     Ok(())
 }
 
-/// How many day jobs may stand FAILED before the queue stops: one bad day is set aside and the
-/// rest of the build goes on; several at once look like the engine, not the day (C-035).
-pub const FAILED_DAYS_PAUSE: i64 = 3;
+/// From this many day jobs standing FAILED the log says the count with each further one. It was the count
+/// that paused the whole queue, the nightly included (C-035); since C-094 no count of failed days pauses it.
+pub const FAILED_DAYS_NOTED: i64 = 3;
 
 /// A job whose attempt ended without finishing: DONE, queued again, or FAILED. A job whose every
 /// session is done is DONE, whatever became of its worker's `finish` (lost, never sent, or sent
 /// after a failure): there is nothing left to claim. A day block out of attempts keeps only the
 /// day it stopped on: the days before it are done, the days after it become a new queued block,
-/// and the queue pauses only at `FAILED_DAYS_PAUSE` failed days. An ordered pass out of attempts
+/// and no count of failed days pauses the queue (C-094). An ordered pass out of attempts
 /// stays FAILED without a pause; a tape job pauses the queue at once (the day blocks wait on it).
 /// Returns true when the job was queued again.
 async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<bool, String> {
@@ -984,12 +984,13 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
     // audit 2026-11-22 round 2 core-r2 1: a base its day-local revision never joined is superseded, so
     // no later day's history reads the day this block leaves missing
     let local = dropped_base_clause(crate::publish::drop_base_without_day_local(db_client, job, &day, &profile).await?, &day);
-    if failed >= FAILED_DAYS_PAUSE {
-        pause(db_client, &format!("{failed} days stand failed; the last, job {job} ({day}): {why}{local}")).await?;
-    } else {
-        let after = if rest == 1 { "; the rest of its block is queued again" } else { "" };
-        notice::log(db_client, &format!("Day {day} failed for the last time and is set aside (job {job}): {why}{after}{local}. The build goes on.")).await?;
-    }
+    // C-094 (owner, 2026-11-26: "the nightly should never get paused"; the run records every fault and goes on):
+    // failed days no longer pause the queue, at any count. Each is set aside and alerted (JOB_FAILED); systematic
+    // breakage is the stop rule's to say (C-090), and stopping the backfill is `backfill stop`, which never
+    // touches the nightly.
+    let after = if rest == 1 { "; the rest of its block is queued again" } else { "" };
+    let standing = if failed >= FAILED_DAYS_NOTED { format!(" {failed} days stand failed.") } else { String::new() };
+    notice::log(db_client, &format!("Day {day} failed for the last time and is set aside (job {job}): {why}{after}{local}. The build goes on.{standing}")).await?;
     Ok(false)
 }
 

@@ -26,8 +26,10 @@ ALTER TABLE core.queue_control
 
 -- C-086: whether `p_build` has published one real day clean: a base revision of its own computation (not
 -- a republish's copy-forward), still published, holding slots, with a day-local revision published on it,
--- and neither revision holding a slot whose stated reason is the engine's (`core.revision_tally`, counted
--- by the watch with `watch::FAULT`, 0062). A revision not counted yet does not prove the build.
+-- and neither revision holding a measurement an engine fault withheld on every asset (`whole_faults` of
+-- `core.revision_tally`, counted by the watch, C-090/C-094). Owner, 2026-11-26: the test is "can the engine
+-- execute a small block", to avoid scaling to N nodes and having all N fail; a local engine fault (one asset)
+-- is a catalog line, not a reason to hold the ramp. A revision not counted yet does not prove the build.
 CREATE FUNCTION core.build_proven(p_build text) RETURNS boolean
     LANGUAGE sql STABLE SET search_path = pg_catalog, pg_temp AS $$
     SELECT EXISTS (
@@ -36,7 +38,7 @@ CREATE FUNCTION core.build_proven(p_build text) RETURNS boolean
         JOIN vyreon.day_revision l ON l.base_revision = d.revision_id AND l.day_local AND l.state = 'PUBLISHED'
         JOIN core.revision_tally tl ON tl.revision_id = l.revision_id
         WHERE d.engine_build = p_build AND d.state = 'PUBLISHED' AND d.base_revision IS NULL AND d.republish_scope IS NULL
-          AND td.slots > 0 AND td.engine_faults = 0 AND tl.engine_faults = 0)
+          AND td.slots > 0 AND cardinality(td.whole_faults) = 0 AND cardinality(tl.whole_faults) = 0)
 $$;
 
 -- C-086: how many more backfill day blocks (DAY_BLOCK, priority 0) of `p_build` may start at `p_at`:
