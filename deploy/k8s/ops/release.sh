@@ -63,7 +63,9 @@
 #      ran, a bundle refused or a job failed for the last time, leaves it paused and stops here)
 #   11 every kind of work KEDA should start for the new build (`core.scaler_count`) gets a lease of the
 #      new build within VYREON_VERIFY_MINUTES (a kind whose ScaledJob has draining Jobs, whose slots may
-#      all be theirs until they end, is verified at the end of step 12); skipped by `--from 12`
+#      all be theirs until they end, is verified at the end of step 12); a kind whose work stops being
+#      claimable before any pod claimed it (cancelled meanwhile: the re-run watch's cancellations of
+#      2026-11-25) is said and not verified; skipped by `--from 12`
 #   12 C-077: the draining blocks (`vyreon-core build drains`) finish their day; each one's Job is deleted
 #      once its lease has ended (an engine before C-077 computes on into its next day, unleased); core
 #      itself stops a drain at its bound (work::DRAIN_MINUTES, 6 h) and carries its day. Polled every
@@ -707,32 +709,38 @@ fi
 # every kind KEDA should start for $BUILD (core.scaler_count) gets a lease of $BUILD granted since $1 (a
 # timestamp), within VERIFY_MINUTES; kinds in $2 are not waited for, and when $3 is given only its kinds are
 verify_claims() {
-  local since=$1 skip_kinds=$2 only=$3 deadline=$((SECONDS + VERIFY_MINUTES * 60)) needed="" missing="" rows q
+  local since=$1 skip_kinds=$2 only=$3 deadline=$((SECONDS + VERIFY_MINUTES * 60)) needed="" missing="" gone="" claimed="" rows q k
   while :; do
     # (release-4 audit, Codex 3) a paused queue counts nothing claimable: never read as "nothing to claim"
     q=$(queue_state)
     [[ $q == running ]] || fail "the queue is paused (${q#paused$'\t'}): nothing can be verified while it is; resume it once its cause is understood, then --from 11"
-    # per ScaledJob: what KEDA counts for the new build now, and its leases granted since then
-    rows=$(sql "SELECT v.k, core.scaler_count(v.kind, '$BUILD', v.daily),
+    # per ScaledJob: what KEDA counts for the new build now, what is claimable at all now, and its leases
+    # granted since then
+    rows=$(sql "SELECT v.k, core.scaler_count(v.kind, '$BUILD', v.daily), core.claimable_count(v.kind, '$BUILD', v.daily),
                        (SELECT count(*) FROM core.lease l JOIN core.job j USING (job_id)
                         WHERE j.engine_build = '$BUILD' AND j.kind = v.kind AND (v.daily IS NULL OR (j.priority = 1) = v.daily)
                           AND (l.granted_at >= '$since'::timestamptz OR l.ended_at IS NULL))
                 FROM (VALUES ('tape', 'TAPE', NULL::boolean), ('day-block', 'DAY_BLOCK', false), ('day-block-daily', 'DAY_BLOCK', true),
                              ('ordered-pass', 'ORDERED_PASS', NULL), ('refcheck', 'REFCHECK', NULL), ('republish', 'REPUBLISH', NULL)) v(k, kind, daily)") || rows=""
-    missing=""
-    while read -r k count leases; do
+    missing="" gone=""
+    while read -r k count claimable leases; do
       [[ -z $k ]] && continue
       [[ " $skip_kinds " == *" $k "* ]] && continue
       [[ -n $only && " $only " != *" $k "* ]] && continue
       ((count > 0)) && [[ " $needed " != *" $k "* ]] && needed="$needed $k"
-      [[ " $needed " == *" $k "* ]] && ((leases == 0)) && missing="$missing $k"
+      [[ " $needed " == *" $k "* ]] && ((leases == 0)) || continue
+      # 2026-11-25: the re-run watch cancelled the queued re-runs while this waited, and the release stopped
+      # with "no pod claimed refcheck". A kind with nothing claimable left (cancelled, or done by others)
+      # is no longer verified; one still claimable is waited for
+      if ((claimable > 0)); then missing="$missing $k"; else gone="$gone $k"; fi
     done <<<"$rows"
-    say "   $(date -u +%H:%M:%S) to start:${needed:- none}; still without a claim:${missing:- none}"
+    say "   $(date -u +%H:%M:%S) to start:${needed:- none}; still without a claim:${missing:- none}${gone:+; nothing claimable left, not verified:$gone}"
     [[ -n $rows && -z $missing ]] && break
     ((SECONDS < deadline)) || fail "no pod of $BUILD claimed work of:$missing in $VERIFY_MINUTES min (kubectl -n $NS get scaledjob,pods; vyreon-core queue)"
     sleep 30
   done
-  record "claimed by the new build:${needed:- nothing to claim}"
+  for k in $needed; do [[ " $gone " == *" $k "* ]] || claimed="$claimed $k"; done
+  record "claimed by the new build:${claimed:- nothing to claim}${gone:+; nothing claimable left before a claim (not verified):$gone}"
 }
 
 step 10 "resume the queue (only this run's pause)"

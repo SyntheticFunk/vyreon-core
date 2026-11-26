@@ -18,7 +18,13 @@
 # request budget made a draw wait in the last 5 minutes (`budget::PRESSURE_MINUTES`): KEDA then starts
 # no pod the budget cannot feed, and the running ones are untouched (owner, 2026-11-23: the caps are
 # no longer tuned by hand from the budget). The daily session's work and the ordered passes always
-# count. A claimed job leaves the count, so the count is the work no pod holds yet; with
+# count. C-086 (migration 0064): the backfill's day blocks count at most 1, and 0 for 20 minutes after one
+# of the build was leased, and, until the build has published one real day with no engine-fault slot, 0
+# while one of its backfill blocks runs: they ramp up one at a time, the cap below only a ceiling. C-087:
+# while the backfill is stopped (`vyreon-core backfill stop`) its blocks, passes and re-runs count 0.
+# Under `accurate` a 1 starts one pod (a pod not yet Running is pending and deducted); the one window,
+# a pod Running but not yet claimed, may start a second, which then claims a block too (the claim is not
+# gated, as C-073's budget). A claimed job leaves the count, so the count is the work no pod holds yet; with
 # `targetQueryValue: 1`, one Job per claimable job. (Before 0055 the triggers asked
 # `core.claimable_count`, which stays as the plain count: `vyreon-core queue` and the tests read it.)
 #
@@ -218,7 +224,7 @@ metadata:
 spec:
   pollingInterval: 30
   minReplicaCount: 0
-  maxReplicaCount: 8   # 12 → 8 2026-11-23 (phase 1): timed input captures (macro, ACT01) ran out of time under the saturated budget
+  maxReplicaCount: 12  # 8 → 12 2026-11-26 (owner): the ceiling only; core's ramp (C-086: one new block every 20 min, one at a time until the build published a real day clean) and the budget's pressure decide how many run (12 → 8 2026-11-23 when 12 started at once saturated the budget)
   successfulJobsHistoryLimit: 30
   failedJobsHistoryLimit: 30
   rollout: {strategy: gradual}
