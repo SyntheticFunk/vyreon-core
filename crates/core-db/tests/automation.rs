@@ -104,7 +104,7 @@ async fn a_check_that_never_reported_is_run_again_by_core_and_alerts_only_if_tha
         archive: None,
         refcheck_from: Some(DAY.into()),
         backup_days: None, spend: None, recompute: None,
-        refcheck_rerun_hours: Some(refcheck::RERUN_AFTER_HOURS),
+        refcheck_rerun_hours: Some(refcheck::RERUN_AFTER_HOURS), phase: None,
     };
     let reruns = "SELECT count(*) FROM core.job WHERE kind = 'REFCHECK'";
 
@@ -291,7 +291,7 @@ async fn a_day_about_to_be_published_again_is_not_checked_until_then() {
         backup_days: None,
         spend: None,
         recompute: None,
-        refcheck_rerun_hours: Some(refcheck::RERUN_AFTER_HOURS),
+        refcheck_rerun_hours: Some(refcheck::RERUN_AFTER_HOURS), phase: None,
     };
     let queued = "SELECT count(*) FROM core.job WHERE kind = 'REFCHECK' AND state = 'QUEUED'";
     // due: queued, as before
@@ -364,7 +364,7 @@ async fn the_scaler_starts_no_provider_work_while_the_budget_made_a_draw_wait() 
         archive: None,
         refcheck_from: None,
         backup_days: None, spend: None, recompute: None,
-        refcheck_rerun_hours: None,
+        refcheck_rerun_hours: None, phase: None,
     };
     let at: Vec<String> = client
         .query("SELECT (now() + make_interval(mins => m))::text FROM unnest(ARRAY[20, 30, 50]) m", &[])
@@ -407,7 +407,7 @@ async fn a_job_that_keeps_losing_its_lease_is_one_alert_with_its_last_error() {
         archive: None,
         refcheck_from: None,
         backup_days: None, spend: None, recompute: None,
-        refcheck_rerun_hours: None,
+        refcheck_rerun_hours: None, phase: None,
     };
     async fn lose(client: &mut Client, build: &str) -> Claim {
         let claim = work::claim(client, Kind::Tape, build, "tape-1", HOUR).await.unwrap().unwrap();
@@ -471,7 +471,7 @@ async fn a_worker_making_no_progress_is_one_alert_unless_it_declared_its_wait() 
         archive: None,
         refcheck_from: None,
         backup_days: None, spend: None, recompute: None,
-        refcheck_rerun_hours: None,
+        refcheck_rerun_hours: None, phase: None,
     };
     async fn later(client: &Client, minutes: i32) -> String {
         client.query_one("SELECT (now() + make_interval(mins => $1))::text", &[&minutes]).await.unwrap().get(0)
@@ -486,9 +486,17 @@ async fn a_worker_making_no_progress_is_one_alert_unless_it_declared_its_wait() 
     assert!(open(&client, "NO_PROGRESS").await.is_empty(), "within its minutes");
     let t25 = later(&client, 25).await;
     let change = watch::check(&mut client, &settings, &t25).await.unwrap();
+    // C-091: opened quietly; alerted only once it has held QUIET_MINUTES
+    assert!(change.opened.is_empty(), "{change:?}");
+    assert_eq!(open(&client, "NO_PROGRESS").await.len(), 1);
+    let posts = "SELECT count(*) FROM core.notice WHERE post AND message LIKE '%no progress since%'";
+    assert_eq!(count(&client, posts).await, 0, "not said yet");
+    let t55 = later(&client, 55).await;
+    let change = watch::check(&mut client, &settings, &t55).await.unwrap();
     assert_eq!(change.opened.len(), 1, "{change:?}");
     assert!(change.opened[0].starts_with(&format!("Day block job {} (2025-12-10) on day-1: no progress since ", block.job_id)) && change.opened[0].ends_with("MT, at step \"day 2025-12-10: plan and surfaces\""), "{change:?}");
-    assert!(watch::check(&mut client, &settings, &t25).await.unwrap().opened.is_empty(), "alerted once");
+    assert_eq!(count(&client, posts).await, 1);
+    assert!(watch::check(&mut client, &settings, &t55).await.unwrap().opened.is_empty(), "alerted once");
     // a deliberate wait declared: covered (resolved), until its end plus the grace
     let until = later(&client, 60).await;
     work::report_step(&mut client, &block.token, "EXQ01 cutoff", Some(&until), Some("the provider's 16:15 ET cutoff")).await.unwrap();
@@ -496,16 +504,19 @@ async fn a_worker_making_no_progress_is_one_alert_unless_it_declared_its_wait() 
     let change = watch::check(&mut client, &settings, &t70).await.unwrap();
     assert_eq!(change.resolved.len(), 1, "{change:?}");
     let t80 = later(&client, 80).await;
-    let change = watch::check(&mut client, &settings, &t80).await.unwrap();
-    assert_eq!(change.opened.len(), 1, "the wait overstayed its grace: {change:?}");
-    assert!(change.opened[0].contains("at step \"EXQ01 cutoff\"; its declared wait (the provider's 16:15 ET cutoff) was to end"), "{change:?}");
-    // a request drawn after it: progress, resolved
+    watch::check(&mut client, &settings, &t80).await.unwrap();
+    let held = open(&client, "NO_PROGRESS").await;
+    assert_eq!(held.len(), 1, "the wait overstayed its grace (quietly): {held:?}");
+    assert!(held[0].contains("at step \"EXQ01 cutoff\"; its declared wait (the provider's 16:15 ET cutoff) was to end"), "{held:?}");
+    // a request drawn after it: progress, resolved without a word (it healed within QUIET_MINUTES)
     client
         .execute("INSERT INTO core.budget_lease (worker, granted, granted_at, valid_until) VALUES ('day-1', 100, $1::text::timestamptz - interval '1 minute', $1::text::timestamptz)", &[&t80])
         .await
         .unwrap();
-    let change = watch::check(&mut client, &settings, &t80).await.unwrap();
-    assert_eq!(change.resolved.len(), 1, "{change:?}");
+    let said = count(&client, "SELECT count(*) FROM core.notice WHERE post").await;
+    watch::check(&mut client, &settings, &t80).await.unwrap();
+    assert!(open(&client, "NO_PROGRESS").await.is_empty());
+    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE post").await, said, "a stall that healed itself is never said");
     // the same step again is no progress; another step is
     // release audit (Gemini 12): not an instant, refused without being repeated; a wait already over
     // (a second of skew) is kept with its step
@@ -537,7 +548,7 @@ async fn a_download_step_is_its_own_wait_and_any_new_report_is_progress() {
         archive: None,
         refcheck_from: None,
         backup_days: None, spend: None, recompute: None,
-        refcheck_rerun_hours: None,
+        refcheck_rerun_hours: None, phase: None,
     };
     async fn at(client: &Client, minutes: f64) -> String {
         client.query_one("SELECT (now() + make_interval(secs => $1::float8 * 60))::text", &[&minutes]).await.unwrap().get(0)
@@ -551,9 +562,10 @@ async fn a_download_step_is_its_own_wait_and_any_new_report_is_progress() {
         assert!(open(&client, "NO_PROGRESS").await.is_empty(), "within the download's bound at {minutes} min");
     }
     let t = at(&client, bound + 1.0).await;
-    let change = watch::check(&mut client, &settings, &t).await.unwrap();
-    assert_eq!(change.opened.len(), 1, "{change:?}");
-    assert!(change.opened[0].contains(&format!("its declared wait (a download step is allowed {} min) was to end", watch::DOWNLOAD_STEP_MAX_MINUTES as i64)), "{change:?}");
+    watch::check(&mut client, &settings, &t).await.unwrap();
+    let held = open(&client, "NO_PROGRESS").await;
+    assert_eq!(held.len(), 1, "{held:?}");
+    assert!(held[0].contains(&format!("its declared wait (a download step is allowed {} min) was to end", watch::DOWNLOAD_STEP_MAX_MINUTES as i64)), "{held:?}");
     // the same step reporting how far it is: progress
     work::report_step_with(&mut client, &block.token, "download 2025-12-10: fill 2025-12-10: options", None, None, Some("chains 41 of 64")).await.unwrap();
     let since: String = client.query_one("SELECT step_since::text FROM core.lease_step", &[]).await.unwrap().get(0);

@@ -42,7 +42,7 @@ fn settings() -> Settings {
         backup_days: None,
         spend: None,
         recompute: None,
-        refcheck_rerun_hours: None,
+        refcheck_rerun_hours: None, phase: None,
     }
 }
 
@@ -100,14 +100,16 @@ async fn every_tape_is_captured_again_for_a_new_reader_and_the_backfill_waits_fo
     let first = work::claim(&mut client, Kind::Tape, &b, "tape-1", HOUR).await.unwrap().unwrap();
     assert_eq!(first.sessions, ["2023-05-24"]);
     let now: String = client.query_one("SELECT now()::text", &[]).await.unwrap().get(0);
+    // C-091: the re-capture is no progress line; the queue says it (`vyreon-core queue`)
     let post = progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
-    assert!(post.contains(&format!("Tapes for the new reader: 0 of {held} sessions captured; backfill days from May 24 wait for them")), "{post}");
+    assert!(!post.contains("Tapes"), "{post}");
+    let _ = held;
     // the tapes to 06-02 done (as their workers finish them): the block may run
     client.execute("UPDATE core.job SET state = 'DONE', next_session = NULL, finished_at = now() WHERE kind = 'TAPE' AND first_session <= '2023-06-02'", &[]).await.unwrap();
     client.execute("UPDATE core.lease SET ended_at = now(), outcome = 'DONE' WHERE job_id = $1", &[&first.job_id]).await.unwrap();
     assert_eq!(work::claim(&mut client, Kind::DayBlock, &b, "day-1", HOUR).await.unwrap().unwrap().sessions[0], "2023-06-01");
     let post = progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
-    assert!(post.contains(&format!("Tapes for the new reader: 7 of {held} sessions captured; backfill days from Jun 5 wait for them")), "{post}");
+    assert!(!post.contains("Tapes"), "C-091: no tape line on progress: {post}");
     scratch.drop().await;
 }
 
@@ -266,7 +268,7 @@ async fn the_stop_rule_stops_for_systematic_breakage_only() {
         "{summary:?}"
     );
     let alert: String = client.query_one("SELECT message FROM core.notice WHERE post AND message LIKE '%stop rule%' ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
-    assert!(alert.contains("Published numbers affected") && alert.contains("`vyreon-core stoprule FREE_REPORT_64`"), "{alert}");
+    assert!(alert.starts_with("⚠️ Problem: Phase-1 stop rule, systematic breakage") && alert.contains("Published numbers affected") && !alert.contains('`'), "{alert}");
 
     // failures to publish past half of the attempted days, from the 20th published day: systematic too
     client.execute("DELETE FROM vyreon.measurement WHERE measurement_id = 'SAI-EXQ01-T' AND revision_id = $1", &[&b2]).await.unwrap();

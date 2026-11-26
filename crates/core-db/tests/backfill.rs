@@ -6,7 +6,7 @@
 use core_db::publish::publish_for_lease;
 use core_db::watch::{self, Settings};
 use core_db::work::{self, Kind, LeaseError};
-use core_db::{backfill, build, migrate, progress, universe};
+use core_db::{backfill, build, deaths, migrate, progress, universe};
 use serde_json::{Value, json};
 use test_support::slice::{BASE, bundle, day_local_parts, inventories, parts, with_day_local};
 use test_support::{ENGINE_FAULT_BODY_XLB, Scratch};
@@ -84,7 +84,7 @@ fn settings(refcheck: bool) -> Settings {
         backup_days: None,
         spend: None,
         recompute: None,
-        refcheck_rerun_hours: refcheck.then_some(core_db::refcheck::RERUN_AFTER_HOURS),
+        refcheck_rerun_hours: refcheck.then_some(core_db::refcheck::RERUN_AFTER_HOURS), phase: None,
     }
 }
 
@@ -213,7 +213,7 @@ async fn the_backfill_stops_and_resumes_by_one_flag() {
     work::finish(&mut client, &done.token).await.unwrap();
     // the backfill's later blocks (one running) and passes, and a daily session's block
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &build, "2025-12-11", "2025-12-16", 2).await.unwrap();
-    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &build, "2025-12-11", "2025-12-12", 1).await.unwrap();
+    work::schedule(&mut client, Kind::OrderedPass, PROFILE, &build, DAY, "2025-12-12", 1).await.unwrap();
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &build, "2025-12-17", "2025-12-17", 1).await.unwrap();
     client.execute("UPDATE core.job SET priority = 1 WHERE kind = 'DAY_BLOCK' AND first_session = '2025-12-17'", &[]).await.unwrap();
     let running = work::claim(&mut client, Kind::DayBlock, &build, "day-block-2", HOUR).await.unwrap().unwrap();
@@ -228,7 +228,7 @@ async fn the_backfill_stops_and_resumes_by_one_flag() {
     assert_eq!(backfill::status(&client).await.unwrap().line(), "backfill running");
     let cancelled = backfill::stop(&mut client, "  engine not frozen  ").await.unwrap();
     let kinds: Vec<&str> = cancelled.iter().map(|c| c.1.as_str()).collect();
-    assert_eq!(kinds, ["DAY_BLOCK", "DAY_BLOCK", "ORDERED_PASS", "ORDERED_PASS", "REFCHECK"], "{cancelled:?}");
+    assert_eq!(kinds, ["DAY_BLOCK", "DAY_BLOCK", "ORDERED_PASS", "ORDERED_PASS", "ORDERED_PASS", "REFCHECK"], "{cancelled:?}");
     assert!(cancelled.iter().any(|c| c.0 == running_backfill.job_id && c.4 == "LEASED"), "the running backfill block too");
     assert!(cancelled.iter().all(|c| c.0 != running.job_id), "never the daily session's");
     assert!(matches!(work::heartbeat(&mut client, &running_backfill.token, HOUR).await, Err(LeaseError::Gone)), "its worker is told to stop");
@@ -237,8 +237,13 @@ async fn the_backfill_stops_and_resumes_by_one_flag() {
     assert!(st.stopped && st.reason.as_deref() == Some("engine not frozen") && st.line().starts_with("backfill STOPPED since "), "{st:?}");
     assert_eq!(work::status(&client).await.unwrap()["backfill_stopped"], true);
     let logged: String = client.query_one("SELECT message FROM core.notice ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
-    assert!(logged.starts_with("Backfill stopped (2 day blocks, 2 ordered passes and 1 reference-check re-runs cancelled;"), "{logged}");
+    assert!(logged.starts_with("Backfill stopped (2 day blocks, 3 ordered passes and 1 reference-check re-runs cancelled;"), "{logged}");
     assert_eq!(progress::short_notice(&logged).as_deref(), Some("Backfill stopped: engine not frozen"));
+    // C-091: the stop is said once on the alerts channel, and what it causes itself is not alerted: the cancelled
+    // pass of the published Dec 10 leaves it not derived again, and its check stays not run
+    let posts = async |c: &Client| c.query("SELECT message FROM core.notice WHERE post ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| r.get::<_, String>(0)).collect::<Vec<_>>();
+    assert_eq!(posts(&client).await, ["Backfill stopped by the owner's decision; the nightly continues."]);
+    assert!(open(&client, "NOT_DERIVED").await.is_empty());
 
     // work queued while stopped (a schedule by hand) starts no pod, and is no stall; the daily's counts
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &build, "2025-12-11", "2025-12-12", 2).await.unwrap();
@@ -262,6 +267,8 @@ async fn the_backfill_stops_and_resumes_by_one_flag() {
     let at8: String = client.query_one("SELECT (published_at + interval '8 hours')::text FROM vyreon.day_revision WHERE revision_id = $1", &[&base]).await.unwrap().get(0);
     watch::check(&mut client, &s, &at8).await.unwrap();
     assert_eq!(count(&client, reruns).await, 0, "no re-run while stopped");
+    assert!(open(&client, "REFCHECK_NOT_RUN").await.is_empty() && open(&client, "NOT_DERIVED").await.is_empty());
+    assert_eq!(posts(&client).await.len(), 1, "nothing the stop caused is alerted: {:?}", posts(&client).await);
 
     // stopped again: the first reason kept
     backfill::stop(&mut client, "again").await.unwrap();
@@ -320,34 +327,88 @@ async fn core_downtime_costs_no_lease() {
     scratch.drop().await;
 }
 
-/// C-089 (owner, 2026-11-26: the nightly is pilot-critical): a nightly session's job whose attempt ends
-/// unfinished and is queued again (its lease lost, as at 13:45 MT that day, or a failed attempt) is posted on
-/// the alert channel at once; a backfill block's retry stays in the log.
+/// C-089, C-091 (owner, 2026-11-26: the nightly is pilot-critical; worker deaths raised nothing): a worker that
+/// stopped before its job was done (its lease lost, as the nightly's at 13:45 MT that day, or a failed attempt) is
+/// said on the alerts channel once, with its cause and what happens next; those of one minute in one post; a
+/// cancellation is no death.
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn a_nightly_run_that_restarts_is_said_at_once() {
     let (scratch, mut client, build) = ready("backfill_nightly").await;
-    work::schedule(&mut client, Kind::DayBlock, PROFILE, &build, DAY, "2025-12-11", 1).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &build, DAY, "2025-12-12", 1).await.unwrap();
     client.execute("UPDATE core.job SET priority = 1 WHERE first_session = $1::text::date", &[&DAY]).await.unwrap();
     let posts = "SELECT message FROM core.notice WHERE post ORDER BY notice_id";
     let posted = async |c: &Client| c.query(posts, &[]).await.unwrap().iter().map(|r| r.get::<_, String>(0)).collect::<Vec<_>>();
+    async fn say(c: &mut Client) {
+        let pending = deaths::pending(&*c).await.unwrap();
+        let said: Vec<(deaths::Death, String)> = pending.into_iter().map(|d| { let cause = deaths::cause(&d, None); (d, cause) }).collect();
+        let tx = c.transaction().await.unwrap();
+        deaths::say(&tx, &said).await.unwrap();
+        tx.commit().await.unwrap();
+    }
     let nightly = work::claim(&mut client, Kind::DayBlock, &build, "day-block-daily-1", 300.0).await.unwrap().unwrap();
-    let backfill = work::claim(&mut client, Kind::DayBlock, &build, "day-block-1", 300.0).await.unwrap().unwrap();
     assert_eq!(nightly.sessions[0], DAY);
     client.execute("UPDATE core.lease SET expires_at = now() - interval '1 second'", &[]).await.unwrap();
-    assert_eq!(work::sweep(&mut client).await.unwrap(), 2);
-    assert_eq!(
-        posted(&client).await,
-        ["Nightly run of Dec 10 stopped before it finished (its lease expired); it starts again by itself. If it cannot finish, the day's deadline alert follows."],
-        "the nightly's lost lease only"
+    assert_eq!(work::sweep(&mut client).await.unwrap(), 1);
+    say(&mut client).await;
+    let said = posted(&client).await;
+    assert_eq!(said.len(), 1, "{said:?}");
+    assert!(
+        said[0].starts_with("⚠️ Problem: the nightly run of Dec 10 stopped at ") && said[0].ends_with(": lost contact with core (cause not known); it starts again by itself. Published numbers not affected. The coordinator is on it."),
+        "{said:?}"
     );
-    // a failed attempt with attempts left: said too
+    say(&mut client).await;
+    assert_eq!(posted(&client).await.len(), 1, "said once");
+    // two backfill blocks in one minute: one failed attempt, one cancelled (no death): one post
     let again = work::claim(&mut client, Kind::DayBlock, &build, "day-block-daily-2", 300.0).await.unwrap().unwrap();
     assert_eq!(again.job_id, nightly.job_id);
+    let a = work::claim(&mut client, Kind::DayBlock, &build, "day-block-1", 300.0).await.unwrap().unwrap();
+    let b = work::claim(&mut client, Kind::DayBlock, &build, "day-block-2", 300.0).await.unwrap().unwrap();
     assert!(work::fail(&mut client, &again.token, "fill", "fill: the provider refused", "log").await.unwrap());
+    assert!(work::fail(&mut client, &a.token, "day 2025-12-11", "stop: 2025-12-11 not published: h5-surface: the lattice solver did not converge", "log").await.unwrap());
+    work::cancel(&mut client, &[b.job_id]).await.unwrap();
+    say(&mut client).await;
     let said = posted(&client).await;
     assert_eq!(said.len(), 2, "{said:?}");
-    assert!(said[1].starts_with("Nightly run of Dec 10 stopped before it finished (fill: fill: the provider refused)"), "{said:?}");
-    let _ = backfill;
+    assert!(said[1].starts_with("⚠️ Problem: 2 workers stopped since ") && said[1].contains("the worker stopped: fill: the provider refused") && said[1].contains("the worker stopped: h5-surface: the lattice solver did not converge"), "{said:?}");
+    assert!(said[1].contains("(the nightly run of Dec 10, Dec 11, 2025)") || said[1].contains("the nightly run of Dec 10"), "{said:?}");
+    scratch.drop().await;
+}
+
+/// C-092 (owner, 2026-11-26: the tape scaler oscillated): after the budget made a draw wait, the backfill's tapes
+/// start no pod for `PRESSURE_MINUTES`, then one a minute until `SLOW_START_MINUTES` from the wait, then as many as
+/// are claimable; the daily session's tape always counts.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn provider_work_starts_slowly_after_the_budget_pressed() {
+    let (scratch, mut client, build) = ready("backfill_slow_start").await;
+    let keda = scaler(&scratch, &client, "slow").await;
+    work::schedule(&mut client, Kind::Tape, PROFILE, &build, "2025-12-08", "2025-12-12", 1).await.unwrap();
+    assert_eq!(counted(&keda, "TAPE", &build, Some(false)).await, 5, "no pressure: every claimable tape");
+    // a draw waited a minute ago: nothing new starts
+    let waited = async |c: &Client, minutes: f64| {
+        c.execute("DELETE FROM core.budget_wait", &[]).await.unwrap();
+        c.execute(
+            "INSERT INTO core.budget_wait (minute, waits, last_at) VALUES (date_trunc('minute', now() - make_interval(secs => $1::float8 * 60)), 1, now() - make_interval(secs => $1::float8 * 60))",
+            &[&minutes],
+        )
+        .await
+        .unwrap();
+    };
+    waited(&client, 1.0).await;
+    assert_eq!(counted(&keda, "TAPE", &build, Some(false)).await, 0);
+    // past the pressure's minutes: one at a time, one a minute
+    waited(&client, core_db::budget::PRESSURE_MINUTES + 1.0).await;
+    assert_eq!(counted(&keda, "TAPE", &build, Some(false)).await, 1, "slow start: one");
+    let t = work::claim(&mut client, Kind::Tape, &build, "tape-1", HOUR).await.unwrap().unwrap();
+    assert_eq!(counted(&keda, "TAPE", &build, Some(false)).await, 0, "one leased this minute");
+    client.execute("UPDATE core.lease SET granted_at = granted_at - interval '61 seconds' WHERE job_id = $1", &[&t.job_id]).await.unwrap();
+    assert_eq!(counted(&keda, "TAPE", &build, Some(false)).await, 1, "the next minute, the next one");
+    // a daily session's tape always counts
+    client.execute("UPDATE core.job SET priority = 1 WHERE kind = 'TAPE' AND first_session = '2025-12-12'", &[]).await.unwrap();
+    assert_eq!(counted(&keda, "TAPE", &build, Some(true)).await, 1);
+    // the slow start over: every claimable backfill tape
+    waited(&client, core_db::budget::SLOW_START_MINUTES + 1.0).await;
+    assert_eq!(counted(&keda, "TAPE", &build, Some(false)).await, 3);
     scratch.drop().await;
 }

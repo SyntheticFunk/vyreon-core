@@ -36,7 +36,7 @@ async fn ready(test: &str) -> (Scratch, Client, String) {
 
 fn settings(from: Option<&str>) -> Settings {
     // the deadline hour of C-050 (10:00 MT): the mechanism is the same at any hour
-    Settings { profile: PROFILE.into(), deadlines_from: from.map(str::to_owned), volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None }
+    Settings { profile: PROFILE.into(), deadlines_from: from.map(str::to_owned), volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None, phase: None }
 }
 
 /// The slice's base revision header (2025-12-10) as the published revision of `day`, written as
@@ -463,8 +463,8 @@ async fn a_digest_never_says_nothing_is_open_after_an_alert() {
     let posts: Vec<(i64, String)> =
         watching.query("SELECT notice_id, message FROM core.notice WHERE post ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| (r.get(0), r.get(1))).collect();
     assert_eq!(posts.len(), 2, "{posts:?}");
-    assert!(posts[0].1.starts_with("🔴 A republish left 1 days that no job derives again: Dec 11"), "{posts:?}");
-    assert!(posts[1].1.starts_with("🔴 Needs you: A republish left 1 days"), "the digest after the alert says it is open: {posts:?}");
+    assert!(posts[0].1.starts_with("⚠️ Problem: A republish left 1 days that no job derives again: Dec 11"), "{posts:?}");
+    assert!(posts[1].1.starts_with("⚠️ 1 problem open"), "the digest after the alert says it is open: {posts:?}");
     scratch.drop().await;
 }
 
@@ -520,15 +520,15 @@ async fn a_failed_check_posts_no_digest() {
     assert!(why.contains("problem refused (test)"), "{why}");
     let said = posts(&client).await;
     assert_eq!(said.len(), 1, "the failed check is said, and no digest from a list the check could not bring up to date: {said:?}");
-    assert!(said[0].starts_with("🔴 Watch failing: cannot run its checks, so no problem opens or resolves (problem refused (test))"), "{said:?}");
+    assert!(said[0].starts_with("⚠️ Problem: Watch failing: cannot run its checks, so no problem opens or resolves (problem refused (test))"), "{said:?}");
     client.batch_execute("DROP TRIGGER refuse_pause ON core.problem").await.unwrap();
     let change = watch::tick(&mut client, &s, "2025-12-12 09:01:00-06").await.unwrap();
     assert_eq!(change.resolved.len(), 1, "{change:?}");
     let said = posts(&client).await;
     assert_eq!(said.len(), 4, "{said:?}");
-    assert!(said[1].starts_with("🔴 Work queue paused"), "{said:?}");
+    assert!(said[1].starts_with("⚠️ Problem: Work queue paused"), "{said:?}");
     assert!(said[2].starts_with("✅ Resolved: Watch failing: cannot run its checks"), "{said:?}");
-    assert!(said[3].starts_with("🔴 Needs you: Work queue paused") && !said[3].contains("Watch failing"), "the digest names what holds after the check: {said:?}");
+    assert!(said[3].starts_with("⚠️ 1 problem open, the coordinator is on it") && !said[3].contains("Watch failing"), "the digest counts what holds after the check: {said:?}");
     scratch.drop().await;
 }
 
@@ -561,7 +561,9 @@ async fn a_failing_part_of_the_check_stops_only_itself() {
     assert_eq!(open.iter().map(|o| o.kind.as_str()).collect::<Vec<_>>(), ["QUEUE_PAUSED", "WATCH_FAILING", "WATCH_FAILING"], "the pause stays open, not resolved by a part that could not look");
     let said = posts(&client).await;
     let digest = said.last().unwrap();
-    assert!(digest.starts_with("🔴 Needs you: Work queue paused") && digest.contains(&core_db::plain::plain(&failing)), "the digest is posted and names the failure: {said:?}");
+    // C-091: three lines; the pause and the failing parts are the coordinator's
+    assert!(digest.starts_with("⚠️ 3 problems open, the coordinator is on them · ") && digest.ends_with("\nNothing needs you"), "the digest is posted and counts them: {said:?}");
+    let _ = &failing;
     client.batch_execute("ALTER TABLE core.queue_control_away RENAME TO queue_control").await.unwrap();
     let change = watch::tick(&mut client, &s, "2025-12-12 09:01:00-06").await.unwrap();
     assert_eq!((change.resolved, change.opened.len(), change.failing.len()), (vec![failing, stalls], 0, 0));
@@ -606,7 +608,7 @@ async fn a_problem_opens_while_the_digest_counts() {
     watch::tick(&mut watching, &s, "2025-12-12 09:31:00-06").await.unwrap();
     let said = posts(&client).await;
     assert_eq!(said.len(), 2, "{said:?}");
-    assert!(said[1].starts_with("🔴 Needs you: A republish left 1 days"), "{said:?}");
+    assert!(said[1].starts_with("⚠️ 1 problem open"), "{said:?}");
     scratch.drop().await;
 }
 
@@ -972,7 +974,10 @@ async fn the_digest_counts_the_ordered_passes_in_committed_batches_and_survives_
     // the 09:30 minute goes on from there, counts the rest and queues the digest
     watch::tick(&mut client, &s, now).await.unwrap();
     assert_eq!(tallied(&client).await, pending.len() as i64, "every revision counted, each once");
-    let digest: String = client.query_one("SELECT message FROM core.notice WHERE once = 'digest 2026-11-20'", &[]).await.unwrap().get(0);
+    let posted: String = client.query_one("SELECT message FROM core.notice WHERE once = 'digest 2026-11-20'", &[]).await.unwrap().get(0);
+    assert_eq!(posted.lines().count(), 3, "C-091: the posted digest is three lines: {posted}");
+    // the full digest (`vyreon-core digest`) from the same counts
+    let digest = core_db::plain::plain(&watch::digest(&mut client, &s, now).await.unwrap());
     let counted = client
         .query(
             "SELECT d.revision_id, d.base_revision IS NULL, t.slots, t.withheld, t.provider_withheld, t.engine_faults, t.counted_at::text

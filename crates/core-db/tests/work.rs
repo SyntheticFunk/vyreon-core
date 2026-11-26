@@ -1019,11 +1019,9 @@ async fn a_hand_over_carries_no_pass_its_successor_cannot_run() {
     // C-072: the verify job's lease ended by the withdrawal is no restart; the successor not
     // admitted keeps the instruction
     let now = watch::now(&client).await.unwrap();
+    // C-091: a release is no progress line
     let post = core_db::progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
-    assert!(
-        post.contains("A release started: the new version takes over the queued work (the new version is not switched on yet)"),
-        "{post}"
-    );
+    assert!(!post.contains("release") && !post.contains("restart"), "{post}");
     let withdrawn: bool = client.query_one("SELECT withdrawn_at IS NOT NULL FROM core.engine_build WHERE engine_build = $1", &[&old]).await.unwrap().get(0);
     assert!(withdrawn);
     // the successor's tapes are scheduled over the verified session
@@ -1455,7 +1453,7 @@ async fn a_day_whose_block_failed_after_its_base_is_missing_for_the_passes() {
     assert_eq!(run_pass(&mut client, &d).await.as_deref(), Some(days[2]));
     assert_eq!(claimable_passes(&client).await, "2025-12-12");
     // the digest names the day set aside, with the base it left
-    let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
+    let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None, phase: None };
     let now = watch::now(&client).await.unwrap();
     let digest = watch::digest(&mut client, &s, &now).await.unwrap();
     let line = format!("Set aside: Wed Dec 10, 2025 · FAILED · base revision {base10} superseded, no day-local revision was published on it; day-local derived: core answered 503");
@@ -1975,7 +1973,7 @@ async fn a_date_is_omitted_only_when_its_day_failed_for_the_provider() {
     assert_eq!(cause(&client, days[1]).await, ("FAILED".into(), first_line.clone()));
 
     // the digest: one line per day set aside or omitted, with its cause code
-    let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
+    let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None, phase: None };
     let now = watch::now(&client).await.unwrap();
     let digest = watch::digest(&mut client, &s, &now).await.unwrap();
     assert!(digest.starts_with("🟡 Running; handled: 1 date omitted · "), "{digest}");
@@ -2300,10 +2298,9 @@ async fn later(client: &Client, now: &str, minutes: i32) -> String {
     client.query_one("SELECT ($1::text::timestamptz + make_interval(mins => $2))::text", &[&now, &minutes]).await.unwrap().get(0)
 }
 
-/// C-065, the progress channel: the real slice's day published under a block's lease reads as one
-/// line with its counts (the tally core keeps of the published bodies), the block's start and its
-/// log lines follow, and the queue's counts; one window each 30 minutes, queued for the progress
-/// channel only; a window in which nothing happened posts nothing.
+/// C-065, C-091 (owner, 2026-11-26: "block queued, block finished, database progress"): the progress channel says
+/// a block started and a block finished with the days it kept; one window each 30 minutes, queued for the progress
+/// channel only; a window in which nothing happened posts nothing. No day lines, no pod, no job id.
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
 async fn the_progress_channel_says_what_moved_every_half_hour() {
@@ -2315,45 +2312,14 @@ async fn the_progress_channel_says_what_moved_every_half_hour() {
     let claim = work::claim(&mut client, Kind::DayBlock, &b, "day-7f2c", HOUR).await.unwrap().unwrap();
     publish_day(&mut client, &claim, "2025-12-10").await;
     let t0 = watch::now(&client).await.unwrap();
+    // the morning's heartbeat (from 09:00 MT on the real clock) leads with the database's line
+    let events = |post: &str| post.lines().filter(|l| !l.starts_with("Database: ")).map(str::to_owned).collect::<Vec<_>>();
 
     let first = progress::tick(&mut client, PROFILE, &t0).await.unwrap().unwrap();
     assert_eq!(first.posts, 1);
     let post: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'progress'", &[]).await.unwrap().get(0);
-    let (slots, withheld, _provider): (i64, i64, i64) = {
-        let r = client
-            .query_one(
-                "SELECT sum(slots)::bigint, sum(withheld)::bigint, sum(provider_withheld)::bigint FROM core.revision_tally t
-                 JOIN vyreon.day_revision d USING (revision_id) WHERE d.represented_date = '2025-12-10' AND (d.base_revision IS NULL OR d.day_local)",
-                &[],
-            )
-            .await
-            .unwrap();
-        (r.get(0), r.get(1), r.get(2))
-    };
-    assert!(slots > 0);
-    // C-073 (owner, 2026-11-24): the headline (days of the backfill published, jobs building, no
-    // failures), the new day in one line (the share of its readings with a value; its engine faults
-    // would be flagged), the admission as a short line; no pod, no job id, no zero counters
-    let engine: i64 = client
-        .query_one(
-            "SELECT sum(engine_faults)::bigint FROM core.revision_tally t JOIN vyreon.day_revision d USING (revision_id)
-             WHERE d.represented_date = '2025-12-10' AND (d.base_revision IS NULL OR d.day_local)",
-            &[],
-        )
-        .await
-        .unwrap()
-        .get(0);
-    let share = progress::percent(100.0 * (slots - withheld) as f64 / slots as f64);
-    let lines: Vec<&str> = post.lines().collect();
-    // (owner, 2026-11-25) plain words: the headline, then the day; the admission is housekeeping
-    assert_eq!(lines[0], "Backfill: 1 of 2 days done (50%) · 1 computing · nothing broken", "{post}");
-    assert!(lines[1].starts_with(&format!("New: Dec 10 done in 0 min — {share} of readings")), "{post}");
-    if engine > 0 {
-        assert!(lines[1].contains(&format!("; {engine} withheld by engine bugs (AAPL)")), "{post}");
-    }
-    assert_eq!(lines.len(), 2, "{post}");
-    let _ = b.split('+').next();
-    assert!(!post.contains("day-7f2c") && !post.contains("job "), "no pod, no job id: {post}");
+    assert_eq!(events(&post), ["Started: Dec 10 – Dec 11, 2025 (2 days)"], "{post}");
+    assert!(!post.contains("day-7f2c") && !post.contains("job ") && !post.contains("New:"), "no pod, no job id, no day line: {post}");
     // the window is the progress channel's only: the owner's channel has nothing to send
     assert!(notice::unsent(&client, 10).await.unwrap().is_empty());
     assert_eq!(notice::unsent_on(&client, 10, Channel::Progress).await.unwrap().len(), 1);
@@ -2361,21 +2327,18 @@ async fn the_progress_channel_says_what_moved_every_half_hour() {
     // not due again before 30 minutes
     let early = later(&client, &t0, 29).await;
     assert_eq!(progress::tick(&mut client, PROFILE, &early).await.unwrap(), None);
-    // the block's second day and its end, in the next window: the block's end is routine (its days are
-    // their own lines)
+    // the block's second day and its end, in the next window
     publish_day(&mut client, &claim, "2025-12-11").await;
     work::finish(&mut client, &claim.token).await.unwrap();
     let t1 = later(&client, &t0, 30).await;
     assert_eq!(progress::tick(&mut client, PROFILE, &t1).await.unwrap().unwrap().posts, 1);
     let post: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'progress' ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
-    let lines: Vec<&str> = post.lines().collect();
-    assert_eq!(lines[0], "Backfill: 2 of 2 days done (100%) · 0 computing · nothing broken", "{post}");
-    assert!(lines[1].starts_with("New: Dec 11 done ") && lines.len() == 2, "{post}");
-    // nothing left to do and nothing new: recorded, nothing posted
+    assert_eq!(events(&post), ["Finished: Dec 10 – Dec 11, 2025 · 2 days kept"], "{post}");
+    // nothing new: recorded, nothing posted (the morning's heartbeat aside, once a day)
     let t2 = later(&client, &t1, 30).await;
     let quiet = progress::tick(&mut client, PROFILE, &t2).await.unwrap().unwrap();
-    assert_eq!((quiet.lines, quiet.posts), (0, 0));
-    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'progress'").await, 2);
+    assert_eq!(quiet.lines, 0);
+    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'progress' AND (message LIKE '%Started: %' OR message LIKE '%Finished: %')").await, 2);
     assert_eq!(count(&client, "SELECT count(*) FROM core.progress_window").await, 3);
     scratch.drop().await;
 }
@@ -2405,13 +2368,11 @@ fn refcheck_of(session: &str, base: i64, local: i64, reference_errors: i64) -> c
     core_db::refcheck::check(gz.finish().unwrap(), session).unwrap()
 }
 
-/// Audit round 2 of core-watch, 2 and 10: progress chose a day's reference check by its base alone,
-/// so a day-local revision published again on the same base read as checked by the report of the
-/// one it replaced; and reference errors were left out of the verdict. Now the day line takes only
-/// a report of both its revisions (C-054) and states the reference errors beside the verdict.
+/// C-091 (owner, 2026-11-26): a reference check that disagrees is the alerts channel's (REFCHECK_DISAGREES, a
+/// problem for the coordinator), never a progress line.
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
-async fn progress_states_a_check_only_of_the_revisions_it_checked() {
+async fn progress_says_no_reference_check() {
     use core_db::progress;
     let (scratch, mut client, b, _) = ready("r2w_progress_check").await;
     admit(&client, &b).await;
@@ -2421,30 +2382,16 @@ async fn progress_states_a_check_only_of_the_revisions_it_checked() {
     publish_day(&mut client, &claim, day).await;
     let base = base_of(&client, day).await;
     let local = count(&client, "SELECT revision_id FROM vyreon.day_revision WHERE day_local AND state = 'PUBLISHED'").await;
-    // C-073 (owner, 2026-11-24): a check that disagrees is flagged on its day's line (one that agrees,
-    // or is not triaged yet, is not news); the real census's failures, 12 of them unexplained
     let mut checked = refcheck_of(day, base, local, 9);
     checked.counts.as_mut().unwrap().failed_unexplained = Some(12);
     core_db::refcheck::put(&mut client, &claim.token, &checked).await.unwrap();
     let now = watch::now(&client).await.unwrap();
-    let posts = progress::preview(&mut client, PROFILE, &now).await.unwrap();
-    // (owner, 2026-11-25) a thing to look at, said first, and on its day's line
-    let day_line = posts[0].lines().find(|l| l.starts_with("New: Dec 10")).unwrap().to_string();
-    assert!(day_line.ends_with("; its reference check disagrees on 12"), "{}", posts[0]);
-    assert_eq!(posts[0].lines().nth(1), Some("⚠ Needs a look: 1 day's reference check disagrees (Dec 10)"), "{}", posts[0]);
-    // the day-local revision published again by hand on the same base: its line has no check yet
-    let again = day_local(&mut client, &b, day, base, None).await;
-    assert_ne!(again, local);
-    let now = watch::now(&client).await.unwrap();
-    let posts = progress::preview(&mut client, PROFILE, &now).await.unwrap();
-    let days: Vec<&str> = posts[0].lines().filter(|l| l.starts_with("New: Dec 10")).collect();
-    assert_eq!(days[0], day_line, "the first revision's line keeps its own check");
-    assert!(!days[1].contains("reference check"), "{}", posts[0]);
-    assert_eq!(posts[0].matches("its reference check disagrees").count(), 1, "the report is stated once, on the line of what it checked: {}", posts[0]);
+    let posts = progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
+    assert!(!posts.contains("reference") && !posts.contains('⚠'), "{posts}");
     scratch.drop().await;
 }
 
-/// Audit round 2 of core-watch, 11: a day-local revision published by hand inside a running
+/// Audit round 2 of core-watch, 11 (C-091: the day lines are gone, the record stays): a day-local revision published by hand inside a running
 /// block's dates was credited to the block's worker, and its time shortened the block's next day.
 /// What published a revision is now recorded (`core.lease_revision`): the hand revision has no
 /// block and no minutes, and the block's next day counts from the block's own previous day. The
@@ -2478,10 +2425,12 @@ async fn progress_credits_a_day_only_to_the_lease_that_published_it() {
         .await
         .unwrap()
         .get(0);
-    let posts = progress::preview(&mut client, PROFILE, &now).await.unwrap();
-    let lines: Vec<&str> = posts[0].lines().collect();
-    assert!(lines[1].starts_with("New: Dec 10 done — "), "by hand: no minutes: {}", posts[0]);
-    assert!(lines[2].starts_with("New: Dec 11 done in 50 min — "), "the block's own previous day: {}", posts[0]);
+    // C-091: no day lines on progress any more; what published a revision still is the lease's (the work a
+    // worker's stop loses counts from its own last day, `deaths`)
+    let posts = progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
+    assert!(!posts.contains("New:"), "{posts}");
+    let by_lease = count(&client, &format!("SELECT count(*) FROM core.lease_revision WHERE revision_id = {by_hand}")).await;
+    assert_eq!(by_lease, 0, "the hand revision is no block's");
     scratch.drop().await;
 }
 
@@ -2506,7 +2455,8 @@ async fn a_pass_done_then_queued_again_counts_as_done_in_its_window() {
     assert_eq!(count(&client, "SELECT count(*) FROM core.job WHERE kind = 'ORDERED_PASS' AND state = 'QUEUED'").await, 1, "the pass is queued again");
     let now = watch::now(&client).await.unwrap();
     let posts = progress::preview(&mut client, PROFILE, &now).await.unwrap();
-    assert!(posts[0].lines().any(|l| l == "History layer (IV30 etc.): 0 of 1 (+1) — next Dec 10"), "{}", posts[0]);
+    // C-091: the history passes are no progress line any more
+    assert!(!posts.join("\n").contains("History"), "{posts:?}");
     scratch.drop().await;
 }
 
@@ -2540,25 +2490,13 @@ async fn a_hand_over_is_one_progress_line_and_hides_no_reason() {
     let preview = build::hand_over(&mut client, &old, &new, "the rulings image", true, None).await.unwrap();
     let id = build::hand_over(&mut client, &old, &new, "the rulings image", false, Some(&preview.token)).await.unwrap().hand_over_id.unwrap();
 
-    // the successor not admitted yet: the line says to admit it
-    let now = watch::now(&client).await.unwrap();
-    let post = progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
-    // C-077: the two running one-day blocks finish their day; (owner, 2026-11-25) in plain words
-    assert!(post.contains("A release started: 2 blocks of the old version finish their current day, then the new version takes over (the new version is not switched on yet)"), "{post}");
-    let _ = id;
-
+    // C-091 (owner, 2026-11-26): a release is no progress line; the pause is an alert (below)
+    let _ = (id, reason);
     admit(&client, &new).await;
     work::resume(&client).await.unwrap();
     let now = watch::now(&client).await.unwrap();
     let post = progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
-    let lines: Vec<&str> = post.lines().collect();
-    // C-073 (owner, 2026-11-24): each step one short line ("   HH:MM what"), its reason kept
-    let line = |text: &str| lines.iter().any(|l| l.len() > 6 && &l[6..] == text);
-    assert!(line("A release started: 2 blocks of the old version finish their current day, then the new version takes over"), "{post}");
-    assert!(line("Queue paused: bad AAPL close on Dec 9; replace the image"), "the pause keeps its reason: {post}");
-    assert!(line("Queue resumed") && !post.contains("withdrawn") && !post.contains("admitted"), "{post}");
-    let _ = reason;
-    assert!(!post.contains("Started") && !post.contains("w1"), "a plain start is the headline's building, no pod named: {post}");
+    assert!(!post.contains("release") && !post.contains("Queue") && !post.contains("w1"), "{post}");
 
     // part 2 retired: the pause and the daily runs' stop alert as any problem
     let settings = Settings {
@@ -2570,7 +2508,7 @@ async fn a_hand_over_is_one_progress_line_and_hides_no_reason() {
         archive: None,
         refcheck_from: None,
         backup_days: None, spend: None, recompute: None,
-        refcheck_rerun_hours: None,
+        refcheck_rerun_hours: None, phase: None,
     };
     work::pause(&client, "checking the new image's first day").await.unwrap();
     watch::check(&mut client, &settings, &now).await.unwrap();
@@ -2590,16 +2528,25 @@ async fn a_hand_over_is_one_progress_line_and_hides_no_reason() {
 async fn an_event_committed_after_its_window_is_in_the_next_and_windows_are_kept_a_week() {
     use core_db::notice::{self, Channel};
     use core_db::progress;
-    let (scratch, mut client, _, _) = ready("r2w_progress_late").await;
+    let (scratch, mut client, b, _) = ready("r2w_progress_late").await;
+    // C-091: the event is a block's start (the pause is no progress line any more), its lease granted in a
+    // transaction that commits after the window it is stamped in was composed
+    admit(&client, &b).await;
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-11", 2).await.unwrap();
     let mut pauser = scratch.client().await;
     let pausing = pauser.transaction().await.unwrap();
-    work::pause(&pausing, "a check failed").await.unwrap();
-    // the pause stated in the windows' posts (the clock is the real one: from 09:00 MT a window may also
-    // post the morning's heartbeat, which states the queue's state and no event)
-    let paused = "SELECT count(*) FROM core.notice WHERE channel = 'progress' AND message LIKE '% Queue paused: a check failed%'";
+    pausing
+        .execute(
+            "WITH j AS (UPDATE core.job SET state = 'LEASED', attempts = 1 WHERE kind = 'DAY_BLOCK' RETURNING job_id)
+             INSERT INTO core.lease (job_id, worker, token_sha256, granted_at, expires_at) SELECT job_id, 'w-late', 'late', now(), now() + interval '1 hour' FROM j",
+            &[],
+        )
+        .await
+        .unwrap();
+    let paused = "SELECT count(*) FROM core.notice WHERE channel = 'progress' AND message LIKE '%Started: Dec 10 – Dec 11, 2025 (2 days)%'";
     let t0 = watch::now(&client).await.unwrap();
     progress::tick(&mut client, PROFILE, &t0).await.unwrap().unwrap();
-    assert_eq!(count(&client, paused).await, 0, "the pause is not committed when the window is composed");
+    assert_eq!(count(&client, paused).await, 0, "the start is not committed when the window is composed");
     pausing.commit().await.unwrap();
     let t1 = later(&client, &t0, 30).await;
     assert_eq!(progress::tick(&mut client, PROFILE, &t1).await.unwrap().unwrap().posts, 1);

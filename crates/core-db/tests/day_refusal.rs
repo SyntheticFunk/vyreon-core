@@ -72,7 +72,7 @@ fn settings() -> Settings {
         archive: None,
         refcheck_from: None,
         backup_days: None, spend: None, recompute: None,
-        refcheck_rerun_hours: None,
+        refcheck_rerun_hours: None, phase: None,
     }
 }
 
@@ -145,7 +145,8 @@ async fn a_refused_day_is_held_and_alerted_at_once_and_resolved_when_published()
     assert!(refused[0].starts_with(&format!("Day {DAY} refused by the engine's input plan (job ")) && refused[0].contains("close_quotes (T 2025-12-10, missing)"), "{refused:?}");
     assert!(open(&client, "JOB_FAILED").await.is_empty(), "one alert for one cause");
     let alert: String = client.query_one("SELECT message FROM core.notice WHERE post AND message LIKE '%refused by the engine%' ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
-    assert!(alert.contains("To do:") && alert.contains("retry-failed"), "{alert}");
+    // C-091: a problem for the coordinator, with its effect, and no command
+    assert!(alert.starts_with("⚠️ Problem: Day Dec 10 refused by the engine's input plan: close_quotes") && alert.ends_with("The coordinator is on it.") && !alert.contains('`'), "{alert}");
 
     // the operator's retry: the day is computed and published; the problem resolves
     assert_eq!(work::retry_failed(&client).await.unwrap(), 1);

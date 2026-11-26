@@ -55,8 +55,9 @@ async fn a_block_set_aside_is_named_as_it_started() {
     assert_eq!(count(&client, "SELECT count(*) FROM core.job WHERE state = 'FAILED' AND first_session = '2025-12-10' AND last_session = '2025-12-10'").await, 1, "narrowed");
     let end = now_plus(&client, 1).await;
     let lines = progress::lines(&mut client, PROFILE, &before, &end).await.unwrap();
-    // (owner, 2026-11-25) a restart is a thing to look at, in plain words, with its day
-    assert!(lines.iter().any(|l| l == "⚠ Needs a look: 1 block restarted after a failure (Dec 10)"), "{lines:?}");
+    // C-091 (owner, 2026-11-26): progress says the block started, from where it resumed, with what was left; its
+    // failure is the alerts channel's (`deaths`)
+    assert_eq!(lines, ["Started again: Dec 10 – Dec 12, 2025 (3 days left)"]);
     scratch.drop().await;
 }
 
@@ -86,31 +87,13 @@ async fn a_hand_over_is_stated_once_with_what_it_did() {
     let end = now_plus(&client, 1).await;
     client.execute("UPDATE core.hand_over SET handed_at = $1::text::timestamptz + interval '1 second'", &[&end]).await.unwrap();
     client.execute("UPDATE core.notice SET created_at = $1::text::timestamptz - interval '1 second' WHERE message LIKE 'Hand-over %'", &[&end]).await.unwrap();
-    let w = progress::tick(&mut client, PROFILE, &end).await.unwrap().unwrap();
-    let posts: Vec<String> = client.query("SELECT message FROM core.notice WHERE channel = 'progress' ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
-    let text = posts.join("\n");
-    // (owner, 2026-11-25) the release in plain words, once; the successor not switched on yet said so
-    let ours: Vec<&str> = text.lines().filter(|l| l.contains("A release started")).collect();
-    assert_eq!(ours.len(), 1, "{text}");
-    assert!(ours[0].ends_with("A release started: the new version takes over the queued work (the new version is not switched on yet)"), "{}", ours[0]);
-    let _ = id;
-    assert!(w.lines > 0);
-    // the next window states nothing of it again
+    progress::tick(&mut client, PROFILE, &end).await.unwrap().unwrap();
+    // C-091 (owner, 2026-11-26): a release is no progress line; nothing of it is posted there, now or later
     let later = now_plus(&client, 40).await;
     progress::tick(&mut client, PROFILE, &later).await.unwrap();
-    let again: Vec<String> = client
-        .query("SELECT message FROM core.notice WHERE channel = 'progress' AND message LIKE '%A release started%' ORDER BY notice_id", &[])
-        .await
-        .unwrap()
-        .iter()
-        .map(|r| r.get(0))
-        .collect();
-    assert_eq!(again.len(), 1, "{again:?}");
-    // the upgrade: a core before 0054 recorded only the hand-over's notice as stated
-    client.execute("DELETE FROM core.progress_shown WHERE source = 'hand_over'", &[]).await.unwrap();
-    let end = now_plus(&client, 70).await;
-    let lines = progress::lines(&mut client, PROFILE, &t0, &end).await.unwrap();
-    assert!(!lines.iter().any(|l| l.contains("A release started")), "{lines:?}");
+    let posts: Vec<String> = client.query("SELECT message FROM core.notice WHERE channel = 'progress' ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
+    assert!(!posts.iter().any(|p| p.contains("release") || p.contains("Hand-over")), "{posts:?}");
+    let _ = (id, count(&client, "SELECT 1::bigint").await);
     scratch.drop().await;
 }
 
@@ -138,7 +121,7 @@ async fn a_cause_during_an_open_pause_is_alerted() {
         archive: None,
         refcheck_from: None,
         backup_days: None, spend: None, recompute: None,
-        refcheck_rerun_hours: None,
+        refcheck_rerun_hours: None, phase: None,
     };
     let now = watch::now(&client).await.unwrap();
     watch::check(&mut client, &s, &now).await.unwrap();
