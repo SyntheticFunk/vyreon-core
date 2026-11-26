@@ -32,6 +32,47 @@ Times are UTC unless marked MT. Write a time only after `date -u`.
 - **Coverage goal (80%):** per sensor over its asset-days, measured, never enforced. **Window floor
   (75%, D-404):** per history window, a rule. **Day hold (10%):** per day, a rule (`exports.rs`).
 
+## PLAN OF RECORD: prove small, then produce (owner, 2026-11-26 MT ~14:00; supersedes the pass-1 run on 714e47a3)
+Why 3–4 days produced 3 keepable days:
+- Builds were released to many nodes without one real day end to end, twice.
+- Scaling came before fit was measured (memory per node, request contention).
+- Every fix restarted the run.
+- Hand operation errors.
+Backfill stopped 2026-11-26 13:37 MT: 606 phase-1 jobs cancelled; reference re-runs off (878bd78). The nightly runs on.
+**Stage 1, fix** (target ~11-29; cluster near zero). Done when all six land, each with its commit:
+1. Classify the 20 unexplained reference disagreements of 2024-07-11 on 714e47a3 (SURFACE-FORWARD 9, VS-O02 6,
+   SURFACE-SIGMA 2, SURFACE-INPUTS 1, FIELD-SUP01 1, VS-O04 1); fix the engine ones.
+2. Memory (owner: the engine fix, not bigger nodes): the next day's download starts only when memory allows, as
+   the reference-check overlap's guard does. Measure one large 2025 day stage by stage on one node.
+3. A real day end to end is a release requirement: restore IVSC's ignored end-to-end test; release.sh refuses a
+   build that has not published one real day.
+4. Core:
+   - the ramp (owner-approved): one new backfill block per 20 min at most, none while the budget waited in the
+     last 5 min, at most 8;
+   - a `backfill stop|resume` command, which turns re-runs off and on (done by hand twice);
+   - safe core-setting changes (13:30 MT outage: 20-core.yaml applied raw, ~20 min down).
+5. Small items:
+   - company-capture 429 spacing (P-30);
+   - the intent log's "fault:" wording for stated absences;
+   - release.sh step-11 false stop;
+   - the idle wait for the previous day's reference check.
+6. One Codex audit of the stage-1 changes (Gemini when its quota returns ~12-01); every real finding fixed.
+**Stage 2, prove** (~1 day, ~$5–10): about 8 hardest real days as single days on ≤3 nodes:
+- 2024-07-09 (IBIT before options), the ETHA listing day, a split day, a monthly expiration;
+- a heavy day (2025-04-07), a half day, a large late-2025 day, 2026-11-20.
+The list is shown to the owner before it runs. Pass:
+- 0 engine faults;
+- every reference disagreement classified, with no engine value error;
+- memory peak ≥1.5 GiB under the node;
+- time per day measured.
+A failure: fix it and rerun that day only. All pass: freeze, with the set as evidence.
+**Stage 3, produce** (~7–8 days, ~$230–260 at $0.167/node-h): the ramp to ≤8 blocks, under the stop rule.
+**Owner rule (2026-11-26):** a fault found in production does not restart the run. A fix that changes no published
+value recomputes nothing; one that does recomputes only the affected measurements, by method version (C-079),
+after the run.
+Money: about $195 since 11-21 (estimate) + about $260 = about $455 of the $500 ceiling. Warn before crossing.
+Estimates, unproven: 2.2 h/day/block was measured on 2024 days, one block alone.
+
 ## Steps to the MVP (the list shown to the owner on a status request; keep it current)
 **DATED COMMITMENT: the paid pilot (live on www.vyreonlabs.net/early-access, read 2026-11-16).**
 One customer has paid USD 10 for four weekly email issues on Sundays **2027-01-10, 01-17, 01-24,
