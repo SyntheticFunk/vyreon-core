@@ -87,6 +87,19 @@ find nothing to claim. Releases only through `deploy/k8s/ops/release.sh` (`--cor
    - a normal review of everything changed.
 3. **Remediate every real finding, then FREEZE.** The freeze candidate passes the canary: one real day on one node,
    0 engine faults, every reference disagreement classified, memory peak within the node.
+   **The canary is a one-day block** (owner, 2026-11-26: "couldn't we just queue a tiny block"), with no dedicated
+   job:
+   1. Release the candidate.
+   2. `vyreon-core schedule day-block FREE_REPORT_64 <build> <day> <day> 1` (a large recent day). Core's gate
+      (C-086) runs a new build's backfill alone until it has published a real day with 0 ENGINE_FAULT.
+   3. Then read:
+      - the reference check, every disagreement classified;
+      - every check family ran (D-518);
+      - the memory peak against the node;
+      - the time taken;
+      - the nightly on the new build.
+   4. Pass: schedule the run, and the ramp takes over. Fail: fix it and queue another one-day block.
+   About 4 h and $0.70 per canary.
 4. **HANDOFF to a fresh session** (owner, 2026-11-26, moved earlier). It happens once the four agents now running have
    reported (eng-s1, eng-s1b, core-s1, the rulings census) and their results are verified and written here. The new
    session does steps 1's integration, 2 and 3 (integration, the Codex audit, remediation, the freeze), then the
