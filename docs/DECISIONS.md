@@ -3908,3 +3908,7 @@ useful". **Decided:** every progress post (each started/finished post and the mo
 (`progress::running_line`): the day blocks holding a live lease at the window's end, each by its whole span, the nightly
 named apart. No timed post: the line rides the posts that already go out, so a quiet half hour stays quiet. The line is
 no event, so it never counts as carried (C-073). Test `progress::tests::running_now_names_each_block_and_the_nightly`.
+Amended the same day (owner: "worth keeping the % of readings number"; C-091 had dropped it with the per-day line): the
+database line carries the share of the kept days' slots with a value, "Database: 212 of 597 days kept (current build) ·
+99.4% of readings measured · finish ~Dec 14", over the day's two layers as the watch has counted them
+(`core.revision_tally`; a day not counted yet is not in the share). Test `digest_format.rs`.
