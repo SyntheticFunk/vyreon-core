@@ -269,6 +269,8 @@ spec:
               - {name: VYREON_REFCHECK_MINUTES, value: "600"}
               - {name: VYREON_OPTION_EOD_SOURCE, value: bulk}
               - {name: VYREON_ACT01_IN_FLIGHT, value: "2"}   # 2026-11-23 phase 1: ACT01 cohorts ran past their 180 s window under the shared budget
+              - {name: VYREON_OVERLAP_SURFACES, value: "off"}   # C-085: speed-only overlaps off (engine D-405), lowering a day's memory peak
+              - {name: VYREON_OVERLAP_FIELD, value: "off"}
               - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
               - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
               - {name: VYREON_KEY_FILE, value: /secrets/intrinio-key}
@@ -276,8 +278,8 @@ spec:
               - name: VYREON_WORKER_NAME
                 valueFrom: {fieldRef: {fieldPath: metadata.name}}
             resources:
-              requests: {cpu: "6", memory: 12Gi}   # 10 → 12Gi 2026-11-26 (pass 1): a full day peaks ~13.4 GB of a node's 13.33 GiB allocatable;
-              limits: {memory: 14Gi}               # at 10Gi a tape (3Gi) was co-scheduled beside it and the node evicted the block
+              requests: {cpu: "6", memory: 12Gi}   # 10 → 12Gi 2026-11-26 (pass 1): at 10Gi a tape (3Gi) was co-scheduled beside a block
+              limits: {memory: 12Gi}               # 14 → 12Gi 2026-11-26 (C-085): the node evicts at ~12.4-13.0 GiB (system ~3 GiB of 15.6); the engine sizes itself to this limit
             volumeMounts:
               - {name: work, mountPath: /work}
               - {name: secrets, mountPath: /secrets, readOnly: true}
@@ -373,6 +375,8 @@ spec:
               - {name: VYREON_REFCHECK_MINUTES, value: "600"}
               - {name: VYREON_OPTION_EOD_SOURCE, value: bulk}
               - {name: VYREON_ACT01_IN_FLIGHT, value: "2"}   # 2026-11-23 phase 1: ACT01 cohorts ran past their 180 s window under the shared budget
+              - {name: VYREON_OVERLAP_SURFACES, value: "off"}   # C-085: speed-only overlaps off (engine D-405), lowering a day's memory peak
+              - {name: VYREON_OVERLAP_FIELD, value: "off"}
               - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
               - {name: VYREON_CORE_WORKER_TOKEN_FILE, value: /secrets/worker-token}
               - {name: VYREON_KEY_FILE, value: /secrets/intrinio-key}
@@ -380,8 +384,8 @@ spec:
               - name: VYREON_WORKER_NAME
                 valueFrom: {fieldRef: {fieldPath: metadata.name}}
             resources:
-              requests: {cpu: "6", memory: 12Gi}   # 10 → 12Gi 2026-11-26 (pass 1): a full day peaks ~13.4 GB of a node's 13.33 GiB allocatable;
-              limits: {memory: 14Gi}               # at 10Gi a tape (3Gi) was co-scheduled beside it and the node evicted the block
+              requests: {cpu: "6", memory: 12Gi}   # 10 → 12Gi 2026-11-26 (pass 1): at 10Gi a tape (3Gi) was co-scheduled beside a block
+              limits: {memory: 12Gi}               # 14 → 12Gi 2026-11-26 (C-085): the node evicts at ~12.4-13.0 GiB (system ~3 GiB of 15.6); the engine sizes itself to this limit
             volumeMounts:
               - {name: work, mountPath: /work}
               - {name: secrets, mountPath: /secrets, readOnly: true}
@@ -580,8 +584,8 @@ spec:
               - name: VYREON_WORKER_NAME
                 valueFrom: {fieldRef: {fieldPath: metadata.name}}
             resources:
-              requests: {cpu: "6", memory: 12Gi}   # 10 → 12Gi 2026-11-26 (pass 1): a full day peaks ~13.4 GB of a node's 13.33 GiB allocatable;
-              limits: {memory: 14Gi}               # at 10Gi a tape (3Gi) was co-scheduled beside it and the node evicted the block
+              requests: {cpu: "6", memory: 12Gi}   # 10 → 12Gi 2026-11-26 (pass 1): at 10Gi a tape (3Gi) was co-scheduled beside a block
+              limits: {memory: 12Gi}               # 14 → 12Gi 2026-11-26 (C-085): the node evicts at ~12.4-13.0 GiB (system ~3 GiB of 15.6); the engine sizes itself to this limit
             volumeMounts:
               - {name: work, mountPath: /work}
               - {name: secrets, mountPath: /secrets, readOnly: true}
@@ -675,8 +679,8 @@ spec:
               - name: VYREON_WORKER_NAME
                 valueFrom: {fieldRef: {fieldPath: metadata.name}}
             resources:
-              requests: {cpu: "6", memory: 12Gi}   # 10 → 12Gi 2026-11-26 (pass 1): a full day peaks ~13.4 GB of a node's 13.33 GiB allocatable;
-              limits: {memory: 14Gi}               # at 10Gi a tape (3Gi) was co-scheduled beside it and the node evicted the block
+              requests: {cpu: "6", memory: 12Gi}   # 10 → 12Gi 2026-11-26 (pass 1): at 10Gi a tape (3Gi) was co-scheduled beside a block
+              limits: {memory: 12Gi}               # 14 → 12Gi 2026-11-26 (C-085): the node evicts at ~12.4-13.0 GiB (system ~3 GiB of 15.6); the engine sizes itself to this limit
             volumeMounts:
               - {name: work, mountPath: /work}
               - {name: secrets, mountPath: /secrets, readOnly: true}
