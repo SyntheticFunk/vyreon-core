@@ -97,9 +97,17 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
     release.sh; (5) the canary: a one-day block on 2025-12-10, read as the plan of record says, plus the nightly on
     the new build and the record check (every fault, disagreement and absence queryable from the database); (6) freeze,
     schedule newest-first, the ramp. VYREON_CORE_RECOMPUTE goes back "on" only after the run.
-  - **For the owner before the canary:** `build_proven` has no override (a canary day with one accepted engine fault
-    keeps the ramp at one block); three FAILED day blocks pause the whole queue, the nightly included
-    (`FAILED_DAYS_PAUSE`): both sit badly with "record every fault and keep going".
+  - **Owner's two calls, decided and landed (C-094 amended, 2026-11-26 ~17:40 MT):** the canary test is "can the
+    engine execute a small block": the gate holds the ramp only for a measurement faulted on every asset (the
+    coordinator's one addition); a local fault is a catalog line. No count of failed days pauses the queue ("the
+    nightly should never get paused").
+  - **Merged and built (17:50 MT):** core main 64fbe76 (image `vyreon-core:64fbe76`, release dry-run clean); engine
+    release line `worker` = c60e2085 (image `vyreon-worker:c60e2085`); evidence for the worker release:
+    `~/claude-artifacts/cluster-scratch/evidence-c60e2085.json`. WAITING for the 11-25 nightly and its pass to finish
+    before `release.sh --core 64fbe76` (C-088 is in this release).
+  - **The canary is also the benchmark (owner):** time by stage, memory peak by stage against 12 GiB (D-515's first
+    real block), requests and throttling, where the node idles (download concurrency). Improvements found go to the
+    catalog with their number; an operations-only setting may be proposed before scaling.
 - **Owner request:** live jobs in the progress channel: done on core-s1 (C-093).
 
 ## Resume here (HANDOFF, 2026-11-26 ~15:35 MT)
