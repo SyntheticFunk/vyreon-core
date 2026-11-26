@@ -1644,6 +1644,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   (claimable_job: no unfinished TAPE at or before a block's last session) — the build's tape re-capture (~90 left at 08:15,
   ~24/h) → starts ~noon. Spend: DigitalOcean $351.57 month-to-date at 2026-11-25 22:14 (UTC−6) (balance API; core's spend
   watch still lacks its read-only token) — heads-up given to the owner before the $500 ceiling.
+  **Memory (UTC−6 12:40–12:52): 4 of 8 blocks died on their first compute day** (3 node-evicted at 12.4–13.0 GiB, 1 OOM at
+  14Gi): day compute (~5.6 GiB) beside the next day's download (~5.6 GiB quote window) on a 16 GB node whose system takes
+  ~3 GiB. C-085: limit 14 → 12Gi (the engine sizes itself to it) + surfaces/FIELD overlaps off (speed only), applied 13:25
+  to new pods. Watch: blocks dying at 12Gi, time per day. Owner's options if it persists: memory-aware prefetch (engine,
+  freeze exception) or 32 GB nodes (cost). Also: 2025-02-12 company capture hit P-30 429s (recovered by itself).
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now

@@ -3773,3 +3773,19 @@ check not run (REFCHECK_NOT_RUN); a re-run already running is left to finish. On
 revision is checked as any published day is (its worker's check, else a re-run); if the block ends without publishing
 it (cancelled, failed), the old revision's re-run is queued again. Test
 `automation.rs::a_day_about_to_be_published_again_is_not_checked_until_then` (fails on the old watch).
+
+## C-085 A day block's memory limit is what the node can give (coordinator, 2026-11-26)
+Pass 1 at eight blocks on 714e47a3: four of eight blocks died on their first compute day, between 12:40 and 12:52 UTC−6.
+Three were evicted by the node, at 12.4–13.0 GiB of pod working set. The node is s-8vcpu-16gb, with 15.6 GiB capacity,
+13.33 GiB allocatable, and about 3 GiB taken by the system and daemons. The fourth was OOM-killed at its 14 GiB limit.
+The engine sizes its task pool to the pod's cgroup limit (`runtime_resources::available_memory`, D-007). A 14 GiB limit
+told it about 1.5 GiB more than the node could give. The overlap that makes the peak is the day's compute, with the
+`vyreon-worker` process up to 5.6 GiB resident, running beside the next day's download, with the `vyreon-inputs` quote
+window up to 5.6 GiB (D-410). The engine has no switch for that download overlap. The gate days fitted; the larger 2025
+days do not.
+**Decided:** the full-day jobs get a 12 GiB limit, equal to their request, so the engine plans against memory the node
+has. The day blocks set `VYREON_OVERLAP_SURFACES=off` and `VYREON_OVERLAP_FIELD=off`, the engine's documented speed-only
+switches (D-405: each `off` restores the old order, the outputs are unchanged), which lower the compute peak. The cost is
+compute time per day. This applies to new block pods; running ones keep their spec.
+**Open, the owner's:** a memory-aware next-day download (an engine change, a freeze exception), or 32 GB nodes (cost).
+The pass-1 data decides it: whether blocks still die at 12 GiB, and the extra time per day.
