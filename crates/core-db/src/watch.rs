@@ -1776,13 +1776,16 @@ pub async fn not_derived(c: &impl GenericClient, days: &[(String, String, bool)]
 
 /// What a published revision holds, counted from its measurements: (revision_id, slots, withheld,
 /// provider_withheld, engine_faults) of the revisions `d` that `$WHERE` names.
-/// C-090: and the measurements an engine fault withheld on every object (`whole_faults`: two objects or more,
-/// each slot's stated reason the engine's), the systematic breakage the stop rule stops for.
+/// C-090 as amended by C-094: and the measurements an engine fault withheld on every object that has a value to
+/// lose (`whole_faults`: two objects or more faulted, and every other object withheld whole, as IBIT's empty chain
+/// beside 62 faulted assets), the systematic breakage the stop rule stops for.
 const COUNTED: &str = "SELECT d.revision_id, count(m.measurement_id)::int AS slots, (count(*) FILTER (WHERE m.whole))::int AS withheld,
                 (count(*) FILTER (WHERE m.whole AND NOT m.fault))::int AS provider_withheld, (count(*) FILTER (WHERE m.fault))::int AS engine_faults,
                 (SELECT COALESCE(array_agg(w.measurement_id ORDER BY w.measurement_id), '{}'::text[])
                  FROM (SELECT m.measurement_id FROM vyreon.measurement m WHERE m.revision_id = d.revision_id AND m.represented_date = d.represented_date
-                       GROUP BY m.measurement_id HAVING count(DISTINCT m.object_id) >= 2 AND bool_and($FAULT)) w) AS whole_faults
+                       GROUP BY m.measurement_id
+                       HAVING count(DISTINCT m.object_id) FILTER (WHERE $FAULT) >= 2
+                          AND bool_and($FAULT OR strpos(m.body_text, m.measurement_id || '/' || m.object_id || '/' || m.represented_date::text || '/engine-fault\"') > 0)) w) AS whole_faults
          FROM vyreon.day_revision d
          LEFT JOIN LATERAL (
              SELECT m.measurement_id,
@@ -1798,10 +1801,16 @@ const COUNTED: &str = "SELECT d.revision_id, count(m.measurement_id)::int AS slo
 /// ends `/engine-fault`, a provider's absence too: IBIT/ETHA's EMPTY_DELIVERED_POPULATION before their
 /// options listed, PROVIDER_COVERAGE_START, CARRY_NOT_IDENTIFIED). Every other stated reason is the
 /// provider's; core refuses no bundle for its reasons (they are the engine's to state).
-pub const FAULT: &str = "(m.body->'measurement'->'value'->>'terminal_reason' IN ('ENGINE_FAULT', 'PARENT_ENGINE_FAULT', 'TAPE_LISTING_RESTATED')
+/// Audit 2026-11-26 (C-094): never NULL (a healthy body with no terminal reason gave NULL, which `bool_and` ignores:
+/// one faulted asset read as every asset's); and a direct owner's body states its reason on `failure_reason` and each
+/// of its `coordinates` (M0-PRINT-SIZE: no terminal reason, no roles), read as well.
+pub const FAULT: &str = "COALESCE(m.body->'measurement'->'value'->>'terminal_reason' IN ('ENGINE_FAULT', 'PARENT_ENGINE_FAULT', 'TAPE_LISTING_RESTATED')
+     OR m.body->'measurement'->'value'->>'failure_reason' IN ('ENGINE_FAULT', 'PARENT_ENGINE_FAULT', 'TAPE_LISTING_RESTATED')
      OR EXISTS (SELECT FROM jsonb_array_elements(CASE WHEN jsonb_typeof(m.body->'measurement'->'value'->'roles') = 'array'
-                                                     THEN m.body->'measurement'->'value'->'roles' ELSE '[]'::jsonb END) r
-                WHERE r->>'reason' IN ('ENGINE_FAULT', 'PARENT_ENGINE_FAULT', 'TAPE_LISTING_RESTATED')))";
+                                                     THEN m.body->'measurement'->'value'->'roles' ELSE '[]'::jsonb END
+                                                 || CASE WHEN jsonb_typeof(m.body->'measurement'->'value'->'coordinates') = 'array'
+                                                     THEN m.body->'measurement'->'value'->'coordinates' ELSE '[]'::jsonb END) r
+                WHERE r->>'reason' IN ('ENGINE_FAULT', 'PARENT_ENGINE_FAULT', 'TAPE_LISTING_RESTATED')), false)";
 
 /// The stated withholding reasons whose cause class is the engine (`FAULT` lists them): an engine fault,
 /// a parent's, and (engine D-468) a tape session not derivable again under a moved provider listing record.
@@ -2589,6 +2598,15 @@ pub async fn tick_within(client: &mut Client, s: &Settings, now: &str, budget: D
                 // C-071: the posts share one budget; a post left for the next minute is a part not
                 // run this minute (round 3, 4: it neither opens nor resolves its problem)
                 let until = Instant::now() + budget;
+                // C-094 (audit 2026-11-26): the published revisions are counted every minute, not only with the
+                // 09:00 digest: the one-real-day gate, the stop rule and the readings share read these counts
+                // (the digest's own minute counts inside `post_once`, under the same budget; a count that fails
+                // here is tried again next minute, and one that keeps failing fails the next digest, which says so)
+                if !nine || notice::queued(&*client, &format!("digest {date}")).await.unwrap_or(false) {
+                    if let Err(e) = tally_untallied(client, &s.profile, now, Some(until)).await {
+                        eprintln!("vyreon-core watch: counting the published revisions failed (tried again next minute): {e}");
+                    }
+                }
                 if nine {
                     outcomes.extend(ran(post_once(client, &format!("digest {date}"), s, now, false, until).await).map(|r| (&DIGEST, r)));
                     if saturday {

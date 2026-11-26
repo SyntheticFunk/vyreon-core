@@ -12,7 +12,7 @@ SET LOCAL statement_timeout = '60s';
 -- C-090 (owner, 2026-11-26: the stop rule stops only for systematic breakage): each published revision's
 -- count also names the measurements an engine fault withheld on every object of the revision (`watch::COUNTED`;
 -- M0-ANALYTICS and INT-IVSC01 on all ~62 assets). The kept counts are dropped and counted again by the watch
--- (`tally_untallied`, in batches, from its next minute), as 0062 did; until a build's revisions are counted
+-- (`tally_untallied`, in batches, every minute since C-094; before it only with the 09:00 digest), as 0062 did; until a build's revisions are counted
 -- again it is not proven (C-086: one backfill block at a time).
 DELETE FROM core.revision_tally;
 ALTER TABLE core.revision_tally ADD COLUMN whole_faults text[] NOT NULL DEFAULT '{}';

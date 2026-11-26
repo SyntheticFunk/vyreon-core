@@ -602,7 +602,43 @@ pub async fn running_line(c: &impl GenericClient, profile: &str, now: &str) -> R
         .await
         .map_err(db)?;
     let blocks: Vec<(String, String, bool)> = rows.iter().map(|r| (r.get(0), r.get(1), r.get(2))).collect();
-    Ok(running_words(&blocks))
+    // C-094 (audit 2026-11-26): the other kinds holding a live lease are counted, so "nothing" is nothing
+    let others = c
+        .query(
+            "SELECT j.kind, count(*)::bigint FROM core.job j JOIN core.lease l ON l.job_id = j.job_id
+             WHERE j.kind <> 'DAY_BLOCK' AND j.profile_id = $1 AND j.state = 'LEASED'
+               AND l.granted_at <= $2::text::timestamptz AND l.expires_at > $2::text::timestamptz
+               AND (l.ended_at IS NULL OR l.ended_at > $2::text::timestamptz)
+             GROUP BY j.kind ORDER BY j.kind",
+            &[&profile, &now],
+        )
+        .await
+        .map_err(db)?;
+    let others: Vec<(String, i64)> = others.iter().map(|r| (r.get(0), r.get(1))).collect();
+    Ok(running_with(&blocks, &others))
+}
+
+/// `running_words` with the live work of the other kinds, in plain words: "· also 3 tape captures, 1 history pass".
+pub fn running_with(blocks: &[(String, String, bool)], others: &[(String, i64)]) -> String {
+    let said: Vec<String> = others
+        .iter()
+        .filter(|o| o.1 > 0)
+        .map(|(kind, n)| match kind.as_str() {
+            "TAPE" => counted(*n, "tape capture", "tape captures"),
+            "ORDERED_PASS" => counted(*n, "history pass", "history passes"),
+            "REFCHECK" => counted(*n, "reference check", "reference checks"),
+            "REPUBLISH" => counted(*n, "recompute", "recomputes"),
+            _ => counted(*n, "other job", "other jobs"),
+        })
+        .collect();
+    let line = running_words(blocks);
+    if said.is_empty() {
+        line
+    } else if blocks.is_empty() {
+        format!("Running now: {}", said.join(", "))
+    } else {
+        format!("{line} · also {}", said.join(", "))
+    }
 }
 
 /// `running_line`'s words from (first, last, nightly) per running block.
@@ -1095,6 +1131,10 @@ mod tests {
     fn running_now_names_each_block_and_the_nightly() {
         let b = |f: &str, l: &str, n: bool| (f.to_owned(), l.to_owned(), n);
         assert_eq!(running_words(&[]), "Running now: nothing");
+        let o = |k: &str, n: i64| (k.to_owned(), n);
+        assert_eq!(running_with(&[], &[o("TAPE", 3), o("ORDERED_PASS", 1)]), "Running now: 3 tape captures, 1 history pass");
+        assert_eq!(running_with(&[b("2026-11-25", "2026-11-25", true)], &[o("REPUBLISH", 2)]), "Running now: the nightly (Nov 25, 2026) · also 2 recomputes");
+        assert_eq!(running_with(&[], &[]), "Running now: nothing");
         assert_eq!(running_words(&[b("2026-11-25", "2026-11-25", true)]), "Running now: the nightly (Nov 25, 2026)");
         assert_eq!(
             running_words(&[b("2024-07-16", "2024-07-18", false), b("2024-09-04", "2024-09-04", false), b("2026-11-25", "2026-11-25", true)]),
