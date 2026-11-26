@@ -1597,6 +1597,13 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   republish) request 12Gi (ccda8f9, applied to the live ScaledJobs 23:20; new Jobs only). 26030 re-queued (attempts 0).
   Stop-rule classification: an eviction from co-scheduling is infrastructure, not an engine fault. Open engine question for
   the backlog: why a day needs ~13 GB (the 11-24 nightly peaked 6.5 GB in its quotes unit).
+  **ENGINE FAULT in pass 1 (UTC−6 23:18): block 26028 (2024-09-18) FAILED** — "the executor held the day (too many faulted
+  slots)": 124 ENGINE_FAULT (M0-ANALYTICS + INT-IVSC01 for all 62 assets) + 310 PARENT_ENGINE_FAULT, all from the T−5 history
+  session 2024-09-11 lacking `option/source-identity.json` ("admitted option source identity"), touched last by 543a0326
+  (D-490..501) / 696212d5 (D-477..480). Possibly systematic for every block's first day → containment: day-block ScaledJob
+  maxReplicaCount patched 8 → 3 (the 3 running continue; no new block starts; tapes unaffected). Root-cause agent running
+  (fix on eng-hotfix-srcid; a blocker under the freeze rules). Stop rule: this day counts as BAD (engine fault, not
+  published) — 1 bad of 1 so far; the >50% rule applies from 20 days.
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
