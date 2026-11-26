@@ -1604,6 +1604,15 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   maxReplicaCount patched 8 → 3 (the 3 running continue; no new block starts; tapes unaffected). Root-cause agent running
   (fix on eng-hotfix-srcid; a blocker under the freeze rules). Stop rule: this day counts as BAD (engine fault, not
   published) — 1 bad of 1 so far; the >50% rule applies from 20 days.
+  **SYSTEMATIC (UTC−6 ~23:30):** h4_m0_analytics.rs stages each asset's option/ dir with source-descriptor.json + context.json +
+  population only; D-478 (696212d5) made h3_q04::admitted_source::reopen_from_q04 → sealed_provider_faults read
+  option/source-identity.json whenever the descriptor carries source_identity_manifest_sha256 → ENOENT for every asset, every
+  day; INT-IVSC01 and dependants cascade; every day of 93a04676 would be held. All 12 pass-1 DAY_BLOCKs cancelled (no block
+  claimable; day-block max 3, KEDA forbids 0); tapes continue (587/880). Hotfix on eng-hotfix-srcid (copy
+  source-identity.json into the staged dir) → targeted test → release (blocker exception) → reschedule the 12 blocks → max 8.
+  The 11-25 nightly (~05:30 UTC−6) would be held on 93a04676 too — aim to ship before it (prints keep ~5 sessions).
+  Lesson for the audit process: the fixers ran targeted crate tests; a cross-crate contract change (D-478) broke a staged-copy
+  consumer (M0) that no unit test exercised end to end — the full suite passed. Needs an end-to-end day test on real data.
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
