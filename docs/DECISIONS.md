@@ -3937,3 +3937,13 @@ Tests: `freeze.rs` (the three body shapes), `progress` unit, `ops/tests/apply-co
 **For the owner (not changed):** `build_proven` has no override (a canary day with one accepted engine fault keeps the
 ramp at one block); three FAILED day blocks pause the whole queue, the nightly included (`FAILED_DAYS_PAUSE`), which
 sits badly with "record every fault and keep going". Catalogued: `docs/PHASE1_CATALOG.md`.
+Amended the same evening (owner, on the gate: the test is "can the engine execute a small block", "to avoid scaling to
+N nodes and having all N fail"): `core.build_proven` (0064, not yet deployed, edited in place) holds the ramp only for
+a day with a measurement faulted on every asset (`whole_faults`), no longer for any engine-fault slot. A local fault is
+a catalog line. Test `backfill.rs::backfill_blocks_start_one_at_a_time_until_the_build_published_a_real_day_clean`.
+And (owner, the same evening: "the nightly should never get paused. that is a essential thing to keep going"): **no
+count of failed days pauses the queue** (C-035's `FAILED_DAYS_PAUSE` at 3 paused everything, the nightly included).
+Each failed day is set aside, logged (with the count from the third) and alerted (JOB_FAILED); systematic breakage is
+the stop rule's to say (C-090); stopping the backfill is `backfill stop`, which never touches the nightly. Still
+pausing the whole queue: a TAPE job out of attempts (catalogued). Test
+`work.rs::a_lost_workers_block_resumes_and_a_failed_day_is_set_aside`.
