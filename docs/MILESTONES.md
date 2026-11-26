@@ -85,7 +85,21 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
     `~/claude-artifacts/audits/2026-11-26-stage1/`. Then triage, fix every real finding, release core (after a nightly
     has published), the canary on golden day 2025-12-10.
   - **Golden days (hypothesis, from engine DECISIONS):** 2025-12-10, 2026-01-14, 2026-09-18, 2026-10-16.
-  - **Not merged to main / the release line yet:** both candidates wait for the audit's fixes.
+  - **AUDIT DONE, TRIAGED, BLOCKERS FIXED (2026-11-26 17:30 MT):** reports and triage in
+    `~/claude-artifacts/audits/2026-11-26-stage1/`. Engine (Codex; Gemini gave no report: headless permission denial):
+    22 findings, 1 blocker fixed (VS-IVS01 receipts stamped H5-SURFACE@25, now the stage's own label; D-563, head
+    c60e2085). Core (Codex + Gemini): 30 findings, 8 blockers at 5 sites fixed (C-094, head 95e8912; suite 273 ok):
+    recompute OFF for the run; the fault count (never NULL, direct owners read, C-090's "every asset" amended); counted
+    every minute; apply-core.sh refuses a lagging daily build; "Running now" counts every kind. Everything else:
+    **`docs/PHASE1_CATALOG.md`** (30 items; the one file the owner opens).
+  - **NEXT:** (1) the owner's two calls below; (2) merge core-s1 → main and eng-s1 → the release line; (3)
+    `release.sh --core` once no nightly is mid-run, then `vyreon-core backfill stop "<reason>"`; (4) the engine through
+    release.sh; (5) the canary: a one-day block on 2025-12-10, read as the plan of record says, plus the nightly on
+    the new build and the record check (every fault, disagreement and absence queryable from the database); (6) freeze,
+    schedule newest-first, the ramp. VYREON_CORE_RECOMPUTE goes back "on" only after the run.
+  - **For the owner before the canary:** `build_proven` has no override (a canary day with one accepted engine fault
+    keeps the ramp at one block); three FAILED day blocks pause the whole queue, the nightly included
+    (`FAILED_DAYS_PAUSE`): both sit badly with "record every fault and keep going".
 - **Owner request:** live jobs in the progress channel: done on core-s1 (C-093).
 
 ## Resume here (HANDOFF, 2026-11-26 ~15:35 MT)
