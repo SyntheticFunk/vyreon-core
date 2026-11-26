@@ -44,21 +44,49 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
    `VYREON_CORE_DAILY_BUILD` on it); core image 8f4fdc9.
 4. **Published phase-1 days so far are not keepable:** 2024-07-09 and 07-10 (90e2f228, INT-IVSC01 fault) and
    2024-07-11 (714e47a3, 3 engine faults, below). Production recomputes all 597 days.
-5. **Open on branches (stage 1 of the plan below):**
-   - engine `eng-s1` (worktree `/home/diggz/wt/eng-s1`): memory gate D-515 (bbc913fb..66e416f8), D-516 (no change:
-     a day waits for the previous day's check), VS-O04 withhold D-517 (f7007044, fedb96be), suite fixes + checker
-     completeness D-518 (62142510, 9438dbbf, c6da1dc4; docs 9df21217).
-     - B, restoring INT-IVSC01's ignored end-to-end test: deferred. The canary covers it, and the fixture gets
-       refrozen from a gate day's store.
-     - C, the intent logs labelling stated absences: in progress.
-     - E, company-capture 429 pacing: in progress (work in `h5-company/src/bin/capture.rs`).
-     - Then the compact provenance form (D-500 item 5), and reproducing VS-O04's cause.
-   - engine `eng-s1b`: the forward rules — the 10-30 replacement (parity band), the one empty-chain reason, the
-     general carry rule; decisions D-530 on. No commits yet.
-   - core `core-s1` (566fef9..6e81c5f, migration 0064): ramp + one-real-day gate (C-086), backfill stop/resume flag
-     (C-087), lease grace at core start (C-088), nightly restart alert (C-089), stop rule amended to systematic
-     breakage (C-090, amends C-084), `apply-core.sh` (safe core apply), release.sh step 11 verifies only kinds still
-     claimable, day-block ceiling 12 with the ramp; still to add: the concise progress posts and the alerts redesign.
+5. **Stage-1 branches: done, committed, NOT merged, NOT audited** (verified 2026-11-26 ~15:00 MT):
+   - **engine `eng-s1`** (worktree `/home/diggz/wt/eng-s1`, 17 commits on worker 714e47a3, D-515..D-522, clean):
+     - D-515: the next day's download waits for the day's plan and for its measured peak + 2 GiB (never fails a day);
+       not yet run on a real block;
+     - D-516: the reference-check join is the check's own CPU (no change);
+     - D-517: VS-O04 withholds a change an unknown-OI expiry may touch (PROVIDER_OI_INCOMPLETE). NVDA's real
+       2024-06-21 gives 0.0329786 with 08-02 (the reference: 0.032980); the old 0.0321638 = the silent drop. The
+       cause of the unknown OI stays OPEN;
+     - D-518: the reference-suite fixes, and every family reported ran / not ran (a family that cannot run fails);
+     - D-519: the intent logs label stated absences;
+     - D-520: company capture slows together under 429s (open: a long capture can still trip NO_PROGRESS);
+     - D-521: IVSC's end-to-end test is OPEN (needs a day store of the new build: day blocks hard-code
+       keep_transient false; copy the run dir off the pod before cleanup);
+     - D-522: compact content address for M0's source sets (D-500 item 5).
+     Published values change only for VS-O04 (`@4-D-517`, curve `@2-D-517`); the rest is bytes only (M0 stream root,
+     the task keys). Targeted Rust suites and the reference pytest pass (`test_field_own_iv` already failed on
+     worker: missing fixture).
+   - **engine `eng-s1b`** (worktree `/home/diggz/wt/eng-s1b`): the forward rules (10-30 → the parity band, one
+     empty-chain reason, the general carry rule, the suite-rulings pass); D-530 on. REPORT PENDING at 15:00.
+   - **Merging eng-s1 with eng-s1b:** conflicts are expected in tools/reference (`__main__.py`, `published.py`,
+     `opt_oi.py`, `chain_ctx.py`, `surface/run.py`, `surface/streams.py`) and at the end of docs/DECISIONS.md.
+   - **core `core-s1`** (worktree `/home/diggz/wt/core-s1`, 8 commits 566fef9..cff9b9e, migrations 0064–0066,
+     C-086..C-092, clean; full suite with Postgres 272 ok):
+     - the ramp + one-real-day gate (C-086; small gap: a Running pod not yet claimed can let a second block start);
+     - `vyreon-core backfill stop|resume|status` (C-087; a DB flag, no restart);
+     - lease grace at core start (C-088);
+     - a nightly restart alerts (C-089 → C-091; nightly deadline alerts start at VYREON_CORE_DEADLINES_FROM
+       2026-11-30, the owner's call);
+     - the stop rule for systematic breakage only, ceiling 12 (C-090);
+     - the plain channels (C-091): progress = blocks started/finished + the database line; alerts = 🔴 needs you /
+       ⚠️ problem / ✅ resolved, worker deaths with their pod cause, NO_PROGRESS after 30 min, a deliberate stop
+       silent, a 3-line digest;
+     - slow start after budget pressure (C-092);
+     - `deploy/k8s/ops/apply-core.sh`; release.sh step 11 fixed.
+     Deploy risks:
+     - 0064 drops core.revision_tally, so builds count as unproven until the watch recounts;
+     - 0064/0065 run under a 10 s lock_timeout (retry if busy);
+     - the Role change (get pods) needs 20-core.yaml applied;
+     - when merging, KEEP main's 20-core.yaml: ceiling 750, re-runs "off" (back to 6 once `backfill stop` is used).
+     Deploy order: merge → audit → `release.sh --core` → `vyreon-core backfill stop "<reason>"` if it should stay
+     stopped → workers via release.sh → the canary → schedule.
+   - **Laptop disk:** delete `/home/diggz/wt/target-<branch>` when each branch merges (core-s1 8.6G, eng-s1 17G,
+     eng-s1b 8.2G). target-worker is 96G: the image build cache; check whether it can be trimmed.
 6. **Spend ceiling $750** is committed in 20-core.yaml (3b5094f) and goes live with the next core release (a core
    restart now could cost the running nightly its lease before C-088 ships). The owner's read-only billing token is
    in place (secret `vyreon-core-do-billing`): spend is measured by core's hourly read.
