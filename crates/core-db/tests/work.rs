@@ -195,7 +195,7 @@ async fn a_lost_workers_block_resumes_and_a_failed_day_is_set_aside() {
     assert_eq!((rest.sessions.clone(), rest.attempt), (vec!["2025-12-12".to_owned()], 1));
 
     // a lease that expires on the last attempt sets its day aside too, once the day has lost two
-    // leases free of charge; the third failed day stops the queue
+    // leases free of charge; the third failed day stops nothing (C-094)
     client.execute("UPDATE core.job SET max_attempts = 1 WHERE state <> 'FAILED'", &[]).await.unwrap();
     let mut rest = rest;
     for free in 1..=work::LOST_LEASES_FREE {
@@ -212,14 +212,17 @@ async fn a_lost_workers_block_resumes_and_a_failed_day_is_set_aside() {
     let other = work::claim(&mut client, Kind::DayBlock, &b, "w5", HOUR).await.unwrap().unwrap();
     assert_eq!(other.sessions, ["2025-12-15", "2025-12-16"]);
     assert!(!work::fail(&mut client, &other.token, "plan", "an input is missing", "log").await.unwrap());
-    let status = work::status(&client).await.unwrap();
-    assert_eq!(status["paused"], true);
-    assert_eq!(status["pause_reason"], format!("3 days stand failed; the last, job {} (2025-12-15): plan: an input is missing", other.job_id));
-    assert_eq!(work::claim(&mut client, Kind::DayBlock, &b, "w6", HOUR).await.unwrap(), None, "the 16th is queued but nothing is claimed while paused");
+    // C-094 (owner, 2026-11-26): the third failed day pauses nothing; it is logged with the count, and the 16th
+    // (the rest of its block) is claimable
+    assert_eq!(work::status(&client).await.unwrap()["paused"], false);
+    let said: String = client.query_one("SELECT message FROM core.notice WHERE message LIKE 'Day 2025-12-15 failed%' ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
+    assert!(said.ends_with("The build goes on. 3 days stand failed."), "{said}");
+    let sixteenth = work::claim(&mut client, Kind::DayBlock, &b, "w6", HOUR).await.unwrap().unwrap();
+    assert_eq!(sixteenth.sessions, ["2025-12-16"]);
+    client.execute("UPDATE core.lease SET ended_at = now(), outcome = 'DONE' WHERE job_id = $1 AND ended_at IS NULL", &[&sixteenth.job_id]).await.unwrap();
+    client.execute("UPDATE core.job SET state = 'DONE', next_session = NULL, finished_at = now() WHERE job_id = $1", &[&sixteenth.job_id]).await.unwrap();
 
-    // once someone has looked: the first reason is reported, and the failed days start afresh
-    work::pause(&client, "a later reason").await.unwrap();
-    assert!(work::resume(&client).await.unwrap().unwrap().contains("3 days stand failed"));
+    // once someone has looked: the failed days start afresh
     assert_eq!(work::retry_failed(&client).await.unwrap(), 3);
     let again = work::claim(&mut client, Kind::DayBlock, &b, "w6", HOUR).await.unwrap().unwrap();
     assert_eq!((again.job_id, again.attempt, again.sessions.clone()), (first.job_id, 1, vec!["2025-12-11".to_owned()]));

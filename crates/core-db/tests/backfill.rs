@@ -104,9 +104,10 @@ async fn later(client: &Client, minutes: i32) -> String {
 }
 
 /// C-086: KEDA's count for the backfill's day blocks is at most 1, and 0 for `RAMP_MINUTES` after one was
-/// leased; until the build has published one real day with no engine-fault slot (its base and day-local
+/// leased; until the build has published one real day with no whole-measurement engine fault (its base and day-local
 /// revisions counted by the watch), at most one backfill block runs at a time; once it has, one more every
-/// `RAMP_MINUTES` whatever runs. A day whose revisions hold the engine's faulted slot proves nothing. The
+/// `RAMP_MINUTES` whatever runs. A day with a measurement the engine faulted on every asset proves nothing; one
+/// with a single asset's fault does (owner, 2026-11-26). The
 /// daily session's block always counts; the claim itself is not gated (as C-073's budget).
 #[tokio::test]
 #[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
@@ -138,18 +139,19 @@ async fn backfill_blocks_start_one_at_a_time_until_the_build_published_a_real_da
         .execute(
             "INSERT INTO vyreon.measurement (revision_id, measurement_id, object_id, represented_date, slot_state, science_version, method_version,
                                              body_sha256, body_text, body, receipt)
-             VALUES ($1, 'SAI-EXQ01', 'XLB', $2::text::date, 'DELIVERED', 'engine-fault', 'engine-fault', $3, $4, $5::text::jsonb, '{}')",
+             SELECT $1, 'GATE-T', o, $2::text::date, 'DELIVERED', 'engine-fault', 'engine-fault', $3, $4, $5::text::jsonb, '{}' FROM unnest(ARRAY['XLB', 'XLE']) o",
             &[&base, &DAY, &core_contract::sha256_hex(ENGINE_FAULT_BODY_XLB.as_bytes()), &body, &body_json.to_string()],
         )
         .await
         .unwrap();
     assert_eq!(counted(&keda, "DAY_BLOCK", &build, Some(false)).await, 0, "not counted yet: not proven");
     watch::tally_batches(&mut client, &[base, local], None).await.unwrap();
-    assert_eq!(count(&client, &format!("SELECT engine_faults::bigint FROM core.revision_tally WHERE revision_id = {base}")).await, 1);
-    assert_eq!(counted(&keda, "DAY_BLOCK", &build, Some(false)).await, 0, "a day with an engine fault proves nothing");
+    assert_eq!(count(&client, &format!("SELECT engine_faults::bigint FROM core.revision_tally WHERE revision_id = {base}")).await, 2);
+    assert_eq!(counted(&keda, "DAY_BLOCK", &build, Some(false)).await, 0, "a day with a measurement faulted on every asset proves nothing");
 
-    // the same day clean: proven, so one more block now, though the first still runs
-    client.execute("DELETE FROM vyreon.measurement WHERE revision_id = $1 AND measurement_id = 'SAI-EXQ01' AND object_id = 'XLB' AND method_version = 'engine-fault'", &[&base]).await.unwrap();
+    // the same day with one asset's fault left (owner, 2026-11-26: the test is "can the engine execute a small
+    // block"; a local fault is a catalog line): proven, so one more block now, though the first still runs
+    client.execute("DELETE FROM vyreon.measurement WHERE revision_id = $1 AND measurement_id = 'GATE-T' AND object_id = 'XLE'", &[&base]).await.unwrap();
     client.execute("DELETE FROM core.revision_tally WHERE revision_id = ANY($1)", &[&vec![base, local]]).await.unwrap();
     watch::tally_batches(&mut client, &[base, local], None).await.unwrap();
     assert!(client.query_one("SELECT core.build_proven($1)", &[&build]).await.unwrap().get::<_, bool>(0));
