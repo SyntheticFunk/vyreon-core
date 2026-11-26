@@ -941,6 +941,20 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   year 1 $4,995 ($166.50/mo ×6 + $666/mo ×6; regular $5,994), annual commitment billed quarterly — under the $5k cap only with
   the promo. Checkout shows no coupon field/discount; owner emailed Flavia + support (2026-11-25) to attach it before
   2026-11-30 (promo end; auto-transition 12-01). Do not complete checkout until the discount shows. Chase ~11-28 if silent.
+  **2026-11-26 (MT afternoon): owner upgraded to Startup;** Intrinio confirmed the deal by email as a 50% refund of
+  the first six months' payments. The owner is clarifying features and has the order form to sign.
+  The order form: 1-year term, auto-renews; $333/mo ×6, $666/mo ×6, then $999 (+5%/yr from month 25); billed
+  quarterly in advance; +10% without auto-pay; 2,000 calls/min (unchanged: the plan's times stand); 3 websockets.
+  Display to individual end users; commercializing the app is allowed when demand is not primarily the data and
+  there is substantial analysis. **ATTRIBUTION REQUIRED: on any page where Intrinio data is used, the Intrinio logo
+  or a reference with a follow backlink to intrinio.com** → requirement for Reporter, the web, the email issues and
+  probably the social teasers.
+  Advised the owner:
+  - get the refund into the order form or a signed addendum;
+  - ask whether email/social count as "the application", and about firms/institutions;
+  - ask about per-endpoint limits under 2,000/min (P-30).
+  Entitlements after the upgrade (access codes, 2026-11-26): all 16 of 2026-09-29 kept, plus api, edi_otcb,
+  historical_tick_otc_delayed.
 - RSS watchdog in place of the 2 GiB per-worker address-space cap (D-007; asked 2026-11-20).
 - D-404's consecutive-gap limit (WMO uses 5 days): not ruled.
 - Optimization items that change an integrity rule or a diagnostic: history endpoints trusting
