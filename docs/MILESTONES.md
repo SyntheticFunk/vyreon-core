@@ -51,7 +51,13 @@ Backfill stopped 2026-11-26 13:37 MT: 606 phase-1 jobs cancelled; reference re-r
      SURFACE-INPUTS dead rows (P-34), and a NameError in surface/streams.py that skipped the M0 stream checks.
      Sent to eng-s1, item G.
    - **By design under the 10-30 σ rule:** 7 forward offsets inside the no-arbitrage band.
-   Owner questions, with my recommendation, are in the chat of 2026-11-26.
+   **Owner decisions 2026-11-26 (~15:30 MT):**
+   - (2) one withholding reason when T's own chain is empty: EMPTY_DELIVERED_POPULATION, the fact about T first,
+     across O02/O04/L01;
+   - (3) one GENERAL rule for implausible forwards instead of UUP/XLP special cases: an expiry whose implied carry is
+     inconsistent with its neighbours beyond what the quotes allow is withheld; drafted, then tested on the proving set
+     before adoption (overfit check);
+   - (1) the 10-30 σ-only rule for systematic offsets is being re-examined with the owner.
 2. Memory (owner: the engine fix, not bigger nodes): the next day's download starts only when memory allows, as
    the reference-check overlap's guard does. Measure one large 2025 day stage by stage on one node.
 3. A real day end to end is a release requirement: restore IVSC's ignored end-to-end test; release.sh refuses a
