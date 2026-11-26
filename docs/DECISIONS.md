@@ -3838,7 +3838,9 @@ from `VYREON_CORE_DEADLINES_FROM`, live 2026-11-30, so the nightlies of 11-23 to
 left to the owner). **Decided** (AGENTS.md: an observability gap becomes a notification): a daily session's job (priority 1)
 whose attempt ends unfinished and is queued again is posted on the alert channel at once ("Nightly run of Nov 25 stopped
 before it finished (its lease expired); it starts again by itself …"); out of attempts it is JOB_FAILED as before; the
-backfill's retries stay in the log. Test `backfill.rs::a_nightly_run_that_restarts_is_said_at_once`.
+backfill's retries stay in the log. Test `backfill.rs::a_nightly_run_that_restarts_is_said_at_once`. **Amended the same day
+by C-091:** the post is now the general worker-stop alert (every worker's stop, the nightly's named as the nightly, with
+the pod's cause), said within a minute by the service rather than in the lease's transaction.
 
 ## C-090 The stop rule stops only for systematic breakage (owner, 2026-11-26; amends C-084)
 C-084 counted unexplained reference failures toward the stop. **Decided:** STOP_RULE is raised for systematic breakage only:
@@ -3851,3 +3853,48 @@ measurements (`core.revision_tally.whole_faults`, migration 0064, which drops th
 Local value errors, unexplained reference failures and engine-fault slots that are not a whole measurement, are counted and
 listed apart for the fix pass by `vyreon-core stoprule` and raise nothing. Test
 `freeze.rs::the_stop_rule_stops_for_systematic_breakage_only`.
+
+## C-091 Two plain channels: progress says what moved, alerts say what broke and what needs the owner (owner, 2026-11-26)
+The progress post misled the owner for a day ("20 of 597 days done … nothing broken" while 5 of 8 blocks had been killed for
+memory or evicted, the 20 days from five builds, 🔴 beside "nothing broken", a stop-rule line, history-layer jargon, a
+recompute post contradicted within the hour), and the alerts channel "looks like a disaster" (a 15-line digest, reference
+disagreements as "Needs you" for four days, alerts caused by the deliberate backfill stop, a secret's name and a README path
+in a post, a NO_PROGRESS that healed in 8 minutes, a command in every post) while the worker deaths raised nothing.
+**Decided:**
+- **Progress** (`progress::compose`): only a block started ("Started: Oct 1 – Nov 20, 2024 (35 days)", "Started again: … (N
+  left)", "Nightly started: …"), a block finished ("Finished: … · 35 days kept", from the days its build published), and,
+  on the morning heartbeat, the database's progress: "Database: K of 597 days kept (current build) · finish ~Dec 14 at the
+  measured rate" (`progress::database_line`: the phase's sessions published whole by the newest running build; the finish
+  from that build's days kept in the last 24 h, said once it has kept 3 and run 2 h). Removed from progress: each day's
+  line, "Needs a look", the logged events, hand-over and drain lines, the history-layer, tape and re-capture lines, the
+  stop-rule line, the nightly status line, "nothing broken", the morning spend line and the recompute posts.
+- **Alerts**, three kinds (`watch::alert_for`): 🔴 "Needs you: what: what to do" only for the owner's own actions
+  (`watch::needs_you`: the spend near the ceiling, the provider's key or account, a larger volume; a recompute or a
+  scoped recompute waiting for a decision); ⚠️ "Problem: what", whether published numbers are affected, "The
+  coordinator is on it" (reference disagreements included); ✅ "Resolved" once. No command, file, setting, secret, id or
+  code (`plain::for_alert` on every alert). Worker deaths are ⚠️ with their cause (`deaths.rs`): each lease that
+  expired or failed, said once (`core.lease_death`, migration 0065), those of one minute in one post; the cause from the
+  worker's pod, read by core from the Kubernetes API (`core_api::deaths`; the core Role may now `get` pods): killed for
+  memory, evicted by its node, pod gone, still running (core unreachable), time limit, exit code; else the lease's own.
+  NO_PROGRESS opens quietly and is alerted only once it has held 30 minutes (`core.problem.quiet`); one that heals
+  before is never said. While the backfill is stopped by the owner (C-087) the stop posts once ("Backfill stopped by the
+  owner's decision; the nightly continues"), and what it causes (NOT_DERIVED from its cancelled passes, REFCHECK_NOT_RUN)
+  is neither opened nor resolved, and no recompute is decided.
+- **The 09:00 digest** is three lines (`watch::digest_post`): the verdict (🔴 needs you / ⚠️ problems open, the
+  coordinator is on them / 🟢 running fine), the database line, and what needs the owner (a spend not known included) or
+  "Nothing needs you". The full digest stays behind `vyreon-core digest`, the problems behind `vyreon-core problems`.
+Tests: `deaths.rs` (pod causes, the post), `plain.rs::an_alert_names_no_command_file_or_secret`,
+`backfill.rs` (the stop's own consequences not alerted, a nightly's stop said), the progress and digest renderers.
+
+## C-092 Provider work starts slowly after the budget pressed (owner, 2026-11-26)
+C-073's scaler counted nothing for the backfill's provider work for 5 minutes after any budget wait, then everything
+claimable: tapes, bursty by nature, all stopped starting, then all started at once, saturated the 1,900-a-minute budget
+again and stopped again. **Decided** (migration 0066, the simplest rule that does not oscillate: a slow start with
+hysteresis, the way TCP recovers from congestion): within 5 minutes of a wait (`budget::PRESSURE_MINUTES`) nothing new
+starts, as before; then, until 30 minutes from the wait (`budget::SLOW_START_MINUTES`), at most one new pod of a kind a
+minute (the count is 1 unless a backfill job of that kind and build was leased in the last minute, under KEDA's `accurate`
+deduction of pending Jobs); with no wait in 30 minutes, every claimable job counts. A wait during the slow start stops new
+starts again. Running pods are never touched. A headroom-proportional count was not taken: the scaler would need the
+budget's per-minute ceiling, a core setting not in the database. The day blocks keep their own ramp (C-086: one in 20
+minutes), slower still, so pressure only delays the next block; the daily session's work and the ordered passes always
+count. Test `backfill.rs::provider_work_starts_slowly_after_the_budget_pressed`.
