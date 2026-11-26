@@ -3898,3 +3898,13 @@ starts again. Running pods are never touched. A headroom-proportional count was 
 budget's per-minute ceiling, a core setting not in the database. The day blocks keep their own ramp (C-086: one in 20
 minutes), slower still, so pressure only delays the next block; the daily session's work and the ordered passes always
 count. Test `backfill.rs::provider_work_starts_slowly_after_the_budget_pressed`.
+
+## C-093 Every progress post ends with what is running now (owner, 2026-11-26)
+On 2026-11-26 C-079's held recompute was released when the spend became known (14:43 MT) and started 8 full day blocks at
+14:44 MT, after the backfill had been stopped by hand; nothing in the progress channel said what was running, and only an
+agent reading core's log noticed (cancelled ~15:58 MT). Owner: "seeing live jobs in the progress discord channel would be
+useful". **Decided:** every progress post (each started/finished post and the morning heartbeat) closes with one line,
+"Running now: 8 blocks (Jul 16 – 18, 2024; …) · the nightly (Nov 25, 2026)", or "Running now: nothing"
+(`progress::running_line`): the day blocks holding a live lease at the window's end, each by its whole span, the nightly
+named apart. No timed post: the line rides the posts that already go out, so a quiet half hour stays quiet. The line is
+no event, so it never counts as carried (C-073). Test `progress::tests::running_now_names_each_block_and_the_nightly`.
