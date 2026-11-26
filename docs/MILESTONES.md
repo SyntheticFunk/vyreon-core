@@ -64,7 +64,12 @@ Backfill stopped 2026-11-26 13:37 MT: 606 phase-1 jobs cancelled; reference re-r
      - inside the band but inconsistent with the neighbouring expiries is rule (3)'s job.
      Verify the 7 are inside the band before it lands.
    - Owner direction (2026-11-26): prefer standard, generalizable tests over our own decisions wherever possible
-     (AGENTS priorities 2 and 4). How to apply it now vs after phase 1: discussed with the owner.
+     (AGENTS priorities 2 and 4). **Agreed split (owner, 2026-11-26):**
+     - Before the freeze, standard-first for every rule that BLOCKS: one that causes an engine fault, an
+       unexplained reference failure, or a withholding on clean inputs in stage 1's evidence or the proving set
+       (stage 2). Each is replaced by a published standard or one general rule, or justified, before the freeze.
+     - The reference suite's rulings get the same pass now; they change no published value.
+     - Every other engine rule waits for the census on the phase-1 population (owner 2026-11-16/11-21).
 2. Memory (owner: the engine fix, not bigger nodes): the next day's download starts only when memory allows, as
    the reference-check overlap's guard does. Measure one large 2025 day stage by stage on one node.
 3. A real day end to end is a release requirement: restore IVSC's ignored end-to-end test; release.sh refuses a
