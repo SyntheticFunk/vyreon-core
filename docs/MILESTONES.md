@@ -56,9 +56,11 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   blocker and operations fixes ship mid-run.
 - **UUP dividend: RESOLVED, not a blocker (verified in the code, 2026-11-26 ~17:15 MT).** The owner remembered
   right: D-154 (2026-11-02) projects a commodity pool's (DBA, UUP) distribution from the trailing fed funds rate;
-  production applies it (`h5_surface.rs` `pool_income_of`). The "0.0577 → 0.0723" came from a test fixture fed last
-  year's 1.3171 raw, a path production never takes. Under D-154 (0.9657 vs 0.9269 paid) the 44-day expiry is inside
-  its bounds; IV30 ≈ 0.064 (D-154's record). Where D-154 misses badly (2024-07-11: 1.84 projected, 1.3171 paid) D-560
+  production applies it (`h5_surface.rs` `pool_income_of`). The test fixture was fed last year's 1.3171 raw, a path
+  production never takes: the 44-day expiry's WITHHOLDING is that artifact. Under D-154 (0.9657 vs 0.9269 paid) no
+  expiry is outside its bounds and IV30 is 0.0723 all the same (engine test, eng-s1 2026-11-26; my first note here
+  said ≈0.064 from D-154's old record: wrong for this build). 0.0723 is the upper part of what UUP's thin book allows
+  (5.8–7.3% by an at-the-money calculation): quote uncertainty, CATALOG. Where D-154 misses badly (2024-07-11: 1.84 projected, 1.3171 paid) D-560
   withholds the expiry: a stated absence, not a wrong number. CATALOG (fix pass): replace D-153/D-154's projections
   with the standard forward from put–call parity (Cboe VIX methodology §3(a)(ii)); UUP's thin book needs a fallback.
 - **Reference-suite rulings census** (`~/claude-artifacts/checks/refsuite-rulings-standards-2026-11-26.md`, agent,
