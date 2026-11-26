@@ -1225,7 +1225,7 @@ async fn an_engine_fault_is_one_by_its_stated_reason() {
 async fn a_restated_tape_listing_is_engine_caused() {
     let scratch = Scratch::new("tally_restated").await;
     let client = scratch.client().await;
-    assert!(watch::ENGINE_REASONS.iter().all(|r| watch::FAULT.matches(&format!("'{r}'")).count() == 2), "FAULT lists every engine reason, both ways");
+    assert!(watch::ENGINE_REASONS.iter().all(|r| watch::FAULT.matches(&format!("'{r}'")).count() == 3), "FAULT lists every engine reason, all three ways (C-094)");
     let real: Value = serde_json::from_str(test_support::PROVIDER_ABSENCE_BODY_IBIT.trim()).unwrap();
     let mut terminal = real.clone();
     terminal["measurement"]["value"]["terminal_reason"] = json!("TAPE_LISTING_RESTATED");

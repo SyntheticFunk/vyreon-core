@@ -270,6 +270,42 @@ async fn the_stop_rule_stops_for_systematic_breakage_only() {
     let alert: String = client.query_one("SELECT message FROM core.notice WHERE post AND message LIKE '%stop rule%' ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
     assert!(alert.starts_with("⚠️ Problem: Phase-1 stop rule, systematic breakage") && alert.contains("Published numbers affected") && !alert.contains('`'), "{alert}");
 
+    // C-094 (audit 2026-11-26), the three shapes the count misread:
+    //  T1: one faulted asset beside healthy bodies with no terminal reason is NOT every asset's fault;
+    //  T2: faulted assets beside one asset the provider left empty (withheld whole, its own reason) IS;
+    //  T3: a direct owner's body states the fault on `failure_reason` and its coordinates (M0-PRINT-SIZE's shape).
+    let healthy = serde_json::json!({"measurement": {"value": {"roles": [{"role_id": "x", "reason": null, "value": 1.0}]}}});
+    let direct = serde_json::json!({"measurement": {"value": {"failure_reason": "PARENT_ENGINE_FAULT",
+        "coordinates": [{"role_id": "delivered_count", "reason": "PARENT_ENGINE_FAULT", "state": "WITHHELD", "value": null}]}}});
+    let put = |m: &'static str, o: &'static str, text: String, body: serde_json::Value| {
+        let client = &client;
+        async move {
+            client
+                .execute(
+                    "INSERT INTO vyreon.measurement (revision_id, measurement_id, object_id, represented_date, slot_state, science_version, method_version,
+                                                     body_sha256, body_text, body, receipt)
+                     SELECT revision_id, $2, $3, represented_date, 'DELIVERED', 'v', 'v', $4, $5, $6::text::jsonb, '{}' FROM vyreon.day_revision WHERE revision_id = $1",
+                    &[&b2, &m, &o, &core_contract::sha256_hex(format!("{m}{o}").as_bytes()), &text, &body.to_string()],
+                )
+                .await
+                .unwrap();
+        }
+    };
+    put("T1", "XLB", fault.to_owned(), fault_json.clone()).await;
+    put("T1", "XLE", "ok".into(), healthy.clone()).await;
+    put("T1", "XLF", "ok".into(), healthy.clone()).await;
+    put("T2", "XLB", fault.to_owned(), fault_json.clone()).await;
+    put("T2", "XLE", fault.to_owned(), fault_json.clone()).await;
+    let empty = serde_json::json!({"measurement": {"value": {"terminal_reason": "EMPTY_DELIVERED_POPULATION"}}});
+    put("T2", "IBIT", format!("\"T2/IBIT/{}/engine-fault\"", days[2]), empty).await;
+    put("T3", "XLB", "direct".into(), direct.clone()).await;
+    put("T3", "XLE", "direct".into(), direct.clone()).await;
+    client.execute("DELETE FROM core.revision_tally WHERE revision_id = $1", &[&b2]).await.unwrap();
+    watch::tally_batches(&mut client, &[b2], None).await.unwrap();
+    let whole: Vec<String> = client.query_one("SELECT whole_faults FROM core.revision_tally WHERE revision_id = $1", &[&b2]).await.unwrap().get(0);
+    assert_eq!(whole, ["SAI-EXQ01-T", "T2", "T3"], "T1 (one faulted asset beside healthy ones) is local");
+    client.execute("DELETE FROM vyreon.measurement WHERE measurement_id IN ('T1', 'T2', 'T3') AND revision_id = $1", &[&b2]).await.unwrap();
+
     // failures to publish past half of the attempted days, from the 20th published day: systematic too
     client.execute("DELETE FROM vyreon.measurement WHERE measurement_id = 'SAI-EXQ01-T' AND revision_id = $1", &[&b2]).await.unwrap();
     client.execute("DELETE FROM core.revision_tally WHERE revision_id = $1", &[&b2]).await.unwrap();
