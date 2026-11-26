@@ -42,6 +42,16 @@ Backfill stopped 2026-11-26 13:37 MT: 606 phase-1 jobs cancelled; reference re-r
 **Stage 1, fix** (target ~11-29; cluster near zero). Done when all six land, each with its commit:
 1. Classify the 20 unexplained reference disagreements of 2024-07-11 on 714e47a3 (SURFACE-FORWARD 9, VS-O02 6,
    SURFACE-SIGMA 2, SURFACE-INPUTS 1, FIELD-SUP01 1, VS-O04 1); fix the engine ones.
+   **Classified 2026-11-26 15:10 MT:** 3 engine faults change published values, so 2024-07-11 is BAD.
+   - **VS-O04 NVDA:** systematic and block-dependent; the block's history starts with no prior quote file, so a new
+     expiry's open interest reads as unknown and the expiry is dropped. Sent to eng-s1, item F.
+   - **UUP 190d forward:** the forward implies a projected distribution too high; both rights are uninvertible.
+   - **XLP 15d forward:** leaning engine; the implied carry is inconsistent with the neighbouring expiries.
+   - **Suite faults:** FIELD-SUP01 hash newline, VS-O02 reason order, SURFACE-SIGMA D-145 not mirrored,
+     SURFACE-INPUTS dead rows (P-34), and a NameError in surface/streams.py that skipped the M0 stream checks.
+     Sent to eng-s1, item G.
+   - **By design under the 10-30 σ rule:** 7 forward offsets inside the no-arbitrage band.
+   Owner questions, with my recommendation, are in the chat of 2026-11-26.
 2. Memory (owner: the engine fix, not bigger nodes): the next day's download starts only when memory allows, as
    the reference-check overlap's guard does. Measure one large 2025 day stage by stage on one node.
 3. A real day end to end is a release requirement: restore IVSC's ignored end-to-end test; release.sh refuses a
