@@ -34,7 +34,14 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
 - **Coverage goal (80%):** per sensor over its asset-days, measured, never enforced. **Window floor
   (75%, D-404):** per history window, a rule. **Day hold (10%):** per day, a rule (`exports.rs`).
 
-## Resume here (2026-11-26, 14:25 MT)
+## Resume here (HANDOFF, 2026-11-26 ~15:35 MT)
+0. **HANDOFF STATE (15:35 MT):**
+   - every agent of the old session is finished or stopped; all four branches are clean and committed; nothing
+     is merged, released or audited;
+   - the cluster runs only core plus the 11-25 nightly (lease since 13:45 MT; publish expected ~17:30–18:00);
+   - spend is MEASURED since 14:43 MT ($351.57 month-to-date at DigitalOcean's 2026-11-25 22:14 MT refresh).
+   **First:** the alignment talk with the owner. Then the plan of record's steps 1 (integration), 2 (Codex audit),
+   3 (remediate, freeze through the canary) and the run.
 1. **The backfill is stopped** (2026-11-26 13:37 MT): 606 phase-1 jobs cancelled; reference re-runs off
    (`VYREON_CORE_REFCHECK_RERUN_HOURS` "off", 878bd78). Stopping = cancel the jobs AND turn off every automation
    that queues backfill-type work (C-073 re-runs; C-079 recompute is held while spend is unknown).
@@ -75,6 +82,11 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
          NOT adopted. At the Treasury rate it fired on 10–16% of expiries. The bounds test fired on ~0.5–1% of
          ~1,070 expiries per session in saved runs, mostly 1–3-day expiries, 1–10 bp of spot. The census on this
          build's refit goes to `~/claude-artifacts/checks/forward-bounds-census-2026-11-26.txt` (pending).
+       - **The census was STOPPED UNFINISHED at the handoff.** Re-run it as evidence for D-560 before the audit
+         closes: on eng-s1b, `cargo run --release -p h3-iv-surface --example forward_bounds_census -- <saved run
+         dirs>` (it was run on `~/claude-artifacts/vyreon-b0-scratch-2026-10-25/fwd/<date>/<fit>`, e.g.
+         2025-12-10/median-all and 2026-03-20/huber-all), with the output to
+         `~/claude-artifacts/checks/forward-bounds-census-<date>.txt`.
        - D-153 is kept. Values change: σ, Greeks and fits on withheld expiries. **UUP 2025-12-03 IV30 0.0577 →
          0.0723** (its 44-day expiry withheld).
        - **The owner CONFIRMED the bounds test in place of the neighbour test (2026-11-26: "standards are way better
