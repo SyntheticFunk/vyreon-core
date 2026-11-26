@@ -57,7 +57,14 @@ Backfill stopped 2026-11-26 13:37 MT: 606 phase-1 jobs cancelled; reference re-r
    - (3) one GENERAL rule for implausible forwards instead of UUP/XLP special cases: an expiry whose implied carry is
      inconsistent with its neighbours beyond what the quotes allow is withheld; drafted, then tested on the proving set
      before adoption (overfit check);
-   - (1) the 10-30 σ-only rule for systematic offsets is being re-examined with the owner.
+   - (1) **the 10-30 rule's "a systematic offset is never judged in price" is replaced by the standard test**:
+     - a forward inside the put–call parity no-arbitrage band of the quotes (Hull) is quote uncertainty, recorded
+       and labelled;
+     - outside the band it is an engine error;
+     - inside the band but inconsistent with the neighbouring expiries is rule (3)'s job.
+     Verify the 7 are inside the band before it lands.
+   - Owner direction (2026-11-26): prefer standard, generalizable tests over our own decisions wherever possible
+     (AGENTS priorities 2 and 4). How to apply it now vs after phase 1: discussed with the owner.
 2. Memory (owner: the engine fix, not bigger nodes): the next day's download starts only when memory allows, as
    the reference-check overlap's guard does. Measure one large 2025 day stage by stage on one node.
 3. A real day end to end is a release requirement: restore IVSC's ignored end-to-end test; release.sh refuses a
