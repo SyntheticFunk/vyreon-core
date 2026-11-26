@@ -132,7 +132,7 @@ spec:
             # worker gone, gets a re-run (a REFCHECK job, ScaledJob `refcheck`) this many hours after
             # publishing; REFCHECK_NOT_RUN only when that fails too. `off`: none (the old alert)
             - name: VYREON_CORE_REFCHECK_RERUN_HOURS
-              value: "6"   # "off" 2026-11-25 while the backfill was stopped; "6" again with the freeze release (C-081), the backfill resumes with it
+              value: "off"   # "off" 2026-11-25 and again 2026-11-26 (owner: backfill stopped until the engine is frozen again); "6" when the backfill resumes
             # Daily runs (C-051): core queues each session from VYREON_CORE_DAILY_FROM by itself, at
             # 07:30 New York the next calendar day, for the admitted build VYREON_CORE_DAILY_BUILD
             # (both or neither; unset, nothing is queued and the backfill is scheduled by hand).
