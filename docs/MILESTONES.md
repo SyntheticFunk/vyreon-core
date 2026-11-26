@@ -1613,6 +1613,13 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   The 11-25 nightly (~05:30 UTC−6) would be held on 93a04676 too — aim to ship before it (prints keep ~5 sessions).
   Lesson for the audit process: the fixers ran targeted crate tests; a cross-crate contract change (D-478) broke a staged-copy
   consumer (M0) that no unit test exercised end to end — the full suite passed. Needs an end-to-end day test on real data.
+  **Hotfix released (UTC−6 ~23:40–00:05): worker 90e2f228+ec7bbce60e40** (engine fd740b84: M0-ANALYTICS stages
+  source-identity.json; no value change; tape reader identity unchanged, re-captured tapes stand). Phase 1 rescheduled on it
+  (12×50-session blocks); **ONE-DAY GATE: day-block maxReplicaCount 1** until the gate block's first day publishes with no
+  engine fault, then 8 (from now on every new build: one real day before scaling — release.sh to enforce it). The C-073
+  re-run rule cancelled the 15 handed-over stale re-runs by itself. release.sh false STOP at step 11 ("no pod claimed
+  refcheck in 20 min": it snapshotted the kinds to verify before the watch cancelled those re-runs) — finished with --from 12.
+  Fix for release.sh: verify only kinds still claimable at verification time. Daily build in 20-core.yaml committed.
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
