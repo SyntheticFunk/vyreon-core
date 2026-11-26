@@ -1625,6 +1625,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   systematic engine fault; gate held (day-block max stays 1; the gate block continues its later days, which carry the same
   fault — accepted for diagnosis evidence, one node). Investigation sent (eng-hotfix-ivsc). The gate worked: one block, one day,
   instead of 12 blocks. Stop rule: 2024-07-09 is BAD (engine fault changing a published value: 62 withheld).
+  Cause (engine cb7bf1ab → worker 714e47a3): D-482 switched the ivsc_history binding to the location-free view_sha256 and
+  IVSC's checks to it, but h4_ivsc.rs still RECORDED the raw sha256 of an inventory holding absolute directories →
+  check_summary_binding drift on every asset-day. Fix: record history.content_sha256 like every owner; no computed value
+  changes. Missed because IVSC's one end-to-end test is ignored for a stale fixture (D-400) — backlog: restore it.
+  Also on 07-09 and 09-18: two-asset faults (VS-V03-CURRENT projection count ×2, M0-ANALYTICS InvalidSurface ×2, SAI-G01 O02
+  count ×1) — being classified (stated absence vs engine bug): matter for the stop rule. Image building; release + gate again.
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
