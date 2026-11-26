@@ -1630,7 +1630,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   check_summary_binding drift on every asset-day. Fix: record history.content_sha256 like every owner; no computed value
   changes. Missed because IVSC's one end-to-end test is ignored for a stale fixture (D-400) — backlog: restore it.
   Also on 07-09 and 09-18: two-asset faults (VS-V03-CURRENT projection count ×2, M0-ANALYTICS InvalidSurface ×2, SAI-G01 O02
-  count ×1) — being classified (stated absence vs engine bug): matter for the stop rule. Image building; release + gate again.
+  count ×1) — classified: NOT engine bugs. IBIT (ETHA later) before listed options: empty chain (canonical_row_count 0) →
+  every reader withholds as EMPTY_DELIVERED_POPULATION (D-117); day summary faulted_engine 62 (all IVSC),
+  withheld_empty_population 9. Only the intent log's "fault:" wording misleads (cosmetic, after the freeze). So the gate's
+  only engine fault was INT-IVSC01. Image building; release + gate again; scale when a gate day has zero engine faults.
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
