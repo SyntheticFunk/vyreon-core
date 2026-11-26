@@ -113,6 +113,36 @@ Context is lost over time; the files are the memory. Sessions run for days on th
   decisions made and decisions waiting on the owner.
 - Report delivered capability, not documents or test counts. Times for the owner in Mountain Time.
 
+## Running the build (owner, 2026-11-26, after three days of restarts)
+- **Canary:** every merge into the engine's release line computes one real day on one node before it can ship, and
+  is compared with the last good build (engine faults, reference result, memory peak, time). Until the canary job
+  exists, that real day is run by hand. No change reaches many nodes untested.
+- **Science is frozen during production:** only blocker and operations fixes ship mid-run. Science changes wait on a
+  branch for the fix pass, small ones included.
+- **Scaling goes only through core:** the one-real-day gate, then the ramp the request budget allows. No slots are
+  opened by hand.
+- **Proven or hypothesis:** every finding brought to the owner is labelled. An agent's finding is verified, by me or
+  a second reader, before it is stated as fact.
+- **Fresh session at stage boundaries** (for example, once production runs). MILESTONES and the loop carry the state;
+  the alignment talk comes first.
+- **Prune:** MILESTONES holds current state only (tag before pruning). Memories and these rules are pruned after
+  phase 1. The census covers the machinery (job kinds, automations that interact) as well as the science rules.
+- **While the owner is away, pre-authorized** (each reported in the next status):
+  - stop or pause the backfill on systematic breakage or runaway cost;
+  - cancel, retry or reschedule blocks;
+  - scale down;
+  - release a fix for a blocker (an engine fault that stops publication, or that hits a whole measurement on every
+    asset) through the gate, with evidence;
+  - apply core settings through the scripts;
+  - start read-only investigations.
+- **Never without the owner:**
+  - spend above the ceiling, or raise it;
+  - change a science rule or method beyond such a blocker fix;
+  - send anything to a provider or a customer;
+  - delete data;
+  - force-push;
+  - create or change access keys.
+
 ## Machines
 - Droplet `ssh vyreon-engine` (authoritative today): DigitalOcean Premium AMD, 8 shared vCPU / 16 GB,
   Postgres 16 on the volume `/mnt/vyreon_engine_v1`, settings in `/etc/vyreon.env`, daily capture and
