@@ -2,10 +2,12 @@
 //! table and is the only writer (docs/DECISIONS.md C-019).
 pub mod api_key;
 pub mod archive;
+pub mod backfill;
 pub mod budget;
 pub mod build;
 pub mod capture;
 pub mod daily;
+pub mod deaths;
 pub mod evidence;
 pub mod instance;
 pub mod migrate;

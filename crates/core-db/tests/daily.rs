@@ -171,7 +171,7 @@ async fn a_build_that_cannot_work_queues_nothing_and_is_a_problem() {
     assert_eq!(refused, format!("daily runs: build {derived} is not admitted; 1 due sessions are not queued"));
     let n: i64 = client.query_one("SELECT count(*) FROM core.job", &[]).await.unwrap().get(0);
     assert_eq!(n, 0);
-    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d.clone()), archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
+    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d.clone()), archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None, phase: None };
     let now = "2025-12-11 12:31:00+00";
     let stopped = format!("Daily runs stopped: build {derived} is not admitted, so no new session is queued");
     assert_eq!(watch::check(&mut client, &s, now).await.unwrap().opened, std::slice::from_ref(&stopped));
@@ -198,7 +198,7 @@ async fn a_build_that_cannot_work_queues_nothing_and_is_a_problem() {
 async fn a_failed_queueing_is_a_problem_before_the_digest() {
     let (scratch, mut client, b, _) = ready("daily_queue_failed").await;
     let d = daily(&b, "2025-12-10");
-    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d), archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
+    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d), archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None, phase: None };
     client
         .batch_execute(
             "ALTER FUNCTION vyreon.ensure_months(date, date) RENAME TO ensure_months_kept;
@@ -214,7 +214,8 @@ async fn a_failed_queueing_is_a_problem_before_the_digest() {
     let open: Vec<String> = watch::open(&client, nine).await.unwrap().into_iter().map(|o| o.summary).collect();
     assert_eq!(open, [stopped]);
     let digest: String = client.query_one("SELECT message FROM core.notice WHERE once = 'digest 2025-12-11'", &[]).await.unwrap().get(0);
-    assert!(digest.starts_with(&format!("🔴 Needs you: {}", core_db::plain::plain(stopped))), "{digest}");
+    // C-091: three lines; the daily runs stopped are the coordinator's problem, not the owner's
+    assert!(digest.starts_with("⚠️ 1 problem open, the coordinator is on it · Thu Dec 11\nDatabase: ") && digest.ends_with("\nNothing needs you"), "{digest}");
     // queueing works again: the session is queued and the problem resolves
     client.batch_execute("DROP FUNCTION vyreon.ensure_months(date, date); ALTER FUNCTION vyreon.ensure_months_kept(date, date) RENAME TO ensure_months;").await.unwrap();
     let change = watch::tick(&mut client, &s, "2025-12-11 16:01:00+00").await.unwrap();
@@ -287,7 +288,7 @@ async fn a_tick_waiting_on_a_hand_over_queues_nothing_under_the_withdrawn_build(
 async fn a_daily_table_that_cannot_be_read_is_said_and_the_other_checks_still_run() {
     let (scratch, mut client, b, _) = ready("daily_unreadable").await;
     let d = daily(&b, "2025-12-10");
-    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d), archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
+    let s = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: Some(d), archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None, phase: None };
     client.batch_execute("ALTER TABLE core.daily_session RENAME TO daily_session_away").await.unwrap();
     work::pause(&client, "checking the watch's parts").await.unwrap();
     let now = "2025-12-11 12:31:00+00";
@@ -299,7 +300,7 @@ async fn a_daily_table_that_cannot_be_read_is_said_and_the_other_checks_still_ru
     assert!(open[1].1.starts_with("Watch failing: cannot check the daily runs (relation \"core.daily_session\" does not exist; their queueing failed too"), "{}", open[1].1);
     assert_eq!(change.failing.len(), 1, "{change:?}");
     let posts: Vec<String> = client.query("SELECT message FROM core.notice WHERE post ORDER BY notice_id", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
-    assert!(posts.iter().any(|p| p.starts_with("🔴 Watch failing: cannot check the daily runs")), "{posts:?}");
+    assert!(posts.iter().any(|p| p.starts_with("⚠️ Problem: Watch failing: cannot check the daily runs")), "{posts:?}");
     // the same failure the next minute: no second alert
     let again = watch::tick(&mut client, &s, "2025-12-11 12:32:00+00").await.unwrap();
     assert!(again.opened.is_empty(), "{again:?}");

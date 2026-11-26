@@ -8,6 +8,7 @@
 //! the perishable archive core hands a worker a pre-signed URL for one object (C-052).
 pub mod adjustments;
 pub mod backups;
+pub mod deaths;
 pub mod notices;
 pub mod reader;
 pub mod spend;

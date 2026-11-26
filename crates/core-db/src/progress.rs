@@ -420,7 +420,10 @@ struct Composed {
     lines: Vec<(String, Shown)>,
     routine: Shown,
     news: bool,
-    head: Head,
+    /// C-091: the database's progress, the morning's first line.
+    database: String,
+    /// C-093: what is running at the window's end, the last line of every post.
+    running: String,
 }
 
 /// A logged line as the progress channel says it, in plain words (owner, 2026-11-25: "currently its
@@ -443,6 +446,13 @@ pub fn short_notice(message: &str) -> Option<String> {
             one_line(why, 120)
         };
         return Some(format!("Queue paused: {why}"));
+    }
+    // C-087: the backfill's stop and resume, with the owner's reason
+    if let Some((_, why)) = message.strip_prefix("Backfill stopped (").and_then(|r| r.split_once("): ")) {
+        return Some(format!("Backfill stopped: {}", one_line(why, 120)));
+    }
+    if message.starts_with("Backfill resumed (") {
+        return Some("Backfill resumed".into());
     }
     if message == "Queue resumed." {
         return Some("Queue resumed".into());
@@ -490,12 +500,8 @@ pub fn short_notice(message: &str) -> Option<String> {
 /// C-073 (audit c072 r4): each line carries what it states, so a line the window's post cannot hold
 /// leaves its events to the next window (`tick` records only what its post carried).
 async fn compose(c: &mut impl GenericClient, profile: &str, phase: Option<&(String, String)>, start: &str, end: &str) -> Result<Composed, String> {
-    // "⚠ Needs a look" items gathered as the window is read
-    let mut look: Vec<String> = Vec::new();
-    let mut disagree: Vec<String> = Vec::new();
-    let mut lines: Vec<(String, Shown)> = Vec::new();
-    let mut routine: Shown = Vec::new();
-    let mut watch_flag = false;
+    // C-091 (owner, 2026-11-26: "block queued, block finished, database progress; any errors go in alerts"): a
+    // block started, a block finished, and (the morning's) the database's progress; nothing else
     let from: String = c
         .query_one(
             "SELECT LEAST($1::text::timestamptz,
@@ -507,134 +513,19 @@ async fn compose(c: &mut impl GenericClient, profile: &str, phase: Option<&(Stri
         .map_err(db)?
         .get(0);
     let not_shown = |source: &str, id: &str| format!("NOT EXISTS (SELECT FROM core.progress_shown s WHERE s.source = '{source}' AND s.id = {id})");
-
-    // each day published: its day-local revision (a block publishes the base, then the day-local
-    // revision on it, C-031), with the lease that published it (`core.lease_revision`; none when
-    // it was published by hand: no minutes), the minutes counted from that lease's previous
-    // day-local revision or its grant
-    let days = c
-        .query(
-            &format!(
-                "WITH d AS (SELECT b.represented_date AS day, b.revision_id AS base, l.revision_id AS local, l.published_at,
-                                   l.republish_scope AS local_scope, b.republish_scope AS base_scope
-                            FROM vyreon.day_revision l JOIN vyreon.day_revision b ON b.revision_id = l.base_revision AND b.represented_date = l.represented_date
-                            WHERE l.day_local AND l.profile_id = $3 AND l.published_at > $1::text::timestamptz AND l.published_at <= $2::text::timestamptz
-                              AND {fresh})
-                 SELECT to_char(d.day, 'Mon FMDD'), d.base, d.local,
-                        extract(epoch FROM d.published_at - GREATEST(x.granted_at,
-                            (SELECT max(p.published_at) FROM core.lease_revision pr JOIN vyreon.day_revision p USING (revision_id)
-                             WHERE pr.lease_id = x.lease_id AND p.day_local AND p.published_at < d.published_at)))::float8 / 60,
-                        (SELECT jsonb_build_object('id', r.refcheck_report_id, 'outcome', r.outcome, 'unexplained', r.failed_unexplained)
-                         FROM core.refcheck_report r
-                         WHERE r.base_revision = d.base AND (r.day_local_revision IS NULL OR r.day_local_revision = d.local)
-                           AND r.stored_at <= $2::text::timestamptz
-                         ORDER BY r.stored_at DESC, r.refcheck_report_id DESC LIMIT 1)::text,
-                        -- C-074: a republish's scopes (the day-local revision's, and its base's when the job republished it)
-                        d.local_scope::text, CASE WHEN d.base_scope->>'job' = d.local_scope->>'job' THEN d.base_scope::text END
-                 FROM d LEFT JOIN LATERAL (
-                     SELECT l.lease_id, l.granted_at FROM core.lease_revision lr JOIN core.lease l USING (lease_id) JOIN core.job j USING (job_id)
-                     WHERE lr.revision_id = d.local AND j.kind = 'DAY_BLOCK') x ON true
-                 ORDER BY d.published_at, d.day",
-                fresh = not_shown("revision", "l.revision_id")
-            ),
-            &[&from, &end, &profile],
-        )
-        .await
-        .map_err(db)?;
-    // the reports a day line already states (C-054: a report is of the base and the day-local
-    // revision it checked, both: audit round 2 of core-watch, 2)
-    let mut stated: Vec<i64> = Vec::new();
-    if !days.is_empty() {
-        let revisions: Vec<i64> = days.iter().flat_map(|r| [r.get::<_, i64>(1), r.get::<_, i64>(2)]).collect();
-        watch::tally_batches(c, &revisions, None).await?;
-        for r in &days {
-            let (date, base, local): (String, i64, i64) = (r.get(0), r.get(1), r.get(2));
-            let t = c
-                .query_one(
-                    "SELECT COALESCE(sum(slots), 0)::bigint, COALESCE(sum(withheld), 0)::bigint, COALESCE(sum(provider_withheld), 0)::bigint, COALESCE(sum(engine_faults), 0)::bigint
-                     FROM core.revision_tally WHERE revision_id = ANY($1)",
-                    &[&vec![base, local]],
-                )
-                .await
-                .map_err(db)?;
-            let tally = watch::Tally { slots: t.get(0), withheld: t.get(1), provider_withheld: t.get(2), engine_faults: t.get(3) };
-            let minutes: Option<f64> = r.get(3);
-            let check: Option<Value> = r.get::<_, Option<String>>(4).and_then(|s| serde_json::from_str(&s).ok());
-            let check_id = check.as_ref().and_then(|c| c["id"].as_i64());
-            stated.extend(check_id);
-            watch_flag |= tally.engine_faults > 0 || check.as_ref().and_then(refcheck_flag).is_some();
-            let mut said: Shown = vec![("revision", local)];
-            said.extend(check_id.map(|id| ("refcheck", id)));
-            // the assets behind the day's engine faults and behind its provider absences (owner: name them,
-            // up to 3), each by its stated reason (`watch::FAULT`)
-            let named = |faults: bool| {
-                format!(
-                    "SELECT DISTINCT m.object_id FROM vyreon.measurement m JOIN vyreon.day_revision d ON d.revision_id = m.revision_id AND d.represented_date = m.represented_date
-                     WHERE m.revision_id = ANY($1) AND {} ORDER BY 1",
-                    if faults {
-                        watch::FAULT.to_owned()
-                    } else {
-                        format!("strpos(m.body_text, m.measurement_id || '/' || m.object_id || '/' || d.represented_date::text || '/engine-fault\"') > 0 AND NOT {}", watch::FAULT)
-                    }
-                )
-            };
-            let mut assets: [Vec<String>; 2] = [Vec::new(), Vec::new()];
-            for (i, (faults, n)) in [(true, tally.engine_faults), (false, tally.provider_withheld)].into_iter().enumerate() {
-                if n > 0 {
-                    assets[i] = c.query(&named(faults), &[&vec![base, local]]).await.map_err(db)?.iter().map(|r| r.get(0)).collect();
-                }
-            }
-            if check.as_ref().and_then(refcheck_flag).is_some() {
-                disagree.push(date.clone());
-            }
-            let line = day_line(&date, tally, &assets[0], &assets[1], check.as_ref(), minutes);
-            let scopes: Vec<Value> = [r.get::<_, Option<String>>(5), r.get::<_, Option<String>>(6)].into_iter().flatten().filter_map(|t| serde_json::from_str(&t).ok()).collect();
-            lines.push((if scopes.is_empty() { line } else { republished_line(&line, &scopes) }, said));
-        }
-    }
-
-    // reference checks that came in for days published before: only one that disagrees or did not
-    // complete is a line; one that agrees is stated without a line (the digest counts them)
-    let checks = c
-        .query(
-            &format!(
-                "SELECT to_char(r.session, 'Mon FMDD'), jsonb_build_object('outcome', r.outcome, 'unexplained', r.failed_unexplained)::text,
-                        b.state = 'PUBLISHED' AND (r.day_local_revision IS NULL
-                            OR EXISTS (SELECT FROM vyreon.day_revision x WHERE x.revision_id = r.day_local_revision AND x.state = 'PUBLISHED')),
-                        r.refcheck_report_id
-                 FROM core.refcheck_report r JOIN vyreon.day_revision b ON b.revision_id = r.base_revision
-                 WHERE b.profile_id = $3 AND r.stored_at > $1::text::timestamptz AND r.stored_at <= $2::text::timestamptz AND NOT r.refcheck_report_id = ANY($4)
-                   AND {fresh}
-                 ORDER BY r.stored_at, r.refcheck_report_id",
-                fresh = not_shown("refcheck", "r.refcheck_report_id")
-            ),
-            &[&from, &end, &profile, &stated],
-        )
-        .await
-        .map_err(db)?;
-    for r in &checks {
-        let (date, check, current, id): (String, String, bool, i64) = (r.get(0), r.get(1), r.get(2), r.get(3));
-        let check: Value = serde_json::from_str(&check).map_err(|e| e.to_string())?;
-        match refcheck_flag(&check).filter(|_| current) {
-            Some(_) => {
-                watch_flag = true;
-                disagree.push(date);
-                routine.push(("refcheck", id));
-            }
-            None => routine.push(("refcheck", id)),
-        }
-    }
-
-    // day blocks started: a plain start is the headline's "building"; a retried or resumed one is
-    // named (a retry is worth a look)
+    let mut events: Vec<(String, String, Shown)> = Vec::new();
+    // each block started: from where its lease began to its last session
     let started = c
         .query(
             &format!(
-                "SELECT COALESCE(l.job_first, j.first_session)::text, COALESCE(l.job_last, j.last_session)::text, l.start_session::text,
-                        (SELECT count(*) FROM core.lease p WHERE p.job_id = l.job_id AND p.lease_id <= l.lease_id), l.lease_id
+                "SELECT l.granted_at::text, COALESCE(l.start_session, l.job_first, j.first_session)::text, COALESCE(l.job_last, j.last_session)::text,
+                        j.priority = 1, l.start_session IS DISTINCT FROM COALESCE(l.job_first, j.first_session)
+                            OR (SELECT count(*) FROM core.lease p WHERE p.job_id = l.job_id AND p.lease_id < l.lease_id) > 0,
+                        (SELECT count(*) FROM core.session x WHERE x.session BETWEEN COALESCE(l.start_session, l.job_first, j.first_session) AND COALESCE(l.job_last, j.last_session)),
+                        l.lease_id
                  FROM core.lease l JOIN core.job j USING (job_id)
-                 WHERE j.kind = 'DAY_BLOCK' AND j.profile_id = $3 AND l.granted_at > $1::text::timestamptz AND l.granted_at <= $2::text::timestamptz
-                   AND {fresh}
+                 WHERE j.kind = 'DAY_BLOCK' AND j.profile_id = $3 AND NOT COALESCE(j.scope @> '{{\"compare_only\": true}}', false)
+                   AND l.granted_at > $1::text::timestamptz AND l.granted_at <= $2::text::timestamptz AND {fresh}
                  ORDER BY l.granted_at, l.lease_id",
                 fresh = not_shown("lease", "l.lease_id")
             ),
@@ -642,273 +533,203 @@ async fn compose(c: &mut impl GenericClient, profile: &str, phase: Option<&(Stri
         )
         .await
         .map_err(db)?;
-    let mut notable: Vec<(Started, i64)> = Vec::new();
     for r in &started {
-        let (first, last, from_day, attempt, lease): (String, String, Option<String>, i64, i64) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4));
-        if attempt > 1 || from_day.as_deref().is_some_and(|f| f != first) {
-            notable.push(((first, last, attempt, from_day), lease));
+        let (at, first, last, daily, again, days, lease): (String, String, String, bool, bool, i64, i64) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6));
+        let line = match (daily, again) {
+            (true, false) => format!("Nightly started: {}", span(&first, &first)),
+            (true, true) => format!("Nightly started again: {}", span(&first, &first)),
+            (false, false) => format!("Started: {} ({})", span(&first, &last), counted(days, "day", "days")),
+            (false, true) => format!("Started again: {} ({} left)", span(&first, &last), counted(days, "day", "days")),
+        };
+        events.push((at, line, vec![("lease", lease)]));
+    }
+    // each block finished (its last lease done): the days it kept, published by its build
+    let finished = c
+        .query(
+            &format!(
+                "SELECT j.finished_at::text, j.first_session::text, j.last_session::text, j.priority = 1,
+                        (SELECT count(*) FROM core.session x WHERE x.session BETWEEN j.first_session AND j.last_session),
+                        (SELECT count(*) FROM core.session x WHERE x.session BETWEEN j.first_session AND j.last_session
+                           AND EXISTS (SELECT FROM vyreon.day_revision b WHERE b.represented_date = x.session AND b.profile_id = j.profile_id
+                                         AND b.state = 'PUBLISHED' AND b.base_revision IS NULL AND b.engine_build = j.engine_build
+                                         AND EXISTS (SELECT FROM vyreon.day_revision l WHERE l.base_revision = b.revision_id AND l.day_local AND l.state = 'PUBLISHED'))),
+                        j.job_id
+                 FROM core.job j
+                 WHERE j.kind = 'DAY_BLOCK' AND j.profile_id = $3 AND j.state = 'DONE' AND NOT COALESCE(j.scope @> '{{\"compare_only\": true}}', false)
+                   AND j.finished_at > $1::text::timestamptz AND j.finished_at <= $2::text::timestamptz
+                   AND EXISTS (SELECT FROM core.lease l WHERE l.job_id = j.job_id AND l.outcome = 'DONE') AND {fresh}
+                 ORDER BY j.finished_at, j.job_id",
+                fresh = not_shown("job", "j.job_id")
+            ),
+            &[&from, &end, &profile],
+        )
+        .await
+        .map_err(db)?;
+    for r in &finished {
+        let (at, first, last, daily, days, kept, job): (String, String, String, bool, i64, i64, i64) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6));
+        let line = if daily {
+            format!("Nightly finished: {} · {}", span(&first, &first), if kept == days { "kept" } else { "not kept" })
+        } else if kept == days {
+            format!("Finished: {} · {} kept", span(&first, &last), counted(kept, "day", "days"))
         } else {
-            routine.push(("lease", lease));
-        }
+            format!("Finished: {} · {} of {} kept", span(&first, &last), thousands(kept), counted(days, "day", "days"))
+        };
+        events.push((at, line, vec![("job", job)]));
     }
-    if !notable.is_empty() {
-        watch_flag = true;
-        let days: Vec<String> = notable.iter().filter_map(|(b, _)| crate::plain::day(b.3.as_deref().unwrap_or(&b.0))).collect();
-        look.push(format!("{} after a failure ({})", counted(notable.len() as i64, "block restarted", "blocks restarted"), names_max(&days, 3)));
-        routine.extend(notable.iter().map(|(_, l)| ("lease", *l)));
-    }
+    events.sort_by(|a, b| a.0.cmp(&b.0));
+    let lines: Vec<(String, Shown)> = events.into_iter().map(|(_, l, s)| (l, s)).collect();
+    let news = !lines.is_empty();
+    let database = database_line(c, profile, phase, end).await?;
+    let running = running_line(c, profile, end).await?;
+    Ok(Composed { lines, routine: Vec::new(), news, database, running })
+}
 
-    // everything core logged in the window, shortened (C-073); a hand-over's own notice is its one line
-    let logged = c
+/// C-093 (owner, 2026-11-26: "seeing live jobs in the progress discord channel would be useful"): the day blocks
+/// holding a live lease at `now` (granted, not ended, not expired), the nightly named apart: "Running now: 8 blocks (Jul 16 – 18, 2024; …) · the
+/// nightly (Nov 25, 2026)", or "Running now: nothing". Each block by its whole span, oldest first.
+pub async fn running_line(c: &impl GenericClient, profile: &str, now: &str) -> Result<String, String> {
+    let rows = c
         .query(
-            &format!(
-                "SELECT to_char(n.created_at AT TIME ZONE $3, 'HH24:MI'), n.message, n.notice_id FROM core.notice n
-                 WHERE NOT n.post AND n.created_at > $1::text::timestamptz AND n.created_at <= $2::text::timestamptz AND {fresh} ORDER BY n.notice_id",
-                fresh = not_shown("notice", "n.notice_id")
-            ),
-            &[&from, &end, &ZONE],
+            "SELECT j.first_session::text, j.last_session::text, j.priority = 1
+             FROM core.job j JOIN core.lease l ON l.job_id = j.job_id
+             WHERE j.kind = 'DAY_BLOCK' AND j.profile_id = $1 AND j.state = 'LEASED'
+               AND NOT COALESCE(j.scope @> '{\"compare_only\": true}', false)
+               AND l.granted_at <= $2::text::timestamptz AND l.expires_at > $2::text::timestamptz
+               AND (l.ended_at IS NULL OR l.ended_at > $2::text::timestamptz)
+             ORDER BY j.first_session, j.job_id",
+            &[&profile, &now],
         )
         .await
         .map_err(db)?;
-    // the hand-overs a logged notice is (`Hand-over <id>: `), whatever their `handed_at`: a hand-over's
-    // notice is stamped at its transaction's start, its row later, so the two can fall either side of a
-    // window's end (C-073, audit c072 r4)
-    let named: Vec<i64> = logged
-        .iter()
-        .filter_map(|r| r.get::<_, &str>(1).strip_prefix("Hand-over ")?.split_once(": ")?.0.parse::<i64>().ok())
-        .collect();
-
-    // the hand-overs of the window (C-072), each in one line: what it moved, the running jobs its own
-    // withdrawal stopped (carried to the successor, to run again). Stated once: a hand-over whose own
-    // notice a window stated before (a core before 0054 recorded only the notice) is stated (C-073,
-    // audit c072 r4: posted again on the upgrade)
-    let hand_overs = c
+    let blocks: Vec<(String, String, bool)> = rows.iter().map(|r| (r.get(0), r.get(1), r.get(2))).collect();
+    // C-094 (audit 2026-11-26): the other kinds holding a live lease are counted, so "nothing" is nothing
+    let others = c
         .query(
-            &format!(
-                "SELECT h.hand_over_id, h.from_build, h.to_build, h.reason,
-                        count(*) FILTER (WHERE j.kind = 'TAPE' AND x.new_job IS NOT NULL),
-                        count(*) FILTER (WHERE j.kind = 'DAY_BLOCK' AND x.new_job IS NOT NULL),
-                        count(*) FILTER (WHERE j.kind = 'ORDERED_PASS' AND x.new_job IS NOT NULL),
-                        count(*) FILTER (WHERE x.old_job IS NOT NULL AND x.new_job IS NULL),
-                        count(*) FILTER (WHERE j.kind = 'REFCHECK' AND x.new_job IS NOT NULL),
-                        CASE WHEN bool_and(x.restarted IS NOT NULL OR x.old_job IS NULL) THEN count(*) FILTER (WHERE x.restarted AND x.new_job IS NOT NULL)
-                             ELSE (SELECT count(DISTINCT l.job_id) FROM core.hand_over_job y JOIN core.lease l ON l.job_id = y.old_job
-                                   WHERE y.hand_over_id = h.hand_over_id AND y.new_job IS NOT NULL
-                                     AND l.outcome = 'CANCELLED' AND l.failure = 'its engine build was withdrawn') END,
-                        (SELECT b.admitted_at IS NOT NULL AND (b.withdrawn_at IS NULL OR b.withdrawn_at > h.handed_at)
-                         FROM core.engine_build b WHERE b.engine_build = h.to_build),
-                        count(*) FILTER (WHERE j.kind = 'REPUBLISH' AND x.new_job IS NOT NULL),
-                        (SELECT count(*) FROM core.drain dr WHERE dr.hand_over_id = h.hand_over_id)
-                 FROM core.hand_over h LEFT JOIN core.hand_over_job x USING (hand_over_id) LEFT JOIN core.job j ON j.job_id = x.old_job
-                 WHERE ((h.handed_at > $1::text::timestamptz AND h.handed_at <= $2::text::timestamptz) OR h.hand_over_id = ANY($3))
-                   AND {fresh}
-                   AND NOT EXISTS (SELECT FROM core.progress_shown s JOIN core.notice n ON s.source = 'notice' AND n.notice_id = s.id
-                                   WHERE n.message LIKE 'Hand-over ' || h.hand_over_id || ': %')
-                 GROUP BY h.hand_over_id ORDER BY h.handed_at, h.hand_over_id",
-                fresh = not_shown("hand_over", "h.hand_over_id")
-            ),
-            &[&from, &end, &named],
+            "SELECT j.kind, count(*)::bigint FROM core.job j JOIN core.lease l ON l.job_id = j.job_id
+             WHERE j.kind <> 'DAY_BLOCK' AND j.profile_id = $1 AND j.state = 'LEASED'
+               AND l.granted_at <= $2::text::timestamptz AND l.expires_at > $2::text::timestamptz
+               AND (l.ended_at IS NULL OR l.ended_at > $2::text::timestamptz)
+             GROUP BY j.kind ORDER BY j.kind",
+            &[&profile, &now],
         )
         .await
         .map_err(db)?;
-    let hand_overs: Vec<HandOver> = hand_overs
+    let others: Vec<(String, i64)> = others.iter().map(|r| (r.get(0), r.get(1))).collect();
+    Ok(running_with(&blocks, &others))
+}
+
+/// `running_words` with the live work of the other kinds, in plain words: "· also 3 tape captures, 1 history pass".
+pub fn running_with(blocks: &[(String, String, bool)], others: &[(String, i64)]) -> String {
+    let said: Vec<String> = others
         .iter()
-        .map(|r| HandOver {
-            id: r.get(0),
-            from: r.get(1),
-            to: r.get(2),
-            reason: r.get(3),
-            moved: [r.get(4), r.get(5), r.get(6)],
-            verify_cancelled: r.get(7),
-            refchecks: r.get(8),
-            republishes: r.get(11),
-            draining: r.get(12),
-            restarted: r.get(9),
-            admitted: r.get(10),
+        .filter(|o| o.1 > 0)
+        .map(|(kind, n)| match kind.as_str() {
+            "TAPE" => counted(*n, "tape capture", "tape captures"),
+            "ORDERED_PASS" => counted(*n, "history pass", "history passes"),
+            "REFCHECK" => counted(*n, "reference check", "reference checks"),
+            "REPUBLISH" => counted(*n, "recompute", "recomputes"),
+            _ => counted(*n, "other job", "other jobs"),
         })
         .collect();
+    let line = running_words(blocks);
+    if said.is_empty() {
+        line
+    } else if blocks.is_empty() {
+        format!("Running now: {}", said.join(", "))
+    } else {
+        format!("{line} · also {}", said.join(", "))
+    }
+}
 
-    let mut said = vec![false; hand_overs.len()];
-    for r in &logged {
-        let (at, message, id): (String, String, i64) = (r.get(0), r.get(1), r.get(2));
-        match hand_overs.iter().position(|h| message.starts_with(&format!("Hand-over {}: ", h.id))) {
-            Some(i) => {
-                said[i] = true;
-                lines.push((format!("{at} {}", hand_overs[i].plain_line()), vec![("notice", id), ("hand_over", hand_overs[i].id)]));
-            }
-            None => match short_notice(&message) {
-                Some(text) => lines.push((format!("{at} {text}"), vec![("notice", id)])),
-                None => routine.push(("notice", id)),
-            },
-        }
+/// `running_line`'s words from (first, last, nightly) per running block.
+pub fn running_words(blocks: &[(String, String, bool)]) -> String {
+    let backfill: Vec<String> = blocks.iter().filter(|b| !b.2).map(|b| span(&b.0, &b.1)).collect();
+    let nightly: Vec<String> = blocks.iter().filter(|b| b.2).map(|b| span(&b.0, &b.0)).collect();
+    let mut parts: Vec<String> = Vec::new();
+    if !backfill.is_empty() {
+        parts.push(format!("{} ({})", counted(backfill.len() as i64, "block", "blocks"), backfill.join("; ")));
     }
-    // a hand-over whose own notice was stated before (or is not in yet) still has its line
-    for (h, _) in hand_overs.iter().zip(&said).filter(|(_, said)| !**said) {
-        lines.push((h.plain_line(), vec![("hand_over", h.id)]));
+    if !nightly.is_empty() {
+        parts.push(format!("the nightly ({})", nightly.join("; ")));
     }
-    if !disagree.is_empty() {
-        let n = disagree.len();
-        let what = if n == 1 { "1 day's reference check disagrees".to_owned() } else { format!("{} days' reference checks disagree", thousands(n as i64)) };
-        look.insert(0, format!("{what} ({})", names_max(&disagree, 3)));
+    if parts.is_empty() {
+        "Running now: nothing".to_owned()
+    } else {
+        format!("Running now: {}", parts.join(" · "))
     }
-    if !look.is_empty() {
-        lines.insert(0, (format!("⚠ Needs a look: {}", look.join("; ")), Vec::new()));
-    }
-    let mut news = !lines.is_empty();
+}
 
-    // the state: the headline's numbers, and the passes, the daily run and the tapes in plain words
-    let h = c
+/// "Oct 1 – Nov 20, 2024", "Dec 16, 2024 – Jan 31, 2025", "Nov 25, 2026".
+pub fn span(first: &str, last: &str) -> String {
+    let day = |d: &str| crate::plain::day(d).unwrap_or_else(|| d.to_owned());
+    let year = |d: &str| d.get(..4).unwrap_or("").to_owned();
+    if first == last {
+        format!("{}, {}", day(first), year(first))
+    } else if year(first) == year(last) {
+        format!("{} – {}, {}", day(first), day(last), year(last))
+    } else {
+        format!("{}, {} – {}, {}", day(first), year(first), day(last), year(last))
+    }
+}
+
+/// C-091: the database's progress at `now`, one line: "Database: 212 of 597 days kept (current build) · 99.4% of
+/// readings measured · finish ~Dec 14".
+/// The days kept are the phase's sessions (VYREON_CORE_PROGRESS_FROM/TO; unset: every session a backfill block
+/// covers) published whole (base and day-local) by the newest running build. The finish is at the build's own
+/// measured rate: its days kept in the last 24 hours (or since its first, if later), said once it has kept
+/// `ETA_MIN_DAYS` days and run `ETA_MIN_HOURS`; before, no date.
+pub async fn database_line(c: &impl GenericClient, profile: &str, phase: Option<&(String, String)>, now: &str) -> Result<String, String> {
+    let r = c
         .query_one(
-            // the backfill's sessions: every session a backfill day block (of any build, in any state) was
-            // scheduled over, so a day published by a block a hand-over later replaced counts once (live,
-            // 2026-11-25: 2024-08-15, job 21821, was left out); not a compare-only block's, nor an omitted session
-            // (owner, 2026-11-25) with the phase's range set (VYREON_CORE_PROGRESS_FROM/TO), its sessions
-            // are the total (597 for phase 1, 2024-07-09..2026-11-20), whatever else a block was scheduled over
             "WITH s AS (SELECT DISTINCT x.session FROM core.job j JOIN core.session x ON x.session BETWEEN j.first_session AND j.last_session
                         WHERE $3::text IS NULL AND j.kind = 'DAY_BLOCK' AND j.profile_id = $1 AND j.priority = 0
                           AND NOT COALESCE(j.scope @> '{\"compare_only\": true}', false)
                           AND NOT EXISTS (SELECT FROM core.omitted_session o WHERE o.session = x.session AND o.profile_id = $1)
                         UNION
                         SELECT x.session FROM core.session x WHERE x.session BETWEEN $3::text::date AND $4::text::date
-                          AND NOT EXISTS (SELECT FROM core.omitted_session o WHERE o.session = x.session AND o.profile_id = $1))
-             SELECT (SELECT count(*) FROM s),
-                    (SELECT count(*) FROM s WHERE EXISTS (
-                        SELECT FROM vyreon.day_revision b WHERE b.represented_date = s.session AND b.profile_id = $1 AND b.state = 'PUBLISHED' AND b.base_revision IS NULL
-                          AND EXISTS (SELECT FROM vyreon.day_revision l WHERE l.base_revision = b.revision_id AND l.day_local AND l.state = 'PUBLISHED'))),
-                    (SELECT count(*) FROM core.lease l JOIN core.job j USING (job_id)
-                     WHERE l.ended_at IS NULL AND l.expires_at >= $2::text::timestamptz AND j.profile_id = $1 AND j.priority = 0),
-                    (SELECT count(*) FROM core.job j WHERE j.state = 'FAILED' AND j.profile_id = $1 AND j.kind <> 'REFCHECK' AND core.build_runs(j.engine_build)),
-                    (SELECT count(*) FROM core.problem WHERE resolved_at IS NULL),
-                    (SELECT count(*) FROM core.job j WHERE j.state IN ('QUEUED', 'LEASED') AND j.profile_id = $1 AND core.build_runs(j.engine_build))",
-            &[&profile, &end, &phase.map(|p| p.0.clone()), &phase.map(|p| p.1.clone())],
+                          AND NOT EXISTS (SELECT FROM core.omitted_session o WHERE o.session = x.session AND o.profile_id = $1)),
+                  cur AS (SELECT engine_build FROM core.engine_build WHERE core.build_runs(engine_build) ORDER BY admitted_at DESC, engine_build LIMIT 1),
+                  kept AS (SELECT s.session, l.published_at, b.revision_id AS base, l.revision_id AS local FROM s
+                           JOIN vyreon.day_revision b ON b.represented_date = s.session AND b.profile_id = $1 AND b.state = 'PUBLISHED' AND b.base_revision IS NULL
+                                AND b.engine_build = (SELECT engine_build FROM cur)
+                           JOIN LATERAL (SELECT l.published_at, l.revision_id FROM vyreon.day_revision l WHERE l.base_revision = b.revision_id AND l.day_local AND l.state = 'PUBLISHED'
+                                         ORDER BY l.revision_id DESC LIMIT 1) l ON true
+                           WHERE l.published_at <= $2::text::timestamptz)
+             SELECT (SELECT count(*) FROM s), (SELECT count(*) FROM kept),
+                    (SELECT count(*) FROM kept WHERE published_at > $2::text::timestamptz - interval '24 hours'),
+                    extract(epoch FROM $2::text::timestamptz - GREATEST((SELECT min(published_at) FROM kept), $2::text::timestamptz - interval '24 hours'))::float8 / 3600,
+                    (SELECT sum(t.slots)::bigint FROM kept k JOIN core.revision_tally t ON t.revision_id IN (k.base, k.local)),
+                    (SELECT sum(t.withheld)::bigint FROM kept k JOIN core.revision_tally t ON t.revision_id IN (k.base, k.local))",
+            &[&profile, &now, &phase.map(|p| p.0.clone()), &phase.map(|p| p.1.clone())],
         )
         .await
         .map_err(db)?;
-    let head = Head { total: h.get(0), published: h.get(1), building: h.get(2), failed: h.get(3), alerts: h.get(4), unfinished: h.get(5), watch: watch_flag };
-
-    // the ordered passes: done of all, and why the next one waits (they run in date order, C-046)
-    let p = c
-        .query_one(
-            "WITH p AS (SELECT * FROM core.job j WHERE j.kind = 'ORDERED_PASS' AND j.profile_id = $1 AND j.state <> 'CANCELLED' AND core.build_runs(j.engine_build))
-             SELECT (SELECT count(*) FROM p), (SELECT count(*) FROM p WHERE state = 'DONE'),
-                    (SELECT to_char(min(first_session), 'Mon FMDD') FROM p WHERE state = 'LEASED'),
-                    (SELECT to_char(min(first_session), 'Mon FMDD') FROM p WHERE state IN ('QUEUED', 'FAILED')),
-                    (SELECT min(first_session) FROM p WHERE state IN ('QUEUED', 'FAILED')) IN (SELECT first_session FROM core.claimable_job WHERE kind = 'ORDERED_PASS'),
-                    (SELECT count(*) FROM core.lease l JOIN p USING (job_id) WHERE l.outcome = 'DONE' AND l.ended_at > $2::text::timestamptz AND l.ended_at <= $3::text::timestamptz)",
-            &[&profile, &start, &end],
-        )
-        .await
-        .map_err(db)?;
-    let (all, done, running, next, claimable, done_now): (i64, i64, Option<String>, Option<String>, Option<bool>, i64) = (p.get(0), p.get(1), p.get(2), p.get(3), p.get(4), p.get(5));
-    news |= done_now > 0;
-    let mut status = Vec::new();
-    if running.is_some() || next.is_some() {
-        let now = if done_now > 0 { format!(" (+{})", thousands(done_now)) } else { String::new() };
-        let what = match (running, next, claimable) {
-            (Some(day), ..) => format!(" — computing {day}"),
-            (None, Some(day), Some(true)) => format!(" — next {day}"),
-            (None, Some(day), _) => format!(" — waiting for {day} to be rebuilt (they go in date order)"),
-            (None, None, _) => String::new(),
-        };
-        status.push(format!("History layer (IV30 etc.): {} of {}{now}{what}", thousands(done), thousands(all)));
+    let (total, kept, recent, hours): (i64, i64, i64, Option<f64>) = (r.get(0), r.get(1), r.get(2), r.get(3));
+    let (slots, withheld): (Option<i64>, Option<i64>) = (r.get(4), r.get(5));
+    let mut line = if total > 0 { format!("Database: {} of {} days kept (current build)", thousands(kept), thousands(total)) } else { format!("Database: {} days kept (current build)", thousands(kept)) };
+    // (owner, 2026-11-26: "worth keeping the % of readings number") the share of the kept days' slots with a value,
+    // over the day's two layers as the watch has counted them (`core.revision_tally`)
+    if let (Some(slots), Some(withheld)) = (slots.filter(|n| *n > 0), withheld) {
+        line.push_str(&format!(" · {} of readings measured", percent(100.0 * (slots - withheld) as f64 / slots as f64)));
     }
-    // C-077: the old build's blocks finishing their day after a release: their slots are why the new
-    // build's blocks have not started (not a stall: the watch's STALLED waits for them)
-    let d = c
-        .query_one(
-            "SELECT count(*), string_agg(DISTINCT split_part(j.engine_build, '+', 1), ', '),
-                    to_char(min(d.until) FILTER (WHERE d.until >= $3::text::timestamptz) AT TIME ZONE $2, 'HH24:MI'),
-                    count(*) FILTER (WHERE j.next_session IS NULL), count(*) FILTER (WHERE d.until < $3::text::timestamptz)
-             FROM core.drain d JOIN core.lease l USING (lease_id) JOIN core.job j ON j.job_id = d.job_id
-             WHERE l.ended_at IS NULL AND j.profile_id = $1",
-            &[&profile, &ZONE, &end],
-        )
-        .await
-        .map_err(db)?;
-    if d.get::<_, i64>(0) > 0 {
-        let (n, builds, until, checking, overdue): (i64, Option<String>, Option<String>, i64, i64) = (d.get(0), d.get(1), d.get(2), d.get(3), d.get(4));
-        let _ = builds;
-        let check = if checking > 0 { format!(" ({checking} checking their day)") } else { String::new() };
-        // (release-4 audit, Codex 6) the earliest bound to come, and any drain already past its own
-        let bound = match (until, overdue) {
-            (Some(u), 0) => format!(", all by {u} at the latest"),
-            (Some(u), o) => format!(", {o} overdue (stopped by core), the rest by {u}"),
-            (None, o) => format!(", {o} overdue (stopped by core)"),
-        };
-        status.push(format!(
-            "Release: {} of the old version finishing {} current day{check}{bound}; new blocks start as they end",
-            counted(n, "block", "blocks"),
-            if n == 1 { "its" } else { "their" }
-        ));
-        // (release-4 audit, Codex 5) said every window while they drain: a quiet half hour keeps it
-        news = true;
+    if total > 0 && kept >= total {
+        line.push_str(" · done");
+    } else if let Some(h) = hours.filter(|h| *h >= ETA_MIN_HOURS && recent >= ETA_MIN_DAYS && total > kept) {
+        let left_hours = (total - kept) as f64 / (recent as f64 / h);
+        let at: String = c
+            .query_one("SELECT to_char(($1::text::timestamptz + make_interval(secs => $2::float8 * 3600)) AT TIME ZONE $3, 'Mon FMDD')", &[&now, &left_hours, &ZONE])
+            .await
+            .map_err(db)?
+            .get(0);
+        line.push_str(&format!(" · finish ~{at} at the measured rate"));
     }
-    // the tapes, while some are still to do
-    let t = c
-        .query_one(
-            "SELECT count(*), count(*) FILTER (WHERE state = 'DONE'), count(*) FILTER (WHERE state IN ('QUEUED', 'LEASED')) FROM core.job j
-             WHERE j.kind = 'TAPE' AND j.profile_id = $1 AND j.state <> 'CANCELLED' AND core.build_runs(j.engine_build)
-               AND NOT COALESCE(j.scope @> '{\"verify\": true}', false) AND NOT COALESCE(j.scope @> '{\"recapture\": true}', false) AND j.priority = 0",
-            &[&profile],
-        )
-        .await
-        .map_err(db)?;
-    // C-083: the re-capture under a new tape-reader identity, apart, with what waits for it
-    let r = c
-        .query_one(
-            "SELECT count(*), count(*) FILTER (WHERE state = 'DONE'), min(first_session) FILTER (WHERE state IN ('QUEUED', 'LEASED', 'FAILED'))::text
-             FROM core.job j
-             WHERE j.kind = 'TAPE' AND j.profile_id = $1 AND j.state <> 'CANCELLED' AND core.build_runs(j.engine_build)
-               AND COALESCE(j.scope @> '{\"recapture\": true}', false)",
-            &[&profile],
-        )
-        .await
-        .map_err(db)?;
-    let (all, done, waiting): (i64, i64, Option<String>) = (r.get(0), r.get(1), r.get(2));
-    if let Some(w) = waiting.filter(|_| all > done) {
-        status.push(format!(
-            "Tapes for the new reader: {} of {} sessions captured; backfill days from {} wait for them",
-            thousands(done),
-            thousands(all),
-            crate::plain::day(&w).unwrap_or_else(|| w.clone())
-        ));
-    }
-    if t.get::<_, i64>(2) > 0 {
-        status.push(format!("Tapes: {} of {} done", thousands(t.get(1)), thousands(t.get(0))));
-    }
-    // C-084: the phase-1 stop rule's running count
-    status.extend(crate::stoprule::tally(c, profile).await?.and_then(|t| t.line()));
-    // the newest daily session: computing, waiting, failed, or published today
-    if let Some(d) = c
-        .query_opt(
-            "SELECT j.first_session::text, j.state,
-                    (SELECT to_char(max(l.granted_at) AT TIME ZONE $3, 'HH24:MI') FROM core.lease l WHERE l.job_id = j.job_id AND l.ended_at IS NULL),
-                    EXISTS (SELECT FROM core.job t WHERE t.kind = 'TAPE' AND t.priority = 1 AND t.first_session = j.first_session AND t.state IN ('QUEUED', 'LEASED')),
-                    (SELECT to_char(max(l.published_at) AT TIME ZONE $3, 'HH24:MI') FROM vyreon.day_revision l
-                     WHERE l.represented_date = j.first_session AND l.profile_id = $1 AND l.day_local AND l.state = 'PUBLISHED'),
-                    j.finished_at > $2::text::timestamptz - interval '24 hours'
-             FROM core.job j WHERE j.kind = 'DAY_BLOCK' AND j.priority = 1 AND j.profile_id = $1 AND j.state <> 'CANCELLED'
-             ORDER BY j.first_session DESC LIMIT 1",
-            &[&profile, &end, &ZONE],
-        )
-        .await
-        .map_err(db)?
-    {
-        let (day, state, since, tape, published, recent): (String, String, Option<String>, bool, Option<String>, Option<bool>) = (d.get(0), d.get(1), d.get(2), d.get(3), d.get(4), d.get(5));
-        let day = crate::plain::day(&day).unwrap_or(day);
-        let line = match state.as_str() {
-            "LEASED" => Some(format!("Nightly ({day}): computing since {}", since.unwrap_or_else(|| "?".into()))),
-            "QUEUED" if tape => Some(format!("Nightly ({day}): queued, waiting for its tapes")),
-            "QUEUED" => Some(format!("Nightly ({day}): queued")),
-            "FAILED" => Some(format!("⚠ Nightly ({day}): failed (the alert says why)")),
-            "DONE" if recent == Some(true) => Some(format!("Nightly ({day}): done{}", published.map_or(String::new(), |p| format!(" {p}")))),
-            _ => None,
-        };
-        status.extend(line);
-    }
-    lines.extend(status.into_iter().map(|l| (l, Vec::new())));
-    Ok(Composed { lines, routine, news, head })
+    Ok(line)
 }
+
+/// C-091: the finish is said once the build has kept this many days within the rate's window, and
+/// run this many hours.
+pub const ETA_MIN_DAYS: i64 = 3;
+pub const ETA_MIN_HOURS: f64 = 2.0;
 
 /// A window's post (C-073): its headline, then "+N this half hour:" and the days, the other news and
 /// the state, each indented; with nothing new, the headline's one quiet line; nothing at all when no
@@ -919,9 +740,20 @@ fn render(composed: &Composed, label: &str, heartbeat: bool) -> (Option<String>,
     if !composed.news && !heartbeat {
         return (None, 0);
     }
+    // C-091: the morning's post leads with the database's progress; any other, with its first event
+    let _ = label;
     let lines: Vec<String> = composed.lines.iter().map(|(l, _)| crate::plain::plain(l)).collect();
-    let (posts, carried) = split_counted(&composed.head.line(label), &lines);
-    (posts.into_iter().next(), carried)
+    let (header, rest) = if heartbeat {
+        (composed.database.clone(), &lines[..])
+    } else {
+        (lines[0].clone(), &lines[1..])
+    };
+    // C-093: what is running closes every post; it is no event, so it never counts as carried
+    let mut rest: Vec<String> = rest.to_vec();
+    rest.push(crate::plain::plain(&composed.running));
+    let (posts, carried) = split_counted(&header, &rest);
+    let carried = carried.min(rest.len() - 1);
+    (posts.into_iter().next(), if heartbeat { carried } else { carried + 1 })
 }
 
 /// `text` cut to at most `max` characters, the characters left out counted at its end ("… (N
@@ -1094,45 +926,8 @@ pub async fn tick_phase(client: &mut Client, profile: &str, label: &str, phase: 
     Ok(Some(Window { start, end: now.to_owned(), lines: n_lines, posts: posts.len() }))
 }
 
-/// C-074: a republished day's line: the day's, then that it was republished (its job, scope and
-/// reason), how many sensors it recomputed and which values changed.
-fn republished_line(line: &str, scopes: &[Value]) -> String {
-    let names = |k: &str| -> Vec<String> {
-        let mut v: Vec<String> = scopes.iter().flat_map(|s| s[k].as_array().cloned().unwrap_or_default()).filter_map(|x| x.as_str().map(str::to_owned)).collect();
-        v.sort();
-        v.dedup();
-        v
-    };
-    let changed = names("value_changed").len();
-    format!(
-        "{} (recomputed: {}, the rest carried; {})",
-        line.replacen(" done", " redone", 1),
-        counted(names("recomputed").len() as i64, "sensor", "sensors"),
-        match changed {
-            0 => "no value changed".to_owned(),
-            n => format!("{} changed value", counted(n as i64, "sensor", "sensors")),
-        }
-    )
-}
-
 #[cfg(test)]
 mod tests {
-    /// C-074: a republished day says so, with its job, scope and reason, how many sensors it recomputed
-    /// and which values changed.
-    #[test]
-    fn a_republished_days_line_names_its_scope_and_its_changes() {
-        let base = serde_json::json!({"job": 41, "families": ["DLM-CHAIN"], "measurements": [], "recomputed": [], "value_changed": [], "reason": "D-999 max pain"});
-        let local = serde_json::json!({"job": 41, "families": ["DLM-CHAIN"], "measurements": [], "recomputed": ["DLM-MAX-PAIN", "DLM-ZERO-DTE"], "value_changed": ["DLM-MAX-PAIN"], "reason": "D-999 max pain"});
-        // (owner, 2026-11-25) in plain words: no job, no codes, no sensor ids
-        assert_eq!(
-            republished_line("New: Dec 10 done in 52 min — 99.1% of readings", &[local.clone(), base]),
-            "New: Dec 10 redone in 52 min — 99.1% of readings (recomputed: 2 sensors, the rest carried; 1 sensor changed value)"
-        );
-        let mut same = local;
-        same["value_changed"] = serde_json::json!([]);
-        assert!(republished_line("New: Dec 10 done — 100% of readings", &[same]).ends_with("the rest carried; no value changed)"));
-    }
-
     use super::*;
     use serde_json::json;
 
@@ -1329,5 +1124,21 @@ mod tests {
         assert_eq!(cut.chars().count() - format!("… ({} characters cut)", thousands(n as i64)).chars().count() + n, long.chars().count(), "what is kept and what is counted make the line");
         assert_eq!(fit("short", 10), "short");
         assert_eq!(fit(&"y".repeat(30), 25), format!("{}… (26 characters cut)", "y".repeat(4)));
+    }
+
+    /// C-093 (owner, 2026-11-26): what runs closes every post, the nightly named apart.
+    #[test]
+    fn running_now_names_each_block_and_the_nightly() {
+        let b = |f: &str, l: &str, n: bool| (f.to_owned(), l.to_owned(), n);
+        assert_eq!(running_words(&[]), "Running now: nothing");
+        let o = |k: &str, n: i64| (k.to_owned(), n);
+        assert_eq!(running_with(&[], &[o("TAPE", 3), o("ORDERED_PASS", 1)]), "Running now: 3 tape captures, 1 history pass");
+        assert_eq!(running_with(&[b("2026-11-25", "2026-11-25", true)], &[o("REPUBLISH", 2)]), "Running now: the nightly (Nov 25, 2026) · also 2 recomputes");
+        assert_eq!(running_with(&[], &[]), "Running now: nothing");
+        assert_eq!(running_words(&[b("2026-11-25", "2026-11-25", true)]), "Running now: the nightly (Nov 25, 2026)");
+        assert_eq!(
+            running_words(&[b("2024-07-16", "2024-07-18", false), b("2024-09-04", "2024-09-04", false), b("2026-11-25", "2026-11-25", true)]),
+            format!("Running now: 2 blocks ({}; {}) · the nightly (Nov 25, 2026)", span("2024-07-16", "2024-07-18"), span("2024-09-04", "2024-09-04"))
+        );
     }
 }

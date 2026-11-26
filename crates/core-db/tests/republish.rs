@@ -432,7 +432,7 @@ async fn a_download_reporting_its_progress_is_judged_by_it() {
     let block = work::claim(&mut client, Kind::DayBlock, &b, "day-1", 48.0 * HOUR).await.unwrap().unwrap();
     let settings = Settings {
         profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None,
-        refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None,
+        refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None, phase: None,
     };
     let step = "download 2025-12-10: fill 2025-12-10: options";
     // reported now with its progress; the watch looks 10 and 30 minutes on (the report stands still)
@@ -607,7 +607,7 @@ async fn reference_reruns_of_republished_days() {
     work::finish(&mut client, &rr.token).await.unwrap();
     client.execute("UPDATE vyreon.day_revision SET published_at = published_at - interval '2 days' WHERE revision_id IN ($1, $2)", &[&base1, &local1]).await.unwrap();
     let settings = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None,
-        refcheck_from: Some(DAY.into()), backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: Some(6.0) };
+        refcheck_from: Some(DAY.into()), backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: Some(6.0), phase: None };
     // a DLM-TECHNICAL republish (day-local only)
     let plan = rp::plan(&client, PROFILE, &b, &["DLM-TECHNICAL"], DAY, DAY, 3, TODAY).await.unwrap();
     let job = rp::schedule(&mut client, PROFILE, &b, &plan.work, &plan.sessions, REASON).await.unwrap().jobs[0];
@@ -656,7 +656,7 @@ async fn request_traffic_never_hides_a_stopped_progress_counter() {
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, DAY, DAY, 30).await.unwrap();
     let block = work::claim(&mut client, Kind::DayBlock, &b, "day-1", 48.0 * HOUR).await.unwrap().unwrap();
     let settings = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None,
-        refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
+        refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None, phase: None };
     work::report_step_with(&mut client, &block.token, "download 2025-12-10: fill 2025-12-10: options", None, None, Some("bulk files 3 of 31")).await.unwrap();
     // requests reported every few minutes, the counter still
     for minutes in [5, 15, 25] {
@@ -774,7 +774,7 @@ async fn planning_retirement_failures_and_measurement() {
     let l = work::claim(&mut client, Kind::Republish, &b, "r1", HOUR).await.unwrap().unwrap();
     assert!(!work::fail(&mut client, &l.token, "republish 2025-12-10", "the suite's inputs", "").await.unwrap());
     let settings = Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: watch::DEADLINE_HOUR, daily: None, archive: None,
-        refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None };
+        refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None, phase: None };
     let t = at(&client, "1 minute").await;
     watch::check(&mut client, &settings, &t).await.unwrap();
     let said: String = client.query_one("SELECT summary FROM core.problem WHERE kind = 'JOB_FAILED' AND resolved_at IS NULL", &[]).await.unwrap().get(0);

@@ -505,14 +505,10 @@ async fn decide_locked(client: &mut Client, p: &Proposal, w: &RecomputeWatch, wa
     .map_err(db)?;
     // the same held decision again (each hour, until the ceiling or the spend allows it) is not said again
     let same = previous.as_ref().is_some_and(|(o, w)| o == outcome && w.as_deref() == why.as_deref() && outcome == "HELD");
-    if !same {
-        let head = match outcome {
-            "SCHEDULED" => format!("scheduled: {jobs} jobs"),
-            "NOTHING" => "nothing to recompute".to_owned(),
-            _ => format!("NOT scheduled: {}", why.clone().unwrap_or_default()),
-        };
-        notice::progress(&tx, &format!("recompute {plan_id}"), &format!("♻️ Recompute after a method change ({head})\n{}", lines.join("\n"))).await?;
-    }
+    // C-091 (owner, 2026-11-26): no recompute post on the progress channel (it said "nothing to recompute", then
+    // "NOT scheduled" within the hour); a decision left to the owner is the alert below, the plan is
+    // `vyreon-core recompute <profile> <build> --plan`'s
+    let _ = (&lines, plan_id);
     let left: Vec<&Group> = p.groups.iter().filter(|g| !g.schedulable).collect();
     let alert = match outcome {
         "HELD" | "FAILED" => Some(why.clone().unwrap_or_default()),
@@ -529,8 +525,7 @@ async fn decide_locked(client: &mut Client, p: &Proposal, w: &RecomputeWatch, wa
         notice::alert(
             &tx,
             &format!(
-                "🔴 A recompute after the new version's method changes was not scheduled by itself: {text}\nPublished numbers unchanged: those days stay under the older methods until recomputed. To do: read the plan; schedule it on your word, or raise the ceiling (a held plan is decided again within the hour): `vyreon-core recompute {} {} --plan`",
-                p.profile, p.build
+                "🔴 Needs you: a recompute after the new version's method changes waits for your decision: {text}. Published numbers unchanged until then: those days stay under the older methods. Schedule it on your word, or raise the ceiling (a held plan is decided again within the hour)."
             ),
         )
         .await?;

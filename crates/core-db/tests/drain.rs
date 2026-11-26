@@ -256,7 +256,7 @@ fn watch_settings() -> core_db::watch::Settings {
         backup_days: None,
         spend: None,
         recompute: None,
-        refcheck_rerun_hours: None,
+        refcheck_rerun_hours: None, phase: None,
     }
 }
 
@@ -305,16 +305,9 @@ async fn a_hand_over_lets_a_done_days_archive_and_check_finish() {
     client.execute("UPDATE core.lease SET expires_at = $1::text::timestamptz + interval '1 hour' WHERE ended_at IS NULL", &[&t1]).await.unwrap();
     core_db::watch::check(&mut client, &s, &t1).await.unwrap();
     assert!(open_problems(&client, "STALLED").await.is_empty(), "the drains hold the slots: no stall");
+    // C-091 (owner, 2026-11-26): a release's drains are no progress line any more
     let post = core_db::progress::preview(&mut client, PROFILE, &t1).await.unwrap().join("\n");
-    assert!(post.contains("Release: 2 blocks of the old version finishing their current day (2 checking their day), all by "), "{post}");
-    assert!(post.contains("new blocks start as they end"), "{post}");
-    // the half hours go by with nothing published: each window's post still says the blocks drain (release-4
-    // audit, Codex 5: a quiet window's one line dropped it)
-    core_db::progress::tick(&mut client, PROFILE, &t1).await.unwrap();
-    let t1b: String = client.query_one(&at(51), &[&t0]).await.unwrap().get(0);
-    core_db::progress::tick(&mut client, PROFILE, &t1b).await.unwrap();
-    let last: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'progress' ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
-    assert!(last.contains("Release: 2 blocks"), "{last}");
+    assert!(!post.contains("Release"), "{post}");
     // one drain past its bound (the sweep did not stop it) beside one within it: the kind is not excused
     // (release-4 audit, Codex 6); after the stall's minutes, STALLED
     client.execute("UPDATE core.drain SET until = $1::text::timestamptz - interval '1 minute' WHERE job_id = $2", &[&t1, &b.job_id]).await.unwrap();
@@ -464,6 +457,7 @@ async fn a_day_published_by_a_replaced_block_counts_once() {
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &new, DAYS[1], DAYS[2], 3).await.unwrap();
     let now: String = client.query_one("SELECT now()::text", &[]).await.unwrap().get(0);
     let post = core_db::progress::preview(&mut client, PROFILE, &now).await.unwrap().join("\n");
-    assert!(post.contains("1 of 3 days done"), "{post}");
+    // C-091: the database line counts the current build's days against every session a block covered, once
+    assert!(post.starts_with("Database: 0 of 3 days kept (current build)"), "{post}");
     scratch.drop().await;
 }

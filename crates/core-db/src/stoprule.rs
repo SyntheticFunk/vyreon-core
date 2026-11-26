@@ -1,19 +1,22 @@
 //! C-084: the owner's phase-1 stop rule (docs/MILESTONES.md, "PHASE-1 RUN RULE", 2026-11-25), the part core
-//! counts. Over the first `SAMPLE_DAYS` published days of the newest running build, and then continuously, a
-//! day looks bad when
-//!   * an attempt of the build failed on it and the build has not published it (a failed lease of its day
-//!     block naming the day, after the build's admission; an input-plan refusal is the provider's inputs,
-//!     not counted: C-075's DAY_REFUSED says it), or
-//!   * its current reference check completed with unexplained failures (`failed_unexplained`, or `failed`
-//!     from a suite without rulings).
+//! counts; C-090 (owner, 2026-11-26): it stops only for SYSTEMATIC breakage. For the newest running build:
+//!   * days not published after a failure: an attempt of the build failed on the day and the build has not
+//!     published it (a failed lease of its day block naming the day, after the build's admission; an
+//!     input-plan refusal is the provider's inputs, C-075's DAY_REFUSED, not counted). From the build's
+//!     `SAMPLE_DAYS`th published day, past half of the days it attempted (published or not published after a
+//!     failure) raises STOP_RULE;
+//!   * days with a whole measurement faulted: on a published day, one measurement withheld for the engine's
+//!     stated reason on every object it has (`core.revision_tally.whole_faults`, C-090; as M0-ANALYTICS and
+//!     INT-IVSC01 on all ~62 assets). One such day raises STOP_RULE.
 //!
-//! The judged days are those and the published days whose current check completed. Past half of them bad,
-//! the watch raises STOP_RULE. Core's count is an upper bound: whether a failure or a disagreement is an
-//! engine fault that changes a published value (the rule's bad day) and not the suite's or the provider's is
-//! the coordinator's classification, verified before stopping; the alert says so.
+//! Local value errors are counted and listed for the fix pass, and raise nothing: published days whose
+//! current reference check completed with unexplained failures (`failed_unexplained`, or `failed` from a
+//! suite without rulings), and published days with engine-fault slots that are not a whole measurement.
+//! Core's count is an upper bound: whether a failure is the engine's and not the provider's is the
+//! coordinator's classification, verified before stopping; the alert says so.
 use tokio_postgres::GenericClient;
 
-/// The rule's sample: it judges once the build has published this many days.
+/// The rule's sample: failures to publish are judged once the build has published this many days.
 pub const SAMPLE_DAYS: i64 = 20;
 
 fn db(e: tokio_postgres::Error) -> String {
@@ -27,72 +30,80 @@ pub struct Tally {
     /// Whole days the build computed and published (its base and a day-local revision on it; a
     /// republish's copy-forward is not the build's own computation).
     pub published: i64,
-    /// Of those, the days whose current reference check completed.
-    pub checked: i64,
-    /// Of those, the days with unexplained failures.
-    pub flagged: i64,
-    /// Days an attempt of the build failed on and the build has not published.
+    /// Days an attempt of the build failed on and the build has not published (systematic past half).
     pub unpublished: i64,
-    /// The oldest bad day.
+    /// Published days with a measurement withheld for an engine fault on every object (systematic).
+    pub systematic: i64,
+    /// Published days with engine-fault slots, none a whole measurement (local: the fix pass's list).
+    pub faulted: i64,
+    /// Published days whose current reference check completed.
+    pub checked: i64,
+    /// Of those, the days with unexplained failures (local: the fix pass's list).
+    pub flagged: i64,
+    /// The oldest day that counts toward the stop (not published, or a whole measurement faulted).
     pub oldest: Option<String>,
 }
 
 impl Tally {
-    pub fn judged(&self) -> i64 {
-        self.checked + self.unpublished
-    }
-    pub fn bad(&self) -> i64 {
-        self.flagged + self.unpublished
+    /// The days the build attempted: published, or not published after a failure.
+    pub fn attempted(&self) -> i64 {
+        self.published + self.unpublished
     }
     fn percent(&self) -> i64 {
-        if self.judged() == 0 { 0 } else { (self.bad() * 100 + self.judged() / 2) / self.judged() }
+        if self.attempted() == 0 { 0 } else { (self.unpublished * 100 + self.attempted() / 2) / self.attempted() }
     }
-    /// Past the rule's line: the sample reached, and more than half of the judged days bad.
+    /// Past the rule's line: a whole measurement faulted on any day, or from the sample on, more than half
+    /// of the attempted days not published after a failure.
     pub fn over(&self) -> bool {
-        self.published >= SAMPLE_DAYS && self.bad() * 2 > self.judged()
+        self.systematic > 0 || (self.published >= SAMPLE_DAYS && self.unpublished * 2 > self.attempted())
     }
-    fn counts(&self) -> String {
-        format!("{} not published after a failure, {} with unexplained reference failures", self.unpublished, self.flagged)
+    fn local(&self) -> String {
+        format!("for the fix pass: {} days with single-asset engine faults, {} with unexplained reference failures", self.faulted, self.flagged)
     }
-    /// The progress channel's line (None until a day is judged).
+    /// The progress channel's line (None until the build attempted a day).
     pub fn line(&self) -> Option<String> {
-        if self.judged() == 0 {
+        if self.attempted() == 0 {
             return None;
         }
+        let whole = format!("{} with a whole measurement faulted", self.systematic);
         if self.published < SAMPLE_DAYS {
             return Some(format!(
-                "Stop rule: so far {} of {} judged days look bad ({}); it judges from the {SAMPLE_DAYS}th published day ({} so far)",
-                self.bad(),
-                self.judged(),
-                self.counts(),
+                "Stop rule: so far {} of {} days not published after a failure, {whole}; {}; it judges failures from the {SAMPLE_DAYS}th published day ({} so far)",
+                self.unpublished,
+                self.attempted(),
+                self.local(),
                 self.published
             ));
         }
         Some(format!(
-            "Stop rule: {} of {} judged days look bad ({}%): {} · the alert is at over half; engine, suite or provider is the coordinator's call",
-            self.bad(),
-            self.judged(),
+            "Stop rule: {} of {} days not published after a failure ({}%), {whole}; {} · the alert is at over half not published, or any whole measurement faulted",
+            self.unpublished,
+            self.attempted(),
             self.percent(),
-            self.counts()
+            self.local()
         ))
     }
     /// The alert's summary, past the line.
     pub fn summary(&self) -> Option<String> {
         self.over().then(|| {
+            let mut why = Vec::new();
+            if self.systematic > 0 {
+                why.push(format!("{} days with a measurement withheld for an engine fault on every asset", self.systematic));
+            }
+            if self.published >= SAMPLE_DAYS && self.unpublished * 2 > self.attempted() {
+                why.push(format!("{} of {} days not published after a failure ({}%), over half", self.unpublished, self.attempted(), self.percent()));
+            }
             format!(
-                "Phase-1 stop rule: {} of {} judged days look bad ({}%), over half: {}{}. This is core's count only: whether each is an engine fault that changes a published value, and not the suite's or the provider's, is the coordinator's classification, verified before stopping",
-                self.bad(),
-                self.judged(),
-                self.percent(),
-                self.counts(),
+                "Phase-1 stop rule, systematic breakage: {}{}. This is core's count only: that each is the engine's and not the provider's is the coordinator's classification, verified before stopping",
+                why.join("; "),
                 self.oldest.as_deref().map(|d| format!(", the oldest {d}")).unwrap_or_default()
             )
         })
     }
 }
 
-/// The days of `build` that look bad (C-084's two counts), as (day, why), oldest first; `$1` the profile, `$2`
-/// the build. The columns: day, kind ('unpublished' or 'flagged'), detail.
+/// The days of `build` the rule counts, oldest first; `$1` the profile, `$2` the build. The columns: day, kind
+/// ('unpublished', 'systematic', 'faulted', 'flagged', 'good' or 'published'), detail.
 const BAD_DAYS: &str = "
     WITH published AS (
         SELECT d.represented_date AS day, d.revision_id AS base, l.revision_id AS local
@@ -100,6 +111,10 @@ const BAD_DAYS: &str = "
         JOIN LATERAL (SELECT l.revision_id FROM vyreon.day_revision l
                       WHERE l.base_revision = d.revision_id AND l.day_local AND l.state = 'PUBLISHED' ORDER BY l.revision_id DESC LIMIT 1) l ON true
         WHERE d.profile_id = $1 AND d.engine_build = $2 AND d.state = 'PUBLISHED' AND d.base_revision IS NULL AND d.republish_scope IS NULL),
+    faults AS (
+        SELECT p.day, COALESCE(tb.whole_faults, '{}') || COALESCE(tl.whole_faults, '{}') AS whole,
+               COALESCE(tb.engine_faults, 0) + COALESCE(tl.engine_faults, 0) AS slots
+        FROM published p LEFT JOIN core.revision_tally tb ON tb.revision_id = p.base LEFT JOIN core.revision_tally tl ON tl.revision_id = p.local),
     checks AS (
         SELECT DISTINCT ON (p.day) p.day, r.outcome, COALESCE(r.failed_unexplained, r.failed) AS unexplained
         FROM published p JOIN core.refcheck_report r ON r.base_revision = p.base AND (r.day_local_revision IS NULL OR r.day_local_revision = p.local)
@@ -112,6 +127,10 @@ const BAD_DAYS: &str = "
           AND strpos(COALESCE(l.failure, ''), 'refused by the input plan') = 0
         GROUP BY 1)
     SELECT f.day::text, 'unpublished', f.failure FROM failed f WHERE f.day IS NOT NULL AND f.day NOT IN (SELECT day FROM published)
+    UNION ALL
+    SELECT f.day::text, 'systematic', array_to_string(f.whole, ', ') FROM faults f WHERE cardinality(f.whole) > 0
+    UNION ALL
+    SELECT f.day::text, 'faulted', f.slots::text FROM faults f WHERE cardinality(f.whole) = 0 AND f.slots > 0
     UNION ALL
     SELECT c.day::text, 'flagged', c.unexplained::text FROM checks c WHERE c.outcome = 'COMPLETED' AND c.unexplained > 0
     UNION ALL
@@ -128,30 +147,49 @@ pub async fn newest_build(c: &impl GenericClient) -> Result<Option<String>, Stri
         .map(|r| r.get(0)))
 }
 
-/// `build`'s count and its bad days ((day, "not published: <failure>" or "N unexplained reference failures")).
-pub async fn days(c: &impl GenericClient, profile: &str, build: &str) -> Result<(Tally, Vec<(String, String)>), String> {
+/// `build`'s count and the days it counts, oldest first: those toward the stop (`stop`: "not published:
+/// <failure>", "a whole measurement faulted: <ids>") and the local ones for the fix pass (`local`: "N
+/// single-asset engine-fault slots", "N unexplained reference failures").
+pub async fn days(c: &impl GenericClient, profile: &str, build: &str) -> Result<(Tally, Days), String> {
     let rows = c.query(BAD_DAYS, &[&profile, &build]).await.map_err(db)?;
     let mut t = Tally { build: build.to_owned(), ..Tally::default() };
-    let mut bad = Vec::new();
+    let mut days = Days::default();
     for r in &rows {
         let (day, kind, detail): (String, &str, Option<String>) = (r.get(0), r.get(1), r.get(2));
+        let detail = detail.unwrap_or_default();
         match kind {
             "published" => t.published += 1,
             "good" => t.checked += 1,
             "flagged" => {
                 t.checked += 1;
                 t.flagged += 1;
-                bad.push((day, format!("{} unexplained reference failures", detail.unwrap_or_default())));
+                days.local.push((day, format!("{detail} unexplained reference failures")));
+            }
+            "faulted" => {
+                t.faulted += 1;
+                days.local.push((day, format!("{detail} single-asset engine-fault slots")));
+            }
+            "systematic" => {
+                t.systematic += 1;
+                days.stop.push((day, format!("a whole measurement faulted on every asset: {detail}")));
             }
             _ => {
                 t.unpublished += 1;
-                bad.push((day, format!("not published: {}", crate::watch::plain_cause(&detail.unwrap_or_default()))));
+                days.stop.push((day, format!("not published: {}", crate::watch::plain_cause(&detail))));
             }
         }
     }
-    bad.sort();
-    t.oldest = bad.first().map(|(d, _)| d.clone());
-    Ok((t, bad))
+    days.stop.sort();
+    days.local.sort();
+    t.oldest = days.stop.first().map(|(d, _)| d.clone());
+    Ok((t, days))
+}
+
+/// The days a build's count names: toward the stop, and local (the fix pass's list), each (day, why).
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct Days {
+    pub stop: Vec<(String, String)>,
+    pub local: Vec<(String, String)>,
 }
 
 /// The newest running build's count (None without one).

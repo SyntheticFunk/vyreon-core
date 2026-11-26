@@ -129,8 +129,10 @@ async fn a_new_builds_method_change_is_recomputed_within_the_ceiling() {
     assert!(d.why.unwrap().contains("the spend is not watched"));
     assert_eq!(count(&client, jobs).await, 0);
     assert!(recompute::auto(&mut client, PROFILE, &w, None, NOW).await.unwrap().is_none(), "nothing new to decide");
-    let alert: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'alerts' AND message LIKE '🔴 A recompute%'", &[]).await.unwrap().get(0);
-    assert!(alert.contains("the spend is not watched") && alert.contains(&format!("vyreon-core recompute {PROFILE} {new} --plan")), "{alert}");
+    // C-091: a decision left to the owner, one alert, no command; nothing on the progress channel
+    let alert: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'alerts' AND message LIKE '🔴 Needs you: a recompute%'", &[]).await.unwrap().get(0);
+    assert!(alert.contains("the spend is not watched") && !alert.contains('`') && !alert.contains("vyreon-core"), "{alert}");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'progress'").await, 0);
 
     // the spend watched (DigitalOcean's figure of 06:30): the plan's cost past a tight ceiling, held again
     reading(&client, "2026-11-24 06:30:00+00").await;
@@ -149,8 +151,7 @@ async fn a_new_builds_method_change_is_recomputed_within_the_ceiling() {
     assert_eq!(count(&client, jobs).await, 1, "the day's republish (SCOPED) or its day block (FULL)");
     let tagged: i64 = count(&client, "SELECT count(*) FROM core.job WHERE scope ? 'recompute_plan' AND first_session = '2025-12-09'").await;
     assert_eq!(tagged, 1, "the job names its plan");
-    let progress: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'progress' AND message LIKE '♻️ Recompute after a method change (scheduled:%' ORDER BY notice_id LIMIT 1", &[]).await.unwrap().get(0);
-    assert!(progress.contains(&format!("[{CHANGED}] on 1 days")), "{progress}");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'progress'").await, 0, "no recompute post on progress (C-091)");
     // reserved while its job is unfinished: a further plan is held by it
     let reserved = recompute::reserved(&client, "2026-11-24 06:30:00+00").await.unwrap();
     assert!((reserved - cost).abs() < 1e-6, "{reserved} {cost}");
@@ -233,7 +234,7 @@ async fn a_full_recompute_never_runs_over_a_day_whose_prints_are_gone() {
     let claim = work::claim(&mut client, Kind::DayBlock, &new, "w9", HOUR).await.unwrap().unwrap();
     assert_eq!(claim.sessions, [DAYS[1]], "the published day past retention is cut out of the block");
     let republish: i64 = count(&client, "SELECT count(*) FROM core.job WHERE kind = 'REPUBLISH' AND first_session = '2025-12-09' AND scope ? 'recompute_plan'").await;
-    let alerted: i64 = count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'alerts' AND message LIKE '🔴 Full recompute of Dec 9 %'").await;
+    let alerted: i64 = count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'alerts' AND message LIKE '🔴 Needs you: a full recompute of Dec 9 %'").await;
     assert_eq!(republish + alerted, 1, "scoped, or (its scope reading the prints) left to the owner and said");
     // a block naming nothing: the day stays published, said
     work::finish(&mut client, &claim.token).await.unwrap_err();
@@ -241,7 +242,7 @@ async fn a_full_recompute_never_runs_over_a_day_whose_prints_are_gone() {
     client.execute("UPDATE core.lease SET ended_at = now(), outcome = 'CANCELLED' WHERE ended_at IS NULL", &[]).await.unwrap();
     work::schedule(&mut client, Kind::DayBlock, PROFILE, &new, DAYS[0], DAYS[0], 1).await.unwrap();
     assert!(work::claim(&mut client, Kind::DayBlock, &new, "w9", HOUR).await.unwrap().is_none());
-    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'alerts' AND message LIKE '🔴 Full recompute of Dec 9 %names no measurements%'").await, 1);
+    assert_eq!(count(&client, "SELECT count(*) FROM core.notice WHERE channel = 'alerts' AND message LIKE '🔴 Needs you: a full recompute of Dec 9 %names no measurements%'").await, 1);
     assert_eq!(count(&client, "SELECT count(*) FROM vyreon.day_revision WHERE represented_date = '2025-12-09' AND state = 'PUBLISHED'").await, 2);
     scratch.drop().await;
 }

@@ -37,15 +37,15 @@ pub async fn log(db_client: &impl GenericClient, message: &str) -> Result<(), St
 
 /// Queues a post for the owner's channel, in the caller's transaction.
 pub async fn alert(db_client: &impl GenericClient, message: &str) -> Result<(), String> {
-    // (owner, 2026-11-25) a post is in plain words: no internal codes (`plain`)
-    let message = crate::plain::plain(message);
+    // (owner, 2026-11-25) a post is in plain words: no internal codes; C-091: no command, file or secret (`plain::for_alert`)
+    let message = crate::plain::for_alert(message);
     db_client.execute("INSERT INTO core.notice (message, post) VALUES ($1, true)", &[&message]).await.map_err(db)?;
     Ok(())
 }
 
 /// Queues a post unless one with the same key was queued before. True when queued.
 pub async fn alert_once(db_client: &impl GenericClient, key: &str, message: &str) -> Result<bool, String> {
-    let message = crate::plain::plain(message);
+    let message = crate::plain::for_alert(message);
     let n = db_client
         .execute("INSERT INTO core.notice (message, once, post) VALUES ($1, $2, true) ON CONFLICT (once) DO NOTHING", &[&message, &key])
         .await

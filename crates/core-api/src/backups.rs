@@ -53,6 +53,22 @@ impl Kube {
         r.json().await.map_err(|e| format!("GET {path}: {}", e.without_url()))
     }
 
+    /// C-091: the Pod `name` of this namespace (a worker's pod: its name is the worker's), or None when
+    /// there is none (404).
+    pub async fn pod(&self, name: &str) -> Result<Option<Value>, String> {
+        if name.is_empty() || !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.') {
+            return Err("not a pod's name".into());
+        }
+        let path = format!("/api/v1/namespaces/{}/pods/{name}", self.namespace);
+        let token = std::fs::read_to_string(&self.token).map_err(|e| format!("no service-account token ({e})"))?;
+        let r = self.http.get(format!("{API}{path}")).bearer_auth(token.trim()).send().await.map_err(|e| format!("GET {path}: {}", e.without_url()))?;
+        match r.status() {
+            reqwest::StatusCode::NOT_FOUND => Ok(None),
+            s if s.is_success() => r.json().await.map(Some).map_err(|e| format!("GET {path}: {}", e.without_url())),
+            s => Err(format!("GET {path}: {s}")),
+        }
+    }
+
     /// The plugin's record for the Cluster `cluster` of this namespace.
     pub async fn backups(&self, cluster: &str) -> Result<BackupEvidence, String> {
         let ns = &self.namespace;

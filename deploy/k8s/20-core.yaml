@@ -12,7 +12,7 @@
 # C-068 round 2: core reads the backup plugin's own record (the database's Cluster and the
 # ObjectStore it archives to) through the Kubernetes API, as the evidence that WAL is archived and a
 # base backup is recoverable. Its service account may `get` those two kinds in this namespace, and
-# nothing else.
+# (C-091) pods, to say why a worker's lease was lost; nothing else.
 # C-078: secret `vyreon-core-do-billing` (key `token`: a DigitalOcean custom-scoped token with
 # `billing:read` only, made by the owner in DigitalOcean's control panel and put in the cluster from
 # a file, never printed; README "Spend") is mounted read-only; while it is absent the morning's spend
@@ -34,6 +34,10 @@ rules:
     verbs: ["get"]
   - apiGroups: ["barmancloud.cnpg.io"]
     resources: ["objectstores"]
+    verbs: ["get"]
+  # C-091: a worker's pod, read when its lease is lost, for the cause (killed for memory, evicted, gone)
+  - apiGroups: [""]
+    resources: ["pods"]
     verbs: ["get"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -183,8 +187,11 @@ spec:
             # from its own (the C-074 planner's choice), scheduled only when its estimated cost at this
             # node-hour price (s-8vcpu-16gb-amd and -intel, DigitalOcean's list price) keeps the spend
             # under the ceiling; else held and alerted. `off`: nothing planned by itself
+            # C-094 (audit 2026-11-26; owner: recompute only after the run, by method version): "off" for the
+            # phase-1 characterization run. With "on", core starting on this release would decide a held plan
+            # before `backfill stop` could be set, and would plan recomputes as soon as the canary's day published
             - name: VYREON_CORE_RECOMPUTE
-              value: "on"
+              value: "off"
             # phase 1's first session: earlier published days (none in this database) wait for the owner
             - name: VYREON_CORE_RECOMPUTE_FROM
               value: "2024-07-09"

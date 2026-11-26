@@ -60,9 +60,20 @@
 //!                                                     the replay files' first (2023-05-24) to the last before today; day
 //!                                                     blocks wait for the tapes up to their last session; run again, it
 //!                                                     queues only what is missing
-//!   vyreon-core stoprule <profile> [<build>]          C-084: the phase-1 stop rule's count for the newest running build
-//!                                                     (or <build>) and its bad days
+//!   vyreon-core stoprule <profile> [<build>]          C-084, C-090: the phase-1 stop rule's count for the newest running
+//!                                                     build (or <build>): the days toward the stop (not published after a
+//!                                                     failure; a whole measurement faulted) and, apart, the local ones
+//!                                                     for the fix pass (single-asset engine faults, unexplained
+//!                                                     reference failures)
 //!   vyreon-core queue [pause <reason> | resume [--expect <reason>] | retry-failed | cancel <job>...]   the queue at a glance, or change it
+//!   vyreon-core backfill stop <reason...> | resume | status   C-087: stop the backfill (one flag in the database, no
+//!                                                     restart): every queued or leased backfill day block and ordered pass
+//!                                                     (not a daily session's) and every queued reference-check re-run is
+//!                                                     cancelled, and while stopped the scaler starts no backfill block, pass
+//!                                                     or re-run and the watch queues no re-run. `resume` clears the flag (the
+//!                                                     cancelled blocks are scheduled again by hand); `status` prints it and,
+//!                                                     per running build, C-086's ramp: whether the build has published one
+//!                                                     real day clean and how many backfill blocks may start now
 //!   vyreon-core omit <profile> <session> <reason...>  omit a date whose day failed for the provider (C-061): only while
 //!                                                     its day job stands FAILED, never for an engine fault (fixed and
 //!                                                     recomputed instead). Records the reason, cancels the failed day job
@@ -339,13 +350,18 @@ async fn stoprule(profile: &str, engine_build: Option<&str>) -> Result<(), Strin
         Some(b) => b.to_owned(),
         None => core_db::stoprule::newest_build(&client).await?.ok_or("no running build")?,
     };
-    let (t, bad) = core_db::stoprule::days(&client, profile, &build).await?;
-    println!("build {build}: {} days published, {} judged, {} look bad", t.published, t.judged(), t.bad());
+    let (t, days) = core_db::stoprule::days(&client, profile, &build).await?;
+    println!("build {build}: {} days published, {} not published after a failure; {}", t.published, t.unpublished, if t.over() { "PAST THE LINE" } else { "within the line" });
     println!("{}", t.line().unwrap_or_else(|| "Stop rule: nothing to count yet".into()));
-    for (day, why) in bad {
+    println!("toward the stop (systematic: not published, or a whole measurement faulted):{}", if days.stop.is_empty() { " none" } else { "" });
+    for (day, why) in days.stop {
         println!("  {day}  {why}");
     }
-    println!("whether each is an engine fault that changes a published value is the coordinator's classification (MILESTONES, PHASE-1 RUN RULE)");
+    println!("local, for the fix pass (raise nothing):{}", if days.local.is_empty() { " none" } else { "" });
+    for (day, why) in days.local {
+        println!("  {day}  {why}");
+    }
+    println!("whether each is the engine's and not the provider's is the coordinator's classification (MILESTONES, PHASE-1 RUN RULE; C-090)");
     Ok(())
 }
 
@@ -423,6 +439,46 @@ async fn queue(change: &[&str]) -> Result<(), String> {
     }
     work::sweep(&mut client).await?;
     println!("{}", serde_json::to_string_pretty(&work::status(&client).await?).map_err(|e| e.to_string())?);
+    Ok(())
+}
+
+/// C-087: `backfill stop <reason...> | resume | status`.
+async fn backfill(change: &[&str]) -> Result<(), String> {
+    let mut client = connect().await?;
+    match change {
+        ["stop", reason @ ..] if !reason.is_empty() => {
+            let cancelled = core_db::backfill::stop(&mut client, &reason.join(" ")).await?;
+            for (job, kind, first, last, state) in &cancelled {
+                println!("cancelled {kind} job {job} ({first}..{last}, was {state})");
+            }
+            println!("{} jobs cancelled", cancelled.len());
+        }
+        ["resume"] => println!("{}", if core_db::backfill::resume(&mut client).await? { "backfill resumed" } else { "the backfill was not stopped" }),
+        ["status"] => {}
+        _ => return Err("backfill [stop <reason...> | resume | status]".into()),
+    }
+    println!("{}", core_db::backfill::status(&client).await?.line());
+    // C-086: the ramp, per running build
+    for r in client
+        .query(
+            "SELECT b.engine_build, core.build_proven(b.engine_build), core.backfill_block_room(b.engine_build),
+                    (SELECT to_char(max(l.granted_at) AT TIME ZONE 'UTC', 'YYYY-MM-DD\"T\"HH24:MI:SS\"Z\"') FROM core.lease l JOIN core.job j USING (job_id)
+                     WHERE j.kind = 'DAY_BLOCK' AND j.priority <> 1 AND j.engine_build = b.engine_build),
+                    (SELECT count(*) FROM core.lease l JOIN core.job j USING (job_id)
+                     WHERE j.kind = 'DAY_BLOCK' AND j.priority <> 1 AND j.engine_build = b.engine_build AND l.ended_at IS NULL)
+             FROM core.engine_build b WHERE core.build_runs(b.engine_build) ORDER BY b.admitted_at, b.engine_build",
+            &[],
+        )
+        .await
+        .map_err(|e| e.to_string())?
+    {
+        let (build, proven, room, last, running): (String, bool, i64, Option<String>, i64) = (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4));
+        println!(
+            "build {build}: {} · {running} backfill blocks running · last started {} · may start now: {room}",
+            if proven { "published a real day clean" } else { "no real day published clean yet: one block at a time" },
+            last.as_deref().unwrap_or("never"),
+        );
+    }
     Ok(())
 }
 
@@ -673,6 +729,7 @@ fn watch_settings() -> Result<watch::Settings, String> {
         refcheck_from,
         backup_days,
         refcheck_rerun_hours,
+        phase: progress_phase()?,
         spend,
         recompute,
     })
@@ -1023,6 +1080,15 @@ async fn serve() -> Result<(), String> {
     if !core_db::instance::take(&holder).await? {
         return Err("another vyreon-core serve holds the database's single-instance lock (C-053): this one does not serve".into());
     }
+    // C-088: the time core was down costs no lease; before the sweeper and the API run
+    {
+        let (mut c, connection) = pg.connect(NoTls).await.map_err(|e| format!("postgres connect: {e}"))?;
+        tokio::spawn(connection);
+        let lapsed = work::grace_on_start(&mut c, config.lease_seconds).await?;
+        if !lapsed.is_empty() {
+            println!("vyreon-core: {} live leases past their expiry given {} s to renew (C-088)", lapsed.len(), config.lease_seconds);
+        }
+    }
     let manager = deadpool_postgres::Manager::new(pg, NoTls);
     // C-068: up to 24 tape pods, 13 day blocks and a pass at once (C-066's caps) each heartbeat and
     // draw from the budget on a connection held for one statement or two; an upload holds none
@@ -1049,6 +1115,8 @@ async fn serve() -> Result<(), String> {
         let token = set("VYREON_CORE_DO_TOKEN_FILE").map(std::path::PathBuf::from);
         core_api::spend::spawn(app.clone(), core_api::spend::Billing::new(token, core_api::spend::API)?, core_api::spend::EVERY);
     }
+    // C-091: workers' stops said with their causes (their pods' status, read in the cluster)
+    core_api::deaths::spawn(app.clone(), core_api::backups::Kube::in_cluster().ok(), std::time::Duration::from_secs(60));
     core_api::notices::spawn_watch(app.clone(), settings, std::time::Duration::from_secs(60));
     if let Some(webhook) = webhook {
         core_api::notices::spawn_sender(app.clone(), webhook, std::time::Duration::from_secs(15));
@@ -1347,6 +1415,7 @@ async fn main() -> ExitCode {
         ["stoprule", profile] => stoprule(profile, None).await,
         ["stoprule", profile, engine_build] => stoprule(profile, Some(engine_build)).await,
         ["queue", ref change @ ..] => queue(change).await,
+        ["backfill", ref change @ ..] => backfill(change).await,
         ["omit", profile, session, ref reason @ ..] if !reason.is_empty() => omit(profile, session, reason).await,
         ["days", "retire", ref rest @ ..] => days_retire(rest).await,
         ["api-key", "create", holder, scopes] => match connect().await {

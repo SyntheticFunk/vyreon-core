@@ -26,7 +26,7 @@ fn settings(w: SpendWatch) -> Settings {
         backup_days: None,
         spend: Some(w),
         recompute: None,
-        refcheck_rerun_hours: None,
+        refcheck_rerun_hours: None, phase: None,
     }
 }
 
@@ -100,7 +100,9 @@ async fn the_spend_since_the_start_is_watched_against_the_ceiling() {
     reading(&client, "2026-11-24 14:50:00+00", "277.00", "2026-11-24T14:30:00Z", json!([])).await;
     watch::tick(&mut client, &s, "2026-11-24 15:01:00+00").await.unwrap();
     watch::tick(&mut client, &s, "2026-11-24 15:02:00+00").await.unwrap();
-    assert_eq!(client.query_one(lines, &[]).await.unwrap().get::<_, i64>(0), 1, "once a day");
+    // C-091 (owner, 2026-11-26): no spend line on the progress channel any more; the spend near the ceiling is
+    // SPEND, a spend not known is the digest's "Needs you"
+    assert_eq!(client.query_one(lines, &[]).await.unwrap().get::<_, i64>(0), 0, "no progress line");
     assert!(open(&client).await.is_empty(), "18% alerts nothing");
 
     // a lower ceiling: 80% alerts; past it, 100% too; both kept while the figures cannot be read
@@ -113,8 +115,9 @@ async fn the_spend_since_the_start_is_watched_against_the_ceiling() {
     let s = settings(watch_of(90.0));
     watch::check(&mut client, &s, "2026-11-24 15:04:00+00").await.unwrap();
     assert_eq!(open(&client).await.iter().map(|(k, _)| k.as_str()).collect::<Vec<_>>(), ["100%", "80%"]);
-    let posted: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'alerts' AND post AND message LIKE '🔴 Spend%past%'", &[]).await.unwrap().get(0);
-    assert!(posted.contains("past the $90.00 ceiling") && posted.contains("To do: decide whether to go on"), "{posted}");
+    let posted: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'alerts' AND post AND message LIKE '🔴 Needs you: Spend%past%'", &[]).await.unwrap().get(0);
+    // C-091: the owner's own action, one line, no command
+    assert!(posted.contains("past the $90.00 ceiling") && posted.ends_with(": decide whether to go on: raise the ceiling, or stop the workers.") && !posted.contains('`'), "{posted}");
     spend::put_reading(&client, Err("GET /v2/customers/my/balance: DigitalOcean answered 401 Unauthorized")).await.unwrap();
     client.execute("UPDATE core.spend_reading SET read_at = '2026-11-24 15:30:00+00' WHERE error IS NOT NULL AND read_at > '2026-11-24'", &[]).await.unwrap();
     watch::check(&mut client, &s, "2026-11-24 15:31:00+00").await.unwrap();

@@ -342,6 +342,40 @@ pub async fn sweep(client: &mut Client) -> Result<u64, String> {
     if errors.is_empty() { Ok(ended) } else { Err(errors.join("; ")) }
 }
 
+/// C-088 (2026-11-26: core was down 13:28 to 13:48 MT with InvalidImageName; the daily block's worker, job
+/// 30062, downloaded on with its heartbeats failing, and the restarted core ended its lease for missed
+/// heartbeats, about 3 h of work lost): core's own downtime costs no lease. At the service's start, after it
+/// holds the single-instance lock and before its sweeper or its API runs, every live lease gets at least
+/// `lease_seconds` from now, the time a heartbeat has while core is up. A worker that died meanwhile is
+/// found one lease period later than it would have been. Returns the leases whose expiry had passed (each
+/// would have been ended by the first sweep), with one log line naming them.
+pub async fn grace_on_start(client: &mut Client, lease_seconds: f64) -> Result<Vec<i64>, String> {
+    let tx = client.transaction().await.map_err(db)?;
+    let rows = tx
+        .query(
+            "WITH g AS (SELECT lease_id, expires_at < clock_timestamp() AS lapsed FROM core.lease
+                        WHERE ended_at IS NULL AND expires_at < clock_timestamp() + make_interval(secs => $1) FOR UPDATE)
+             UPDATE core.lease l SET expires_at = clock_timestamp() + make_interval(secs => $1)
+             FROM g WHERE l.lease_id = g.lease_id
+             RETURNING l.lease_id, g.lapsed",
+            &[&lease_seconds],
+        )
+        .await
+        .map_err(db)?;
+    let mut lapsed: Vec<i64> = rows.iter().filter(|r| r.get::<_, bool>(1)).map(|r| r.get(0)).collect();
+    lapsed.sort_unstable();
+    if !lapsed.is_empty() {
+        let ids: Vec<String> = lapsed.iter().map(i64::to_string).collect();
+        notice::log(
+            &tx,
+            &format!("Core started with {} live leases past their expiry (core was not answering their heartbeats): each given {lease_seconds:.0} s to renew, leases {}.", lapsed.len(), ids.join(" ")),
+        )
+        .await?;
+    }
+    tx.commit().await.map_err(db)?;
+    Ok(lapsed)
+}
+
 /// C-079 (release-3 audit, Codex 1 and 15; coordinator: "print retention rechecked at claim for every job
 /// kind, FULL included; old days scoped regardless"): before a day block of `build` is claimed, each queued
 /// one whose remaining sessions include a published day past the prints' retention (`core.prints_perished`,
@@ -455,7 +489,7 @@ pub async fn guard_perished_blocks(client: &mut Client, build: &str) -> Result<(
             notice::alert(
                 &*client,
                 &format!(
-                    "🔴 Full recompute of {} under build {build} not run: the provider no longer serves those days' option prints, so it would publish their sensors withheld; {why}.\nPublished numbers stay as they are.\nTo do: recompute them scoped (`vyreon-core republish {profile} {build} <scope> <first> <last> \"<reason>\" --scoped`), or leave them.",
+                    "🔴 Needs you: a full recompute of {} was not run: the provider no longer serves those days' option prints, so it would publish their sensors withheld; {why}. Published numbers stay as they are. Decide whether to recompute them scoped, or leave them.",
                     perished.join(" ")
                 ),
             )
@@ -786,15 +820,15 @@ async fn lost(tx: &impl GenericClient, job: i64, lease: i64, day: &str) -> Resul
     Ok(())
 }
 
-/// How many day jobs may stand FAILED before the queue stops: one bad day is set aside and the
-/// rest of the build goes on; several at once look like the engine, not the day (C-035).
-pub const FAILED_DAYS_PAUSE: i64 = 3;
+/// From this many day jobs standing FAILED the log says the count with each further one. It was the count
+/// that paused the whole queue, the nightly included (C-035); since C-094 no count of failed days pauses it.
+pub const FAILED_DAYS_NOTED: i64 = 3;
 
 /// A job whose attempt ended without finishing: DONE, queued again, or FAILED. A job whose every
 /// session is done is DONE, whatever became of its worker's `finish` (lost, never sent, or sent
 /// after a failure): there is nothing left to claim. A day block out of attempts keeps only the
 /// day it stopped on: the days before it are done, the days after it become a new queued block,
-/// and the queue pauses only at `FAILED_DAYS_PAUSE` failed days. An ordered pass out of attempts
+/// and no count of failed days pauses the queue (C-094). An ordered pass out of attempts
 /// stays FAILED without a pause; a tape job pauses the queue at once (the day blocks wait on it).
 /// Returns true when the job was queued again.
 async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<bool, String> {
@@ -950,12 +984,13 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
     // audit 2026-11-22 round 2 core-r2 1: a base its day-local revision never joined is superseded, so
     // no later day's history reads the day this block leaves missing
     let local = dropped_base_clause(crate::publish::drop_base_without_day_local(db_client, job, &day, &profile).await?, &day);
-    if failed >= FAILED_DAYS_PAUSE {
-        pause(db_client, &format!("{failed} days stand failed; the last, job {job} ({day}): {why}{local}")).await?;
-    } else {
-        let after = if rest == 1 { "; the rest of its block is queued again" } else { "" };
-        notice::log(db_client, &format!("Day {day} failed for the last time and is set aside (job {job}): {why}{after}{local}. The build goes on.")).await?;
-    }
+    // C-094 (owner, 2026-11-26: "the nightly should never get paused"; the run records every fault and goes on):
+    // failed days no longer pause the queue, at any count. Each is set aside and alerted (JOB_FAILED); systematic
+    // breakage is the stop rule's to say (C-090), and stopping the backfill is `backfill stop`, which never
+    // touches the nightly.
+    let after = if rest == 1 { "; the rest of its block is queued again" } else { "" };
+    let standing = if failed >= FAILED_DAYS_NOTED { format!(" {failed} days stand failed.") } else { String::new() };
+    notice::log(db_client, &format!("Day {day} failed for the last time and is set aside (job {job}): {why}{after}{local}. The build goes on.{standing}")).await?;
     Ok(false)
 }
 
@@ -1000,6 +1035,11 @@ fn dropped_base_clause(base: Option<i64>, day: &str) -> String {
         )
     })
 }
+
+/// C-086: a backfill day block of a build starts at most once in this many minutes (`core.backfill_block_room`,
+/// migration 0064, which states the number): the blocks ramp up instead of sharing the request budget from
+/// one minute (2026-11-26: seven at once, their first days' downloads twice as long).
+pub const RAMP_MINUTES: i64 = 20;
 
 /// Taken by every publish before any row lock, and by the claim of an ordered pass: a pass is then
 /// claimed either before a publish (which stops it if it reads that day) or after it (and reads
@@ -1919,13 +1959,15 @@ pub async fn omit(client: &mut Client, profile: &str, session: &str, reason: &st
 }
 
 /// The queue at a glance: jobs by kind, state and build (C-068 round 2, 8: which build owns what), what
-/// is claimable, and the pause.
+/// is claimable, the pause and the backfill's stop (C-087).
 pub async fn status(db_client: &impl GenericClient) -> Result<Value, String> {
     let row = db_client
         .query_one(
             "SELECT jsonb_build_object(
                  'paused', (SELECT paused FROM core.queue_control),
                  'pause_reason', (SELECT reason FROM core.queue_control),
+                 'backfill_stopped', (SELECT backfill_stopped FROM core.queue_control),
+                 'backfill_reason', (SELECT backfill_reason FROM core.queue_control),
                  'jobs', COALESCE((SELECT jsonb_agg(jsonb_build_object('kind', kind, 'state', state, 'build', engine_build, 'jobs', n, 'first', first, 'last', last)
                                                     ORDER BY kind, state, engine_build)
                                    FROM (SELECT kind, state, engine_build, count(*) AS n, min(first_session) AS first, max(last_session) AS last

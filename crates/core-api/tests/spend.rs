@@ -50,9 +50,10 @@ async fn the_billing_is_read_with_the_token_from_its_file_and_its_absence_is_sai
     // no setting, then a file not made (the secret absent): said, no request sent
     let (url, seen) = digitalocean(vec![]);
     let e = Billing::new(None, &url).unwrap().read("2026-11").await.unwrap_err();
-    assert!(e.starts_with("no DigitalOcean token: VYREON_CORE_DO_TOKEN_FILE is not set"), "{e}");
+    // C-091: in plain words, no setting or secret named
+    assert_eq!(e, "the billing token is missing");
     let e = Billing::new(Some(file.clone()), &url).unwrap().read("2026-11").await.unwrap_err();
-    assert!(e.starts_with("no DigitalOcean token: the secret vyreon-core-do-billing is not made"), "{e}");
+    assert_eq!(e, "the billing token is missing");
     assert!(seen.lock().unwrap().is_empty());
 
     // the token refused: the status said, the token never
