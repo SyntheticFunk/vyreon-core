@@ -61,10 +61,30 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
      Published values change only for VS-O04 (`@4-D-517`, curve `@2-D-517`); the rest is bytes only (M0 stream root,
      the task keys). Targeted Rust suites and the reference pytest pass (`test_field_own_iv` already failed on
      worker: missing fixture).
-   - **engine `eng-s1b`** (worktree `/home/diggz/wt/eng-s1b`): the forward rules (10-30 → the parity band, one
-     empty-chain reason, the general carry rule, the suite-rulings pass); D-530 on. REPORT PENDING at 15:00.
+   - **engine `eng-s1b`** (worktree `/home/diggz/wt/eng-s1b`, 6 commits 548aaf72..50383cc2, D-560/D-561, clean):
+     - **D-560:**
+       - SURFACE-FORWARD is judged by Hull's no-arbitrage bounds on the forward from the expiry's own quotes (Hull
+         ch. 11: the European bounds with dividends, American put–call parity with dividends, at tradeable
+         bid/ask). This replaces the owner rulings of 10-30, 10-31, 11-04 and 11-20.
+       - The 7 offsets of 2024-07-11 are inside the bounds (re-fetched 19:55 snapshots; tightest VGK 68.51 in
+         [68.07, 70.45]); XLP 15d and UUP 190d are outside. Of 07-11's 71 forward failures, 66 are inside; URA 50d
+         and XLY 1d (ruled before) now count as engine errors.
+       - ENGINE (H5-SURFACE@26): an expiry whose forward lies outside its own quotes' bounds is withheld, and none
+         borrows its carry.
+       - **DEVIATION FROM THE OWNER'S DECISION (3), for the owner:** the cross-expiry (neighbour) carry test was
+         NOT adopted. At the Treasury rate it fired on 10–16% of expiries. The bounds test fired on ~0.5–1% of
+         ~1,070 expiries per session in saved runs, mostly 1–3-day expiries, 1–10 bp of spot. The census on this
+         build's refit goes to `~/claude-artifacts/checks/forward-bounds-census-2026-11-26.txt` (pending).
+       - D-153 is kept. Values change: σ, Greeks and fits on withheld expiries. **UUP 2025-12-03 IV30 0.0577 →
+         0.0723** (its 44-day expiry withheld): owner review.
+     - **D-561:** when T's own chain is empty, EMPTY_DELIVERED_POPULATION comes first in VS-O04 and VS-L01 (engine
+       and suite; VS-O02's suite path is on eng-s1).
+     - Suite-rulings pass: only ADX moved (Wilder's as the primary reading); the rest is NOT STARTED.
+     - Open: renew the M0 labels (pin test not run); two h3-asset tests and one suite test fail on missing
+       fixtures (also on worker).
    - **Merging eng-s1 with eng-s1b:** conflicts are expected in tools/reference (`__main__.py`, `published.py`,
-     `opt_oi.py`, `chain_ctx.py`, `surface/run.py`, `surface/streams.py`) and at the end of docs/DECISIONS.md.
+     `opt_oi.py`, `chain_ctx.py`, `rulings.py`, `surface/run.py`, `surface/streams.py`), the METHOD bump in
+     `stage.rs`, the M0 labels, and the end of docs/DECISIONS.md.
    - **core `core-s1`** (worktree `/home/diggz/wt/core-s1`, 8 commits 566fef9..cff9b9e, migrations 0064–0066,
      C-086..C-092, clean; full suite with Postgres 272 ok):
      - the ramp + one-real-day gate (C-086; small gap: a Running pod not yet claimed can let a second block start);
