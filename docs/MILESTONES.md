@@ -50,7 +50,10 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   the whole domain; faults are data, recorded complete (reason, sensor, asset, date, queryable from the database:
   checked at the canary); criteria written before the catalog is read. **The coordinator's job during the run
   (owner):** keep the run alive and the record complete; monitor progress; watch for anomalies; search for ways to
-  improve. Anomalies and improvements go in the catalog; only blocker and operations fixes ship mid-run.
+  improve. Scope (owner: both "are potentially scope expanders at this stage"): an anomaly means the run itself
+  struggling (memory deaths, stalls, throttling, cost, days failing): assessed when seen. Everything else, science
+  oddities and improvement ideas included, is one catalog line with its evidence, not worked during the run. Only
+  blocker and operations fixes ship mid-run.
 - **UUP dividend: RESOLVED, not a blocker (verified in the code, 2026-11-26 ~17:15 MT).** The owner remembered
   right: D-154 (2026-11-02) projects a commodity pool's (DBA, UUP) distribution from the trailing fed funds rate;
   production applies it (`h5_surface.rs` `pool_income_of`). The "0.0577 → 0.0723" came from a test fixture fed last
