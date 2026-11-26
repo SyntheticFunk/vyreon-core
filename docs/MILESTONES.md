@@ -1638,6 +1638,12 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   2024-07-10 (published 04:45 on 90e2f228, IVSC-faulted) and its two reference checks; cap briefly 2 so the new gate block
   started beside it (05:13), then 1 again. Gate day = 2024-07-11 on 714e47a3 (~08:00). To recompute later (bad, IVSC):
   2024-07-09, 2024-07-10 (90e2f228).
+  **GATE PASSED (UTC−6 09:00): 2024-07-11 on 714e47a3 — 4,608 slots, 0 ENGINE_FAULT, 0 PARENT_ENGINE_FAULT; INT-IVSC01
+  62 of 63 published (the 1 and the other 66 EMPTY_DELIVERED_POPULATION: IBIT before listed options).** day-block max → 8
+  (the yaml value). Pass 1 now runs at scale on 714e47a3. Nightly 11-25: waits by design for every tape ≤ its session
+  (claimable_job: no unfinished TAPE at or before a block's last session) — the build's tape re-capture (~90 left at 08:15,
+  ~24/h) → starts ~noon. Spend: DigitalOcean $351.57 month-to-date at 2026-11-25 22:14 (UTC−6) (balance API; core's spend
+  watch still lacks its read-only token) — heads-up given to the owner before the $500 ceiling.
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
