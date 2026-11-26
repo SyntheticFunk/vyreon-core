@@ -118,11 +118,17 @@ async fn progress_says_blocks_started_and_finished_and_the_databases_progress() 
     let all: Vec<String> = client.query("SELECT message FROM core.notice WHERE channel = 'progress'", &[]).await.unwrap().iter().map(|r| r.get(0)).collect();
     assert!(all.iter().all(|p| !p.contains("nothing broken") && !p.contains("History") && !p.contains("New:") && !p.contains("day-7f2c")), "{all:?}");
 
+    // (owner, 2026-11-26) once the watch has counted the kept days' slots, the line says the share with a value
+    let now0: String = client.query_one("SELECT now()::text", &[]).await.unwrap().get(0);
+    assert!(core_db::watch::tally_untallied(&mut client, PROFILE, &now0, None).await.unwrap());
+    let counted = progress::database_line(&client, PROFILE, None, &now0).await.unwrap();
+    eprintln!("COUNTED: {counted}");
+    assert!(counted.starts_with("Database: 3 of 3 days kept (current build) · ") && counted.contains("% of readings measured"), "{counted}");
     // the phase's total, and the finish at the build's measured rate once it has kept 3 days over 2 hours
     let phase = ("2025-12-01".to_owned(), "2025-12-31".to_owned());
     let total: i64 = client.query_one("SELECT count(*) FROM core.session WHERE session BETWEEN '2025-12-01' AND '2025-12-31'", &[]).await.unwrap().get(0);
     let now: String = client.query_one("SELECT now()::text", &[]).await.unwrap().get(0);
-    assert_eq!(progress::database_line(&client, PROFILE, Some(&phase), &now).await.unwrap(), format!("Database: 3 of {total} days kept (current build)"), "not measurable yet: no date");
+    assert_eq!(progress::database_line(&client, PROFILE, Some(&phase), &now).await.unwrap(), format!("Database: 3 of {total} days kept (current build) · 100% of readings measured"), "not measurable yet: no date");
     client
         .execute(
             "UPDATE vyreon.day_revision SET published_at = now() - make_interval(hours => (4 - extract(day FROM represented_date)::int % 10))
@@ -138,7 +144,7 @@ async fn progress_says_blocks_started_and_finished_and_the_databases_progress() 
         .get(0);
     assert_eq!(
         progress::database_line(&client, PROFILE, Some(&phase), &now).await.unwrap(),
-        format!("Database: 3 of {total} days kept (current build) · finish ~{finish} at the measured rate")
+        format!("Database: 3 of {total} days kept (current build) · 100% of readings measured · finish ~{finish} at the measured rate")
     );
     scratch.drop().await;
 }
