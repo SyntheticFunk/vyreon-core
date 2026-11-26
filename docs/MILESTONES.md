@@ -46,8 +46,18 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   monitored, recording ALL faults; at the end the catalog of faults is evaluated: fix all, then recompute selectively
   if possible, fully if necessary. Owner: "We keep getting trapped encountering and diagnosing small issues, random
   decisions" — so until the freeze only what blocks the canary is diagnosed; the rest is catalogued for the fix pass.
-- **UUP dividend (IV30 5.77% vs 7.23%):** investigated before the freeze (owner: "absolutely needs investigation, i
-  thought we had that one resolved").
+- **UUP dividend: RESOLVED, not a blocker (verified in the code, 2026-11-26 ~17:15 MT).** The owner remembered
+  right: D-154 (2026-11-02) projects a commodity pool's (DBA, UUP) distribution from the trailing fed funds rate;
+  production applies it (`h5_surface.rs` `pool_income_of`). The "0.0577 → 0.0723" came from a test fixture fed last
+  year's 1.3171 raw, a path production never takes. Under D-154 (0.9657 vs 0.9269 paid) the 44-day expiry is inside
+  its bounds; IV30 ≈ 0.064 (D-154's record). Where D-154 misses badly (2024-07-11: 1.84 projected, 1.3171 paid) D-560
+  withholds the expiry: a stated absence, not a wrong number. CATALOG (fix pass): replace D-153/D-154's projections
+  with the standard forward from put–call parity (Cboe VIX methodology §3(a)(ii)); UUP's thin book needs a fallback.
+- **Reference-suite rulings census** (`~/claude-artifacts/checks/refsuite-rulings-standards-2026-11-26.md`, agent,
+  spot-checked): 63 rulings: STANDARD 10, OWN 44, RETIRE 6, UNSURE 2, REPLACE 1 (#7 SAR: TA-Lib reverses on a touch, the
+  engine on a cross; changes published SAR values: CATALOG). Hammer family (#6, #39) vs TA-Lib's CDLHAMMER: CATALOG
+  (TA-Lib wholesale or our own, on the population). Owner, 2026-11-26: the amassed owner rulings are likely overfit to
+  sparse, picked dates; the populated phase-1 dataset is where sensors get examined and reworked.
 - **Owner request:** live jobs in the progress channel.
 
 ## Resume here (HANDOFF, 2026-11-26 ~15:35 MT)
