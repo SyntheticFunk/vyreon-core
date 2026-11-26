@@ -66,6 +66,11 @@ contracts, FLEX excluded, by definition (engine D-362).
 - **Reading:** first guessed a rolling-window count, but core already bounds every rolling 60 s window (C-076); now suspected:
   requests on the key that bypass core's permits (being hunted). Not a data fault: no wrong value, a refused day.
 - **Handling:** carry capture retries on throttling (engine D-463); any permit bypass closed (release 2).
+- **Recurrence 2026-11-26 (build 714e47a3, 8 backfill blocks + the nightly downloading at once):** block job 29453 (day
+  2025-02-12) company capture `FAILED:TRANSPORT:HTTP 429 Too Many Requests after 5 attempts` for 15 and 14 of 17 companies
+  on two invocations (UTC 18:15, 18:30); the third (18:35–18:44) completed all 17; the failed captures were set aside
+  (`.abandoned-*`), never used. Cost ~25 min; core's NO_PROGRESS alerted at 18:36 and resolved itself. The bypass hunt
+  found no bypass, so a per-endpoint limit on the fundamentals endpoints is the open hypothesis (unmeasured).
 - **Reported:** no.
 
 ## P-31 — An 8-K acceptance copied into a periodic report in New York time marked UTC (2026-11-25)
