@@ -329,6 +329,14 @@ Next:
    forward-looking research and the no-signal line as PRODUCT_INTENT.md states them.
 
 ## Decisions waiting on the owner
+- **Rulings census** (`~/claude-artifacts/rulings-census-2026-11-26.md`; 71 rulings: retire 24, engineering 24,
+  intent 9, standard 8, keep 6, unsure 7).
+  - The owner's five decisions are applied (8d0b685).
+  - Next session, mechanical: retire the pure duplicates; turn the engineering items into C-numbers (11 already
+    have one).
+  - For the owner's glance: the 9 intent items (they go into PRODUCT_INTENT; the engine's copy is canonical, so sync
+    both), the 8 standard items (4 citations were named from memory: Fowler "Two Hats", SRE book chapters, Saltzer &
+    Schroeder, IEEE 1028; verify them before citing) and the 7 unsure.
 - **Intrinio Startup — bought (owner, 2026-11-26 afternoon).** Intrinio moved the account to Startup effective
   2026-12-01 after our bug reports opened with untrue "commercial customer" wording (drafted on our side); since then
   bug reports state the data fault only — no company, customer or license wording — and the owner approves the text.
