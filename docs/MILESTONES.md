@@ -1634,6 +1634,10 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   every reader withholds as EMPTY_DELIVERED_POPULATION (D-117); day summary faulted_engine 62 (all IVSC),
   withheld_empty_population 9. Only the intent log's "fault:" wording misleads (cosmetic, after the freeze). So the gate's
   only engine fault was INT-IVSC01. Image building; release + gate again; scale when a gate day has zero engine faults.
+  **Hotfix 2 released (UTC−6 03:27–05:55): worker 714e47a3+5b2beb37d0c5** (daily build too). The old gate block drained
+  2024-07-10 (published 04:45 on 90e2f228, IVSC-faulted) and its two reference checks; cap briefly 2 so the new gate block
+  started beside it (05:13), then 1 again. Gate day = 2024-07-11 on 714e47a3 (~08:00). To recompute later (bad, IVSC):
+  2024-07-09, 2024-07-10 (90e2f228).
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
