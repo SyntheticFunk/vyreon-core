@@ -43,8 +43,14 @@ Backfill stopped 2026-11-26 13:37 MT: 606 phase-1 jobs cancelled; reference re-r
 1. Classify the 20 unexplained reference disagreements of 2024-07-11 on 714e47a3 (SURFACE-FORWARD 9, VS-O02 6,
    SURFACE-SIGMA 2, SURFACE-INPUTS 1, FIELD-SUP01 1, VS-O04 1); fix the engine ones.
    **Classified 2026-11-26 15:10 MT:** 3 engine faults change published values, so 2024-07-11 is BAD.
-   - **VS-O04 NVDA:** systematic and block-dependent; the block's history starts with no prior quote file, so a new
-     expiry's open interest reads as unknown and the expiry is dropped. Sent to eng-s1, item F.
+   - **VS-O04 NVDA:** the 2024-06-21 reference point is wrong (0.032165 vs 0.032980; the reference is right under
+     D-028).
+     - The CAUSE IS UNPROVEN: the classifier retracted "no 06-12 quote file" as inference; history_start is 06-11.
+       D-475's E3 named two candidates (a 06-13 requote without 06-12's file, D-443; or a curve computed before
+       D-441).
+     - The "block-start determinism break" was overstated to the owner.
+     - eng-s1, item F: an expiry with unknown OI is withheld, never silently dropped. The cause is to be reproduced
+       or left open; NVDA in this window joins the proving set.
    - **UUP 190d forward:** the forward implies a projected distribution too high; both rights are uninvertible.
    - **XLP 15d forward:** leaning engine; the implied carry is inconsistent with the neighbouring expiries.
    - **Suite faults:** FIELD-SUP01 hash newline, VS-O02 reason order, SURFACE-SIGMA D-145 not mirrored,
