@@ -276,8 +276,8 @@ spec:
               - name: VYREON_WORKER_NAME
                 valueFrom: {fieldRef: {fieldPath: metadata.name}}
             resources:
-              requests: {cpu: "6", memory: 10Gi}
-              limits: {memory: 14Gi}
+              requests: {cpu: "6", memory: 12Gi}   # 10 → 12Gi 2026-11-26 (pass 1): a full day peaks ~13.4 GB of a node's 13.33 GiB allocatable;
+              limits: {memory: 14Gi}               # at 10Gi a tape (3Gi) was co-scheduled beside it and the node evicted the block
             volumeMounts:
               - {name: work, mountPath: /work}
               - {name: secrets, mountPath: /secrets, readOnly: true}
@@ -380,8 +380,8 @@ spec:
               - name: VYREON_WORKER_NAME
                 valueFrom: {fieldRef: {fieldPath: metadata.name}}
             resources:
-              requests: {cpu: "6", memory: 10Gi}
-              limits: {memory: 14Gi}
+              requests: {cpu: "6", memory: 12Gi}   # 10 → 12Gi 2026-11-26 (pass 1): a full day peaks ~13.4 GB of a node's 13.33 GiB allocatable;
+              limits: {memory: 14Gi}               # at 10Gi a tape (3Gi) was co-scheduled beside it and the node evicted the block
             volumeMounts:
               - {name: work, mountPath: /work}
               - {name: secrets, mountPath: /secrets, readOnly: true}
@@ -580,8 +580,8 @@ spec:
               - name: VYREON_WORKER_NAME
                 valueFrom: {fieldRef: {fieldPath: metadata.name}}
             resources:
-              requests: {cpu: "6", memory: 10Gi}
-              limits: {memory: 14Gi}
+              requests: {cpu: "6", memory: 12Gi}   # 10 → 12Gi 2026-11-26 (pass 1): a full day peaks ~13.4 GB of a node's 13.33 GiB allocatable;
+              limits: {memory: 14Gi}               # at 10Gi a tape (3Gi) was co-scheduled beside it and the node evicted the block
             volumeMounts:
               - {name: work, mountPath: /work}
               - {name: secrets, mountPath: /secrets, readOnly: true}
@@ -675,8 +675,8 @@ spec:
               - name: VYREON_WORKER_NAME
                 valueFrom: {fieldRef: {fieldPath: metadata.name}}
             resources:
-              requests: {cpu: "6", memory: 10Gi}
-              limits: {memory: 14Gi}
+              requests: {cpu: "6", memory: 12Gi}   # 10 → 12Gi 2026-11-26 (pass 1): a full day peaks ~13.4 GB of a node's 13.33 GiB allocatable;
+              limits: {memory: 14Gi}               # at 10Gi a tape (3Gi) was co-scheduled beside it and the node evicted the block
             volumeMounts:
               - {name: work, mountPath: /work}
               - {name: secrets, mountPath: /secrets, readOnly: true}
