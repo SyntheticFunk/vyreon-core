@@ -1620,6 +1620,11 @@ restore; a read-only exposure check and an attack-surface audit. Phone recovery 
   re-run rule cancelled the 15 handed-over stale re-runs by itself. release.sh false STOP at step 11 ("no pod claimed
   refcheck in 20 min": it snapshotted the kinds to verify before the watch cancelled those re-runs) — finished with --from 12.
   Fix for release.sh: verify only kinds still claimable at verification time. Daily build in 20-core.yaml committed.
+  **GATE RESULT (UTC−6 03:07): 2024-07-09 published on 90e2f228 — M0 fixed, but INT-IVSC01 ENGINE_FAULT for all 62 assets
+  (+62 PARENT_ENGINE_FAULT): "H4 INT-IVSC01 scope/source/parent drift" (current vs T−5 predecessor bindings).** Second
+  systematic engine fault; gate held (day-block max stays 1; the gate block continues its later days, which carry the same
+  fault — accepted for diagnosis evidence, one node). Investigation sent (eng-hotfix-ivsc). The gate worked: one block, one day,
+  instead of 12 blocks. Stop rule: 2024-07-09 is BAD (engine fault changing a published value: 62 withheld).
   **Core d1f518f deployed (UTC−6 ~10:45):** C-080 refcheck dump in the engine's key order (proven through the suite's real
   load_store) + guard (≥1/10 "slot not published" → NOT_RUN, never DISAGREES); release.sh --core digest check by registry
   manifests and --from 1-4; re-runs kept "off" until the freeze (the branch had set "6"; reverted before merge). DB tests now
