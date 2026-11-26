@@ -422,6 +422,8 @@ struct Composed {
     news: bool,
     /// C-091: the database's progress, the morning's first line.
     database: String,
+    /// C-093: what is running at the window's end, the last line of every post.
+    running: String,
 }
 
 /// A logged line as the progress channel says it, in plain words (owner, 2026-11-25: "currently its
@@ -578,7 +580,47 @@ async fn compose(c: &mut impl GenericClient, profile: &str, phase: Option<&(Stri
     let lines: Vec<(String, Shown)> = events.into_iter().map(|(_, l, s)| (l, s)).collect();
     let news = !lines.is_empty();
     let database = database_line(c, profile, phase, end).await?;
-    Ok(Composed { lines, routine: Vec::new(), news, database })
+    let running = running_line(c, profile, end).await?;
+    Ok(Composed { lines, routine: Vec::new(), news, database, running })
+}
+
+/// C-093 (owner, 2026-11-26: "seeing live jobs in the progress discord channel would be useful"): the day blocks
+/// holding a live lease at `now` (granted, not ended, not expired), the nightly named apart: "Running now: 8 blocks (Jul 16 – 18, 2024; …) · the
+/// nightly (Nov 25, 2026)", or "Running now: nothing". Each block by its whole span, oldest first.
+pub async fn running_line(c: &impl GenericClient, profile: &str, now: &str) -> Result<String, String> {
+    let rows = c
+        .query(
+            "SELECT j.first_session::text, j.last_session::text, j.priority = 1
+             FROM core.job j JOIN core.lease l ON l.job_id = j.job_id
+             WHERE j.kind = 'DAY_BLOCK' AND j.profile_id = $1 AND j.state = 'LEASED'
+               AND NOT COALESCE(j.scope @> '{\"compare_only\": true}', false)
+               AND l.granted_at <= $2::text::timestamptz AND l.expires_at > $2::text::timestamptz
+               AND (l.ended_at IS NULL OR l.ended_at > $2::text::timestamptz)
+             ORDER BY j.first_session, j.job_id",
+            &[&profile, &now],
+        )
+        .await
+        .map_err(db)?;
+    let blocks: Vec<(String, String, bool)> = rows.iter().map(|r| (r.get(0), r.get(1), r.get(2))).collect();
+    Ok(running_words(&blocks))
+}
+
+/// `running_line`'s words from (first, last, nightly) per running block.
+pub fn running_words(blocks: &[(String, String, bool)]) -> String {
+    let backfill: Vec<String> = blocks.iter().filter(|b| !b.2).map(|b| span(&b.0, &b.1)).collect();
+    let nightly: Vec<String> = blocks.iter().filter(|b| b.2).map(|b| span(&b.0, &b.0)).collect();
+    let mut parts: Vec<String> = Vec::new();
+    if !backfill.is_empty() {
+        parts.push(format!("{} ({})", counted(backfill.len() as i64, "block", "blocks"), backfill.join("; ")));
+    }
+    if !nightly.is_empty() {
+        parts.push(format!("the nightly ({})", nightly.join("; ")));
+    }
+    if parts.is_empty() {
+        "Running now: nothing".to_owned()
+    } else {
+        format!("Running now: {}", parts.join(" · "))
+    }
 }
 
 /// "Oct 1 – Nov 20, 2024", "Dec 16, 2024 – Jan 31, 2025", "Nov 25, 2026".
@@ -661,7 +703,11 @@ fn render(composed: &Composed, label: &str, heartbeat: bool) -> (Option<String>,
     } else {
         (lines[0].clone(), &lines[1..])
     };
-    let (posts, carried) = split_counted(&header, rest);
+    // C-093: what is running closes every post; it is no event, so it never counts as carried
+    let mut rest: Vec<String> = rest.to_vec();
+    rest.push(crate::plain::plain(&composed.running));
+    let (posts, carried) = split_counted(&header, &rest);
+    let carried = carried.min(rest.len() - 1);
     (posts.into_iter().next(), if heartbeat { carried } else { carried + 1 })
 }
 
@@ -1033,5 +1079,17 @@ mod tests {
         assert_eq!(cut.chars().count() - format!("… ({} characters cut)", thousands(n as i64)).chars().count() + n, long.chars().count(), "what is kept and what is counted make the line");
         assert_eq!(fit("short", 10), "short");
         assert_eq!(fit(&"y".repeat(30), 25), format!("{}… (26 characters cut)", "y".repeat(4)));
+    }
+
+    /// C-093 (owner, 2026-11-26): what runs closes every post, the nightly named apart.
+    #[test]
+    fn running_now_names_each_block_and_the_nightly() {
+        let b = |f: &str, l: &str, n: bool| (f.to_owned(), l.to_owned(), n);
+        assert_eq!(running_words(&[]), "Running now: nothing");
+        assert_eq!(running_words(&[b("2026-11-25", "2026-11-25", true)]), "Running now: the nightly (Nov 25, 2026)");
+        assert_eq!(
+            running_words(&[b("2024-07-16", "2024-07-18", false), b("2024-09-04", "2024-09-04", false), b("2026-11-25", "2026-11-25", true)]),
+            format!("Running now: 2 blocks ({}; {}) · the nightly (Nov 25, 2026)", span("2024-07-16", "2024-07-18"), span("2024-09-04", "2024-09-04"))
+        );
     }
 }
