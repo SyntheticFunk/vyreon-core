@@ -54,7 +54,7 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   struggling (memory deaths, stalls, throttling, cost, days failing): assessed when seen. Everything else, science
   oddities and improvement ideas included, is one catalog line with its evidence, not worked during the run. Only
   blocker and operations fixes ship mid-run.
-- **UUP dividend: RESOLVED, not a blocker (verified in the code, 2026-11-26 ~17:15 MT).** The owner remembered
+- **UUP dividend: RESOLVED, not a blocker (verified in the code, 2026-11-26 ~16:40 MT).** The owner remembered
   right: D-154 (2026-11-02) projects a commodity pool's (DBA, UUP) distribution from the trailing fed funds rate;
   production applies it (`h5_surface.rs` `pool_income_of`). The test fixture was fed last year's 1.3171 raw, a path
   production never takes: the 44-day expiry's WITHHOLDING is that artifact. Under D-154 (0.9657 vs 0.9269 paid) no
@@ -68,7 +68,7 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   engine on a cross; changes published SAR values: CATALOG). Hammer family (#6, #39) vs TA-Lib's CDLHAMMER: CATALOG
   (TA-Lib wholesale or our own, on the population). Owner, 2026-11-26: the amassed owner rulings are likely overfit to
   sparse, picked dates; the populated phase-1 dataset is where sensors get examined and reworked.
-- **STEP 1 (integration) DONE 2026-11-26 evening; STEP 2 (the audit) RUNNING:**
+- **STEP 1 (integration) DONE 2026-11-26 16:45 MT; STEP 2 (the audit) RUNNING:**
   - **Engine candidate = branch `eng-s1`** (worktree `/home/diggz/wt/eng-s1`, head 42a5d083): eng-s1b merged in
     (a4c0e83e); M0 pins renewed (D-562); D-561's test corrected (it failed on eng-s1b as committed: the handoff's
     "verified" was wrong there; the engine code was right); UUP production case tested; six unused suite rulings retired
