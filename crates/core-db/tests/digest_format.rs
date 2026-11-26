@@ -83,7 +83,7 @@ async fn progress_says_blocks_started_and_finished_and_the_databases_progress() 
     let events = |post: String| post.lines().filter(|l| !l.starts_with("Database: ")).collect::<Vec<_>>().join("\n");
     let started = last_post(&client).await;
     eprintln!("STARTED:\n{started}\n");
-    assert_eq!(events(started), "Nightly started: Nov 23, 2026\nStarted: Dec 10 – Dec 12, 2025 (3 days)");
+    assert_eq!(events(started), "Nightly started: Nov 23, 2026\nStarted: Dec 10 – Dec 12, 2025 (3 days)\nRunning now: 1 block (Dec 10 – Dec 12, 2025) · the nightly (Nov 23, 2026)");
     // the block's days come in and it finishes
     for day in ["2025-12-10", "2025-12-11", "2025-12-12"] {
         publish_day(&mut client, &block, &b, day).await;
@@ -93,7 +93,7 @@ async fn progress_says_blocks_started_and_finished_and_the_databases_progress() 
     assert_eq!(progress::tick_as(&mut client, PROFILE, LABEL, &t1).await.unwrap().unwrap().posts, 1);
     let finished = last_post(&client).await;
     eprintln!("FINISHED:\n{finished}\n");
-    assert_eq!(events(finished), "Finished: Dec 10 – Dec 12, 2025 · 3 days kept");
+    assert_eq!(events(finished), "Finished: Dec 10 – Dec 12, 2025 · 3 days kept\nRunning now: the nightly (Nov 23, 2026)");
     // nothing new in the next half hour (before the morning's heartbeat): nothing posted
     let posts = "SELECT count(*) FROM core.notice WHERE channel = 'progress'";
     let before: i64 = client.query_one(posts, &[]).await.unwrap().get(0);
@@ -109,7 +109,8 @@ async fn progress_says_blocks_started_and_finished_and_the_databases_progress() 
     progress::tick_as(&mut client, PROFILE, LABEL, &nine).await.unwrap();
     let heartbeat = last_post(&client).await;
     eprintln!("HEARTBEAT:\n{heartbeat}\n");
-    assert_eq!(heartbeat, "Database: 3 of 3 days kept (current build) · done");
+    // C-093: the nightly's 24-hour lease may or may not outlive the real clock's next 09:00
+    assert!(heartbeat.starts_with("Database: 3 of 3 days kept (current build) · done\nRunning now: ") && heartbeat.lines().count() == 2, "{heartbeat}");
     let n: i64 = client.query_one(posts, &[]).await.unwrap().get(0);
     let later2 = later(&client, &nine, 30).await;
     progress::tick_as(&mut client, PROFILE, LABEL, &later2).await.unwrap();
