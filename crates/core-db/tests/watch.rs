@@ -219,10 +219,35 @@ async fn the_providers_rate_refusals_are_said() {
     let report = json!({"category": "act01", "endpoint": "/options/trades", "status": 429, "message": "1 Minute Call Limit Reached"});
     core_db::budget::refusal(&client, "day-block-daily-1", &report).await.unwrap();
     core_db::budget::refusal(&client, "day-block-2", &report).await.unwrap();
+    // C-098 (audit 2026-11-26, core 1, 6, 7): a message with a line end and a NUL is stored as one line (the NUL
+    // failed the insert; the line end failed the summary and, with it, the whole check until core restarted),
+    // one that may hold a credential is not kept; and a row another client stored with a line end is said by its
+    // first line
+    let odd = json!({"category": "act01", "endpoint": "/options/trades", "status": 429, "message": "Limit\r\nreached\u{0}", "headers": {"retry-after": "1\n2"}});
+    core_db::budget::refusal(&client, "day-block-3", &odd).await.unwrap();
+    let keyed = json!({"category": "act01", "endpoint": "/options/trades", "status": 503, "message": "no access for api_key=0123456789abcdef"});
+    core_db::budget::refusal(&client, "day-block-3", &keyed).await.unwrap();
+    let kept: Vec<(Option<String>, String)> = client
+        .query("SELECT message, headers::text FROM core.provider_refusal WHERE worker = 'day-block-3' ORDER BY provider_refusal_id", &[])
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| (r.get(0), r.get(1)))
+        .collect();
+    assert_eq!(kept, [(Some("Limit  reached".to_owned()), r#"{"retry-after": "1 2"}"#.to_owned()), (Some("(not kept: it may hold a credential)".to_owned()), "{}".to_owned())]);
+    client.execute("DELETE FROM core.provider_refusal WHERE worker = 'day-block-3'", &[]).await.unwrap();
+    client
+        .execute(
+            "INSERT INTO core.provider_refusal (at, worker, category, endpoint, status, message, committed)
+             VALUES (clock_timestamp(), 'day-block-2', 'act01', '/options/trades', 429, E'1 Minute Call Limit Reached\nsecond line', 0)",
+            &[],
+        )
+        .await
+        .unwrap();
     let now = watch::now(&client).await.unwrap();
-    let summary = "The provider (Intrinio) refused 2 requests for their rate (HTTP 429) on 2 workers in the last 30 minutes, while core counted 0 to 0 requests a minute; its words: \"1 Minute Call Limit Reached\"";
+    let summary = "The provider (Intrinio) refused at least 3 requests for their rate (HTTP 429) on 2 workers in the last 30 minutes, while core held 0 to 0 requests against its ceiling (leases granted, spent or not); its words: \"1 Minute Call Limit Reached\"";
     assert_eq!(check(&mut client, &s, &now).await, opened(&[summary]));
-    assert!(posts(&client).await.iter().any(|p| p.contains("refused 2 requests")));
+    assert!(posts(&client).await.iter().any(|p| p.contains("refused at least 3 requests")));
     let in_an_hour = later_text(&client, 1).await;
     assert_eq!(check(&mut client, &s, &in_an_hour).await.resolved, [summary.to_owned()]);
     scratch.drop().await;

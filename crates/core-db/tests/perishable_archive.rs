@@ -11,7 +11,7 @@ use core_db::watch::{self, ArchiveWatch, Settings};
 use core_db::work::{self, Kind, LeaseError};
 use core_db::{build, migrate, universe};
 use md5::{Digest, Md5};
-use serde_json::json;
+use serde_json::{Value, json};
 use test_support::slice::{BASE, bundle, inventories, parts};
 use test_support::{MACRO_CAPTURE, Scratch, TAPE_AAPL};
 use tokio_postgres::Client;
@@ -486,6 +486,69 @@ async fn a_block_archives_only_days_it_has_published() {
     assert!(matches!(r, Err(LeaseError::Refused(ref m)) if m.contains("has published")), "{r:?}");
     let u = archive::unpacked(&mut client, &late.token, "exq01-events", "2025-12-10", "not packed", "2025-12-11 13:00:00+00").await;
     assert!(matches!(u, Err(LeaseError::Refused(ref m)) if m.contains("has published")), "{u:?}");
+    // C-098 (audit 2026-11-26, core 10 and 14): its logs' packing that failed is said all the same (a day that
+    // published nothing is the one whose logs are wanted), and never counted missing; a date inside a block's
+    // range that is no session (a Saturday) is the worker's refused request, not core's failure
+    archive::unpacked(&mut client, &late.token, archive::RUN_LOGS, "2025-12-10", "not packed: the logs' tar failed", "2025-12-11 13:00:00+00").await.unwrap();
+    assert!(archive::unpacked_list(&client, Some("2025-12-10"), 10).await.unwrap().iter().any(|u| u.1 == archive::RUN_LOGS));
+    assert!(!archive::missing(&client, PROFILE, None, "2025-12-13 13:00:00+00").await.unwrap().iter().any(|m| m.category == archive::RUN_LOGS));
+    work::finish(&mut client, &late.token).await.ok();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-12", "2025-12-15", 30).await.unwrap();
+    let weekend = work::claim(&mut client, Kind::DayBlock, &b, "w3", HOUR).await.unwrap().unwrap();
+    for (session, ok) in [("2025-12-12", true), ("2025-12-13", false), ("2025-12-15", true), ("2025-12-16", false)] {
+        let r = archive::request(&mut client, &spaces(), &weekend.token, &request(archive::RUN_LOGS, session, TAPE_AAPL), "2025-12-16 13:00:00+00").await;
+        match ok {
+            true => assert!(matches!(r, Ok(Answer::Upload { .. })), "{session}: {r:?}"),
+            false => assert!(matches!(r, Err(LeaseError::Refused(ref m)) if m.contains("not a session of day block")), "{session}: {r:?}"),
+        }
+    }
     drop(client);
+    scratch.drop().await;
+}
+
+/// C-098 (audit 2026-11-26, core 9): the census reads a withholding where each body schema states it. Seven
+/// real bodies of the 2026-11-24/25 nightlies (`test_support::CENSUS_BODIES_2026_11_25`): the first version,
+/// which read `measurement.value` alone, found only DBA's 29 role reasons among these; the counts here are the
+/// ones production gives for the same rows.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn the_census_reads_every_schemas_withholdings() {
+    let scratch = Scratch::new("census_schemas").await;
+    let client = scratch.client().await;
+    let bodies: Vec<Value> = serde_json::from_str(test_support::CENSUS_BODIES_2026_11_25).unwrap();
+    let mut read: Vec<(String, String, String, String, i64)> = Vec::new();
+    for b in &bodies {
+        let (measurement, object, text) = (b["measurement_id"].as_str().unwrap(), b["object_id"].as_str().unwrap(), b["body_text"].as_str().unwrap());
+        assert_eq!(core_contract::sha256_hex(format!("{text}\n").as_bytes()), b["body_sha256"].as_str().unwrap(), "{measurement} {object}: the body as published");
+        let rows = client
+            .query(
+                &format!(
+                    "WITH m AS (SELECT 1::bigint AS revision_id, $2::text AS measurement_id, $3::text AS object_id, $1::text::jsonb AS b), r AS ({})
+                     SELECT grain, reason, count(*) FROM r GROUP BY 1, 2 ORDER BY 1, 2",
+                    core_db::census::stated("m")
+                ),
+                &[&text, &measurement, &object],
+            )
+            .await
+            .unwrap();
+        read.extend(rows.iter().map(|r| (measurement.to_owned(), object.to_owned(), r.get(0), r.get(1), r.get(2))));
+    }
+    let said: Vec<(&str, &str, &str, &str, i64)> = read.iter().map(|r| (r.0.as_str(), r.1.as_str(), r.2.as_str(), r.3.as_str(), r.4)).collect();
+    assert_eq!(
+        said,
+        [
+            ("CDD-CAPVAL01", "BABA", "coordinate", "NOT_REPORTED_BY_FILER", 4),
+            ("CDD-CAPVAL01", "BABA", "coordinate", "REPRESENTATION_INCOMPATIBLE", 19),
+            ("CDD-CAPVAL01", "BABA", "slot", "REPRESENTATION_INCOMPATIBLE", 1),
+            ("CDD-EVENTS01", "TSM", "coordinate", "EMPTY_DELIVERED_POPULATION", 1),
+            ("CDD-EVENTS01", "TSM", "coordinate", "NOT_APPLICABLE", 2),
+            ("FIELD-OPTBR01", "FIELD.CORE64", "cell", "CARRY_NOT_IDENTIFIED", 2),
+            ("M0-PRINT-SIZE", "AAPL", "coordinate", "NO_EXECUTION_SCOPE", 15),
+            ("M0-PRINT-SIZE", "AAPL", "slot", "NO_EXECUTION_SCOPE", 1),
+            // (SPY's supported M0-PRINT-SIZE states none)
+            ("SAI-ACT01-INTRADAY", "DBA", "role", "PARENT_ENGINE_FAULT", 29),
+            ("VS-V03-CURRENT", "EMB", "role", "INSUFFICIENT_ELIGIBLE", 27),
+        ]
+    );
     scratch.drop().await;
 }

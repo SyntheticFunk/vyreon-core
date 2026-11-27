@@ -266,5 +266,32 @@ async fn a_refusal_halves_the_ceiling_and_the_daily_session_keeps_a_reserve() {
     assert_eq!(granted(budget::draw(&mut client, budget, "tape-1", 600).await.unwrap()).1, 600);
     assert!(matches!(budget::draw(&mut client, budget, "tape-1", 600).await.unwrap(), Grant::Wait { .. }), "1,300 are held");
     assert_eq!(granted(budget::draw(&mut client, budget, "tape-daily-1", 600).await.unwrap()).1, 600);
+    // C-098 (audit 2026-11-26, core 4): the reserve is on from the daily worker's ASK, granted or not. The budget
+    // full, its draw waits; the leases gone a moment later (and its last grant with them), the backfill is still
+    // held to 1,300: 600, 600, then 100 of the 600 it asks
+    // (its earlier asks aged past the two minutes and its grants gone: the reserve is off, the backfill fills 1,900)
+    client.execute("DELETE FROM core.budget_lease", &[]).await.unwrap();
+    client.execute("UPDATE core.budget_daily_ask SET asked_at = asked_at - interval '3 minutes'", &[]).await.unwrap();
+    for n in [600, 600, 600, 100] {
+        assert_eq!(granted(budget::draw(&mut client, budget, "tape-1", 600).await.unwrap()).1, n);
+    }
+    assert!(matches!(budget::draw(&mut client, budget, "tape-daily-1", 600).await.unwrap(), Grant::Wait { .. }), "the budget is full");
+    client.execute("DELETE FROM core.budget_lease", &[]).await.unwrap();
+    for n in [600, 600, 100] {
+        assert_eq!(granted(budget::draw(&mut client, budget, "tape-1", 600).await.unwrap()).1, n);
+    }
+    // an ask older than the two minutes switches it off again
+    client.execute("DELETE FROM core.budget_lease", &[]).await.unwrap();
+    client.execute("UPDATE core.budget_daily_ask SET asked_at = asked_at - interval '3 minutes'", &[]).await.unwrap();
+    for n in [600, 600, 600, 100] {
+        assert_eq!(granted(budget::draw(&mut client, budget, "tape-1", 600).await.unwrap()).1, n);
+    }
+    // C-098 3: a lease whose validity ended over ten minutes ago holds nothing, whenever it was released
+    client.execute("DELETE FROM core.budget_lease", &[]).await.unwrap();
+    client
+        .execute("INSERT INTO core.budget_lease (worker, granted, granted_at, valid_until, used, released_at) VALUES ('old', 600, now() - interval '12 minutes', now() - interval '11 minutes', 600, now())", &[])
+        .await
+        .unwrap();
+    assert_eq!(budget::committed(&client).await.unwrap(), 0);
     scratch.drop().await;
 }
