@@ -214,3 +214,10 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
   the evaluation: these sensors' population is in effect 2025-11-26 onward unless another source is found.
 - A rollback to an older core image is NOT one command: an older binary's migrate step refuses a database that
   holds migrations it lacks. A rollback needs a forward fix or a hand step. OPS.
+- **One sensor over a range costs almost a full day each** (owner, 2026-11-26: "a system where we can legitimately
+  just queue up 1 sensor over xyz dates"). `vyreon-core republish ... --plan` on build a51cb572, 2024-07-09..12:
+  PCR-UQTR-I01 (3.2% of the day's slots, 99 s of its own compute) is 2.7 node-h a day against 3.6 full; VS-IVS01
+  and its dependants (40.9%) cost the full day. The overhead is the whole input download (5,796 s, options and
+  quotes included for a tape sensor), intent A's history nodes (2,744 s) and one job per day. FIRST ENGINEERING ITEM
+  OF THE FIX PASS, before any sensor change: fetch only the inputs a sensor reads (core caches the reduced tapes),
+  skip the stages it does not depend on (`docs/SENSORS.md` section 3), run scoped days in blocks. OPS, HIGH.
