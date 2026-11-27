@@ -31,11 +31,13 @@ pub struct Budget {
     /// C-095: requests a minute kept free for the daily session's work (priority 1) while it is drawing:
     /// the backfill's draws see the ceiling less this.
     pub daily_reserve: i32,
+    /// C-099: the most requests granted in any rolling second, over all workers; 0 for no such bound.
+    pub per_second: i32,
 }
 
 impl Default for Budget {
     fn default() -> Budget {
-        Budget { per_minute: 1800, lease_seconds: 30.0, max_lease: 600, daily_reserve: 0 }
+        Budget { per_minute: 1800, lease_seconds: 30.0, max_lease: 600, daily_reserve: 0, per_second: 0 }
     }
 }
 
@@ -103,6 +105,13 @@ const COMMITTED: &str = "SELECT COALESCE(sum(COALESCE(used, granted)), 0)::int,
                          WHERE valid_until > now() - interval '10 minutes'
                            AND COALESCE(released_at + interval '5 seconds', valid_until) > now() - interval '60 seconds'";
 
+/// C-099: what was granted in the last rolling second, and how long until the oldest of those grants is a second
+/// old (read through the `valid_until` index: a lease granted within a second is valid for half a minute yet).
+const SECOND: &str = "SELECT COALESCE(sum(granted), 0)::int,
+                             EXTRACT(EPOCH FROM min(granted_at) + interval '1 second' - clock_timestamp())::float8
+                      FROM core.budget_lease
+                      WHERE valid_until > now() - interval '10 minutes' AND granted_at > clock_timestamp() - interval '1 second'";
+
 /// Draws up to `requests` for `worker`. A smaller lease than asked is granted when that is all
 /// that is free.
 pub async fn draw(client: &mut Client, budget: Budget, worker: &str, requests: i32) -> Result<Grant, String> {
@@ -140,7 +149,21 @@ pub async fn draw(client: &mut Client, budget: Budget, worker: &str, requests: i
         tx.commit().await.map_err(db)?;
         return Ok(Grant::Wait { seconds: frees_in.unwrap_or(1.0).max(0.1) });
     }
-    let granted = requests.min(free).min(budget.max_lease);
+    let mut granted = requests.min(free).min(budget.max_lease);
+    if budget.per_second > 0 {
+        // C-099 (2026-11-27: Intrinio refused 228 requests with 753 to 1,599 counted in the minute, while single
+        // leases of 67 were used within half a second): the grants of any rolling second sum to no more than
+        // `per_second`, so no worker is handed a burst the provider's shorter window refuses. A lease's requests
+        // are sent after its grant, so bounding the grants bounds the sends a little late, never early.
+        let s = tx.query_one(SECOND, &[]).await.map_err(db)?;
+        let (in_second, frees_in): (i32, Option<f64>) = (s.get(0), s.get(1));
+        let room = budget.per_second - in_second;
+        if room < 1 {
+            tx.commit().await.map_err(db)?;
+            return Ok(Grant::Wait { seconds: frees_in.unwrap_or(0.1).clamp(0.05, 1.0) });
+        }
+        granted = granted.min(room);
+    }
     // the clock, not the transaction's start (which is before the lock was had), plus the answer's
     // way to the worker
     let id: i64 = tx
