@@ -52,6 +52,11 @@ the owner when the fix pass is planned.
    in the tape and the official figure alike), usually uneven across assets and tied to stress or events. Where
    the sources agree the sensor should publish. Open: several inputs have one source only, and there is no
    adequate second source yet.
+   Options for a second source, in the order leaned to (not decided): (a) what is free for the purpose: the
+   official daily volume already delivered, Cboe's bars as in the 2026-11-20 investigation, the exchanges' daily
+   summaries; (b) Intrinio against itself on the nightlies: the trades API (last 7 days) beside the tick file, each
+   day, as a running record (D-411 already has live days reconcile against the trades API: first establish what
+   the nightly does today); (c) a paid second feed only as a last step, with the vendor's permission in writing.
 
 ## Criteria (the bar and criterion 0 are the owner's; the rest draft or proposed)
 **The bar (owner, verbatim):** "My definition of functional is numerically stable across all asset histories with
