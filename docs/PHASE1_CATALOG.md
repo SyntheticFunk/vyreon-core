@@ -336,3 +336,15 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
   94,363 checked, 2,482 failed, 230 unexplained, 154 classes, 20 measurements, 8 reference errors. Each day's
   report is in core (`vyreon-core refcheck list`, `refcheck show <date>`); the REFCHECK_DISAGREES alert stays open
   through the run and is evidence, not an alarm. CHECKER / SCIENCE.
+- **The live-day reconciliation against the trades API was decided and never built** (read-only trace,
+  2026-11-27, `~/claude-artifacts/checks/nightly-volume-source-2026-11-27.md`; the coordinator verified the two
+  key points). On a nightly every tape-read sensor takes its trades and volume from the replay file alone; no
+  equity trades endpoint is called anywhere in the engine. The volume check compares the tape's own share count
+  with the official daily bar at 2% (`consolidated.rs:447-453`). The engine's decision record says of the
+  trades-API reconciliation "Live days (droplet phase, not built yet)" (`docs/DECISIONS.md:3467`); core's
+  `PROVIDER_FAULTS.md` P-04 states it as the owner's decision. So since 2026-11-06 the nightlies withhold
+  PCR-UACT-I01 and DLM-VWAP on most assets (55 of 64 on 11-25). ACT01 and EXQ01 are option captures (30-minute
+  bars and trades of 20 contracts) and have nothing to do with equity volume. Tape and official volume are
+  already kept per asset and day in each tape cache's `derived/derived.json`, so a daily record of the two needs
+  no new capture. Not established: the size and sign of the difference on 11-25. For the MVP this is a candidate
+  BLOCKER on recent days if the report needs intraday volume or VWAP. SCIENCE / OPS, HIGH.
