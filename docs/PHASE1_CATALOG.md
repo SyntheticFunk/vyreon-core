@@ -348,3 +348,20 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
   already kept per asset and day in each tape cache's `derived/derived.json`, so a daily record of the two needs
   no new capture. Not established: the size and sign of the difference on 11-25. For the MVP this is a candidate
   BLOCKER on recent days if the report needs intraday volume or VWAP. SCIENCE / OPS, HIGH.
+- **Decided and not built: the sweep** (read-only, 2026-11-27,
+  `~/claude-artifacts/checks/decided-not-built-2026-11-27.md`; 39 items settled: 8 decided and not built, 3 stated
+  as fact and not true in code, 16 built since (stale text), 12 deferred on purpose; about 150 phrase hits not
+  checked in detail and 7 not established, listed in the file). The consequential ones:
+  1. The live-day trades-API reconciliation (above). Verified.
+  2. `PROVIDER_FAULTS.md` P-04 still said the quote widths are withheld by the date rule; D-567 retired it.
+     Corrected in that file 2026-11-27.
+  3. Engine D-404's "skip and state" is not applied to the EVC history view: `vyreon-cli/src/day.rs:1150` fails on
+     the first problem tape session. Code read by the coordinator; its effect on a day is not established.
+  4. Engine D-396 (owner, 2026-11-19): a bulk option chain missing contracts the snapshot shows active should go
+     to the API; only a count (`bulk_snapshot_absent`) exists. Its effect on open interest and volume: inferred.
+  5. "Recompute only where published values change" (owner, 2026-11-26): core's planner still selects by method
+     version; the commit cited as applying it (8d0b685) changed documents only. Verified. Recompute is off for the
+     run, so nothing is affected yet; it matters before recompute is switched back on.
+  Also: core's OCC volume check is a hand-run tool nothing schedules; `format=parquet` on the reader API is
+  absent; there is no canary job and `release.sh` does not refuse without a real day; the D-140 rule on a missing
+  bar is unimplemented. SCIENCE / OPS.
