@@ -151,7 +151,10 @@ Sources: engine `docs/DECISIONS.md` D-562, D-563; core `docs/DECISIONS.md` C-094
 20. D-520: a progressing company capture can still trip NO_PROGRESS (alert only).
 21. RESOLVED (C-094 amended, owner 2026-11-26): the gate asks "can the engine complete a block"; only a
     whole-measurement fault on every asset holds the ramp.
-22. RESOLVED (C-094 amended, owner): failed days never pause the queue; the nightly is never paused.
+22. PARTLY RESOLVED (C-094 amended, owner): failed DAYS never pause the queue. Still pausing the whole queue,
+    the nightly included (verified 2026-11-27): a job that is not a day block out of attempts (a TAPE job;
+    `work.rs` `pause` after the ordered-pass case) and a refused bundle (`core-api/src/worker.rs`, "bundle
+    refused"). "The nightly is never paused" is decided, not built.
 23. The stop flag does not cover REPUBLISH and TAPE jobs (by C-087; recompute is off for the run, C-094).
 24. Core, rare or cosmetic (triage C3, C5, C9–C14, C16, C18, C19, G5, G11–G15): flag read outside the scheduling
     transaction; `vyreon-core queue` sweeping defeats the start grace; the stop rule ignores the history layer; digest
@@ -391,3 +394,30 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
   it: not yet a rate. If it held, 50 days are about 6.8 days of wall time per block and the whole day layer
   about a week with 12 blocks, near 2,000 node-hours ($330 at $0.167/h, by arithmetic). The 30-minute join is a
   sixth of the cycle. OPS.
+- **Decided and not built: the full sweep** (all phrase matches checked, 2026-11-27; four files
+  `~/claude-artifacts/checks/decided-not-built-2026-11-27*.md`; about 330 entries read, most incidental). Beyond the
+  first pass's items, labelled as the sweeps gave them unless marked verified:
+  Affecting published values or the nightly:
+  - Engine D-136 rule 2 (owner's dividend work): an actual ex-date replaces a projected one. The rule exists in the
+    kernel but the dividend request ends at T, so no later ex-date ever reaches it. A dividend payer's surface,
+    forwards, IV30 and Greeks rest on projected ex-dates (bears on catalog item 1, UUP). PROVEN for the request,
+    inferred that no other path feeds it.
+  - Core C-094: the whole queue still pauses on a TAPE job out of attempts and on a refused bundle (item 22).
+    Verified. DURING THE RUN: either one stops every block and the nightly until `queue resume`.
+  - Engine "Rules in force" 5: the company template is chosen by the ticker "JPM"
+    (`h5-company/src/lib.rs`, `Template::for_ticker`). Verified. Ticker-specific handling.
+  - Engine "Rules in force" 3: no production classifier of withholding causes exists; only a draft tool table,
+    with 17 of 41 sampled reason codes unclassed (inferred). Bears on the census's ENGINE / STATED split.
+  - Engine D-102: the trades-API tape as the intraday reference: only a coverage stub exists.
+  - Engine D-274: longer P01/PATH views (still 153 captures). Inferred.
+  - Engine note on D-162: a refused translation publishes a generic reason.
+  - Core C-060: the weekly baseline fixed at 252 sessions; the engine's API still uses every earlier week. Inferred.
+  Not affecting published values:
+  - Core C-069: a post Discord refuses with a 4xx is retried forever ahead of every later post; background tasks'
+    join handles are dropped. Core C-026: no login in the `vyreon_reader` role. Engine D-258: `/v1/review` omits
+    the flag line's basis. Engine D-461: six tape-reader findings assigned to a later bundle and not done. Engine
+    D-521: INT-IVSC01's end-to-end tests still ignored.
+  - AGENTS.md states as fact what is only partly true: "8 worker nodes" (the manifests allow 12); "Scaling goes
+    only through core" (hand Job manifests and `scale-pool.sh` still ship); the API's default detail.
+  Not settled: 37 items across the three files, most needing the cluster or the owner; 13 "Listed, not fixed" rows
+  in MILESTONES not checked. Stale text found: MILESTONES said the D-560 census stopped unfinished (it completed).
