@@ -33,6 +33,8 @@ Sources: engine `docs/DECISIONS.md` D-562, D-563; core `docs/DECISIONS.md` C-094
 3. **D-560 has no tolerance:** the census on 2025-12-10 withholds 7 of 1,018 expiries by 1–28 bp of spot (IBIT 9d by
    half a cent; HYG 16d and UNG 30d sit beside the 30-day point). Count per day in the run. Census file:
    `~/claude-artifacts/checks/forward-bounds-census-2026-11-26.txt` (not a pool replay: DBA/UUP use the file's amounts).
+   Seven saved sessions (248 asset-days): 32 of 3,964 expiries withheld (0.8%); per day 7, 2, 0, 0, 0, 11, 12
+   (12-10, 12-16, 12-22, 12-24, 12-26, 01-14, 03-20; the four middle days hold ~10 assets each).
 4. **Parabolic SAR:** TA-Lib reverses on a touch, the engine on a cross (suite ruling #7 hides it); 4 cases in 13 saved
    days (EEM). Changes published SAR and trend values if adopted. Agent finding, TA-Lib source read; not re-verified.
 5. **Hammer candlesticks** (rulings #6, #39): own rules vs TA-Lib's CDLHAMMER (10-bar averages). TA-Lib wholesale or
@@ -64,9 +66,9 @@ Sources: engine `docs/DECISIONS.md` D-562, D-563; core `docs/DECISIONS.md` C-094
     fill); it reads current RSS, not the peak. Not ordinary on fresh pods. WATCH IN THE RUN: memory deaths.
 19. A download and the joined reference check can share the same headroom (rare).
 20. D-520: a progressing company capture can still trip NO_PROGRESS (alert only).
-21. `build_proven` has no override: a canary day with one accepted engine fault keeps the ramp at one block.
-    FOR THE OWNER before the canary.
-22. Three FAILED day blocks pause the whole queue, the nightly included (`FAILED_DAYS_PAUSE`). FOR THE OWNER.
+21. RESOLVED (C-094 amended, owner 2026-11-26): the gate asks "can the engine complete a block"; only a
+    whole-measurement fault on every asset holds the ramp.
+22. RESOLVED (C-094 amended, owner): failed days never pause the queue; the nightly is never paused.
 23. The stop flag does not cover REPUBLISH and TAPE jobs (by C-087; recompute is off for the run, C-094).
 24. Core, rare or cosmetic (triage C3, C5, C9–C14, C16, C18, C19, G5, G11–G15): flag read outside the scheduling
     transaction; `vyreon-core queue` sweeping defeats the start grace; the stop rule ignores the history layer; digest
@@ -75,6 +77,9 @@ Sources: engine `docs/DECISIONS.md` D-562, D-563; core `docs/DECISIONS.md` C-094
 26. 47 engine tests need `workspace/fixtures` copied by hand (done twice now: missing automation).
 27. `the_m0_lockstep_leaves_a_bounded_worker_room` fails on the 20-thread laptop (its uncapped case kept room).
 28. `target-worker` is 96 GB on the laptop (image build cache): can it be trimmed.
+31. A TAPE job out of attempts still pauses the whole queue, the nightly included (same shape as old item 22).
+32. The core image build needs a hand-made Docker config on the laptop (Docker Desktop's credential helper fails:
+    `DOCKER_CONFIG` at an empty `{}` plus `DOCKER_HOST`). Done by hand twice: missing automation.
 
 ### TESTS
 29. D-518's and D-561's tests manufacture inputs (an empty store, a cleared endpoint): outside D-102's real-data rule.
