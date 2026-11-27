@@ -19,6 +19,10 @@ hypothesis = not yet.
 - **Checkpoint after the first 10–20 days publish:** the run's record works (logs in the archive, step history,
   the census, refusals recorded). The run does not pause for it.
 - Numeric stop conditions are proposed after the first day, from measured rates.
+- **The derived (history-reading) measurements have never run on a populated history** (owner, 2026-11-26: "the
+  derived measurements all require history, so effectively none of those have been tested"). Their first real
+  test is the ordered passes after the day layer is built; that pass is part of the characterization, read with
+  the census like the day layer, and its faults are catalog lines too.
 - A fresh session once phase 1 runs.
 
 ## Criteria (draft, for the owner)
