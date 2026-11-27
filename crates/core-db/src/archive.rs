@@ -218,8 +218,9 @@ async fn logs_session(tx: &impl GenericClient, lease: &work::Held, session: &str
         .await
         .map_err(|e| LeaseError::Failed(db(e)))?
         .get(0);
-    if lease.kind != "DAY_BLOCK" || !within {
-        return Err(LeaseError::Refused(format!("{session} is not a session of day block {}: a day's logs are kept by the block that worked on it", lease.job_id)));
+    // C-098 addendum (engine D-568, G13): a republished day keeps its logs too (a REPUBLISH job's worker sends them)
+    if !matches!(lease.kind.as_str(), "DAY_BLOCK" | "REPUBLISH") || !within {
+        return Err(LeaseError::Refused(format!("{session} is not a session of day block or republish job {}: a day's logs are kept by the job that worked on it", lease.job_id)));
     }
     Ok(())
 }
