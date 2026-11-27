@@ -123,6 +123,10 @@ async fn a_tape_worker_a_day_worker_and_the_ordered_pass_do_a_day_over_http() {
     assert_eq!((grant["requests"].as_i64(), grant["valid_seconds"].as_f64()), (Some(200), Some(30.0)));
     let (status, released) = s.post(&format!("/budget/{}/release", grant["budget_lease_id"]), token, json!({"used": {"consolidated": 137}})).await;
     assert_eq!((status, released["counted"].as_i64()), (StatusCode::OK, Some(137)));
+    // C-095: a refusal by the provider the worker met; without a status it is refused
+    let (status, recorded) = s.post("/budget/refusals", token, json!({"category": "consolidated", "endpoint": "/securities/AAPL/replay", "status": 429, "retry_after_seconds": null, "message": null, "headers": {}})).await;
+    assert_eq!((status, recorded["recorded"].as_bool()), (StatusCode::OK, Some(true)));
+    assert_ne!(s.post("/budget/refusals", token, json!({"endpoint": "/x"})).await.0, StatusCode::OK);
     let caches = format!("{}/worker/v1/tape-caches/2025-12-10", s.url);
     let put = s.http.put(format!("{caches}/AAPL?method_version=engine-v1")).bearer_auth(token).body(TAPE_AAPL).send().await.unwrap();
     assert_eq!(put.json::<Value>().await.unwrap()["new"], true);

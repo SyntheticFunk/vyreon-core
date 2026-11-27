@@ -217,3 +217,54 @@ async fn the_ledger_shows_the_grants_never_released() {
     assert!(minutes.iter().any(|m| (m.released, m.unreleased, m.bound, m.workers) == (200, 0, 200, 1)), "the minute's 200 requests in one row: {minutes:?}");
     scratch.drop().await;
 }
+
+/// C-095 (the nightly of 2026-11-25: 28 assets' ACT01 capture lost to HTTP 429 with 1,540 to 1,770 requests
+/// counted in the minute, eight backfill blocks drawing beside it). A refusal the worker reports is stored with
+/// what core had committed, its endpoint without the query; it halves the ceiling, which comes back over five
+/// minutes; and while the daily session's worker draws, a backfill worker is held to the ceiling less the reserve.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn a_refusal_halves_the_ceiling_and_the_daily_session_keeps_a_reserve() {
+    let (scratch, mut client) = migrated("budget_refusal").await;
+    let budget = Budget { per_minute: 1900, daily_reserve: 600, ..Budget::default() };
+    // the provider's own words of a refusal (Intrinio's 429 body and Retry-After, as the worker sends them)
+    let report = json!({"category": "act01", "endpoint": "/options/trades/by_contract?api_key=SECRET", "status": 429,
+                        "retry_after_seconds": 12, "message": "1 Minute Call Limit Reached", "headers": {"retry-after": "12"}});
+    granted(budget::draw(&mut client, budget, "day-a", 600).await.unwrap());
+    budget::refusal(&client, "day-a", &report).await.unwrap();
+    let r = client.query_one("SELECT endpoint, status, retry_after_seconds, message, committed, headers::text FROM core.provider_refusal", &[]).await.unwrap();
+    assert_eq!((r.get::<_, String>(0), r.get::<_, i32>(1), r.get::<_, Option<i32>>(2), r.get::<_, Option<String>>(3), r.get::<_, i32>(4)),
+               ("/options/trades/by_contract".to_owned(), 429, Some(12), Some("1 Minute Call Limit Reached".to_owned()), 600));
+    assert!(!r.get::<_, String>(5).contains("SECRET"));
+    assert!(budget::refusal(&client, "day-a", &json!({"endpoint": "/x"})).await.is_err(), "no status");
+    // just refused: the ceiling is 950, 600 are held, so 350 are free
+    assert_eq!(granted(budget::draw(&mut client, budget, "day-b", 600).await.unwrap()).1, 350);
+    assert!(matches!(budget::draw(&mut client, budget, "day-c", 1).await.unwrap(), Grant::Wait { .. }));
+    // five minutes on, the ceiling is whole again: 1,900 less the 950 held
+    client.execute("UPDATE core.provider_refusal SET at = at - interval '5 minutes'", &[]).await.unwrap();
+    assert_eq!(granted(budget::draw(&mut client, budget, "day-c", 600).await.unwrap()).1, 600);
+    assert_eq!(granted(budget::draw(&mut client, budget, "day-d", 600).await.unwrap()).1, 350);
+    let listed = budget::refusals(&client, 1.0).await.unwrap();
+    assert_eq!((listed.len(), listed[0].0.as_str(), listed[0].2, listed[0].4), (1, "/options/trades/by_contract", 1, 600));
+    // the reserve: the daily session's worker holds a job of priority 1 and draws
+    client.execute("DELETE FROM core.budget_lease", &[]).await.unwrap();
+    let fixtures = test_support::fixtures();
+    let calendar: Value = serde_json::from_str(test_support::CALENDAR).unwrap();
+    work::load_calendar(&mut client, &calendar).await.unwrap();
+    let doc = universe::read_responses(&fixtures.join("engine-v1-PROFILE.json"), &fixtures.join("intrinio-universe")).unwrap();
+    universe::store(&mut client, &doc).await.unwrap();
+    let b = build::register(&mut client, &inventories()[0]).await.unwrap().engine_build;
+    build::admit(&client, &b, &json!({"checklist": "budget test"})).await.unwrap();
+    work::schedule(&mut client, Kind::Tape, "FREE_REPORT_64", &b, "2025-12-10", "2025-12-11", 1).await.unwrap();
+    client.execute("UPDATE core.job SET priority = 1 WHERE first_session = '2025-12-11'", &[]).await.unwrap();
+    work::claim_as(&mut client, Kind::Tape, &b, "tape-daily-1", 3600.0, true).await.unwrap().unwrap();
+    work::claim(&mut client, Kind::Tape, &b, "tape-1", 3600.0).await.unwrap().unwrap();
+    // the daily worker has not drawn yet: the backfill has the whole ceiling
+    assert_eq!(granted(budget::draw(&mut client, budget, "tape-1", 600).await.unwrap()).1, 600);
+    assert_eq!(granted(budget::draw(&mut client, budget, "tape-daily-1", 100).await.unwrap()).1, 100);
+    // now it draws: the backfill is held to 1,300 (700 are held), the daily worker to 1,900
+    assert_eq!(granted(budget::draw(&mut client, budget, "tape-1", 600).await.unwrap()).1, 600);
+    assert!(matches!(budget::draw(&mut client, budget, "tape-1", 600).await.unwrap(), Grant::Wait { .. }), "1,300 are held");
+    assert_eq!(granted(budget::draw(&mut client, budget, "tape-daily-1", 600).await.unwrap()).1, 600);
+    scratch.drop().await;
+}

@@ -208,6 +208,26 @@ async fn a_last_failure_and_a_provider_burst_are_problems_from_the_evidence() {
     scratch.drop().await;
 }
 
+/// C-095: a refusal for the request rate that a worker reported is a problem while one came in the last half
+/// hour, said with what core had counted and the provider's words; it resolves by itself.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn the_providers_rate_refusals_are_said() {
+    let (scratch, mut client, b) = ready("throttled").await;
+    build::admit(&client, &b, &json!({"checklist": "watch test"})).await.unwrap();
+    let s = settings(None);
+    let report = json!({"category": "act01", "endpoint": "/options/trades", "status": 429, "message": "1 Minute Call Limit Reached"});
+    core_db::budget::refusal(&client, "day-block-daily-1", &report).await.unwrap();
+    core_db::budget::refusal(&client, "day-block-2", &report).await.unwrap();
+    let now = watch::now(&client).await.unwrap();
+    let summary = "The provider (Intrinio) refused 2 requests for their rate (HTTP 429) on 2 workers in the last 30 minutes, while core counted 0 to 0 requests a minute; its words: \"1 Minute Call Limit Reached\"";
+    assert_eq!(check(&mut client, &s, &now).await, opened(&[summary]));
+    assert!(posts(&client).await.iter().any(|p| p.contains("refused 2 requests")));
+    let in_an_hour = later_text(&client, 1).await;
+    assert_eq!(check(&mut client, &s, &in_an_hour).await.resolved, [summary.to_owned()]);
+    scratch.drop().await;
+}
+
 /// Audit 2026-11-22 opsurface (ops.md) 10, C-068: an earlier attempt left the provider's 502 as its
 /// evidence, the final one stopped with no evidence (its worker out of disk); the alert named the
 /// 502, the reader the final stop. Both now name the final lease's cause.
