@@ -3947,3 +3947,26 @@ Each failed day is set aside, logged (with the count from the third) and alerted
 the stop rule's to say (C-090); stopping the backfill is `backfill stop`, which never touches the nightly. Still
 pausing the whole queue: a TAPE job out of attempts (catalogued). Test
 `work.rs::a_lost_workers_block_resumes_and_a_failed_day_is_set_aside`.
+
+## C-095 The provider's refusals are recorded, slow the budget and are said; the nightly keeps a reserve (owner, 2026-11-26)
+The nightly of 2026-11-25 (job 30062) lost 28 assets' ACT01 capture to HTTP 429 (140 engine faults; 0 on 11-23 and
+11-24) while eight recompute blocks drew beside it and core had counted 1,540 to 1,770 requests in those minutes,
+under its 1,900 ceiling. Intrinio's own usage report gives one limit: 2,000 calls in a fixed one-minute window for
+the whole account. Which limit refused is **not known**; C-076 met the same symptom on 11-23/24. The owner: do
+these first, lower the ceiling (1,750 or 1,800) only if they give no conclusive answer.
+1. **Recorded** (`core.provider_refusal`, 0067; worker API `POST /budget/refusals`): each refusal a worker meets,
+   with the provider's words and rate-limit headers, a stated Retry-After, the endpoint's path (never its query) and
+   what core held against the ceiling at that moment. `vyreon-core budget` lists them by endpoint.
+2. **The budget backs off:** after a 429 the ceiling is halved and comes back linearly over 5 minutes
+   (`budget::ceiling`; multiplicative decrease, additive increase, the shape of RFC 5681 section 3.1). The numbers
+   are ours, not measured.
+3. **The nightly keeps a reserve:** while a worker of the daily session (priority 1) drew in the last 2 minutes, a
+   backfill worker's draw sees the ceiling less `VYREON_CORE_INTRINIO_DAILY_RESERVE` (600 in the manifest: the
+   nightly's pod drew up to about 800 a minute alone on 11-26; our choice). The nightly holds the only inputs that
+   cannot be fetched later (the trades endpoints keep 7 days).
+4. **Said:** PROVIDER_THROTTLED on the alerts channel while a 429 came in the last 30 minutes (count, workers,
+   core's count, the provider's words); it resolves by itself.
+Not done here: the droplet's capture timers (12:00 and 02:00 UTC) and laptop tools use the same key outside core's
+count; the refusals' record will show whether that matters. The engine's side (the report, ACT01's longer patience)
+is engine D-565. Tests: `budget_tape.rs::a_refusal_halves_the_ceiling_and_the_daily_session_keeps_a_reserve`,
+`watch.rs::the_providers_rate_refusals_are_said`, `worker_api.rs`, `budget::tests`. Not yet seen on a real refusal.
