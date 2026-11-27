@@ -33,6 +33,8 @@ hypothesis = not yet.
    coverage is measured after the rebuild." Read per sensor over the population; the census needs each sensor's
    total (roles and coordinates published, not only withheld) to state that share: to add after the run, from
    stored data.
+   Owner, 2026-11-26: during the first pass the test is read on the **base layer** ("everything should be
+   populating"); the derived layer should be full too but cannot be assessed until the history exists.
 1. An absence is correct when the provider or the market gives no basis (structural): stays, stated.
 2. A rule that withholds on clean inputs, fires only on its origin dates, or is contradicted by the population:
    retire or replace by a published standard.
@@ -127,7 +129,8 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
 - **Withholdings on most assets that are not about history** (census, 11-25 alone, one day is no population):
   PCR-UACT-I01 and DLM-VWAP / SOURCE_VOLUME_RECONCILIATION_FAILED on 55 assets; PCR-UQTR-I01 /
   QUOTE_COMPLETENESS_UNVERIFIED on 64; CDD-MACRO01 / INVALID_REQUIRED_INPUT on 64; VS-V03-MATCHED-NATIVE /
-  INSUFFICIENT_ELIGIBLE on 25. If these hold across the run they are against criterion 0. SCIENCE.
+  INSUFFICIENT_ELIGIBLE on 25. All base layer except DLM-VWAP (day-local), by their revisions. If these hold
+  across the run they are against criterion 0. SCIENCE.
 - **The slot share ("% of readings") does not count role and coordinate withholdings.** The census on 11-25:
   DLM-UNUSUALNESS / role / INSUFFICIENT_HISTORY 13,657 on 64 assets, and 30+ further lines. What is expected on a
   nightly and what is not is a question for the population (`vyreon-core faults`). SCIENCE / OPS.
