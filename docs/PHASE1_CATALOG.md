@@ -482,3 +482,11 @@ Each line is something that happened only because an agent looked or acted. Stat
   two or more workers downloading at once. Seven minutes with refusals in all: suggestive, not a result. Core
   counts requests granted; nothing records how many requests are in flight at one moment, which is what a
   concurrency limit would act on.
+  14:44 MT, the largest episode under the per-second bound: 175 refusals on 3 workers in one minute, 159 of them
+  on `/options/interval/<contract>` (ACT01's 30-minute option bars; Intrinio's access code
+  `opra_historical_intervals`), the rest on price adjustments and fundamentals. All three workers were in the
+  same stage of their download at once. Core had counted 1,590 to 1,650 a minute for the eight minutes before, by
+  2 to 4 workers. So the bound on grants does not hold the episodes down (28, then 175), and the evidence now
+  points at that endpoint when several workers call it together. No job failed; the days of the blocks hit so far
+  publish with 0 engine faults. Pace over the last hour: 3 days published by 12 blocks. WATCH whether the
+  episodes slow the run (each halves the ceiling for five minutes and sends ACT01 into its retries).

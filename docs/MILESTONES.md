@@ -106,6 +106,9 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
 - 13:52 MT: 11 days published, 0 engine faults, 12 blocks running, no restart. Refusals returned at 13:49 and
   13:51 under the per-second bound (28, against 49 to 179 before it): the bound did not end them; cause still
   not known (catalog). Nothing failed.
+- 14:55 MT: 14 days published, 0 engine faults, 12 blocks running, no restart, no failed job. A third episode of
+  refusals under the per-second bound at 14:44 (175, 159 on `/options/interval`, three workers in the same stage):
+  596 refusals in all today. Catalogued; nothing failed; not acted on.
 - NOT scheduled yet: the ordered passes (the history layer). The plan says once, oldest-first, after the day layer;
   schedule them when the day layer is well under way (`vyreon-core schedule ordered-pass`), not before reading
   C-046/C-062.
