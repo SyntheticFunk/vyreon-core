@@ -19,6 +19,7 @@ pub mod publish;
 pub mod recompute;
 pub mod refcheck;
 pub mod republish;
+pub mod runview;
 pub mod spend;
 pub mod stoprule;
 pub mod tape;

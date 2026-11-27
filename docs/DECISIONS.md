@@ -3991,3 +3991,33 @@ report lacks, keep the step history, a fault census, a provider-anomaly ledger. 
 The per-day report's new fields (download parts, idle waits, memory, refusals) are the engine's; core stores the
 report as sent. Tests: `perishable_archive.rs` (logs before publication, a session outside the block refused, the
 step history, the census on the real slice).
+
+## C-097 The run says itself: its timings and withholdings, without anyone looking (owner, 2026-11-26)
+The owner, after an evening in which the nightly's idle hour and its ACT01 refusals were found only by reading a
+pod's logs: "In general, you shouldn't have to go looking." Built before the canary, from stored data only (it
+schedules, leases and publishes nothing; a failure of any part is logged and never stops a post):
+1. **What each published revision withholds is counted once** (`core.withheld_tally`, `core.withheld_counted`,
+   0069; `runview::count_uncounted`): by measurement, grain and stated reason, with the assets. The watch counts the
+   newest first, six revisions a statement, after the minute's posts and only in what is left of its budget.
+   `vyreon-core faults` sums the counts when every revision in its range is counted, and reads the bodies as before
+   when not; the lines are the same.
+2. **A published day with something to watch is said once on the progress channel** ("To watch: Nov 25, 2026 ·
+   …"; a day with nothing adds no line): compute over 2 times the median of its build's previous days (up to 20, at
+   least 5); its download asleep over 15 minutes for the captures' cutoffs; the provider's rate refusals on the day
+   (its block's so far, when the worker has no earlier day); a withholding, not the engine's own fault, on at least
+   16 more assets than the median of the previous counted days (two at most). This brings back a line per day only
+   for a day that has a flag (C-091 removed every day's line). A day waits 30 minutes for its counts.
+3. **The digest ends with the run's own lines** (posted and `vyreon-core digest`): days published in 24 hours, a
+   usual day's download and compute and its longest step (the last 20 days), the provider's refusals in 24 hours,
+   and the three largest withholdings that are neither the engine's faults nor for history. With nothing published,
+   one line. C-091's three lines stand first, unchanged.
+4. **`vyreon-core timings <profile> [<build>]`**: median and 90th percentile of the download, the compute, each
+   stage, and a worker's first published day against its later ones.
+The thresholds (2 times, 15 minutes, 16 assets, 20 and 5 days) are ours, to be tuned on the run's first days. **Not
+built:** a progress line when a new build's methods queue recompute blocks: C-091 removed the recompute posts the
+same day, and a recompute waiting for a decision is already "Needs you". Validated read-only on production
+(2026-11-26: 23 base days with reports; the counts emulated from the bodies): a usual day 1.3 h download, 2.1 h
+compute, longest step intent B (T); on 2026-11-25 PCR-UQTR-I01's QUOTE_COMPLETENESS_UNVERIFIED on 64 assets
+against a usual 0. Not seen on a real report: `fill.cutoff_wait_seconds` and `block_refusals_so_far` (no published
+day carries them yet). Tests: `runview::tests`, `perishable_archive.rs`, `digest_format.rs` (the counts' table gone,
+the digest's three lines stand), `watch.rs`, `daily.rs`.

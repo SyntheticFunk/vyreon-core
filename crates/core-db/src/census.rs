@@ -38,6 +38,23 @@ const KEPT: &str = "SELECT d.revision_id, d.represented_date FROM vyreon.day_rev
                     WHERE d.state = 'PUBLISHED' AND d.profile_id = $1 AND d.represented_date BETWEEN $2::text::date AND $3::text::date
                       AND ($4::text IS NULL OR d.engine_build = $4)";
 
+/// The rows a withholding is stated on, read from the relation `m` (its columns, among them the value `v`, are
+/// carried): one row per slot, role or coordinate that states a reason, with its `grain` and `reason`. The census
+/// and the watch's counts (`runview`) share it.
+pub(crate) fn stated(m: &str) -> String {
+    let array = |key: &str| format!("CASE WHEN jsonb_typeof(v.v->'{key}') = 'array' THEN v.v->'{key}' ELSE '[]'::jsonb END");
+    format!(
+        "SELECT v.*, 'slot' AS grain, COALESCE(v.v->>'terminal_reason', v.v->>'failure_reason') AS reason
+         FROM {m} v WHERE COALESCE(v.v->>'terminal_reason', v.v->>'failure_reason') IS NOT NULL
+         UNION ALL
+         SELECT v.*, 'role', e->>'reason' FROM {m} v, jsonb_array_elements({roles}) e WHERE e->>'reason' IS NOT NULL
+         UNION ALL
+         SELECT v.*, 'coordinate', e->>'reason' FROM {m} v, jsonb_array_elements({coordinates}) e WHERE e->>'reason' IS NOT NULL",
+        roles = array("roles"),
+        coordinates = array("coordinates"),
+    )
+}
+
 /// The census over `first..=last`, the most frequent first.
 pub async fn withheld(client: &Client, profile: &str, first: &str, last: &str, build: Option<&str>) -> Result<(Read, Vec<Line>), String> {
     let read = client
@@ -48,25 +65,39 @@ pub async fn withheld(client: &Client, profile: &str, first: &str, last: &str, b
         )
         .await
         .map_err(db)?;
-    let array = |key: &str| format!("CASE WHEN jsonb_typeof(v.v->'{key}') = 'array' THEN v.v->'{key}' ELSE '[]'::jsonb END");
-    let sql = format!(
-        "WITH kept AS ({KEPT}),
-              m AS (SELECT m.measurement_id, m.object_id, m.represented_date, m.body->'measurement'->'value' AS v
-                    FROM kept k JOIN vyreon.measurement m ON m.revision_id = k.revision_id AND m.represented_date = k.represented_date),
-              r AS (SELECT v.measurement_id, v.object_id, v.represented_date, 'slot' AS grain, COALESCE(v.v->>'terminal_reason', v.v->>'failure_reason') AS reason
-                    FROM m v WHERE COALESCE(v.v->>'terminal_reason', v.v->>'failure_reason') IS NOT NULL
-                    UNION ALL
-                    SELECT v.measurement_id, v.object_id, v.represented_date, 'role', e->>'reason'
-                    FROM m v, jsonb_array_elements({roles}) e WHERE e->>'reason' IS NOT NULL
-                    UNION ALL
-                    SELECT v.measurement_id, v.object_id, v.represented_date, 'coordinate', e->>'reason'
-                    FROM m v, jsonb_array_elements({coordinates}) e WHERE e->>'reason' IS NOT NULL)
-         SELECT measurement_id, grain, reason, reason = ANY($5::text[]), count(*), count(DISTINCT object_id), count(DISTINCT represented_date),
-                min(represented_date)::text, max(represented_date)::text, (array_agg(DISTINCT object_id ORDER BY object_id))[1:5]
-         FROM r GROUP BY 1, 2, 3 ORDER BY 5 DESC, 1, 2, 3",
-        roles = array("roles"),
-        coordinates = array("coordinates"),
-    );
+    // C-097: when every kept revision's withholdings are counted (`core.withheld_tally`, the watch's), the census
+    // is a sum over the counts; else the bodies are read as before. The lines are the same either way.
+    let uncounted: i64 = client
+        .query_one(
+            &format!("WITH kept AS ({KEPT}) SELECT count(*) FROM kept k WHERE NOT EXISTS (SELECT FROM core.withheld_counted w WHERE w.revision_id = k.revision_id)"),
+            &[&profile, &first, &last, &build],
+        )
+        .await
+        .map_err(db)?
+        .get(0);
+    let sql = if uncounted == 0 {
+        format!(
+            "WITH kept AS ({KEPT}),
+                  t AS (SELECT k.represented_date, w.* FROM kept k JOIN core.withheld_tally w USING (revision_id)),
+                  s AS (SELECT measurement_id, grain, reason, sum(n)::bigint AS n, count(DISTINCT represented_date) AS days,
+                               min(represented_date)::text AS first, max(represented_date)::text AS last FROM t GROUP BY 1, 2, 3),
+                  a AS (SELECT t.measurement_id, t.grain, t.reason, count(DISTINCT o) AS assets, (array_agg(DISTINCT o ORDER BY o))[1:5] AS examples
+                        FROM t, unnest(t.objects) o GROUP BY 1, 2, 3)
+             SELECT s.measurement_id, s.grain, s.reason, s.reason = ANY($5::text[]), s.n, a.assets, s.days, s.first, s.last, a.examples
+             FROM s JOIN a USING (measurement_id, grain, reason) ORDER BY 5 DESC, 1, 2, 3"
+        )
+    } else {
+        format!(
+            "WITH kept AS ({KEPT}),
+                  m AS (SELECT m.measurement_id, m.object_id, m.represented_date, m.body->'measurement'->'value' AS v
+                        FROM kept k JOIN vyreon.measurement m ON m.revision_id = k.revision_id AND m.represented_date = k.represented_date),
+                  r AS ({stated})
+             SELECT measurement_id, grain, reason, reason = ANY($5::text[]), count(*), count(DISTINCT object_id), count(DISTINCT represented_date),
+                    min(represented_date)::text, max(represented_date)::text, (array_agg(DISTINCT object_id ORDER BY object_id))[1:5]
+             FROM r GROUP BY 1, 2, 3 ORDER BY 5 DESC, 1, 2, 3",
+            stated = stated("m"),
+        )
+    };
     let engine: Vec<&str> = crate::watch::ENGINE_REASONS.to_vec();
     let rows = client.query(&sql, &[&profile, &first, &last, &build, &engine]).await.map_err(db)?;
     let lines = rows
