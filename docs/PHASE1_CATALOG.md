@@ -236,3 +236,20 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
     lease); its death, cause, steps and refusals are still recorded. Known and stated by D-566.
   - After a 429 the backfill may get little or nothing for minutes (ceiling halved, less the nightly's reserve):
     by decision (C-095); how long in practice is unmeasured.
+- **Audit of the evening batch, engine** (Codex and Gemini; triage
+  `.../2026-11-26-evening/triage/engine-evening.triage.md`, code read at a51cb572): 20 findings, 18 real, 1 by
+  decision, 1 uncertain; NO BLOCKER, no point-in-time break, no number change. D-567 was not audited. Not yet
+  written into the engine's DECISIONS (a commit there would move the release line off the released build): do it
+  with the next engine change. Catalogued, OPS:
+  - A refused request's body text enters the failure line and the retry classification (`retry.rs:303`, `:341`):
+    it can crowd out the real failure, or turn a throttle fatal if Intrinio's 429 body holds words the classifier
+    reads as fatal. Intrinio's 429 body has never been seen. AT THE FIRST RECORDED REFUSAL, READ ITS BODY
+    (`vyreon-core budget`, `core.provider_refusal.message`): it settles this, and whether a body could hold a
+    secret (no path found: the key travels as a Bearer header).
+  - A `provider refusal:` stderr line can become the last line of a capture batch's output and hide its
+    `"failed": N` at exit 0 (`fill.rs:2073`, `:1513`); the failure still surfaces, its per-chain class is lost.
+  - ACT01 never carries a Retry-After (`act01_auto_source.rs:290`), so D-565's floor and stop do not apply to it.
+  - Run logs are gathered before the perishables are archived (`vyreon-worker.rs:1104`): a stalled read or a
+    full disk could delay the perishables' archive. Rare (37 MB of logs on job 30062).
+  - EXQ01 could outrun its 30-minute margin under contention: by decision (D-564); the nightly's reserve is
+    meant to prevent it.
