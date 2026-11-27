@@ -58,6 +58,17 @@ the owner when the fix pass is planned.
    day, as a running record (D-411 already has live days reconcile against the trades API: first establish what
    the nightly does today); (c) a paid second feed only as a last step, with the vendor's permission in writing.
 
+## The stance on the provider (owner, 2026-11-27; recorded at the owner's word)
+"Trust, but verify." Intrinio is the provider and the default source: "unless data is literally missing from
+intrinio, we have to assume that its market data." The external references are what verifies (the reference
+suite, official figures, public benchmarks). A recorded provider fault is a claim to test, not a reason to distrust
+the provider in general; "the provider is untrusted" is not a rule.
+Applied to the known cases (figures from `PROVIDER_FAULTS.md`, not re-measured): November 2026's wider spreads and
+heavier quote traffic are present data: market data, published (D-567). No quote messages before 2025-09-04 is
+literally missing: a stated absence. OPEN, for the owner: a tape that is present but short (33–77% of official
+volume before 2025-11-26; 1–10% short from 2026-11-06). Proposed reading, not decided: what is present is used,
+the shortfall is stated beside the value, and only an absent input withholds.
+
 ## Evidence that a sensor is ready for publication (proposed 2026-11-27; recorded at the owner's word so it is not
 lost; to be confirmed before the scorecard is run)
 A series is one sensor on one asset. The owner's preference: all 64 assets publish cleanly for a sensor to count
