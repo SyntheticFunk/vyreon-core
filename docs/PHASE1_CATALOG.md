@@ -87,3 +87,15 @@ Sources: engine `docs/DECISIONS.md` D-562, D-563; core `docs/DECISIONS.md` C-094
 
 ## During the run
 (Empty until the canary passes. Each line: date seen, what, evidence, kind.)
+
+Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs copied from the pod, 2026-11-26):
+- **The nightly's download idles an hour.** 168 min = 109 min of fetching (options 44, quotes 36, carry/macro/company/
+  ACT01 19, EXQ01 8.5) + 59.5 min asleep until EXQ01's source cutoff (`exq01_cohort_capture` `DEFAULT_MARGIN_SECONDS`
+  3600; the capture took 8.5 min; ACT01's window is 15 min, D-457). On the critical path of every nightly and of a
+  block's first date where EXQ01 is captured. Proven (fill log, `fill::cutoff_wait`). OPS.
+- **ACT01 lost 28 assets to HTTP 429** from Intrinio: three tries in 10 minutes, then given up (and the fill then
+  slept the hour above). 140 engine faults on 11-25 (0 on 11-23 and 11-24); 177 of 2,853 readings withheld. Eight
+  recompute blocks shared the budget at the time: 1,300–1,835 requests a minute in total, under core's 1,900
+  ceiling. Hypothesis: the provider's real limit for those endpoints, or per second, is lower than 2,000 a minute.
+  Count 429s per day in the run. OPS / PROVIDER.
+- The 11-25 nightly's timings are not a clean benchmark: it shared the request budget with eight blocks.
