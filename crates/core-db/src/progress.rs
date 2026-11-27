@@ -576,6 +576,50 @@ async fn compose(c: &mut impl GenericClient, profile: &str, phase: Option<&(Stri
         };
         events.push((at, line, vec![("job", job)]));
     }
+    // C-097 (owner, 2026-11-26: "you shouldn't have to go looking"): a published day with something to watch (slow
+    // against its build's usual day, idle for the captures' cutoffs, refused by the provider, a withholding on
+    // many more assets than usual) is said once; a day with nothing is not. A day whose withholdings are not
+    // counted yet waits `runview::FLAG_WAIT_MINUTES` for them. A failure here is logged, never the window's.
+    let days: Vec<(String, String, i64, bool)> = match c
+        .query(
+            &format!(
+                "SELECT d.published_at::text, d.represented_date::text, d.revision_id,
+                        d.published_at <= $2::text::timestamptz - make_interval(secs => $4::float8 * 60)
+                 FROM vyreon.day_revision d
+                 WHERE d.profile_id = $3 AND d.base_revision IS NULL AND d.state = 'PUBLISHED'
+                   AND d.published_at > $1::text::timestamptz AND d.published_at <= $2::text::timestamptz AND {fresh}
+                 ORDER BY d.published_at, d.revision_id",
+                fresh = not_shown("day", "d.revision_id")
+            ),
+            &[&from, &end, &profile, &crate::runview::FLAG_WAIT_MINUTES],
+        )
+        .await
+    {
+        Ok(rows) => rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3))).collect(),
+        Err(e) => {
+            eprintln!("vyreon-core: the published days' flags were not read (the progress post goes on): {}", db(e));
+            Vec::new()
+        }
+    };
+    for (at, date, revision, waited) in days {
+        let read = match c.transaction().await {
+            Ok(tx) => {
+                let r = crate::runview::day_flags(&tx, revision).await;
+                let _ = tx.rollback().await;
+                r
+            }
+            Err(e) => Err(db(e)),
+        };
+        match read {
+            Ok((flags, counted)) if counted || waited => {
+                if let Some(line) = crate::runview::flagged_line(&date, &flags) {
+                    events.push((at, line, vec![("day", revision)]));
+                }
+            }
+            Ok(_) => {}
+            Err(e) => eprintln!("vyreon-core: the flags of {date} were not read (the progress post goes on): {e}"),
+        }
+    }
     events.sort_by(|a, b| a.0.cmp(&b.0));
     let lines: Vec<(String, Shown)> = events.into_iter().map(|(_, l, s)| (l, s)).collect();
     let news = !lines.is_empty();

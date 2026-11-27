@@ -63,6 +63,9 @@
 //!   vyreon-core faults <profile> <first> <last> [<build>]   C-096: what the published days withhold, by measurement,
 //!                                                     grain (slot, role, coordinate) and stated reason (tab-separated)
 //!   vyreon-core steps <job>                           C-096: a job's steps, lease by lease, with how long each lasted
+//!   vyreon-core timings <profile> [<build>]           C-097: the published days' timings from their stored reports: the
+//!                                                     download, the compute, a worker's first day against its later
+//!                                                     ones, and each stage (median and 90th percentile)
 //!   vyreon-core stoprule <profile> [<build>]          C-084, C-090: the phase-1 stop rule's count for the newest running
 //!                                                     build (or <build>): the days toward the stop (not published after a
 //!                                                     failure; a whole measurement faulted) and, apart, the local ones
@@ -357,6 +360,17 @@ async fn faults(profile: &str, first: &str, last: &str, engine_build: Option<&st
     for l in lines {
         let class = if l.engine { "ENGINE" } else { "STATED" };
         println!("{class}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", l.measurement_id, l.grain, l.reason, l.count, l.assets, l.days, l.first, l.last, l.examples.join(","));
+    }
+    Ok(())
+}
+
+/// C-097: the published days' timings from their stored reports.
+async fn timings(profile: &str, engine_build: Option<&str>) -> Result<(), String> {
+    let client = connect().await?;
+    println!("{:<48} {:>5} {:>10} {:>10}", "what", "days", "median", "90th pct");
+    let minutes = |s: f64| format!("{:.1} min", s / 60.0);
+    for (what, n, median, p90) in core_db::runview::timings(&client, profile, engine_build).await? {
+        println!("{what:<48} {n:>5} {:>10} {:>10}", minutes(median), minutes(p90));
     }
     Ok(())
 }
@@ -1448,6 +1462,8 @@ async fn main() -> ExitCode {
         ["faults", profile, first, last] => faults(profile, first, last, None).await,
         ["faults", profile, first, last, engine_build] => faults(profile, first, last, Some(engine_build)).await,
         ["steps", job] => steps(job).await,
+        ["timings", profile] => timings(profile, None).await,
+        ["timings", profile, engine_build] => timings(profile, Some(engine_build)).await,
         ["stoprule", profile] => stoprule(profile, None).await,
         ["stoprule", profile, engine_build] => stoprule(profile, Some(engine_build)).await,
         ["queue", ref change @ ..] => queue(change).await,

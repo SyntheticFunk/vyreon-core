@@ -2216,7 +2216,14 @@ pub async fn digest_post(c: &mut impl GenericClient, s: &Settings, now: &str, op
     }
     let problems = open.iter().filter(|o| !needs_you(&o.kind)).count();
     let database = crate::progress::database_line(c, &s.profile, s.phase.as_ref(), now).await?;
-    Ok(digest_lines(&today, &needs, problems, &database))
+    // C-097 (owner, 2026-11-26: "you shouldn't have to go looking"): the run's own lines after the three (what was
+    // published, a usual day's time, the provider's refusals, the largest withholdings); none when they do not read
+    let mut post = digest_lines(&today, &needs, problems, &database);
+    for line in crate::runview::run_block(c, &s.profile, now).await {
+        post.push('\n');
+        post.push_str(&line);
+    }
+    Ok(post)
 }
 
 /// The three lines of `digest_post`.
@@ -2492,6 +2499,8 @@ async fn digest_of(c: &mut impl GenericClient, s: &Settings, now: &str, open: &[
     if omitted > 0 {
         handled.push(format!("{omitted} {} omitted", if omitted == 1 { "date" } else { "dates" }));
     }
+    // C-097: the run's own lines, last (none when they do not read)
+    lines.extend(crate::runview::run_block(c, &s.profile, now).await);
     Ok(Some(compose(&format!("{} · {today}", verdict(open, &handled, &unjudged)), &lines, open)))
 }
 
@@ -2641,6 +2650,14 @@ pub async fn tick_within(client: &mut Client, s: &Settings, now: &str, budget: D
                     }
                     // C-091: no spend line on the progress channel any more (the spend nearing the ceiling is
                     // SPEND, and a spend not known is in the digest's "Needs you")
+                }
+                // C-097: what the published revisions withhold is counted the same way (the newest first), after
+                // the posts and only in what is left of the minute's budget, so it never delays a digest; a
+                // failure is tried again next minute and stops nothing
+                if Instant::now() < until
+                    && let Err(e) = crate::runview::count_uncounted(client, &s.profile, now, Some(until)).await
+                {
+                    eprintln!("vyreon-core watch: counting what the published revisions withhold failed (tried again next minute): {e}");
                 }
                 // C-079: a new build's methods compared with the published days', once; C-091: not while the
                 // backfill is stopped by the owner (a decision would queue blocks)
