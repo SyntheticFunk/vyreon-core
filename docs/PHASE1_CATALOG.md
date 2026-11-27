@@ -318,3 +318,9 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
 - Words on the channels (owner's paste, 2026-11-27): the plain-words rule (C-091) leaves holes where an id was
   ("release: (owner): ...", "Daily runs stopped: was withdrawn"); the memory kill's line says "about 52 min of work
   to redo; nothing left to redo"; the progress channel does not say when a day publishes. OPS.
+- **The reference check's failed and unexplained comparisons are read once the database is full, not before**
+  (owner, 2026-11-27: "something we need to investigate but only once we have a full database... Not something to
+  investigate now, just record it."). Recorded so far on the frozen builds: the canary 2025-12-10 (job 30086):
+  94,363 checked, 2,482 failed, 230 unexplained, 154 classes, 20 measurements, 8 reference errors. Each day's
+  report is in core (`vyreon-core refcheck list`, `refcheck show <date>`); the REFCHECK_DISAGREES alert stays open
+  through the run and is evidence, not an alarm. CHECKER / SCIENCE.
