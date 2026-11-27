@@ -109,6 +109,12 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
 - 14:55 MT: 14 days published, 0 engine faults, 12 blocks running, no restart, no failed job. A third episode of
   refusals under the per-second bound at 14:44 (175, 159 on `/options/interval`, three workers in the same stage):
   596 refusals in all today. Catalogued; nothing failed; not acted on.
+- Run diagnostics are kept as data, one row per check (owner, 2026-11-27: "keep monitoring and cataloging run
+  diagnostic information"): `~/claude-artifacts/checks/phase1-run/snapshot.sh` (read-only) appends to
+  `snapshots.tsv` there: blocks by state, days published, engine faults, days in the last hour, refusals, worker
+  deaths, pods and restarts, peak process memory, median compute and download minutes, requests and budget waits
+  in the last hour, open problems. Run it at every check. Per-day detail stays in core (each day's run report,
+  `vyreon-core steps <job>`, `vyreon-core timings`, `core.provider_refusal`).
 - NOT scheduled yet: the ordered passes (the history layer). The plan says once, oldest-first, after the day layer;
   schedule them when the day layer is well under way (`vyreon-core schedule ordered-pass`), not before reading
   C-046/C-062.
