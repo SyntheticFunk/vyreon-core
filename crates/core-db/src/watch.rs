@@ -269,7 +269,7 @@ const DEADLINES: Part = Part { key: "deadlines", what: "check the sessions' publ
 const QUEUE: Part = Part { key: "queue", what: "check whether the work queue is paused", kinds: &["QUEUE_PAUSED"] };
 const FAILED_JOBS: Part = Part { key: "failed jobs", what: "check for work that failed for the last time", kinds: &["JOB_FAILED"] };
 const REFUSED: Part = Part { key: "refused days", what: "check for days the input plan refused", kinds: &["DAY_REFUSED"] };
-const PROVIDER: Part = Part { key: "provider", what: "check the provider's errors", kinds: &["PROVIDER_AUTH", "PROVIDER_ERRORS"] };
+const PROVIDER: Part = Part { key: "provider", what: "check the provider's errors", kinds: &["PROVIDER_AUTH", "PROVIDER_ERRORS", "PROVIDER_THROTTLED"] };
 const STALLS: Part = Part { key: "stalls", what: "check for stalled work", kinds: &["STALLED"] };
 const CLAIMS: Part = Part { key: "claims", what: "check for workers leaving while work waits", kinds: &["CLAIMS_EMPTY"] };
 const DAILY: Part = Part { key: "daily", what: "check the daily runs", kinds: &["DAILY_STOPPED"] };
@@ -1088,6 +1088,32 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
         };
         found.push(Found { kind: "PROVIDER_ERRORS", key: "intrinio".into(), summary, command: "vyreon-core evidence list".into(), detail: None });
     }
+    // C-095: the provider refusing requests for their rate (HTTP 429), as the workers reported each one
+    let t = c
+        .query_one(
+            "SELECT count(*), count(DISTINCT worker), min(committed), max(committed),
+                    (array_agg(message ORDER BY at DESC) FILTER (WHERE message IS NOT NULL))[1]
+             FROM core.provider_refusal
+             WHERE status = 429 AND at > $1::text::timestamptz - make_interval(secs => $2::float8 * 60) AND at <= $1::text::timestamptz",
+            &[&now, &PROVIDER_WINDOW_MINUTES],
+        )
+        .await
+        .map_err(db)?;
+    let (n, workers, least, most, words): (i64, i64, Option<i32>, Option<i32>, Option<String>) = (t.get(0), t.get(1), t.get(2), t.get(3), t.get(4));
+    if n > 0 {
+        let words = words.map_or_else(String::new, |w| format!("; its words: \"{}\"", w.chars().take(120).collect::<String>()));
+        found.push(Found {
+            kind: "PROVIDER_THROTTLED",
+            key: "intrinio".into(),
+            summary: format!(
+                "The provider (Intrinio) refused {n} requests for their rate (HTTP 429) on {workers} workers in the last 30 minutes, while core counted {} to {} requests a minute{words}",
+                least.unwrap_or(0),
+                most.unwrap_or(0)
+            ),
+            command: "vyreon-core budget".into(),
+            detail: None,
+        });
+    }
     Ok(())
 }
 
@@ -1612,6 +1638,7 @@ pub fn consequence(kind: &str) -> (bool, &'static str, Option<&'static str>) {
         "JOB_FAILED" => (true, "that day stays unpublished (readers see it missing, with its cause)", None),
         "PROVIDER_AUTH" => (false, "no new data can be fetched", Some("check the Intrinio key and the account")),
         "PROVIDER_ERRORS" => (false, "the work is retried by itself", None),
+        "PROVIDER_THROTTLED" => (false, "requests slow down and are tried again by themselves; a capture that runs out of time is withheld with its cause", None),
         "DATABASE_FULL" => (false, "publishing stops when the volume is full", Some("approve a larger database volume (it costs money)")),
         "CALENDAR_END" => (false, "the nightly runs stop at the calendar's end", None),
         "NOT_DERIVED" => (true, "those days' history readings (unusualness, windows) are missing until derived again", None),

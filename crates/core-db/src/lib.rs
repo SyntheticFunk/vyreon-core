@@ -6,6 +6,7 @@ pub mod backfill;
 pub mod budget;
 pub mod build;
 pub mod capture;
+pub mod census;
 pub mod daily;
 pub mod deaths;
 pub mod evidence;

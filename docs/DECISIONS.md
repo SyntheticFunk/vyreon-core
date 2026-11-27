@@ -3947,3 +3947,47 @@ Each failed day is set aside, logged (with the count from the third) and alerted
 the stop rule's to say (C-090); stopping the backfill is `backfill stop`, which never touches the nightly. Still
 pausing the whole queue: a TAPE job out of attempts (catalogued). Test
 `work.rs::a_lost_workers_block_resumes_and_a_failed_day_is_set_aside`.
+
+## C-095 The provider's refusals are recorded, slow the budget and are said; the nightly keeps a reserve (owner, 2026-11-26)
+The nightly of 2026-11-25 (job 30062) lost 28 assets' ACT01 capture to HTTP 429 (140 engine faults; 0 on 11-23 and
+11-24) while eight recompute blocks drew beside it and core had counted 1,540 to 1,770 requests in those minutes,
+under its 1,900 ceiling. Intrinio's own usage report gives one limit: 2,000 calls in a fixed one-minute window for
+the whole account. Which limit refused is **not known**; C-076 met the same symptom on 11-23/24. The owner: do
+these first, lower the ceiling (1,750 or 1,800) only if they give no conclusive answer.
+1. **Recorded** (`core.provider_refusal`, 0067; worker API `POST /budget/refusals`): each refusal a worker meets,
+   with the provider's words and rate-limit headers, a stated Retry-After, the endpoint's path (never its query) and
+   what core held against the ceiling at that moment. `vyreon-core budget` lists them by endpoint.
+2. **The budget backs off:** after a 429 the ceiling is halved and comes back linearly over 5 minutes
+   (`budget::ceiling`; multiplicative decrease, additive increase, the shape of RFC 5681 section 3.1). The numbers
+   are ours, not measured.
+3. **The nightly keeps a reserve:** while a worker of the daily session (priority 1) drew in the last 2 minutes, a
+   backfill worker's draw sees the ceiling less `VYREON_CORE_INTRINIO_DAILY_RESERVE` (600 in the manifest: the
+   nightly's pod drew up to about 800 a minute alone on 11-26; our choice). The nightly holds the only inputs that
+   cannot be fetched later (the trades endpoints keep 7 days).
+4. **Said:** PROVIDER_THROTTLED on the alerts channel while a 429 came in the last 30 minutes (count, workers,
+   core's count, the provider's words); it resolves by itself.
+Not done here: the droplet's capture timers (12:00 and 02:00 UTC) and laptop tools use the same key outside core's
+count; the refusals' record will show whether that matters. The engine's side (the report, ACT01's longer patience)
+is engine D-565. Tests: `budget_tape.rs::a_refusal_halves_the_ceiling_and_the_daily_session_keeps_a_reserve`,
+`watch.rs::the_providers_rate_refusals_are_said`, `worker_api.rs`, `budget::tests`. Not yet seen on a real refusal.
+
+## C-096 What the phase-1 run leaves behind for the catalog: logs, step history, the census (owner, 2026-11-26)
+The owner, on instrumentation for the run ("recording ALL faults"): keep every pod's logs, record what the per-day
+report lacks, keep the step history, a fault census, a provider-anomaly ledger. Core's side:
+1. **A day's logs are kept** (`archive::RUN_LOGS`, category `run-logs`, the perishables' own path through a signed
+   Spaces URL; 0068): for any session of a day block's job, published or not; never counted missing, never frozen.
+   Until now only a failed attempt left evidence (121 records, none of a day that published). The engine packs and
+   sends them (engine D-565/D-566).
+2. **Step history** (`core.lease_step_log`, a trigger on `core.lease_step`): one row each time a lease's step or
+   wait changes; `vyreon-core steps <job>` prints them with how long each lasted.
+3. **The census** (`census::withheld`, `vyreon-core faults <profile> <first> <last> [<build>]`): what the published
+   days withhold, by measurement, grain (slot, role, coordinate) and stated reason, with counts, assets, days and
+   examples; ENGINE for the engine's own reasons, STATED for the rest. It judges nothing. Read on production's
+   2026-11-25 (0.6 s for the day): 30+ lines, the largest DLM-UNUSUALNESS / role / INSUFFICIENT_HISTORY 13,657 on
+   64 assets; the slot share the progress post states ("% of readings") does not count role and coordinate
+   withholdings.
+4. **The provider-anomaly ledger** is the census's STATED lines plus `core.provider_refusal` (C-095) and
+   `PROVIDER_FAULTS.md`: no new table; a stated reason does not always name the provider endpoint behind it.
+The per-day report's new fields (download parts, idle waits, memory, refusals) are the engine's; core stores the
+report as sent. Tests: `perishable_archive.rs` (logs before publication, a session outside the block refused, the
+step history, the census on the real slice).

@@ -338,7 +338,7 @@ async fn the_scaler_starts_no_provider_work_while_the_budget_made_a_draw_wait() 
     client.execute("UPDATE core.job SET priority = 1 WHERE kind = 'TAPE' AND first_session = '2025-12-11'", &[]).await.unwrap();
     assert_eq!((counted(&scaler, "TAPE", &build, Some(false)).await, counted(&scaler, "TAPE", &build, Some(true)).await), (1, 1));
     // the budget saturated: a draw waits, and is recorded
-    let tight = budget::Budget { per_minute: 10, lease_seconds: 30.0, max_lease: 600 };
+    let tight = budget::Budget { per_minute: 10, ..budget::Budget::default() };
     assert!(matches!(budget::draw(&mut client, tight, "w1", 10).await.unwrap(), budget::Grant::Granted { requests: 10, .. }));
     assert!(matches!(budget::draw(&mut client, tight, "w2", 5).await.unwrap(), budget::Grant::Wait { .. }));
     let now = watch::now(&client).await.unwrap();

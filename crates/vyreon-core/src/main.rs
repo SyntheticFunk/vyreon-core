@@ -60,6 +60,9 @@
 //!                                                     the replay files' first (2023-05-24) to the last before today; day
 //!                                                     blocks wait for the tapes up to their last session; run again, it
 //!                                                     queues only what is missing
+//!   vyreon-core faults <profile> <first> <last> [<build>]   C-096: what the published days withhold, by measurement,
+//!                                                     grain (slot, role, coordinate) and stated reason (tab-separated)
+//!   vyreon-core steps <job>                           C-096: a job's steps, lease by lease, with how long each lasted
 //!   vyreon-core stoprule <profile> [<build>]          C-084, C-090: the phase-1 stop rule's count for the newest running
 //!                                                     build (or <build>): the days toward the stop (not published after a
 //!                                                     failure; a whole measurement faulted) and, apart, the local ones
@@ -127,7 +130,8 @@
 //!                                                     VYREON_CORE_WORKER_TOKEN_SHA256 (required: the SHA-256 of the
 //!                                                     workers' shared token), VYREON_CORE_LISTEN (0.0.0.0:8080),
 //!                                                     VYREON_CORE_SPOOL (the temp dir), VYREON_CORE_LEASE_SECONDS (300),
-//!                                                     VYREON_CORE_INTRINIO_PER_MINUTE (1800), VYREON_CORE_WEBHOOK_FILE
+//!                                                     VYREON_CORE_INTRINIO_PER_MINUTE (1800), VYREON_CORE_INTRINIO_DAILY_RESERVE (0),
+//!                                                     VYREON_CORE_WEBHOOK_FILE
 //!                                                     (a file holding the Discord webhook URL; without it the posts wait).
 //!                                                     VYREON_CORE_PROGRESS_WEBHOOK_FILE (C-065, optional: a file holding a
 //!                                                     second channel's webhook URL; core then posts the run's progress
@@ -344,6 +348,29 @@ async fn tape_recapture(profile: &str, engine_build: &str, range: Option<(&str, 
 }
 
 /// C-084: `stoprule <profile> [<build>]`.
+/// C-096: the census of what the published days withhold, by measurement, grain and stated reason.
+async fn faults(profile: &str, first: &str, last: &str, engine_build: Option<&str>) -> Result<(), String> {
+    let client = connect().await?;
+    let (read, lines) = core_db::census::withheld(&client, profile, first, last, engine_build).await?;
+    println!("{first}..{last}: {} published days, {} slots read{}", read.days, read.slots, engine_build.map_or(String::new(), |b| format!(" (build {b})")));
+    println!("class\tmeasurement\tgrain\treason\tcount\tassets\tdays\tfirst\tlast\texamples");
+    for l in lines {
+        let class = if l.engine { "ENGINE" } else { "STATED" };
+        println!("{class}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", l.measurement_id, l.grain, l.reason, l.count, l.assets, l.days, l.first, l.last, l.examples.join(","));
+    }
+    Ok(())
+}
+
+/// C-096: a job's steps, lease by lease, with how long each lasted.
+async fn steps(job: &str) -> Result<(), String> {
+    let job: i64 = job.parse().map_err(|_| format!("job: {job}"))?;
+    for (lease, worker, step, reason, since, seconds) in core_db::census::steps(&connect().await?, job).await? {
+        let lasted = seconds.map_or("running".to_owned(), |s| format!("{:.0} min", s / 60.0));
+        println!("lease {lease} {worker}  {since} UTC  {lasted:>9}  {step}{}", reason.map_or(String::new(), |r| format!("  (waiting: {r})")));
+    }
+    Ok(())
+}
+
 async fn stoprule(profile: &str, engine_build: Option<&str>) -> Result<(), String> {
     let client = connect().await?;
     let build = match engine_build {
@@ -1039,6 +1066,11 @@ async fn budget_ledger(hours: &str) -> Result<(), String> {
         ),
         None => println!("not pressed: no draw waited in the last {:.0} min (KEDA starts pods for all claimable work)", core_db::budget::PRESSURE_MINUTES),
     }
+    let refusals = core_db::budget::refusals(&client, hours).await?;
+    println!("the provider's refusals in the last {hours} h (C-095): {}", if refusals.is_empty() { "none" } else { "" });
+    for (endpoint, status, n, workers, least, most, words) in refusals {
+        println!("  HTTP {status} {endpoint}: {n} on {workers} workers; core had {least} to {most} committed; its last words: {}", words.as_deref().unwrap_or("(none)"));
+    }
     let (n, requests) = core_db::budget::unreleased(&client, hours).await?;
     println!("leases never released in the last {hours} h: {n} ({requests} requests granted; what they used is unknown)");
     println!("busiest minutes (UTC), by the leases granted in them: used as reported + granted and never released; at most this many requests were made in the minute (its and the previous minute's leases); workers");
@@ -1064,6 +1096,7 @@ async fn serve() -> Result<(), String> {
     }
     let mut budget = core_db::budget::Budget::default();
     budget.per_minute = setting("VYREON_CORE_INTRINIO_PER_MINUTE", budget.per_minute)?;
+    budget.daily_reserve = setting("VYREON_CORE_INTRINIO_DAILY_RESERVE", budget.daily_reserve)?;
     let config = core_api::Config {
         worker_token_sha256: digest.to_ascii_lowercase(),
         spool: std::env::var_os("VYREON_CORE_SPOOL").map_or_else(std::env::temp_dir, Into::into),
@@ -1412,6 +1445,9 @@ async fn main() -> ExitCode {
         ["tape", "checks"] => tape_checks().await,
         ["tape", "recapture", profile, engine_build] => tape_recapture(profile, engine_build, None).await,
         ["tape", "recapture", profile, engine_build, first, last] => tape_recapture(profile, engine_build, Some((first, last))).await,
+        ["faults", profile, first, last] => faults(profile, first, last, None).await,
+        ["faults", profile, first, last, engine_build] => faults(profile, first, last, Some(engine_build)).await,
+        ["steps", job] => steps(job).await,
         ["stoprule", profile] => stoprule(profile, None).await,
         ["stoprule", profile, engine_build] => stoprule(profile, Some(engine_build)).await,
         ["queue", ref change @ ..] => queue(change).await,
