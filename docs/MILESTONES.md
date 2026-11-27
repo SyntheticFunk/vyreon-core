@@ -67,6 +67,21 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   eight touched crates: 949 passed, 0 failed). Evidence: `~/claude-artifacts/cluster-scratch/evidence-a51cb572.json`.
   Owner: the self-reporting work (digest summary, per-day flags from thresholds) goes in BEFORE the canary, built
   while the worker image builds; core is rebuilt once at the end.
+- **RELEASED 2026-11-26:** core image a0240d8 at 20:48 MT (C-086..C-096; ceiling 1,800); engine build
+  `a51cb572+acffd2a117e3` at 20:52 MT (the old build withdrawn; daily build set). Backfill lane resumed 20:52 for
+  two single-day blocks only: job 30086 = the CANARY on 2025-12-10, job 30087 = the re-run of 2026-11-25 behind it
+  (core's gate runs one block at a time until a real day publishes clean; a parallel run would need the nightly's
+  priority set by hand in SQL, not done). Nothing else is queued. Phase 1 is NOT queued.
+- Audits of the evening batch started 20:53 MT (Codex and Gemini; scopes `core-evening.md`, `engine-evening.md` in
+  `~/claude-artifacts/audits/scopes-2026-11-27/`; reports in `~/claude-artifacts/audits/2026-11-26-evening/`).
+  Triage blockers only.
+- **Owner's ruling, 2026-11-26 evening: the date gate on replay quotes (D-411 gate 3, `QUOTE_UNVERIFIED_FROM`)
+  "should not exist".** A fork prepares its retirement on engine branch `eng-s2` (worktree `/home/diggz/wt/eng-s1`,
+  D-567), first establishing whether cached tapes before 2026-11-06 stay valid. Not merged. When phase 1 is
+  queued, HOLD OUT 2026-11-06..2026-11-20 until that ships, so those sessions are computed once.
+- In progress: core branch `core-s3` (worktree `/home/diggz/wt/core-s1`), a fork building C-097 (the tally of
+  withholdings, per-day flags, the digest's Run block, `vyreon-core timings`); read-only over stored data; ships
+  as a core update when verified.
 - THEN: merge `core-s2` into main and eng-s1 into `worker`; build both images; core release, `backfill stop`, worker release with new evidence; canary on
   2025-12-10 and the 11-25 re-run in parallel, the Codex + Gemini audit of this batch beside them (blockers
   only); freeze; phase 1; the checkpoint after 10–20 days.
