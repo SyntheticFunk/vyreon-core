@@ -68,6 +68,21 @@ async fn a_published_days_perishables_are_requested_verified_kept_and_frozen() {
     // a day not published archives nothing
     let early = "2025-12-11 21:00:00+00";
     refused(archive::request(&mut client, &s, &block.token, &request("act01-auto", "2025-12-10", TAPE_AAPL), early).await, "has published");
+    // C-096: its logs are kept all the same (a day that never publishes is the one whose logs are wanted), for
+    // a session of the block only; and its steps are kept as a history, a change of progress words not a step
+    let logs = request(archive::RUN_LOGS, "2025-12-10", TAPE_AAPL);
+    let Answer::Upload { key: log_key, .. } = archive::request(&mut client, &s, &block.token, &logs, early).await.unwrap() else { panic!("an upload") };
+    assert_eq!(log_key, format!("perishables/run-logs/2025-12-10/{}.tar.zst", logs.sha256));
+    refused(archive::request(&mut client, &s, &block.token, &request(archive::RUN_LOGS, "2025-12-11", TAPE_AAPL), early).await, "not a session of day block");
+    assert!(archive::missing(&client, PROFILE, None, "2025-12-12 21:00:00+00").await.unwrap().is_empty(), "logs not kept are no missing perishable");
+    // (the perishables' own counts below are read without it)
+    client.execute("DELETE FROM core.perishable_archive WHERE category = 'run-logs'", &[]).await.unwrap();
+    work::report_step(&mut client, &block.token, "download 2025-12-10", None, None).await.unwrap();
+    work::report_step_with(&mut client, &block.token, "download 2025-12-10", None, None, Some("options 3 of 64")).await.unwrap();
+    work::report_step(&mut client, &block.token, "compute 2025-12-10", None, None).await.unwrap();
+    let job: i64 = client.query_one("SELECT job_id FROM core.lease WHERE worker = 'w1'", &[]).await.unwrap().get(0);
+    let steps = core_db::census::steps(&client, job).await.unwrap();
+    assert_eq!(steps.iter().map(|s| (s.2.as_str(), s.5.is_some())).collect::<Vec<_>>(), [("download 2025-12-10", true), ("compute 2025-12-10", false)]);
     let (header, scalars, files) = parts(BASE);
     let path = bundle("archive-base", &header, &scalars, &files);
     let base = publish_for_lease(&mut client, &path, &block.token).await.unwrap().revision_id;
@@ -80,6 +95,10 @@ async fn a_published_days_perishables_are_requested_verified_kept_and_frozen() {
     // published until it says so; the worker archives after `day_done`
     refused(archive::request(&mut client, &s, &block.token, &request("act01-auto", "2025-12-10", TAPE_AAPL), early).await, "has published");
     work::day_done(&mut client, &block.token, "2025-12-10").await.unwrap();
+    // C-096: the census reads the published day as it is (the real slice's AAPL day)
+    let (read, lines) = core_db::census::withheld(&client, PROFILE, "2025-12-10", "2025-12-10", None).await.unwrap();
+    // (its five slots withhold nothing; the reasons' three grains were read on production's 2026-11-25, C-096)
+    assert_eq!((read, lines.len()), (core_db::census::Read { days: 1, slots: 5 }, 0));
 
     // the request is recorded and answered with an upload URL for its content-addressed key,
     // valid ten minutes from the database's now, signing the length, Content-MD5 and SHA-256
