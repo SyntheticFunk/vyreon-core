@@ -32,29 +32,21 @@ hypothesis = not yet.
   (no alert yet); ACT01 lost to throttling (PROVIDER_THROTTLED, C-095); the recompute blocks queued by a new
   build's methods (said in the log only).
 
-## The owner's principle for the evaluation (2026-11-26, verbatim)
-"Given that a withheld sensor is a lost sample, and knowing that we have a lot of rules and overfitting due to
-sparse-date testing... my proclivity is to let everything publish then we need to systematically investigate and
-ensure our sensors generalize. [...] The idea is for the design of each sensor to be numerically stable by design. A
-sensor dying on 361 weekdays is a definition or rule problem." And: a reported provider fault is a claim, not a
-fact, until the population shows it.
-What follows for the fix pass (agreed by the owner, 2026-11-26, who added the record of the gates): (1) a gate
-that withholds becomes, where it can, a stated quality beside a published value, so the value a rule suppressed can
-be judged; **each published value records every gate that would have withheld it, by name** (so the census counts,
-per sensor and gate, how often it would have fired and what the values were when it did); (2) a sensor is
-defined to survive incomplete input where the mathematics allows (a ratio such as a VWAP or a share is stable under
-random message loss; a total such as volume is not, and can come from the official bar); (3) the gated sensors are
-recomputed with their gates as annotations before the catalog is read, from the tapes core already caches. The
-first pass runs as built: it gives how often each rule fires.
-A candidate standard for same-day sensors, for the fix pass (not adopted): D-404 already takes 40 CFR Part 50
-(Appendix K §2.3(a) and (d), Appendix T §3.1(b)): a history window needs 75% of its sessions and is computed on
-what is available, stated. Its scope is history windows only; a same-day input that is missing still withholds, and
-the tape's volume check is 2% (D-089). Whether the same completeness logic fits a day's own input (a VWAP from a
-tape holding at least 75% of the official volume, the share stated) is to be fitted on the population, not ruled.
-The owner: "neither you nor I can simply do some sort of blanket ruling... what we need to do is generate N samples,
-and then fit our sensors to reality."
+## Proposals for the fix pass (NOT decided; discussed with the owner 2026-11-26, to be confirmed before use)
+These came out of conversation while the run was being prepared. None is a ruling. Read them as options to put to
+the owner when the fix pass is planned.
+1. Let a gated sensor publish and record the gate: where a rule withholds a value that exists, publish the value and
+   record, by name, each gate that would have withheld it, so the census can count how often a gate fires and what
+   the values were. A literal missing input stays an absence.
+2. Define a sensor to survive incomplete input where the mathematics allows: a ratio (a VWAP, a share) may hold under
+   random message loss; a total (volume) does not, and could come from the official bar. Untested.
+3. Recompute the gated sensors that way before the catalog is read, from the tapes core already caches.
+4. A candidate standard for a day's own input: D-404 takes 40 CFR Part 50 for history windows (75% of the sessions,
+   computed on what is available, stated); the tape's volume check is 2% (D-089). Whether the same completeness
+   logic fits a same-day input is a question for the population.
+5. Treat a recorded provider fault as a claim to test on the population, not as settled.
 
-## Criteria (owner's rulings of 2026-11-26 marked; the rest draft)
+## Criteria (the bar and criterion 0 are the owner's; the rest draft or proposed)
 **The bar (owner, verbatim):** "My definition of functional is numerically stable across all asset histories with
 >80% coverage, ideally 99%." Per sensor. The product is a data product: it requires functional sensors.
 0. **The intent's own test** (`PRODUCT_INTENT.md`, "Continuous by construction", owner 2026-10-30): "each sensor
@@ -66,19 +58,17 @@ and then fit our sensors to reality."
    stored data.
    Owner, 2026-11-26: during the first pass the test is read on the **base layer** ("everything should be
    populating"); the derived layer should be full too but cannot be assessed until the history exists.
-1. (tightened, owner) An absence stands only where no robust definition could give a value: a literal missing
-   input, or a case the measure does not apply to. "The provider's data was imperfect" is not enough by itself:
-   first ask whether the definition can be made to survive it.
+1. (proposed tightening, not decided) An absence stands only where no robust definition could give a value: a
+   literal missing input, or a case the measure does not apply to.
 2. A rule that withholds on clean inputs, fires only on its origin dates, or is contradicted by the population:
    retire or replace by a published standard.
 3. An engine fault: fixed, its days recomputed by method version.
 4. A sensor is judged on its whole population: share measured, continuity, agreement with the reference check.
-5. Fewer rules is the direction, not a guarantee (owner: "i dont think we can guarantee 'fewer rules'"): the
-   count of gates and rulings is reported before and after the fix pass; a new rule needs population evidence and
-   a reason a definition change could not serve.
-6. The tape-read sensors before 2025-11-26 (owner): first try to make the sensor robust to the tape's shape; decide
-   with data (a short-tape VWAP against an independent bar on a handful of sessions, once the scalpel exists).
-   Starting them in late 2025, or another source, only if that fails.
+5. (proposed, not decided) The count of gates and rulings is reported before and after the fix pass; a new rule
+   needs population evidence.
+6. (proposed, not decided) The tape-read sensors before 2025-11-26: try a definition robust to the tape's shape
+   first, tested against an independent bar on a handful of sessions; a late-2025 start or another source if that
+   fails.
 
 ## Before the run (2026-11-26: integration, the stage-1 audit, the UUP check)
 Sources: engine `docs/DECISIONS.md` D-562, D-563; core `docs/DECISIONS.md` C-094;
@@ -224,12 +214,11 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
   the evaluation: these sensors' population is in effect 2025-11-26 onward unless another source is found.
 - A rollback to an older core image is NOT one command: an older binary's migrate step refuses a database that
   holds migrations it lacks. A rollback needs a forward fix or a hand step. OPS.
-- **One sensor over a range costs almost a full day each** (owner, 2026-11-26: "a system where we can legitimately
-  just queue up 1 sensor over xyz dates"). `vyreon-core republish ... --plan` on build a51cb572, 2024-07-09..12:
+- **One sensor over a range costs almost a full day each.** `vyreon-core republish ... --plan` on build a51cb572, 2024-07-09..12:
   PCR-UQTR-I01 (3.2% of the day's slots, 99 s of its own compute) is 2.7 node-h a day against 3.6 full; VS-IVS01
   and its dependants (40.9%) cost the full day. The overhead is the whole input download (5,796 s, options and
-  quotes included for a tape sensor), intent A's history nodes (2,744 s) and one job per day. FIRST ENGINEERING ITEM
-  OF THE FIX PASS, before any sensor change: fetch only the inputs a sensor reads (core caches the reduced tapes),
+  quotes included for a tape sensor), intent A's history nodes (2,744 s) and one job per day. Proposed (not decided)
+  as an early engineering item of the fix pass: fetch only the inputs a sensor reads (core caches the reduced tapes),
   skip the stages it does not depend on (`docs/SENSORS.md` section 3), run scoped days in blocks. OPS, HIGH.
 - **Audit of the evening batch, core** (Codex and Gemini, 2026-11-26; triage
   `~/claude-artifacts/audits/2026-11-26-evening/triage/core-evening.triage.md`): 17 findings, 14 real, 2 by

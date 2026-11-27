@@ -91,8 +91,8 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   next; the science ones need method versions and wait for the fix pass unless the owner says otherwise.
 - Audit reports are in (21:24 MT; Codex and Gemini, core and engine); two fresh readers triage them into
   `~/claude-artifacts/audits/2026-11-26-evening/triage/`. D-567 and C-097 were NOT in the audited diffs.
-- The owner's design for the fix pass and the single-sensor recompute ("the scalpel") are at the top and the end
-  of `docs/PHASE1_CATALOG.md`.
+- Proposals for the fix pass (not decided) and the cost of a single-sensor recompute are in
+  `docs/PHASE1_CATALOG.md`.
 - (superseded by the lines above) the date gate on replay quotes (D-411 gate 3, `QUOTE_UNVERIFIED_FROM`)
   "should not exist".** A fork prepares its retirement on engine branch `eng-s2` (worktree `/home/diggz/wt/eng-s1`,
   D-567), first establishing whether cached tapes before 2026-11-06 stay valid. Not merged. When phase 1 is
