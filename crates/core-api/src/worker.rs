@@ -36,6 +36,8 @@
 //!   POST /budget                     {requests}                         -> {budget_lease_id, requests, valid_seconds}
 //!                                                                          or {requests: 0, retry_after_seconds}
 //!   POST /budget/{id}/release        {used: {category: requests}}       -> {counted}
+//!   POST /budget/refusals            {category, endpoint, status, retry_after_seconds?, message?, headers?} -> {recorded}
+//!                                    (C-095: a refusal by the provider the worker met; the endpoint is its path)
 //!
 //! A claim carries, beside the job: `days`, for each session its members in profile order
 //! (`ordinal, asset_key, security_id, ticker` (null when not listed that session), `group_name,
@@ -144,6 +146,7 @@ pub fn routes() -> Router<Arc<App>> {
         .route("/archives/unpacked", post(archive_unpacked))
         .route("/budget", post(budget_draw))
         .route("/budget/{id}/release", post(budget_release))
+        .route("/budget/refusals", post(budget_refusal))
 }
 
 fn ok(value: Value) -> Reply {
@@ -681,4 +684,12 @@ async fn budget_release(State(app): Shared, headers: HeaderMap, Path(id): Path<i
     let mut client = app.db().await?;
     let lease = caller(&client, &headers).await?;
     ok(json!({"counted": budget::release(&mut client, id, &lease.worker, &release.used).await.map_err(refused)?}))
+}
+
+/// C-095: a refusal by the provider that the worker met.
+async fn budget_refusal(State(app): Shared, headers: HeaderMap, Json(report): Json<Value>) -> Reply {
+    let client = app.db().await?;
+    let lease = caller(&client, &headers).await?;
+    budget::refusal(&client, &lease.worker, &report).await.map_err(refused)?;
+    ok(json!({"recorded": true}))
 }

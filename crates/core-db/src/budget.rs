@@ -28,13 +28,45 @@ pub struct Budget {
     pub lease_seconds: f64,
     /// The largest lease.
     pub max_lease: i32,
+    /// C-095: requests a minute kept free for the daily session's work (priority 1) while it is drawing:
+    /// the backfill's draws see the ceiling less this.
+    pub daily_reserve: i32,
 }
 
 impl Default for Budget {
     fn default() -> Budget {
-        Budget { per_minute: 1800, lease_seconds: 30.0, max_lease: 600 }
+        Budget { per_minute: 1800, lease_seconds: 30.0, max_lease: 600, daily_reserve: 0 }
     }
 }
+
+/// C-095: how long after the provider's last refusal (HTTP 429) the ceiling is back at its full size.
+pub const BACKOFF_SECONDS: f64 = 300.0;
+/// C-095: the daily session's work counts as drawing while one of its workers drew within this long.
+pub const DAILY_DRAWING_SECONDS: f64 = 120.0;
+
+/// C-095: the ceiling a draw is held to now. After a refusal by the provider the ceiling is halved and comes
+/// back linearly over `BACKOFF_SECONDS` (multiplicative decrease on the congestion signal, additive increase
+/// after it: RFC 5681's shape, section 3.1, for a request rate). `refused_ago`: seconds since the last 429, if
+/// within `BACKOFF_SECONDS`. `reserve`: the daily session's reserve, taken off for a backfill worker while the
+/// daily session's work is drawing.
+pub fn ceiling(per_minute: i32, refused_ago: Option<f64>, reserve: i32) -> i32 {
+    let backed_off = match refused_ago {
+        Some(ago) if ago < BACKOFF_SECONDS => (f64::from(per_minute) * (0.5 + 0.5 * ago.max(0.0) / BACKOFF_SECONDS)).floor() as i32,
+        _ => per_minute,
+    };
+    (backed_off - reserve.max(0)).max(0)
+}
+
+/// What decides the ceiling for `worker` now: seconds since the provider's last 429 (within `BACKOFF_SECONDS`),
+/// whether `worker` holds a job of the daily session (priority 1), and whether such a worker drew within
+/// `DAILY_DRAWING_SECONDS`.
+const CEILING: &str = "SELECT (SELECT EXTRACT(EPOCH FROM clock_timestamp() - max(at))::float8 FROM core.provider_refusal
+                               WHERE status = 429 AND at > clock_timestamp() - make_interval(secs => $2)),
+                              EXISTS (SELECT FROM core.lease l JOIN core.job j USING (job_id)
+                                      WHERE l.worker = $1 AND l.ended_at IS NULL AND j.priority = 1),
+                              EXISTS (SELECT FROM core.budget_lease b JOIN core.lease l ON l.worker = b.worker AND l.ended_at IS NULL
+                                      JOIN core.job j USING (job_id)
+                                      WHERE j.priority = 1 AND b.granted_at > clock_timestamp() - make_interval(secs => $3))";
 
 /// Seconds core counts a lease beyond the validity it tells the worker: the worker starts its
 /// `valid_seconds` when the answer reaches it, after core has recorded the grant, so core's end of
@@ -69,7 +101,10 @@ pub async fn draw(client: &mut Client, budget: Budget, worker: &str, requests: i
     tx.execute("SELECT pg_advisory_xact_lock(hashtextextended('core.budget_lease', 0))", &[]).await.map_err(db)?;
     let row = tx.query_one(COMMITTED, &[]).await.map_err(db)?;
     let (committed, frees_in): (i32, Option<f64>) = (row.get(0), row.get(1));
-    let free = budget.per_minute - committed;
+    let c = tx.query_one(CEILING, &[&worker, &BACKOFF_SECONDS, &DAILY_DRAWING_SECONDS]).await.map_err(db)?;
+    let (refused_ago, daily, daily_drawing): (Option<f64>, bool, bool) = (c.get(0), c.get(1), c.get(2));
+    let reserve = if !daily && daily_drawing { budget.daily_reserve } else { 0 };
+    let free = ceiling(budget.per_minute, refused_ago, reserve) - committed;
     if free < 1 {
         // C-073: the wait is recorded, by minute: the scaler starts no pod that calls the provider
         // while one came within `PRESSURE_MINUTES` (`core.scaler_count`)
@@ -132,6 +167,43 @@ pub async fn release(client: &mut Client, budget_lease_id: i64, worker: &str, us
         return Err(format!("{worker} reports {total} requests on a lease of {granted}"));
     }
     Ok(counted)
+}
+
+/// C-095: records a refusal by the provider that `worker` met (`report`: the worker's words, see the worker API),
+/// with what core holds against the ceiling now. The endpoint is kept without its query.
+pub async fn refusal(client: &Client, worker: &str, report: &Value) -> Result<(), String> {
+    let status = report["status"].as_i64().filter(|s| (100..=599).contains(s)).ok_or("a refusal states the provider's HTTP status")? as i32;
+    let cut = |v: &Value, n: usize| v.as_str().map(|s| s.chars().take(n).collect::<String>());
+    let endpoint = cut(&report["endpoint"], 300).unwrap_or_default();
+    let endpoint = endpoint.split('?').next().unwrap_or_default().to_owned();
+    let headers = if report["headers"].is_object() { report["headers"].clone() } else { serde_json::json!({}) };
+    let retry_after = report["retry_after_seconds"].as_i64().filter(|s| *s >= 0).map(|s| s.min(i64::from(i32::MAX)) as i32);
+    let committed = committed(client).await?;
+    client
+        .execute(
+            "INSERT INTO core.provider_refusal (worker, category, endpoint, status, retry_after_seconds, message, headers, committed)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::text::jsonb, $8)",
+            &[&worker, &cut(&report["category"], 60).unwrap_or_default(), &endpoint, &status, &retry_after, &cut(&report["message"], 300), &headers.to_string(), &committed],
+        )
+        .await
+        .map_err(db)?;
+    Ok(())
+}
+
+/// C-095: the provider's refusals of the last `hours` hours, by endpoint and status: how many, on how many
+/// workers, the least and most core had committed when one came, and the provider's last words.
+pub async fn refusals(client: &Client, hours: f64) -> Result<Vec<(String, i32, i64, i64, i32, i32, Option<String>)>, String> {
+    let rows = client
+        .query(
+            "SELECT endpoint, status, count(*), count(DISTINCT worker), min(committed), max(committed),
+                    (array_agg(message ORDER BY at DESC) FILTER (WHERE message IS NOT NULL))[1]
+             FROM core.provider_refusal WHERE at > now() - make_interval(secs => $1::float8 * 3600)
+             GROUP BY 1, 2 ORDER BY 3 DESC, 1",
+            &[&hours],
+        )
+        .await
+        .map_err(db)?;
+    Ok(rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4), r.get(5), r.get(6))).collect())
 }
 
 /// C-073: how long after a draw had to wait the scaler counts no work that calls the provider
@@ -223,4 +295,22 @@ pub async fn unreleased(client: &Client, hours: f64) -> Result<(i64, i64), Strin
         .await
         .map_err(db)?;
     Ok((r.get(0), r.get(1)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// C-095: the ceiling is halved at a refusal, back in full after `BACKOFF_SECONDS`, and less the daily
+    /// session's reserve for a backfill worker; never below nothing.
+    #[test]
+    fn the_ceiling_after_a_refusal_and_with_the_reserve() {
+        assert_eq!(ceiling(1900, None, 0), 1900);
+        assert_eq!(ceiling(1900, Some(0.0), 0), 950);
+        assert_eq!(ceiling(1900, Some(150.0), 0), 1425);
+        assert_eq!(ceiling(1900, Some(300.0), 0), 1900);
+        assert_eq!(ceiling(1900, None, 600), 1300);
+        assert_eq!(ceiling(1900, Some(0.0), 600), 350);
+        assert_eq!(ceiling(500, Some(0.0), 600), 0);
+    }
 }
