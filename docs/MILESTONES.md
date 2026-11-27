@@ -36,6 +36,30 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
 
 ## Resume here (new session, 2026-11-26 16:00 MT; the handoff below verified against the cluster)
 
+**PHASE 1 IS RUNNING (2026-11-27 02:42 MT). Read this block first; the 2026-11-26 blocks below are history.**
+- Running build: engine `760a8760+93486ee1fd46` (released 02:39 MT: stage 1 + D-564..D-568, the date gate
+  retired, the evening audit's findings fixed); core image `9982f6a` (C-086..C-098). Ceiling 1,800; nightly
+  reserve 600; recompute OFF for the run.
+- Queue: 12 day blocks over 2024-07-09..2026-11-20, 597 sessions, blocks of 50 (the newest of 47). Job 30091
+  (2026-09-17..2026-11-20, the newest block, pod day-block-5qhh8-trmwx) started 02:41 and is the build's first real
+  day under core's gate; the other 11 blocks (550 sessions) are QUEUED and core starts them by itself once that
+  day publishes clean, one every 20 minutes as the budget allows. Nothing is held out.
+- NOT scheduled yet: the ordered passes (the history layer). The plan says once, oldest-first, after the day layer;
+  schedule them when the day layer is well under way (`vyreon-core schedule ordered-pass`), not before reading
+  C-046/C-062.
+- The two test days: canary 2025-12-10 on a51cb572 published 01:08 MT, 252 min, 0 engine faults, job DONE 02:40
+  (reference check: 94,363 checked, 2,482 failed, 230 unexplained). Re-run of 2026-11-25 on c2397caa published
+  02:12 MT, 281 min (download 127 with the 30-minute EXQ01 wait), revisions 261/262/263: 0 engine faults (168 on
+  the afternoon's nightly), 9 provider absences; ACT01 back on all but 2 assets (LQD, MDY: MISSING_REQUIRED_INPUT
+  on 2 roles); PCR-UQTR-I01 publishes (no date-gate reason left); `run-logs`, `act01-auto`, `exq01-events` KEPT;
+  no provider refusal recorded. Its reference check was still running at 02:42 (job 30089, draining).
+- A release script still polls at its step 12 for those two pods' ends (detached; harmless; `--from 12` resumes
+  it if it died).
+- THE COORDINATOR'S JOB NOW: monitor, catalogue (`docs/PHASE1_CATALOG.md`), investigate only what stops days
+  publishing or loses evidence. Fix anything real an audit finds. Owed: the checkpoint after 10–20 published days
+  (logs kept, steps, census, refusals, draw latency); numeric stop conditions proposed after the first day; the
+  stage-1 audit's leftover operations findings; at the first recorded provider refusal, read its body.
+
 **STATE AT 2026-11-26 20:10 MT (read this first; it supersedes the NEXT steps further down where they differ).**
 - The 11-25 nightly published 19:28 MT and ended 20:05 MT (job 30062; its ordered pass 30063 done). The queue is
   idle; nothing is released yet. Running build still 714e47a3; core image still the old one.
