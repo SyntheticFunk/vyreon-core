@@ -4124,3 +4124,34 @@ fixed in the words, with the real text as its test. Nothing in scheduling, lease
    stated reasons". Read apart and only where its tables are, so it can never fail the line. On production: the
    canary day's revisions 259/260 hold 128 (SAI-EXQ01 and M0-PRINT-SIZE on 64 each); the new build's first two
    days 129 and 132.
+
+## C-101 Nothing pauses the queue by itself (owner, 2026-11-26 and 2026-11-27; on a branch, not released)
+The owner, 2026-11-26: "the nightly should never get paused. that is a essential thing to keep going"; 2026-11-27:
+"the system needs to eventually function without you". C-094's amendment took the pause off failed day blocks; the
+decided-not-built sweep (2026-11-27) found two paths left that paused the whole queue, the nightly included, until
+someone ran `queue resume`. Both are now contained to their job and day, by rules already in force (no new rule):
+1. **A tape job out of attempts** (`work::requeue`): no pause. It stands FAILED, is logged ("Tape job for D failed
+   for the last time (job J): why. Nothing is paused: the day blocks capture that session's tapes themselves.") and
+   alerted (JOB_FAILED, as before). The day blocks no longer wait on a FAILED tape job (`core.claimable_job`,
+   0071: they wait while it is queued or running): the worker fetches the caches core holds and its fill captures
+   the rest from the provider (engine D-358, `vyreon-worker` `tape_caches_of`: "what core lacks, the fill captures
+   from the provider as it always has"). A day whose tape cannot be had then stops with its own cause and is set
+   aside and alerted like any day (C-094). Before, the day blocks of that session and every later one waited
+   without end behind the FAILED job, even after a resume.
+2. **A bundle core refused** (`publish::Error::Refused`, HTTP 422 on `POST /days`): no pause. Recorded in
+   `core.bundle_refusal` (0071) and handled as C-075 handles a day its input plan refused: the first refusal of a
+   job's day leaves the job one more attempt (a body changed on the way is refused too: the worker API test's
+   truncated upload); a second refusal spends its attempts, so the attempt's end sets the day aside (FAILED,
+   JOB_FAILED with the worker's stop message, the rest of its block queued again, the build going on; `queue
+   retry-failed` or a new build tries it again). The worker is answered 422 as before and stops its day
+   (`stop: D not published: refused by vyreon-core: …`), then reports the failure: no engine change.
+Systematic breakage is said by the problems that exist (JOB_FAILED per job, DAY_REFUSED, the stop rule C-090's
+count of days not published), not by a pause. **After this no automatic path pauses the queue:** `work::pause` is
+called only by `vyreon-core queue pause` (an operator, or `release.sh`, which resumes its own pause).
+QUEUE_PAUSED stays for those. Decided by: the owner's rulings above and C-094; C-075's precedent; PRODUCT_INTENT
+("continuous measurements"; a miss is diagnosed, not a stop). Tests: `work.rs::nothing_pauses_the_queue_by_itself`
+(two tape jobs failing in a row alert and pause nothing, the nightly's tape is still handed out, the failed tapes
+hold no day block, a bundle refused twice sets its day aside), `work.rs::a_failure_message_with_a_credential_is_
+never_kept`, `worker_api.rs` (a truncated bundle: refused, recorded, nothing paused, the other day handed out).
+Not run on the cluster; a day block capturing a whole session's tapes itself after a failed tape job has not been
+watched on a real day.
