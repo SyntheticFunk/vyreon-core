@@ -133,6 +133,11 @@ spec:
             # drawing (the nightly holds the only inputs that cannot be fetched later); the backfill sees 1,200 then
             - name: VYREON_CORE_INTRINIO_DAILY_RESERVE
               value: "600"
+            # C-099 (2026-11-27): the most requests granted in any rolling second, over all workers: 1,800 a minute
+            # is 30 a second. Intrinio refused requests three times in two hours with 500 to 1,650 counted in the
+            # minute; single leases had been spent within half a second. 0 switches it off.
+            - name: VYREON_CORE_INTRINIO_PER_SECOND
+              value: "30"
             # The reference check (C-054): from this session a published day with no report is a
             # problem; phase 1's first session
             - name: VYREON_CORE_REFCHECK_FROM
