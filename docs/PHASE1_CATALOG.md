@@ -58,6 +58,25 @@ the owner when the fix pass is planned.
    day, as a running record (D-411 already has live days reconcile against the trades API: first establish what
    the nightly does today); (c) a paid second feed only as a last step, with the vendor's permission in writing.
 
+## Evidence that a sensor is ready for publication (proposed 2026-11-27; recorded at the owner's word so it is not
+lost; to be confirmed before the scorecard is run)
+A series is one sensor on one asset. The owner's preference: all 64 assets publish cleanly for a sensor to count
+as ready (the strict reading of "across all asset histories").
+1. Coverage: published on at least 80% of asset-days, per asset. (Needs the withholding record to count what
+   publishes as well as what is withheld.)
+2. Continuity: no more than about one missing day a week; a history-based reading has at least 75% of its window
+   (D-404).
+3. Honest absences: every gap carries a reason that is a literal missing input or "does not apply".
+4. Agreement with the independent check: no unexplained disagreement with the reference suite for that sensor.
+5. Stability: no jump that lines up with something other than the market (a build change, a rule's start date, a
+   change in the provider's files).
+6. Reasonableness: values a practitioner would recognise; where a public benchmark exists, it tracks it.
+7. It renders: its plot in Reporter is not empty and its explanation is true.
+Rows 1 to 4 and 7 are mechanical: one scorecard from the database and Reporter, every sensor, pass or fail per
+row with the reason. Rows 5 and 6 need a reader, only for sensors that passed the others. Outcomes: ready; a
+repair candidate (fails only 1 or 2, with honest reasons: the single-sensor recompute); not ready (fails 4, 5 or
+6, whatever its coverage).
+
 ## Criteria (the bar and criterion 0 are the owner's; the rest draft or proposed)
 **The bar (owner, verbatim):** "My definition of functional is numerically stable across all asset histories with
 >80% coverage, ideally 99%." Per sensor. The product is a data product: it requires functional sensors.
