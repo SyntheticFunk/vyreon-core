@@ -58,15 +58,22 @@ pub fn ceiling(per_minute: i32, refused_ago: Option<f64>, reserve: i32) -> i32 {
 }
 
 /// What decides the ceiling for `worker` now: seconds since the provider's last 429 (within `BACKOFF_SECONDS`),
-/// whether `worker` holds a job of the daily session (priority 1), and whether such a worker drew within
-/// `DAILY_DRAWING_SECONDS`.
+/// whether `worker` holds a job of the daily session (priority 1), and whether such a worker drew, or asked to
+/// (C-098 4: `core.budget_daily_ask`; before, only a grant counted, so after an idle gap the nightly's first draw
+/// met the backfill at the full ceiling), within `DAILY_DRAWING_SECONDS`. C-098 3: it starts from the few live
+/// leases of the daily session and reads `core.budget_lease` through its `valid_until` index (the table is
+/// never pruned; unbounded, the scan was 15 ms at 98,051 rows inside the lock, 0.06 ms bounded).
 const CEILING: &str = "SELECT (SELECT EXTRACT(EPOCH FROM clock_timestamp() - max(at))::float8 FROM core.provider_refusal
                                WHERE status = 429 AND at > clock_timestamp() - make_interval(secs => $2)),
                               EXISTS (SELECT FROM core.lease l JOIN core.job j USING (job_id)
                                       WHERE l.worker = $1 AND l.ended_at IS NULL AND j.priority = 1),
-                              EXISTS (SELECT FROM core.budget_lease b JOIN core.lease l ON l.worker = b.worker AND l.ended_at IS NULL
-                                      JOIN core.job j USING (job_id)
-                                      WHERE j.priority = 1 AND b.granted_at > clock_timestamp() - make_interval(secs => $3))";
+                              EXISTS (SELECT FROM core.lease l JOIN core.job j USING (job_id)
+                                      WHERE l.ended_at IS NULL AND j.priority = 1
+                                        AND (EXISTS (SELECT FROM core.budget_lease b
+                                                     WHERE b.worker = l.worker AND b.valid_until > now() - interval '10 minutes'
+                                                       AND b.granted_at > clock_timestamp() - make_interval(secs => $3))
+                                             OR EXISTS (SELECT FROM core.budget_daily_ask a
+                                                        WHERE a.worker = l.worker AND a.asked_at > clock_timestamp() - make_interval(secs => $3))))";
 
 /// Seconds core counts a lease beyond the validity it tells the worker: the worker starts its
 /// `valid_seconds` when the answer reaches it, after core has recorded the grant, so core's end of
@@ -86,10 +93,15 @@ pub enum Grant {
 /// C-076: a released lease ends `TRANSIT_SECONDS` after its release reached core (a request its worker
 /// was permitted just before still travels to the provider); an open one at its validity, which holds
 /// that allowance already.
+/// C-098 3: read through the `valid_until` index (0006), not the whole never-pruned table (14 ms at 98,051 rows
+/// inside the lock, 0.06 ms so): a lease whose validity ended over ten minutes ago made its last request over
+/// ten minutes ago, whenever its release reached core (the latest release on record came 2.5 s BEFORE its
+/// lease's validity ended), so it holds nothing against the last rolling minute.
 const COMMITTED: &str = "SELECT COALESCE(sum(COALESCE(used, granted)), 0)::int,
                                 EXTRACT(EPOCH FROM min(COALESCE(released_at + interval '5 seconds', valid_until)) + interval '60 seconds' - now())::float8
                          FROM core.budget_lease
-                         WHERE COALESCE(released_at + interval '5 seconds', valid_until) > now() - interval '60 seconds'";
+                         WHERE valid_until > now() - interval '10 minutes'
+                           AND COALESCE(released_at + interval '5 seconds', valid_until) > now() - interval '60 seconds'";
 
 /// Draws up to `requests` for `worker`. A smaller lease than asked is granted when that is all
 /// that is free.
@@ -103,6 +115,16 @@ pub async fn draw(client: &mut Client, budget: Budget, worker: &str, requests: i
     let (committed, frees_in): (i32, Option<f64>) = (row.get(0), row.get(1));
     let c = tx.query_one(CEILING, &[&worker, &BACKOFF_SECONDS, &DAILY_DRAWING_SECONDS]).await.map_err(db)?;
     let (refused_ago, daily, daily_drawing): (Option<f64>, bool, bool) = (c.get(0), c.get(1), c.get(2));
+    if daily {
+        // C-098 4: the daily session's worker asked: the reserve is on from now, granted or not
+        tx.execute(
+            "INSERT INTO core.budget_daily_ask (worker, asked_at) VALUES ($1, clock_timestamp())
+             ON CONFLICT (worker) DO UPDATE SET asked_at = EXCLUDED.asked_at",
+            &[&worker],
+        )
+        .await
+        .map_err(db)?;
+    }
     let reserve = if !daily && daily_drawing { budget.daily_reserve } else { 0 };
     let free = ceiling(budget.per_minute, refused_ago, reserve) - committed;
     if free < 1 {
@@ -173,21 +195,36 @@ pub async fn release(client: &mut Client, budget_lease_id: i64, worker: &str, us
 /// with what core holds against the ceiling now. The endpoint is kept without its query.
 pub async fn refusal(client: &Client, worker: &str, report: &Value) -> Result<(), String> {
     let status = report["status"].as_i64().filter(|s| (100..=599).contains(s)).ok_or("a refusal states the provider's HTTP status")? as i32;
-    let cut = |v: &Value, n: usize| v.as_str().map(|s| s.chars().take(n).collect::<String>());
-    let endpoint = cut(&report["endpoint"], 300).unwrap_or_default();
-    let endpoint = endpoint.split('?').next().unwrap_or_default().to_owned();
-    let headers = if report["headers"].is_object() { report["headers"].clone() } else { serde_json::json!({}) };
+    let cut = |v: &Value, n: usize| v.as_str().map(|s| refusal_text(s, n));
+    // the path alone: the query, which may hold the key, is dropped before anything else reads the text
+    let endpoint = report["endpoint"].as_str().map_or_else(String::new, |e| refusal_text(e.split('?').next().unwrap_or_default(), 300));
+    let headers = match report["headers"].as_object() {
+        Some(h) => Value::Object(h.iter().filter_map(|(k, v)| Some((refusal_text(k, 100), Value::String(refusal_text(v.as_str()?, 300))))).collect()),
+        None => serde_json::json!({}),
+    };
     let retry_after = report["retry_after_seconds"].as_i64().filter(|s| *s >= 0).map(|s| s.min(i64::from(i32::MAX)) as i32);
-    let committed = committed(client).await?;
+    // C-098 12: what core holds is read by the statement that stores the row, at the row's own instant
     client
         .execute(
-            "INSERT INTO core.provider_refusal (worker, category, endpoint, status, retry_after_seconds, message, headers, committed)
-             VALUES ($1, $2, $3, $4, $5, $6, $7::text::jsonb, $8)",
-            &[&worker, &cut(&report["category"], 60).unwrap_or_default(), &endpoint, &status, &retry_after, &cut(&report["message"], 300), &headers.to_string(), &committed],
+            &format!(
+                "INSERT INTO core.provider_refusal (worker, category, endpoint, status, retry_after_seconds, message, headers, committed)
+                 VALUES ($1, $2, $3, $4, $5, $6, $7::text::jsonb, (SELECT c.n FROM ({COMMITTED}) c(n, frees)))"
+            ),
+            &[&worker, &cut(&report["category"], 60).unwrap_or_default(), &endpoint, &status, &retry_after, &cut(&report["message"], 300), &headers.to_string()],
         )
         .await
         .map_err(db)?;
     Ok(())
+}
+
+/// C-098 (audit 2026-11-26, core 1, 6, 7): a worker's words of a refusal as core stores and says them: one line
+/// (a control character, NUL and a line end among them, is a space: a line end failed the alert's summary and
+/// restarted core, a NUL failed the insert and lost the record), at most `max` characters, and nothing a
+/// credential pattern matches (`evidence::unredacted`: the provider's answer is its own text, and could repeat
+/// a key).
+pub fn refusal_text(text: &str, max: usize) -> String {
+    let line: String = text.chars().map(|c| if c.is_control() { ' ' } else { c }).take(max).collect();
+    if crate::evidence::unredacted(&line).is_some() { "(not kept: it may hold a credential)".to_owned() } else { line.trim().to_owned() }
 }
 
 /// C-095: the provider's refusals of the last `hours` hours, by endpoint and status: how many, on how many
@@ -312,5 +349,15 @@ mod tests {
         assert_eq!(ceiling(1900, None, 600), 1300);
         assert_eq!(ceiling(1900, Some(0.0), 600), 350);
         assert_eq!(ceiling(500, Some(0.0), 600), 0);
+    }
+
+    /// C-098 (audit 2026-11-26, core 1, 6, 7): a refusal's words are one line with no control character, cut, and
+    /// never a credential.
+    #[test]
+    fn a_refusals_words_are_one_line_and_hold_no_credential() {
+        assert_eq!(refusal_text("1 Minute Call Limit Reached\r\nRetry later\0 ", 300), "1 Minute Call Limit Reached  Retry later");
+        assert_eq!(refusal_text("abcdef", 3), "abc");
+        assert_eq!(refusal_text("denied for api_key=0123456789abcdef", 300), "(not kept: it may hold a credential)");
+        assert_eq!(refusal_text("Authorization: Bearer abc.def.ghi", 300), "(not kept: it may hold a credential)");
     }
 }
