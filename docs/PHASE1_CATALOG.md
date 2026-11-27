@@ -54,7 +54,9 @@ tape holding at least 75% of the official volume, the share stated) is to be fit
 The owner: "neither you nor I can simply do some sort of blanket ruling... what we need to do is generate N samples,
 and then fit our sensors to reality."
 
-## Criteria (draft, for the owner)
+## Criteria (owner's rulings of 2026-11-26 marked; the rest draft)
+**The bar (owner, verbatim):** "My definition of functional is numerically stable across all asset histories with
+>80% coverage, ideally 99%." Per sensor. The product is a data product: it requires functional sensors.
 0. **The intent's own test** (`PRODUCT_INTENT.md`, "Continuous by construction", owner 2026-10-30): "each sensor
    publishes on at least 80% of asset-days, reached through numerical stability, never by filling; a miss is
    diagnosed (engine → rework, provider → stated absence, structural → not applicable). Sensors that read their
@@ -64,11 +66,19 @@ and then fit our sensors to reality."
    stored data.
    Owner, 2026-11-26: during the first pass the test is read on the **base layer** ("everything should be
    populating"); the derived layer should be full too but cannot be assessed until the history exists.
-1. An absence is correct when the provider or the market gives no basis (structural): stays, stated.
+1. (tightened, owner) An absence stands only where no robust definition could give a value: a literal missing
+   input, or a case the measure does not apply to. "The provider's data was imperfect" is not enough by itself:
+   first ask whether the definition can be made to survive it.
 2. A rule that withholds on clean inputs, fires only on its origin dates, or is contradicted by the population:
    retire or replace by a published standard.
 3. An engine fault: fixed, its days recomputed by method version.
 4. A sensor is judged on its whole population: share measured, continuity, agreement with the reference check.
+5. Fewer rules is the direction, not a guarantee (owner: "i dont think we can guarantee 'fewer rules'"): the
+   count of gates and rulings is reported before and after the fix pass; a new rule needs population evidence and
+   a reason a definition change could not serve.
+6. The tape-read sensors before 2025-11-26 (owner): first try to make the sensor robust to the tape's shape; decide
+   with data (a short-tape VWAP against an independent bar on a handful of sessions, once the scalpel exists).
+   Starting them in late 2025, or another source, only if that fails.
 
 ## Before the run (2026-11-26: integration, the stage-1 audit, the UUP check)
 Sources: engine `docs/DECISIONS.md` D-562, D-563; core `docs/DECISIONS.md` C-094;
