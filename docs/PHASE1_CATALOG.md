@@ -454,3 +454,11 @@ Each line is something that happened only because an agent looked or acted. Stat
   day-block-dh8dc-csl9t (job 30102, started 11:55) was fetching tape caches from core, got "error sending
   request" and exited 1. The eleven running blocks rode through the same restart (as they did five times before).
   The job waits for its dead lease to expire. A release during the ramp can hit a starting pod. OPS.
+- **The gate register** (read-only inventory, 2026-11-27, `~/claude-artifacts/checks/gate-register-2026-11-27.md`;
+  the agent's reading: NOT yet verified by the coordinator; engine `worker` at 760a8760). 84 rows. Of 41
+  candidate gates (thresholds 17, count minimums 12, consistency checks 10, dates 2): origin owner 12, a published
+  standard 9 (six of them the one 40 CFR 50 citation of D-404), agent or engineering 20; evidence at origin none
+  stated 10, one date 7, 2–5 dates 4, more 11, a standard instead of data 7, decision not read 2. About 140
+  further reason codes named and not traced; 12 rows that fire in the census only partly traced. It judges
+  nothing: it is what each gate is read against when the population exists. Firing counts in it are from 4 days
+  and are not a rate. SCIENCE.

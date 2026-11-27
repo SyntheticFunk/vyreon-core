@@ -7,7 +7,10 @@ authority. Each statement carries a code location and is labelled PROVEN (the co
 **Status.** Traced by a read-only agent on engine `fd319730`, 2026-11-26: 31 of 94 measurements fully traced, 63
 partly (registry, graph edges, method label and reason strings; not every condition). Verified by the coordinator
 so far: section 4's PCR-UQTR-I01 finding (`h3-replay/src/official.rs:60`, `QUOTE_UNVERIFIED_FROM = "2026-11-06"`).
-Everything else is the agent's reading until checked. What the run teaches about a sensor is added under
+Everything else is the agent's reading until checked. STALE since 2026-11-26 evening: section 4.3's date gate
+(QUOTE_COMPLETENESS_UNVERIFIED from 2026-11-06) was retired by engine D-567; PCR-UQTR-I01 publishes on those
+sessions. The gates' inventory with each one's evidence base is
+`~/claude-artifacts/checks/gate-register-2026-11-27.md` (unverified). What the run teaches about a sensor is added under
 "Learned in the run" at the end, dated.
 
 ## Sensor trace: every measurement, its inputs, parents and withholding reasons
