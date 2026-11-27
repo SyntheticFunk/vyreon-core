@@ -421,3 +421,21 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
     only through core" (hand Job manifests and `scale-pool.sh` still ship); the API's default detail.
   Not settled: 37 items across the three files, most needing the cluster or the owner; 13 "Listed, not fixed" rows
   in MILESTONES not checked. Stale text found: MILESTONES said the D-560 census stopped unfinished (it completed).
+
+## What needed an agent (kept through the run; evaluated in step 6 of the plan of record)
+Each line is something that happened only because an agent looked or acted. State as of 2026-11-27 noon.
+| What | State |
+|---|---|
+| Resuming a paused queue after one job fails (a tape job out of attempts, a refused bundle) | being built on core `core-s8`, unreleased |
+| Noticing provider throttling | alert built and working (C-095) |
+| Reading why a worker died | alert built and working (C-091 `lease_death`) |
+| Seeing when days publish | fixed on core `core-s7`, unreleased (C-100) |
+| Slowing requests per second | built on core `core-s6`, unreleased (C-099); still needs someone to switch it on |
+| Building images and running a release | by hand, with a Docker credential workaround for the core image |
+| Queuing phase 1 in order (the newest block first, the rest once it was claimed) | by hand |
+| Queuing the history passes after the day layer | by hand; not yet done |
+| Re-running a day whose capture was lost | by hand (the 11-25 re-run) |
+| Re-running a reference check that was killed | by hand; the automatic re-run is off for the run |
+| Judging whether the run is healthy enough to continue | by hand; numeric stop conditions owed |
+| Reading a pod's logs to explain a slow or lost step | by hand; `run-logs` are kept, nothing reads them |
+| Checking what DigitalOcean actually charges against the spend line | by hand; the line lags a day |

@@ -62,6 +62,12 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   4. Repair the blocked sensors in priority order: fix, then recompute that sensor (a gap from a one-off failure
      is recomputed straight away).
   5. The remaining catalogued issues.
+  6. Evaluate the list of what needed an agent ("What needed an agent" in `docs/PHASE1_CATALOG.md`): each line
+     becomes something the system does by itself, or a stated reason it stays by hand. The owner, 2026-11-27:
+     "the system needs to eventually function without you".
+  7. Settle the sweep's unresolved items: the 37 "not established" items and the 13 unchecked "Listed, not fixed"
+     rows (the four files `~/claude-artifacts/checks/decided-not-built-2026-11-27*.md`, each under "Not
+     established" / "Not checked"); most need the cluster or the owner's decision.
   The owner's aim: an MVP that publishes. Coverage of 80% per sensor allows about one missing day a week.
 - **Fixes during the run (owner, 2026-11-27):** fixes are made on branches as found; nothing is released (no
   engine image, no core image) until phase 1's day layer is done, except the per-second request bound if provider
