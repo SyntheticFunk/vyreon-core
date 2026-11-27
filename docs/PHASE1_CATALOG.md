@@ -100,6 +100,21 @@ repair candidate (fails only 1 or 2, with honest reasons: the single-sensor reco
    stored data.
    Owner, 2026-11-26: during the first pass the test is read on the **base layer** ("everything should be
    populating"); the derived layer should be full too but cannot be assessed until the history exists.
+   **How coverage is counted (owner, 2026-11-27; decided, not built):** by sensors with fully valid values on a
+   day, not by the count of readings ("our coverage statistics should be based on # of sensors with full values,
+   not the 4000-ish samples"). Three levels: (i) a reading (one sensor, one asset, one day) is complete when its
+   required pieces are present; for a sensor whose reading is a series of intraday points, when at least 75% of
+   that day's points are present; (ii) a sensor's coverage is the share of asset-days with a complete reading;
+   (iii) the bar above is read on (ii), over all 64 assets. The 75% is the standard D-404 already cites for
+   history windows, chosen by the owner here over "continuous through the day": 40 CFR Part 50 Appendix K
+   §2.3(a) and (d), Appendix T §3.1(b) (as quoted in D-404; the appendix wording is to be re-read against the
+   intraday case before it is built). Open, for when it is built: which pieces of a reading are required (a
+   piece that is optional or not applicable by design must not make every reading incomplete); and whether a
+   consecutive-gap limit is added (WMO-No. 1203 §4.4, noted in D-404 as not adopted). Scale, from a published day
+   on build 760a8760: 94 measurement ids, about 4,700 readings a day (mostly 64 assets each, 17 for the company
+   sensors, 1 for the cross-asset ones), a few to about 60 pieces in a reading. Today's headline ("% of readings
+   published", about 99%) counts whole readings only; on the same 23 days the draft table has 55 of 64 base
+   sensors at 95% or more.
 1. (proposed tightening, not decided) An absence stands only where no robust definition could give a value: a
    literal missing input, or a case the measure does not apply to.
 2. A rule that withholds on clean inputs, fires only on its origin dates, or is contradicted by the population:
