@@ -68,6 +68,13 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   7. Settle the sweep's unresolved items: the 37 "not established" items and the 13 unchecked "Listed, not fixed"
      rows (the four files `~/claude-artifacts/checks/decided-not-built-2026-11-27*.md`, each under "Not
      established" / "Not checked"); most need the cluster or the owner's decision.
+  **Evaluation at about 100 published days (owner, 2026-11-27):** decide then, on evidence, whether to stop this
+  build and run a second pass with the gates turned into recorded flags (so every sensor's values are seen), the
+  known time costs reduced (the reference check's wait first) and anything that blocks publishing fixed; or to
+  let this build finish and repair sensors one at a time. The evidence: the scorecard draft, the census by era,
+  the gate register with firing counts, the run's costs, and a size for the conversion work. Not decided: it is
+  "a good plan if necessary". If a second pass is chosen, its list of changes is written down, and kept short,
+  before work starts.
   The owner's aim: an MVP that publishes. Coverage of 80% per sensor allows about one missing day a week.
 - **Fixes during the run (owner, 2026-11-27):** fixes are made on branches as found; nothing is released (no
   engine image, no core image) until phase 1's day layer is done, except the per-second request bound if provider
