@@ -103,6 +103,9 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
 - 12:18 MT: all 12 blocks running (job 30102 recovered by itself, attempt 2, pod day-block-fhj6v-85xnn); 5 days
   published on this build, 0 engine faults; no provider refusal since 11:45 with the per-second bound at 30 (the
   most granted in any second: 30; 1,200 to 1,620 requests a minute).
+- 13:52 MT: 11 days published, 0 engine faults, 12 blocks running, no restart. Refusals returned at 13:49 and
+  13:51 under the per-second bound (28, against 49 to 179 before it): the bound did not end them; cause still
+  not known (catalog). Nothing failed.
 - NOT scheduled yet: the ordered passes (the history layer). The plan says once, oldest-first, after the day layer;
   schedule them when the day layer is well under way (`vyreon-core schedule ordered-pass`), not before reading
   C-046/C-062.

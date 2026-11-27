@@ -467,3 +467,12 @@ Each line is something that happened only because an agent looked or acted. Stat
   further reason codes named and not traced; 12 rows that fire in the census only partly traced. It judges
   nothing: it is what each gate is read against when the population exists. Firing counts in it are from 4 days
   and are not a rate. SCIENCE.
+- **Refusals under the per-second bound (2026-11-27 13:49 and 13:51 MT):** 28 more (11 and 17) on 3 workers, with
+  the grants of every second at 30 or less (`core.budget_lease`). Smaller than before the bound (179, 49, 105,
+  59), not gone: one comparison, not a result. What the record rules out as the whole cause: the minute (1,590
+  and 1,022 in the minutes before); a sustained rate (12:16 to 12:39 ran 24 minutes at about 1,600 a minute with
+  none); the ten-minute total (15,090 before 13:49; it reached 16,170 without a refusal). Intrinio's usage report
+  at 13:53 again shows only one-minute limits of 2,000 per access code, all far under. The refused requests are
+  those of one stage of a worker's download (options intervals of ACT01, fundamentals, security prices, option
+  snapshots), not the bulk of the traffic. Hypothesis, untested: a limit on those endpoints or on a short burst
+  to one of them. No capture is known to have been lost. WATCH. OPS / PROVIDER.
