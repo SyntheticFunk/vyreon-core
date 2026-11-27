@@ -38,8 +38,10 @@ sparse-date testing... my proclivity is to let everything publish then we need t
 ensure our sensors generalize. [...] The idea is for the design of each sensor to be numerically stable by design. A
 sensor dying on 361 weekdays is a definition or rule problem." And: a reported provider fault is a claim, not a
 fact, until the population shows it.
-What follows for the fix pass (the coordinator's reading, to be agreed): (1) a gate that withholds becomes, where
-it can, a stated quality beside a published value, so the value a rule suppressed can be judged; (2) a sensor is
+What follows for the fix pass (agreed by the owner, 2026-11-26, who added the record of the gates): (1) a gate
+that withholds becomes, where it can, a stated quality beside a published value, so the value a rule suppressed can
+be judged; **each published value records every gate that would have withheld it, by name** (so the census counts,
+per sensor and gate, how often it would have fired and what the values were when it did); (2) a sensor is
 defined to survive incomplete input where the mathematics allows (a ratio such as a VWAP or a share is stable under
 random message loss; a total such as volume is not, and can come from the official bar); (3) the gated sensors are
 recomputed with their gates as annotations before the catalog is read, from the tapes core already caches. The
