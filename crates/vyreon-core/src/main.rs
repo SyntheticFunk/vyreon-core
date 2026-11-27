@@ -60,6 +60,9 @@
 //!                                                     the replay files' first (2023-05-24) to the last before today; day
 //!                                                     blocks wait for the tapes up to their last session; run again, it
 //!                                                     queues only what is missing
+//!   vyreon-core faults <profile> <first> <last> [<build>]   C-096: what the published days withhold, by measurement,
+//!                                                     grain (slot, role, coordinate) and stated reason (tab-separated)
+//!   vyreon-core steps <job>                           C-096: a job's steps, lease by lease, with how long each lasted
 //!   vyreon-core stoprule <profile> [<build>]          C-084, C-090: the phase-1 stop rule's count for the newest running
 //!                                                     build (or <build>): the days toward the stop (not published after a
 //!                                                     failure; a whole measurement faulted) and, apart, the local ones
@@ -345,6 +348,29 @@ async fn tape_recapture(profile: &str, engine_build: &str, range: Option<(&str, 
 }
 
 /// C-084: `stoprule <profile> [<build>]`.
+/// C-096: the census of what the published days withhold, by measurement, grain and stated reason.
+async fn faults(profile: &str, first: &str, last: &str, engine_build: Option<&str>) -> Result<(), String> {
+    let client = connect().await?;
+    let (read, lines) = core_db::census::withheld(&client, profile, first, last, engine_build).await?;
+    println!("{first}..{last}: {} published days, {} slots read{}", read.days, read.slots, engine_build.map_or(String::new(), |b| format!(" (build {b})")));
+    println!("class\tmeasurement\tgrain\treason\tcount\tassets\tdays\tfirst\tlast\texamples");
+    for l in lines {
+        let class = if l.engine { "ENGINE" } else { "STATED" };
+        println!("{class}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}", l.measurement_id, l.grain, l.reason, l.count, l.assets, l.days, l.first, l.last, l.examples.join(","));
+    }
+    Ok(())
+}
+
+/// C-096: a job's steps, lease by lease, with how long each lasted.
+async fn steps(job: &str) -> Result<(), String> {
+    let job: i64 = job.parse().map_err(|_| format!("job: {job}"))?;
+    for (lease, worker, step, reason, since, seconds) in core_db::census::steps(&connect().await?, job).await? {
+        let lasted = seconds.map_or("running".to_owned(), |s| format!("{:.0} min", s / 60.0));
+        println!("lease {lease} {worker}  {since} UTC  {lasted:>9}  {step}{}", reason.map_or(String::new(), |r| format!("  (waiting: {r})")));
+    }
+    Ok(())
+}
+
 async fn stoprule(profile: &str, engine_build: Option<&str>) -> Result<(), String> {
     let client = connect().await?;
     let build = match engine_build {
@@ -1419,6 +1445,9 @@ async fn main() -> ExitCode {
         ["tape", "checks"] => tape_checks().await,
         ["tape", "recapture", profile, engine_build] => tape_recapture(profile, engine_build, None).await,
         ["tape", "recapture", profile, engine_build, first, last] => tape_recapture(profile, engine_build, Some((first, last))).await,
+        ["faults", profile, first, last] => faults(profile, first, last, None).await,
+        ["faults", profile, first, last, engine_build] => faults(profile, first, last, Some(engine_build)).await,
+        ["steps", job] => steps(job).await,
         ["stoprule", profile] => stoprule(profile, None).await,
         ["stoprule", profile, engine_build] => stoprule(profile, Some(engine_build)).await,
         ["queue", ref change @ ..] => queue(change).await,

@@ -35,6 +35,9 @@ use tokio_postgres::{Client, GenericClient};
 /// The categories archived (the droplet's, less the company capture, which core keeps in its
 /// database, C-043): the cohort prints and the ACT01 interval pulls.
 pub const CATEGORIES: [&str; 2] = ["exq01-events", "act01-auto"];
+/// C-096: a day's own logs (the fill's, the captures', the day's), kept for every day a block worked on,
+/// published or not: not a perishable input (nothing counts it missing, nothing freezes it), kept the same way.
+pub const RUN_LOGS: &str = "run-logs";
 /// How long an upload URL is valid.
 pub const URL_SECONDS: i32 = 600;
 /// A session's archive is final this many calendar days after the session (the droplet's
@@ -188,8 +191,8 @@ impl Answer {
 
 fn check(r: &Request) -> Result<(), LeaseError> {
     let refuse = |m: String| Err(LeaseError::Refused(m));
-    if !CATEGORIES.contains(&r.category.as_str()) {
-        return refuse(format!("{} is not a perishable category ({})", r.category, CATEGORIES.join(", ")));
+    if !CATEGORIES.contains(&r.category.as_str()) && r.category != RUN_LOGS {
+        return refuse(format!("{} is not a perishable category ({}, {RUN_LOGS})", r.category, CATEGORIES.join(", ")));
     }
     if !core_contract::is_date(&r.session) {
         return refuse(format!("{} is not a date written YYYY-MM-DD", r.session));
@@ -212,7 +215,20 @@ pub async fn request(client: &mut Client, spaces: &Spaces, token: &str, r: &Requ
     let failed = |e: tokio_postgres::Error| LeaseError::Failed(db(e));
     let tx = client.transaction().await.map_err(failed)?;
     let lease = work::held(&tx, token).await?;
-    published_by(&tx, &lease, &r.session).await?;
+    let logs = r.category == RUN_LOGS;
+    if logs {
+        // C-096: a day's logs are kept whether it published or not: a day block's, for a session of its job
+        let within: bool = tx
+            .query_one("SELECT $1::text::date BETWEEN $2::text::date AND $3::text::date", &[&r.session, &lease.first_session, &lease.last_session])
+            .await
+            .map_err(failed)?
+            .get(0);
+        if lease.kind != "DAY_BLOCK" || !within {
+            return Err(LeaseError::Refused(format!("{} is not a session of day block {}: a day's logs are kept by the block that worked on it", r.session, lease.job_id)));
+        }
+    } else {
+        published_by(&tx, &lease, &r.session).await?;
+    }
     let held = tx
         .query_opt(
             "SELECT archive_id, state, object_key, bytes, md5 FROM core.perishable_archive
@@ -234,7 +250,7 @@ pub async fn request(client: &mut Client, spaces: &Spaces, token: &str, r: &Requ
     let frozen = tx
         .query_opt(
             "SELECT object_key FROM core.perishable_archive
-             WHERE session = $1::text::date AND category = $2 AND state = 'KEPT'
+             WHERE session = $1::text::date AND category = $2 AND state = 'KEPT' AND category <> 'run-logs'
                AND session < ($3::text::timestamptz AT TIME ZONE 'UTC')::date - $4::int
              ORDER BY kept_at, archive_id LIMIT 1",
             &[&r.session, &r.category, &now, &FREEZE_DAYS],
@@ -536,9 +552,9 @@ pub async fn missing(client: &impl GenericClient, profile: &str, expected_from: 
     let rows = client
         .query(
             "WITH candidate AS (
-                 SELECT session, category, requested_at AS since FROM core.perishable_archive
+                 SELECT session, category, requested_at AS since FROM core.perishable_archive WHERE category = ANY($4::text[])
                  UNION ALL
-                 SELECT session, category, reported_at FROM core.perishable_unpacked
+                 SELECT session, category, reported_at FROM core.perishable_unpacked WHERE category = ANY($4::text[])
                  UNION ALL
                  SELECT d.represented_date, c.category, d.published_at FROM vyreon.day_revision d CROSS JOIN unnest($4::text[]) AS c(category)
                  WHERE $3::text IS NOT NULL AND d.represented_date >= $3::text::date AND d.profile_id = $2
