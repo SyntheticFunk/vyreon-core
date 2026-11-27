@@ -81,6 +81,14 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   release script waits at its step 12 until then, background task). So: the canary proves a51cb572; 30089 is
   c2397caa's first real day and core's gate for it. Phase 1 is queued on c2397caa after 30089 publishes clean, with
   NOTHING held out (the gate is gone). Evidence `~/claude-artifacts/cluster-scratch/evidence-c2397caa.json`.
+- **Owner's standing rule restated 2026-11-26 late: "fix anything you find in audits... I'd rather fix things asap
+  than let them exist quietly."** The run's "catalogue, don't react" covers what the run shows about sensors, NOT
+  audit findings. Triage of the evening batch: core 14 real of 17, engine 18 real of 20, no blocker. Two forks fix
+  all of them: core branch `core-s4` (worktree `/home/diggz/wt/core-s1`, C-098), engine branch `eng-s3` (worktree
+  `/home/diggz/wt/eng-s1`, D-568; operations only, no label may move). When verified: core ships at once; the
+  engine ships as the build phase 1 is queued on (its first block under core's ramp is its real day). STILL OWED
+  under the same rule: the stage-1 audit's catalogued real findings (catalog items 6–30): the operations ones
+  next; the science ones need method versions and wait for the fix pass unless the owner says otherwise.
 - Audit reports are in (21:24 MT; Codex and Gemini, core and engine); two fresh readers triage them into
   `~/claude-artifacts/audits/2026-11-26-evening/triage/`. D-567 and C-097 were NOT in the audited diffs.
 - The owner's design for the fix pass and the single-sensor recompute ("the scalpel") are at the top and the end
