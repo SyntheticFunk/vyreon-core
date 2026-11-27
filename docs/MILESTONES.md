@@ -80,6 +80,13 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
     was stripped; the worker-death line; days published per progress post; the spend line's age and no negative
     rate; whole readings withheld beside the "% of readings"). Verified by the coordinator: full suite 283 passed,
     0 failed. Not run against production. Releases together with core-s6 (it contains it).
+  - core `core-s8` (same worktree, from core-s7, head 54d55ff): C-101, nothing pauses the queue by itself: a tape
+    job out of attempts and a refused bundle are contained to their job and day (migration 0071: table
+    `core.bundle_refusal`; view `core.claimable_job` no longer holds day blocks behind a FAILED tape job). Verified
+    by the coordinator 2026-11-27 11:38 MT: full suite 284 passed, 0 failed; the only remaining caller of
+    `work::pause` is the operator's command (`vyreon-core/src/main.rs:458`). It changes what the queue hands out:
+    NOT run on the cluster; a day block capturing its own tapes after a failed tape job has not been watched.
+    Contains core-s6 and core-s7.
   - TO DO, from the decided-not-built sweep (owner, 2026-11-27: "1-4 are very much to be done if possible";
     catalog entry "Decided and not built"): (1) the live-day trades-API capture, its use to be designed again
     under the 2026-11-26 direction (publish with the gate recorded, a robust definition) before it is built;
