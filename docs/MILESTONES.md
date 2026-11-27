@@ -44,6 +44,10 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   (2026-09-17..2026-11-20, the newest block, pod day-block-5qhh8-trmwx) started 02:41 and is the build's first real
   day under core's gate; the other 11 blocks (550 sessions) are QUEUED and core starts them by itself once that
   day publishes clean, one every 20 minutes as the budget allows. Nothing is held out.
+- **2026-11-27 07:27 MT: the build's first phase-1 day published clean** (2026-09-17: 2,853 base slots, 4
+  counted withheld, 0 engine faults; 286 min as a block's cold first day). Core's gate opened by itself ("published
+  a real day clean") and the second block started at 07:30; the ramp adds one about every 20 minutes as the budget
+  allows. Day 2 (2026-09-18) went straight into compute: its download had run beside day 1.
 - NOT scheduled yet: the ordered passes (the history layer). The plan says once, oldest-first, after the day layer;
   schedule them when the day layer is well under way (`vyreon-core schedule ordered-pass`), not before reading
   C-046/C-062.
