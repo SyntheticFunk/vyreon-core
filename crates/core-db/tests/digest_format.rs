@@ -93,7 +93,11 @@ async fn progress_says_blocks_started_and_finished_and_the_databases_progress() 
     assert_eq!(progress::tick_as(&mut client, PROFILE, LABEL, &t1).await.unwrap().unwrap().posts, 1);
     let finished = last_post(&client).await;
     eprintln!("FINISHED:\n{finished}\n");
-    assert_eq!(events(finished), "Finished: Dec 10 – Dec 12, 2025 · 3 days kept\nRunning now: the nightly (Nov 23, 2026)");
+    // C-100: the days the window published, one line with the database's count, before what is running
+    assert_eq!(
+        events(finished),
+        "Finished: Dec 10 – Dec 12, 2025 · 3 days kept\nPublished: 3 days (Dec 10, 2025; Dec 11, 2025; Dec 12, 2025) · 3 of 3 kept\nRunning now: the nightly (Nov 23, 2026)"
+    );
     // nothing new in the next half hour (before the morning's heartbeat): nothing posted
     let posts = "SELECT count(*) FROM core.notice WHERE channel = 'progress'";
     let before: i64 = client.query_one(posts, &[]).await.unwrap().get(0);

@@ -2321,7 +2321,8 @@ async fn the_progress_channel_says_what_moved_every_half_hour() {
     let first = progress::tick(&mut client, PROFILE, &t0).await.unwrap().unwrap();
     assert_eq!(first.posts, 1);
     let post: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'progress'", &[]).await.unwrap().get(0);
-    assert_eq!(events(&post), ["Started: Dec 10 – Dec 11, 2025 (2 days)", "Running now: 1 block (Dec 10 – Dec 11, 2025)"], "{post}");
+    // C-100: the day the window published, without the count on the morning's post (its first line states it)
+    assert_eq!(events(&post), ["Started: Dec 10 – Dec 11, 2025 (2 days)", "Published: 1 day (Dec 10, 2025)", "Running now: 1 block (Dec 10 – Dec 11, 2025)"], "{post}");
     assert!(!post.contains("day-7f2c") && !post.contains("job ") && !post.contains("New:"), "no pod, no job id, no day line: {post}");
     // the window is the progress channel's only: the owner's channel has nothing to send
     assert!(notice::unsent(&client, 10).await.unwrap().is_empty());
@@ -2336,7 +2337,7 @@ async fn the_progress_channel_says_what_moved_every_half_hour() {
     let t1 = later(&client, &t0, 30).await;
     assert_eq!(progress::tick(&mut client, PROFILE, &t1).await.unwrap().unwrap().posts, 1);
     let post: String = client.query_one("SELECT message FROM core.notice WHERE channel = 'progress' ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
-    assert_eq!(events(&post), ["Finished: Dec 10 – Dec 11, 2025 · 2 days kept", "Running now: nothing"], "{post}");
+    assert_eq!(events(&post), ["Finished: Dec 10 – Dec 11, 2025 · 2 days kept", "Published: 1 day (Dec 11, 2025) · 2 of 2 kept", "Running now: nothing"], "{post}");
     // nothing new: recorded, nothing posted (the morning's heartbeat aside, once a day)
     let t2 = later(&client, &t1, 30).await;
     let quiet = progress::tick(&mut client, PROFILE, &t2).await.unwrap().unwrap();
