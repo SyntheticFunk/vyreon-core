@@ -89,6 +89,8 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   engine ships as the build phase 1 is queued on (its first block under core's ramp is its real day). STILL OWED
   under the same rule: the stage-1 audit's catalogued real findings (catalog items 6–30): the operations ones
   next; the science ones need method versions and wait for the fix pass unless the owner says otherwise.
+- Owner, 2026-11-26 late: "After all these fixes we can proceed with the testing and consider auditing done for
+  now." So no audit of the fixes themselves, of D-567 or of C-097; the next audit is the fix pass's.
 - Audit reports are in (21:24 MT; Codex and Gemini, core and engine); two fresh readers triage them into
   `~/claude-artifacts/audits/2026-11-26-evening/triage/`. D-567 and C-097 were NOT in the audited diffs.
 - The owner's design for the fix pass and the single-sensor recompute ("the scalpel") are at the top and the end
