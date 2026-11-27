@@ -128,6 +128,21 @@ fn next(state: &str, many: bool) -> &'static str {
     }
 }
 
+/// C-100: whether a stop's work is done again (its job waits or runs again, or was set aside after its tries).
+fn redone(state: &str) -> bool {
+    matches!(state, "QUEUED" | "LEASED" | "FAILED")
+}
+
+/// C-100: what follows one stop: `next`, or, for a day block whose job was done when its worker stopped (every
+/// day published), what was lost: only what ran after the last day, its reference check.
+fn after(d: &Death) -> String {
+    match (d.state.as_str(), d.kind.as_str()) {
+        ("DONE", "DAY_BLOCK") if d.first == d.last => "its day had published; only what ran after it (its reference check) is lost".to_owned(),
+        ("DONE", "DAY_BLOCK") => "its days had published; only what ran after the last (its reference check) is lost".to_owned(),
+        (state, _) => next(state, false).to_owned(),
+    }
+}
+
 fn lost(hours: f64) -> Option<String> {
     (hours >= 0.1).then(|| if hours < 1.0 { format!("about {} min of work to redo", (hours * 60.0).round()) } else { format!("about {:.1} h of work to redo", hours) })
 }
@@ -142,8 +157,12 @@ pub fn text(said: &[(Death, String)]) -> Option<String> {
                 (Some(day), "DAY_BLOCK") if !d.daily && d.first != d.last => format!(" on {}", crate::plain::day(day).unwrap_or_else(|| day.clone())),
                 _ => String::new(),
             };
-            let lost = lost(d.lost_hours).map(|l| format!("; {l}")).unwrap_or_default();
-            Some(format!("⚠️ Problem: {}{on} stopped at {}: {cause}{lost}; {}. {tail}", what(d), d.at, next(&d.state, false)))
+            // C-100 (the post of 2026-11-27 03:04: "about 52 min of work to redo; nothing left to redo", of a worker
+            // killed in its reference check after its only day had published): the time to redo is said only when
+            // something is redone; a job that was done says what was lost instead
+            let again = redone(&d.state);
+            let lost = if again { lost(d.lost_hours).map(|l| format!("; {l}")).unwrap_or_default() } else { String::new() };
+            Some(format!("⚠️ Problem: {}{on} stopped at {}: {cause}{lost}; {}. {tail}", what(d), d.at, after(d)))
         }
         many => {
             let mut causes: Vec<(String, usize)> = Vec::new();
@@ -155,7 +174,8 @@ pub fn text(said: &[(Death, String)]) -> Option<String> {
             }
             let causes: Vec<String> = causes.iter().map(|(c, n)| format!("{n} {c}")).collect();
             let names: Vec<String> = many.iter().map(|(d, _)| short_what(d)).collect();
-            let hours: f64 = many.iter().map(|(d, _)| d.lost_hours).sum();
+            // C-100: the time to redo is that of the stops whose work is redone
+            let hours: f64 = many.iter().filter(|(d, _)| redone(&d.state)).map(|(d, _)| d.lost_hours).sum();
             let lost = lost(hours).map(|l| format!("; {l}")).unwrap_or_default();
             let all_again = many.iter().all(|(d, _)| matches!(d.state.as_str(), "QUEUED" | "LEASED"));
             Some(format!(
@@ -274,5 +294,26 @@ mod tests {
             "⚠️ Problem: 5 workers stopped since 12:40: 4 killed for lack of memory, 1 evicted by its node (Jan 1 – Jan 20, Feb 1 – Feb 20, Mar 1 – Mar 20, Apr 1 – Apr 20 and 1 more); about 12.3 h of work to redo; they start again by themselves. Published numbers not affected. The coordinator is on it."
         );
         assert_eq!(text(&[]), None);
+    }
+
+    /// C-100: the stop of 2026-11-27 03:03 (lease 3124, the one-day block of 2026-11-25, killed in its reference
+    /// check 52 minutes after its day had published; its job DONE). It read "about 52 min of work to redo;
+    /// nothing left to redo". The time is said only when something is redone, never beside "nothing".
+    #[test]
+    fn a_stop_after_the_work_was_done_says_what_was_lost() {
+        let real = Death { first: "2026-11-25".into(), last: "2026-11-25".into(), day: None, lost_hours: 52.0 / 60.0, state: "DONE".into(), at: "03:03".into(), ..death("DAY_BLOCK", false, "EXPIRED", "DONE") };
+        assert_eq!(
+            text(&[(real.clone(), "killed for lack of memory".into())]).unwrap(),
+            "⚠️ Problem: a block (Nov 25) stopped at 03:03: killed for lack of memory; its day had published; only what ran after it (its reference check) is lost. Published numbers not affected. The coordinator is on it."
+        );
+        // a block of several days whose job was done; and a cancelled job, with no time to redo either
+        let block = Death { state: "DONE".into(), ..death("DAY_BLOCK", false, "EXPIRED", "DONE") };
+        assert!(text(&[(block, "evicted by its node".into())]).unwrap().contains("; its days had published; only what ran after the last (its reference check) is lost."));
+        let cancelled = Death { state: "CANCELLED".into(), ..death("DAY_BLOCK", false, "EXPIRED", "CANCELLED") };
+        assert!(text(&[(cancelled, "its pod is gone".into())]).unwrap().ends_with("its pod is gone; nothing left to redo. Published numbers not affected. The coordinator is on it."));
+        // several: the time to redo is that of the ones redone
+        let again = death("DAY_BLOCK", false, "EXPIRED", "QUEUED");
+        let done = Death { lease: 9, state: "DONE".into(), lost_hours: 5.0, ..again.clone() };
+        assert!(text(&[(again, "killed for lack of memory".into()), (done, "killed for lack of memory".into())]).unwrap().contains("; about 2.5 h of work to redo; "));
     }
 }

@@ -125,6 +125,8 @@ pub struct Known {
     pub asof: String,
     /// The same, as a timestamp (UTC text): work finished after it is not billed in `spent` yet.
     pub asof_at: String,
+    /// C-100: how old DigitalOcean's figure is at the time the line is said, in hours.
+    pub figure_hours: f64,
     /// USD a day, and over what ("over the last 24 h", "since Nov 21"); None before a rate can be told.
     pub rate: Option<(f64, String)>,
     /// At `rate`, when the ceiling is reached: (its date in the owner's zone, days from now); None
@@ -244,7 +246,7 @@ pub async fn spend(c: &impl GenericClient, w: &SpendWatch, now: &str) -> Result<
         }
         _ => None,
     };
-    Ok(Spend::Known(Known { spent, now: now_spent, ceiling: w.ceiling_usd, since, asof, asof_at, rate, reached }))
+    Ok(Spend::Known(Known { spent, now: now_spent, ceiling: w.ceiling_usd, since, asof, asof_at, figure_hours, rate, reached }))
 }
 
 /// "$1,234.56".
@@ -252,6 +254,9 @@ pub fn dollars(x: f64) -> String {
     let cents = (x.abs() * 100.0).round() as i64;
     format!("{}${}.{:02}", if x < 0.0 && cents > 0 { "-" } else { "" }, crate::progress::thousands(cents / 100), cents % 100)
 }
+
+/// C-100: DigitalOcean's figure older than this has its age said beside it (it refreshes about once a day).
+pub const FIGURE_AGE_SAID_HOURS: f64 = 3.0;
 
 /// The morning's line for the progress channel.
 pub fn line(s: &Spend) -> String {
@@ -267,11 +272,17 @@ pub fn line(s: &Spend) -> String {
                 dollars(k.now),
                 dollars(k.ceiling)
             );
+            // C-100 (the line of 2026-11-27: "-$1.62 a day over the last 23 h", DigitalOcean's figure 13 h old and
+            // its month-to-date lower than the reading before): the figure's age is said once it is over
+            // `FIGURE_AGE_SAID_HOURS`, and a rate below nothing is not a rate
+            let old = if k.figure_hours > FIGURE_AGE_SAID_HOURS { format!(", {:.0} h old", k.figure_hours) } else { String::new() };
             if lagged {
-                out.push_str(&format!(" ({} at DigitalOcean's figure of {} MT, then at the rate)", dollars(k.spent), k.asof));
+                out.push_str(&format!(" ({} at DigitalOcean's figure of {} MT{old}, then at the rate)", dollars(k.spent), k.asof));
             }
-            if let Some((r, over)) = &k.rate {
-                out.push_str(&format!("; {} a day {over}", dollars(*r)));
+            match &k.rate {
+                Some((r, _)) if *r < 0.0 => out.push_str("; rate not known (DigitalOcean's figure fell between its readings)"),
+                Some((r, over)) => out.push_str(&format!("; {} a day {over}", dollars(*r))),
+                None => {}
             }
             match &k.reached {
                 Some((date, days)) if *days < 365.0 => out.push_str(&format!("; at that rate the ceiling is reached about {date} (in {days:.0} days)")),
@@ -280,7 +291,7 @@ pub fn line(s: &Spend) -> String {
                 None => {}
             }
             if !lagged {
-                out.push_str(&format!(" (DigitalOcean's figures, whole account, of {} MT)", k.asof));
+                out.push_str(&format!(" (DigitalOcean's figures, whole account, of {} MT{old})", k.asof));
             }
             out
         }
@@ -351,6 +362,7 @@ mod tests {
             since: "Nov 21".into(),
             asof: "Nov 24 08:12".into(),
             asof_at: "2026-11-24 15:12:00+00".into(),
+            figure_hours: 0.8,
             rate: Some((30.0, "over the last 24 h".into())),
             reached: Some(("Dec 7".into(), 12.6)),
         };
@@ -361,6 +373,25 @@ mod tests {
         // DigitalOcean's figure hours old: the spend now at the rate since, said as such
         let lagged = Known { now: 138.4, ..k.clone() };
         assert!(line(&Spend::Known(lagged)).starts_with("💵 Spend since Nov 21: ≈$138.40 of the $500.00 ceiling (28%) ($123.40 at DigitalOcean's figure of Nov 24 08:12 MT, then at the rate)"));
+        // C-100: the line of 2026-11-27 (DigitalOcean's figure of Nov 26 21:43 MT, read hourly since; its
+        // month-to-date had fallen from 384.41 to 376.38): it read "-$1.62 a day over the last 23 h"
+        let real = Known {
+            spent: 195.97,
+            now: 195.97,
+            ceiling: 750.0,
+            asof: "Nov 26 21:43".into(),
+            asof_at: "2026-11-27 03:43:30+00".into(),
+            figure_hours: 12.9,
+            rate: Some((-1.62, "over the last 23 h".into())),
+            reached: None,
+            ..k.clone()
+        };
+        assert_eq!(
+            line(&Spend::Known(real)),
+            "💵 Spend since Nov 21: $195.97 of the $750.00 ceiling (26%); rate not known (DigitalOcean's figure fell between its readings) (DigitalOcean's figures, whole account, of Nov 26 21:43 MT, 13 h old)"
+        );
+        let lagged_old = Known { now: 138.4, figure_hours: 5.2, ..k.clone() };
+        assert!(line(&Spend::Known(lagged_old)).contains("($123.40 at DigitalOcean's figure of Nov 24 08:12 MT, 5 h old, then at the rate)"));
         let past = Known { spent: 512.0, now: 512.0, rate: None, reached: None, ..k };
         assert!(line(&Spend::Known(past)).contains("(102%); $12.00 past the ceiling"));
         assert_eq!(

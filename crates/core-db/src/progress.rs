@@ -424,7 +424,34 @@ struct Composed {
     database: String,
     /// C-093: what is running at the window's end, the last line of every post.
     running: String,
+    /// C-100: the days published in the window, one line before `running` ("Published: 3 days (…) · 5 of 597
+    /// kept"); `.1` is the same without the count, for the morning's post, whose first line states it.
+    published: Option<(String, String)>,
 }
+
+/// C-100 (owner, 2026-11-27: the progress channel did not say when a day published): the days published in a
+/// window as one line, the first `PUBLISHED_NAMED` by name: "Published: 3 days (Sep 18, 2026; Jul 9, 2024; Sep 18,
+/// 2024) · 5 of 597 kept". `kept` is (kept, total) of the database's line; without it the count is left out.
+pub fn published_line(days: &[String], kept: Option<(i64, i64)>) -> Option<String> {
+    if days.is_empty() {
+        return None;
+    }
+    let mut names: Vec<String> = days.iter().take(PUBLISHED_NAMED).map(|d| span(d, d)).collect();
+    if days.len() > PUBLISHED_NAMED {
+        let last = names.len() - 1;
+        names[last] = format!("{} and {} more", names[last], days.len() - PUBLISHED_NAMED);
+    }
+    let mut line = format!("Published: {} ({})", counted(days.len() as i64, "day", "days"), names.join("; "));
+    match kept {
+        Some((kept, total)) if total > 0 => line.push_str(&format!(" · {} of {} kept", thousands(kept), thousands(total))),
+        Some((kept, _)) => line.push_str(&format!(" · {} kept", thousands(kept))),
+        None => {}
+    }
+    Some(line)
+}
+
+/// C-100: how many published days a window's line names before "and N more".
+pub const PUBLISHED_NAMED: usize = 6;
 
 /// A logged line as the progress channel says it, in plain words (owner, 2026-11-25: "currently its
 /// exposing a lot of alphanumeric codes"): the events the owner follows, each one short sentence; None for
@@ -632,10 +659,46 @@ async fn compose(c: &mut impl GenericClient, profile: &str, phase: Option<&(Stri
     }
     events.sort_by(|a, b| a.0.cmp(&b.0));
     let lines: Vec<(String, Shown)> = events.into_iter().map(|(_, l, s)| (l, s)).collect();
-    let news = !lines.is_empty();
     let database = database_line(c, profile, phase, end).await?;
     let running = running_line(c, profile, end).await?;
-    Ok(Composed { lines, routine: Vec::new(), news, database, running })
+    // C-100: the days published in this window (its base, published whole: with its day-local layer), in the
+    // order they came; read under a transaction of its own, and a failure leaves the line out, never the post
+    let published = match published_in(c, profile, phase, start, end).await {
+        Ok(p) => p,
+        Err(e) => {
+            eprintln!("vyreon-core: the window's published days were not read (the progress post goes on): {e}");
+            None
+        }
+    };
+    let news = !lines.is_empty() || published.is_some();
+    Ok(Composed { lines, routine: Vec::new(), news, database, running, published })
+}
+
+/// C-100: `published_line` for the window (start, end]: with the database's count, and without.
+async fn published_in(c: &mut impl GenericClient, profile: &str, phase: Option<&(String, String)>, start: &str, end: &str) -> Result<Option<(String, String)>, String> {
+    let tx = c.transaction().await.map_err(db)?;
+    let read = async {
+        let rows = tx
+            .query(
+                "SELECT d.represented_date::text FROM vyreon.day_revision d
+                 WHERE d.profile_id = $3 AND d.base_revision IS NULL AND d.state = 'PUBLISHED'
+                   AND d.published_at > $1::text::timestamptz AND d.published_at <= $2::text::timestamptz
+                   AND EXISTS (SELECT FROM vyreon.day_revision l WHERE l.base_revision = d.revision_id AND l.day_local AND l.state = 'PUBLISHED')
+                 ORDER BY d.published_at, d.revision_id LIMIT 500",
+                &[&start, &end, &profile],
+            )
+            .await
+            .map_err(db)?;
+        let days: Vec<String> = rows.iter().map(|r| r.get(0)).collect();
+        if days.is_empty() {
+            return Ok(None);
+        }
+        let n = database_counts(&tx, profile, phase, end).await?;
+        Ok(published_line(&days, Some((n.kept, n.total))).zip(published_line(&days, None)))
+    }
+    .await;
+    let _ = tx.rollback().await;
+    read
 }
 
 /// C-093 (owner, 2026-11-26: "seeing live jobs in the progress discord channel would be useful"): the day blocks
@@ -733,38 +796,19 @@ pub fn span(first: &str, last: &str) -> String {
 /// measured rate: its days kept in the last 24 hours (or since its first, if later), said once it has kept
 /// `ETA_MIN_DAYS` days and run `ETA_MIN_HOURS`; before, no date.
 pub async fn database_line(c: &impl GenericClient, profile: &str, phase: Option<&(String, String)>, now: &str) -> Result<String, String> {
-    let r = c
-        .query_one(
-            "WITH s AS (SELECT DISTINCT x.session FROM core.job j JOIN core.session x ON x.session BETWEEN j.first_session AND j.last_session
-                        WHERE $3::text IS NULL AND j.kind = 'DAY_BLOCK' AND j.profile_id = $1 AND j.priority = 0
-                          AND NOT COALESCE(j.scope @> '{\"compare_only\": true}', false)
-                          AND NOT EXISTS (SELECT FROM core.omitted_session o WHERE o.session = x.session AND o.profile_id = $1)
-                        UNION
-                        SELECT x.session FROM core.session x WHERE x.session BETWEEN $3::text::date AND $4::text::date
-                          AND NOT EXISTS (SELECT FROM core.omitted_session o WHERE o.session = x.session AND o.profile_id = $1)),
-                  cur AS (SELECT engine_build FROM core.engine_build WHERE core.build_runs(engine_build) ORDER BY admitted_at DESC, engine_build LIMIT 1),
-                  kept AS (SELECT s.session, l.published_at, b.revision_id AS base, l.revision_id AS local FROM s
-                           JOIN vyreon.day_revision b ON b.represented_date = s.session AND b.profile_id = $1 AND b.state = 'PUBLISHED' AND b.base_revision IS NULL
-                                AND b.engine_build = (SELECT engine_build FROM cur)
-                           JOIN LATERAL (SELECT l.published_at, l.revision_id FROM vyreon.day_revision l WHERE l.base_revision = b.revision_id AND l.day_local AND l.state = 'PUBLISHED'
-                                         ORDER BY l.revision_id DESC LIMIT 1) l ON true
-                           WHERE l.published_at <= $2::text::timestamptz)
-             SELECT (SELECT count(*) FROM s), (SELECT count(*) FROM kept),
-                    (SELECT count(*) FROM kept WHERE published_at > $2::text::timestamptz - interval '24 hours'),
-                    extract(epoch FROM $2::text::timestamptz - GREATEST((SELECT min(published_at) FROM kept), $2::text::timestamptz - interval '24 hours'))::float8 / 3600,
-                    (SELECT sum(t.slots)::bigint FROM kept k JOIN core.revision_tally t ON t.revision_id IN (k.base, k.local)),
-                    (SELECT sum(t.withheld)::bigint FROM kept k JOIN core.revision_tally t ON t.revision_id IN (k.base, k.local))",
-            &[&profile, &now, &phase.map(|p| p.0.clone()), &phase.map(|p| p.1.clone())],
-        )
-        .await
-        .map_err(db)?;
-    let (total, kept, recent, hours): (i64, i64, i64, Option<f64>) = (r.get(0), r.get(1), r.get(2), r.get(3));
-    let (slots, withheld): (Option<i64>, Option<i64>) = (r.get(4), r.get(5));
+    let n = database_counts(c, profile, phase, now).await?;
+    let (total, kept, recent, hours, slots, withheld) = (n.total, n.kept, n.recent, n.hours, n.slots, n.withheld);
     let mut line = if total > 0 { format!("Database: {} of {} days kept (current build)", thousands(kept), thousands(total)) } else { format!("Database: {} days kept (current build)", thousands(kept)) };
     // (owner, 2026-11-26: "worth keeping the % of readings number") the share of the kept days' slots with a value,
     // over the day's two layers as the watch has counted them (`core.revision_tally`)
     if let (Some(slots), Some(withheld)) = (slots.filter(|n| *n > 0), withheld) {
         line.push_str(&format!(" · {} of readings measured", percent(100.0 * (slots - withheld) as f64 / slots as f64)));
+    }
+    // C-100: that share counts a reading as withheld only when it carries the engine's fault marker; beside it,
+    // the whole readings withheld for a stated reason, a day (the canary day read "100%" with SAI-EXQ01 and
+    // M0-PRINT-SIZE withheld whole on all 64: 128), over the kept days whose withholdings are counted
+    if let Some(a_day) = stated_a_day(n.stated, n.stated_days) {
+        line.push_str(&format!(" · {} whole readings withheld a day for stated reasons", thousands(a_day)));
     }
     if total > 0 && kept >= total {
         line.push_str(" · done");
@@ -778,6 +822,95 @@ pub async fn database_line(c: &impl GenericClient, profile: &str, phase: Option<
         line.push_str(&format!(" · finish ~{at} at the measured rate"));
     }
     Ok(line)
+}
+
+/// C-100: the whole readings withheld a day for a stated reason: their sum over the days counted, a day (rounded);
+/// None when no kept day's withholdings are counted yet, or none is withheld.
+pub fn stated_a_day(stated: Option<i64>, days: i64) -> Option<i64> {
+    match (stated, days) {
+        (Some(s), d) if d > 0 && s > 0 => Some(((s as f64) / (d as f64)).round() as i64),
+        _ => None,
+    }
+}
+
+/// What `database_line` says, counted: the phase's sessions, those kept by the newest running build, the kept of
+/// the last 24 hours and the hours they span, the kept days' slots and the slots the watch counted withheld, and
+/// (C-100) the whole readings withheld for a stated reason over the kept days whose withholdings are counted
+/// (`core.withheld_counted`, both layers), and how many days those are.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct DatabaseCounts {
+    pub total: i64,
+    pub kept: i64,
+    pub recent: i64,
+    pub hours: Option<f64>,
+    pub slots: Option<i64>,
+    pub withheld: Option<i64>,
+    pub stated: Option<i64>,
+    pub stated_days: i64,
+}
+
+/// The phase's sessions (`s`), the newest running build (`cur`) and the days it has kept whole (`kept`: base and
+/// day-local published), as `database_counts` reads them; $1 the profile, $2 now, $3/$4 the phase's bounds.
+const KEPT: &str = "WITH s AS (SELECT DISTINCT x.session FROM core.job j JOIN core.session x ON x.session BETWEEN j.first_session AND j.last_session
+                        WHERE $3::text IS NULL AND j.kind = 'DAY_BLOCK' AND j.profile_id = $1 AND j.priority = 0
+                          AND NOT COALESCE(j.scope @> '{\"compare_only\": true}', false)
+                          AND NOT EXISTS (SELECT FROM core.omitted_session o WHERE o.session = x.session AND o.profile_id = $1)
+                        UNION
+                        SELECT x.session FROM core.session x WHERE x.session BETWEEN $3::text::date AND $4::text::date
+                          AND NOT EXISTS (SELECT FROM core.omitted_session o WHERE o.session = x.session AND o.profile_id = $1)),
+                  cur AS (SELECT engine_build FROM core.engine_build WHERE core.build_runs(engine_build) ORDER BY admitted_at DESC, engine_build LIMIT 1),
+                  kept AS (SELECT s.session, l.published_at, b.revision_id AS base, l.revision_id AS local FROM s
+                           JOIN vyreon.day_revision b ON b.represented_date = s.session AND b.profile_id = $1 AND b.state = 'PUBLISHED' AND b.base_revision IS NULL
+                                AND b.engine_build = (SELECT engine_build FROM cur)
+                           JOIN LATERAL (SELECT l.published_at, l.revision_id FROM vyreon.day_revision l WHERE l.base_revision = b.revision_id AND l.day_local AND l.state = 'PUBLISHED'
+                                         ORDER BY l.revision_id DESC LIMIT 1) l ON true
+                           WHERE l.published_at <= $2::text::timestamptz)";
+
+pub async fn database_counts(c: &impl GenericClient, profile: &str, phase: Option<&(String, String)>, now: &str) -> Result<DatabaseCounts, String> {
+    let (from, to) = (phase.map(|p| p.0.clone()), phase.map(|p| p.1.clone()));
+    let r = c
+        .query_one(
+            &format!(
+                "{KEPT}
+             SELECT (SELECT count(*) FROM s), (SELECT count(*) FROM kept),
+                    (SELECT count(*) FROM kept WHERE published_at > $2::text::timestamptz - interval '24 hours'),
+                    extract(epoch FROM $2::text::timestamptz - GREATEST((SELECT min(published_at) FROM kept), $2::text::timestamptz - interval '24 hours'))::float8 / 3600,
+                    (SELECT sum(t.slots)::bigint FROM kept k JOIN core.revision_tally t ON t.revision_id IN (k.base, k.local)),
+                    (SELECT sum(t.withheld)::bigint FROM kept k JOIN core.revision_tally t ON t.revision_id IN (k.base, k.local))"
+            ),
+            &[&profile, &now, &from, &to],
+        )
+        .await
+        .map_err(db)?;
+    // C-100: the whole readings withheld for a stated reason. Read apart and only where its tables are (asking
+    // for a table that is not there would fail the line, and inside a transaction everything after it): without
+    // them, or on any failure of the read, the line goes without this part.
+    let there: bool = c
+        .query_one("SELECT to_regclass('core.withheld_tally') IS NOT NULL AND to_regclass('core.withheld_counted') IS NOT NULL", &[])
+        .await
+        .map_err(db)?
+        .get(0);
+    let (stated, stated_days): (Option<i64>, i64) = if there {
+        let engine: Vec<&str> = crate::watch::ENGINE_REASONS.to_vec();
+        let w = c
+            .query_one(
+                &format!(
+                    "{KEPT},
+                  counted AS (SELECT k.base, k.local FROM kept k
+                              WHERE (SELECT count(*) FROM core.withheld_counted x WHERE x.revision_id IN (k.base, k.local)) = 2)
+             SELECT (SELECT COALESCE(sum(w.n), 0)::bigint FROM counted k JOIN core.withheld_tally w ON w.revision_id IN (k.base, k.local)
+                     WHERE w.grain = 'slot' AND w.reason <> ALL ($5::text[])),
+                    (SELECT count(*) FROM counted)"
+                ),
+                &[&profile, &now, &from, &to, &engine],
+            )
+            .await
+            .map_err(db)?;
+        (w.get(0), w.get(1))
+    } else {
+        (None, 0)
+    };
+    Ok(DatabaseCounts { total: r.get(0), kept: r.get(1), recent: r.get(2), hours: r.get(3), slots: r.get(4), withheld: r.get(5), stated, stated_days })
 }
 
 /// C-091: the finish is said once the build has kept this many days within the rate's window, and
@@ -797,17 +930,29 @@ fn render(composed: &Composed, label: &str, heartbeat: bool) -> (Option<String>,
     // C-091: the morning's post leads with the database's progress; any other, with its first event
     let _ = label;
     let lines: Vec<String> = composed.lines.iter().map(|(l, _)| crate::plain::plain(l)).collect();
-    let (header, rest) = if heartbeat {
-        (composed.database.clone(), &lines[..])
-    } else {
-        (lines[0].clone(), &lines[1..])
+    // C-100: the window's published days: with the count, or (the morning's post, whose first line is the
+    // database's) without. Like `running` it is no event: it closes the post and never counts as carried.
+    let published = composed.published.as_ref().map(|(counted, bare)| if heartbeat { bare.clone() } else { counted.clone() });
+    let (header, rest, header_is_event) = match (heartbeat, lines.first()) {
+        (true, _) => (composed.database.clone(), &lines[..], false),
+        (false, Some(first)) => (first.clone(), &lines[1..], true),
+        // nothing happened but days published: their line leads
+        (false, None) => match &published {
+            Some(p) => {
+                let (posts, _) = split_counted(p, &[crate::plain::plain(&composed.running)]);
+                return (posts.into_iter().next(), 0);
+            }
+            None => return (None, 0),
+        },
     };
     // C-093: what is running closes every post; it is no event, so it never counts as carried
     let mut rest: Vec<String> = rest.to_vec();
+    let fixed = 1 + usize::from(published.is_some());
+    rest.extend(published);
     rest.push(crate::plain::plain(&composed.running));
     let (posts, carried) = split_counted(&header, &rest);
-    let carried = carried.min(rest.len() - 1);
-    (posts.into_iter().next(), if heartbeat { carried } else { carried + 1 })
+    let carried = carried.min(rest.len() - fixed);
+    (posts.into_iter().next(), if header_is_event { carried + 1 } else { carried })
 }
 
 /// `text` cut to at most `max` characters, the characters left out counted at its end ("… (N
@@ -1184,6 +1329,25 @@ mod tests {
     #[test]
     fn running_now_names_each_block_and_the_nightly() {
         let b = |f: &str, l: &str, n: bool| (f.to_owned(), l.to_owned(), n);
+        // C-100: the days a window published, one line; six by name, then counted; the count beside it
+        let d = |s: &str| s.to_owned();
+        assert_eq!(published_line(&[], Some((5, 597))), None);
+        assert_eq!(published_line(&[d("2026-09-18")], Some((2, 597))).unwrap(), "Published: 1 day (Sep 18, 2026) · 2 of 597 kept");
+        assert_eq!(
+            published_line(&[d("2026-09-18"), d("2024-07-09"), d("2024-09-18")], Some((5, 597))).unwrap(),
+            "Published: 3 days (Sep 18, 2026; Jul 9, 2024; Sep 18, 2024) · 5 of 597 kept"
+        );
+        let eight: Vec<String> = (1..=8).map(|i| format!("2025-03-0{i}")).collect();
+        assert_eq!(
+            published_line(&eight, None).unwrap(),
+            "Published: 8 days (Mar 1, 2025; Mar 2, 2025; Mar 3, 2025; Mar 4, 2025; Mar 5, 2025; Mar 6, 2025 and 2 more)"
+        );
+        assert_eq!(published_line(&[d("2026-09-18")], Some((3, 0))).unwrap(), "Published: 1 day (Sep 18, 2026) · 3 kept");
+        // C-100: the whole readings withheld a day for a stated reason (the canary day's 128; the new build's
+        // first day's 129), over the days counted
+        assert_eq!(stated_a_day(Some(128), 1), Some(128));
+        assert_eq!(stated_a_day(Some(257), 2), Some(129));
+        assert_eq!((stated_a_day(Some(0), 3), stated_a_day(Some(40), 0), stated_a_day(None, 2)), (None, None, None));
         assert_eq!(running_words(&[]), "Running now: nothing");
         let o = |k: &str, n: i64| (k.to_owned(), n);
         assert_eq!(running_with(&[], &[o("TAPE", 3), o("ORDERED_PASS", 1)]), "Running now: 3 tape captures, 1 history pass");

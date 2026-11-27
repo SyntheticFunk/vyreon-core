@@ -21,16 +21,21 @@ pub fn day(iso: &str) -> Option<String> {
 /// A build's name (`<commit>+<inventory>`) or a bare commit (7 to 40 hex digits holding a letter).
 fn is_build(t: &str) -> bool {
     let hex = |s: &str| s.len() >= 7 && s.len() <= 40 && s.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()) && s.chars().any(|c| c.is_ascii_alphabetic());
+    let digits = |s: &str| s.len() >= 7 && s.len() <= 40 && s.chars().all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase());
     match t.split_once('+') {
-        Some((a, b)) => hex(a) && b.chars().all(|c| c.is_ascii_hexdigit()) && !b.is_empty(),
+        // C-100: "05837898+3d485555ec3d" (a commit of digits alone) is a build too
+        Some((a, b)) => !b.is_empty() && b.chars().all(|c| c.is_ascii_hexdigit()) && (hex(a) || (digits(a) && b.chars().any(|c| c.is_ascii_alphabetic()))),
         None => hex(t),
     }
 }
 
-/// A decision code: C-077, D-465, P-30.
+/// A decision code: C-077, D-465, P-30; C-100: or several as one word, "D-515..D-522", "C-069/C-070".
 fn is_code(t: &str) -> bool {
-    let mut parts = t.splitn(2, '-');
-    matches!((parts.next(), parts.next()), (Some(p), Some(n)) if ["C", "D", "P", "E"].contains(&p) && !n.is_empty() && n.len() <= 4 && n.chars().all(|c| c.is_ascii_digit()))
+    let one = |t: &str| {
+        let mut parts = t.splitn(2, '-');
+        matches!((parts.next(), parts.next()), (Some(p), Some(n)) if ["C", "D", "P", "E"].contains(&p) && !n.is_empty() && n.len() <= 4 && n.chars().all(|c| c.is_ascii_digit()))
+    };
+    !t.is_empty() && t.split("..").flat_map(|p| p.split('/')).all(one)
 }
 
 /// The internal words a number follows that names a record, not a quantity.
@@ -72,20 +77,52 @@ fn plain_line(line: &str) -> String {
         let w = words[i];
         let (lead, core, trail) = split_punct(w);
         let lower = core.to_ascii_lowercase();
-        // "build 1ae946f7+…", "image 3d7567c8": the word and the name go
+        // "build 1ae946f7+…", "image 3d7567c8": the name goes. C-100 (the posts of 2026-11-26/27: "Daily runs
+        // stopped: was withdrawn"): the word stays as "the build" (the sentence keeps its subject or object),
+        // except in a parenthesis of its own, "(build 3d7567c8+…)", which goes whole.
         if (lower == "build" || lower == "image" || lower == "builds") && i + 1 < words.len() {
             let (_, c, t) = split_punct(words[i + 1]);
-            if is_build(c) {
-                let kept = format!("{lead}{t}");
-                if !(kept.is_empty() || kept == "()" || kept == "[]") {
-                    out.push(kept);
+            let (name, possessive) = match c.strip_suffix("'s") {
+                Some(n) => (n, "'s"),
+                None => (c, ""),
+            };
+            if is_build(name) {
+                let alone = lead.ends_with('(') && t.starts_with(')');
+                // "(job 21823, build 3d7567c8): …": the parenthesis the job's number left open closes on the build
+                let closes = t.starts_with(')') && out.last().is_some_and(|w| w == "(," || w == "(");
+                if alone {
+                    let kept = format!("{}{}", &lead[..lead.len() - 1], &t[1..]);
+                    if !kept.is_empty() {
+                        out.push(kept);
+                    }
+                } else if closes {
+                    out.pop();
+                    if t.len() > 1 {
+                        out.push(t[1..].to_owned());
+                    }
+                } else {
+                    // "the" where the sentence has no article of its own: at a line's or a clause's start, or
+                    // after a preposition ("Engine build X withdrawn" keeps "Engine build withdrawn")
+                    let prev = out.last().map(String::as_str).unwrap_or("");
+                    let prev_word = prev.trim_matches(|ch: char| !ch.is_alphanumeric()).to_ascii_lowercase();
+                    let bare = prev.is_empty()
+                        || prev.ends_with([':', ',', ';', '(', '.'])
+                        || ["to", "from", "of", "by", "for", "on", "under", "with", "and", "or", "than", "as", "in", "until", "while", "when", "because"].contains(&prev_word.as_str());
+                    let noun = if lower == "image" { "image" } else { "build" };
+                    let article = match (bare, core.starts_with(|ch: char| ch.is_ascii_uppercase())) {
+                        (false, _) => "",
+                        (true, true) => "The ",
+                        (true, false) => "the ",
+                    };
+                    out.push(format!("{lead}{article}{noun}{possessive}{t}"));
                 }
                 i += 2;
                 continue;
             }
         }
         // "job 21823", "jobs 4 5 6", "Hand-over 31:", "lease 9": the word and its numbers go
-        if NUMBERED.contains(&lower.as_str()) {
+        // (C-100: not when the word closes a clause of its own, "12 jobs: 3 failed": that number is a quantity)
+        if NUMBERED.contains(&lower.as_str()) && trail.is_empty() {
             let mut j = i + 1;
             let mut last_trail = trail.to_owned();
             while j < words.len() {
@@ -98,15 +135,40 @@ fn plain_line(line: &str) -> String {
                 }
             }
             if j > i + 1 {
-                if !lead.is_empty() || !last_trail.is_empty() {
+                if lower == "hand-over" {
+                    // C-100: the event keeps its name ("hand-over 25 to 2dde1132" read "to")
+                    out.push(format!("{lead}{core}{last_trail}"));
+                } else if !lead.is_empty() || !last_trail.is_empty() {
                     out.push(format!("{lead}{last_trail}"));
                 }
                 i = j;
                 continue;
             }
         }
-        let replaced: Option<String> = if is_build(core) || is_code(core) {
+        // C-100: a bare build name the sentence needs: after a preposition ("hand-over to 2a8f8c4f" read
+        // "hand-over to") or either side of an arrow ("fc36eefb → 2dde1132")
+        let before = out.last().map(|w| w.trim_matches(|ch: char| !ch.is_alphanumeric() && ch != '→').to_ascii_lowercase()).unwrap_or_default();
+        let after_arrow = words.get(i + 1).is_some_and(|n| *n == "→");
+        let needed: Option<&str> = if !is_build(core) {
+            None
+        } else if after_arrow {
+            Some("the old build")
+        } else if before == "→" {
+            Some("the new build")
+        } else if before == "to" {
+            Some("another build")
+        } else if ["from", "of", "by", "for", "on", "under", "with"].contains(&before.as_str()) {
+            Some("the build")
+        } else {
+            None
+        };
+        let replaced: Option<String> = if let Some(words) = needed {
+            Some(words.to_owned())
+        } else if is_build(core) || is_code(core) {
             Some(String::new())
+        } else if core.strip_suffix("'s").is_some_and(is_build) {
+            // C-100: "a51cb572's canary block finishes its day"
+            Some("that build's".into())
         } else if core == "FREE_REPORT_64" {
             Some("the 64".into())
         } else if core.starts_with("core.") || core.starts_with("vyreon.") {
@@ -128,17 +190,44 @@ fn plain_line(line: &str) -> String {
         i += 1;
     }
     let mut s = out.into_iter().filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" ");
-    let fixes = [("(,)", ""), ("()", ""), ("[]", ""), (" ,", ","), (" .", "."), (" :", ":"), (" ;", ";"), ("( ", "("), (" )", ")"), ("(, ", "("), (", )", ")"), ("  ", " ")];
+    // C-100: a removed code's own punctuation goes with it ("release <build>: D-568: the …" read "release:: the …")
+    let fixes = [
+        ("(,)", ""), ("()", ""), ("[]", ""), (" ,", ","), (" .", "."), (" :", ":"), (" ;", ";"), ("( ", "("), (" )", ")"), ("(, ", "("), (", )", ")"),
+        ("(:", "("), ("(;", "("), ("(])", ""), ("([])", ""), ("::", ":"), (": :", ":"), (":;", ":"), (";:", ":"), (",,", ","), (", ,", ","), (":,", ":"), (",:", ":"), (";;", ";"), ("; ;", ";"), (":.", "."), (",.", "."), (";.", "."),
+        ("  ", " "),
+    ];
     loop {
         let before = s.clone();
         for (from, to) in fixes {
             s = s.replace(from, to);
         }
+        s = colon_before_note(&s);
         if s == before {
             break;
         }
     }
-    format!("{indent}{}", s.trim())
+    // a line that a removed code left starting with punctuation: "D-568: the fix" read ": the fix"
+    let s = s.trim().trim_start_matches([':', ';', ',']).trim_start();
+    format!("{indent}{s}")
+}
+
+/// C-100: "release: (owner): the date gate retired" (a code went from between the colon and its note) reads
+/// "release (owner): the date gate retired": a colon straight before a parenthesis that is itself followed by a
+/// colon is dropped.
+fn colon_before_note(s: &str) -> String {
+    let mut from = 0;
+    while let Some(found) = s[from..].find(": (") {
+        let at = from + found;
+        let rest = &s[at + 3..];
+        if let Some(close) = rest.find(')')
+            && rest[close + 1..].starts_with(':')
+            && !rest[..close].contains('(')
+        {
+            return format!("{}{}", &s[..at], &s[at + 1..]);
+        }
+        from = at + 3;
+    }
+    s.to_owned()
 }
 
 /// C-091 (owner, 2026-11-26: "no commands, secret names, file paths, job ids or decision codes in posts"): the
@@ -241,6 +330,44 @@ mod tests {
         assert_eq!(for_alert("18 of 597 days (3%) at 19:45"), "18 of 597 days (3%) at 19:45");
     }
 
+    /// C-100: the posts of 2026-11-26 and 11-27 as core composed them (`core.problem.summary`, verbatim), which
+    /// read "release: (owner): the date gate…", "release:: the evening audit's…" and "Daily runs stopped: was
+    /// withdrawn": a removed code takes its own punctuation with it, and a removed build's name leaves "the
+    /// build" where the sentence needs its subject or object.
+    #[test]
+    fn a_removed_code_or_build_leaves_a_readable_sentence() {
+        assert_eq!(
+            for_alert("Work queue paused, nothing is handed out: release c2397caa+3933cc2a6d95: D-567 (owner): the date gate on replay quotes retired; a51cb572's canary block finishes its day"),
+            "Work queue paused, nothing is handed out: release (owner): the date gate on replay quotes retired; that build's canary block finishes its day"
+        );
+        assert_eq!(
+            for_alert("Work queue paused, nothing is handed out: release 760a8760+93486ee1fd46: D-568: the evening audit's real engine findings fixed (operations only); the two test days' pods finish their reference checks"),
+            "Work queue paused, nothing is handed out: release: the evening audit's real engine findings fixed (operations only); the two test days' pods finish their reference checks"
+        );
+        assert_eq!(
+            for_alert("Daily runs stopped: build a51cb572+acffd2a117e3 was withdrawn, so no new session is queued"),
+            "Daily runs stopped: the build was withdrawn, so no new session is queued"
+        );
+        // others of the same week, from the problems and the log
+        assert_eq!(
+            for_alert("Work queue paused, nothing is handed out: release a51cb572+acffd2a117e3: stage 1 + the evening's operations batch (D-515..D-522, D-560..D-566); canary next"),
+            "Work queue paused, nothing is handed out: release: stage 1 + the evening's operations batch; canary next"
+        );
+        assert_eq!(for_alert("Work queue paused, nothing is handed out: hand-over to fc36eefb (D-459)"), "Work queue paused, nothing is handed out: hand-over to another build");
+        assert_eq!(for_alert("Work queue paused, nothing is handed out: hand-over 25 to 2dde1132"), "Work queue paused, nothing is handed out: hand-over to another build");
+        assert_eq!(for_alert("Work queue paused, nothing is handed out: core deploy (C-069/C-070)"), "Work queue paused, nothing is handed out: core deploy");
+        assert_eq!(plain("Daily run: session 2026-11-25 queued for build 714e47a3+5b2beb37d0c5 (jobs [30061, 30062, 30063])."), "Daily run: session Nov 25 queued for the build.");
+        assert_eq!(
+            plain("Engine build 05837898+3d485555ec3d withdrawn: replaced by the phase-1 image 914ffed7+7d4e45c05f63 (C-062: withdraw a build when its image is replaced)."),
+            "Engine build withdrawn: replaced by the phase-1 image (withdraw a build when its image is replaced)."
+        );
+        assert_eq!(plain("Hand-over 26: fc36eefb → 2dde1132, 42 blocks moved"), "Hand-over: the old build → the new build, 42 blocks moved");
+        assert_eq!(for_alert("Day 2025-12-10 refused by the engine's input plan (job 30012, build 3d7567c8): close_quotes"), "Day Dec 10 refused by the engine's input plan: close_quotes");
+        // a parenthesis of its own still goes whole, a quantity stays
+        assert_eq!(plain("Day 2025-12-10 refused by the engine's input plan (build 3d7567c8+aa11bb22cc33): close_quotes"), "Day Dec 10 refused by the engine's input plan: close_quotes");
+        assert_eq!(plain("8 builds ran 12 jobs: 3 failed"), "8 builds ran 12 jobs: 3 failed");
+    }
+
     #[test]
     fn codes_ids_and_iso_dates_go() {
         assert_eq!(day("2024-07-18").as_deref(), Some("Jul 18"));
@@ -249,7 +376,8 @@ mod tests {
             plain("Day 2024-09-05 failed for the last time and is set aside (job 21823): stop: refused (C-075)."),
             "Day Sep 5 failed for the last time and is set aside: stop: refused."
         );
-        assert_eq!(plain("Build 1ae946f7+715623e13454 withdrawn: handed over to build 3d7567c8+aa11bb22cc33"), "withdrawn: handed over to");
+        // C-100: a build's name goes, the sentence keeps its subject and object
+        assert_eq!(plain("Build 1ae946f7+715623e13454 withdrawn: handed over to build 3d7567c8+aa11bb22cc33"), "The build withdrawn: handed over to the build");
         assert_eq!(plain("Day 2025-12-10 refused by the engine's input plan (build 3d7567c8+aa11bb22cc33): close_quotes"), "Day Dec 10 refused by the engine's input plan: close_quotes");
         assert_eq!(plain("jobs 4 5 6 cancelled for FREE_REPORT_64 in core.job"), "cancelled for the 64 in");
         assert_eq!(plain("   Queue resumed"), "   Queue resumed");
