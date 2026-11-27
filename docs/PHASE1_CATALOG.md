@@ -45,6 +45,13 @@ the owner when the fix pass is planned.
    computed on what is available, stated); the tape's volume check is 2% (D-089). Whether the same completeness
    logic fits a same-day input is a question for the population.
 5. Treat a recorded provider fault as a claim to test on the population, not as settled.
+6. Classify a withholding by whether a second source for the same session agrees. A provider fault: the provider
+   disagrees with itself or with an official figure (a tape short against official volume, a file that changes on
+   re-download, an absent input), usually on the provider's calendar and across all assets. A market condition:
+   the sources agree while the values move (spreads wide on the tape and on an independent book; volume changing
+   in the tape and the official figure alike), usually uneven across assets and tied to stress or events. Where
+   the sources agree the sensor should publish. Open: several inputs have one source only, and there is no
+   adequate second source yet.
 
 ## Criteria (the bar and criterion 0 are the owner's; the rest draft or proposed)
 **The bar (owner, verbatim):** "My definition of functional is numerically stable across all asset histories with
