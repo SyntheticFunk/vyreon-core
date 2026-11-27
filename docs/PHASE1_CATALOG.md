@@ -154,6 +154,16 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
     Intrinio. Without the gate the published widths would be about double the real ones. It touches 11 of
     phase 1's 597 sessions and every nightly. The same fault is the SOURCE_VOLUME_RECONCILIATION_FAILED line
     below (the 2% gate fails 56–63 of 64 a day from 11-06, 3–9 before).
+    OWNER, later the same evening: "the market has been under a lot of stress so bid-ask spreads widening and
+    staying wide during what has essentially become a large market correction is not necessarily a provider
+    fault. In fact this kind of change in the market data is exactly what we are here to try and reveal through
+    our sensors." So the gate may be withholding the product's own signal. HIGH PRIORITY for the fix pass (the
+    live product reads recent sessions): compare the replay spread with an independent quote source on both
+    sides of 11-06 (P-04's record holds a midpoint comparison only); if it agrees, retire the date gate for a
+    daily check that withholds only on disagreement. The volume deficit against official volume is a separate
+    question the market does not explain. Not changed before the run: the tapes stay available, so the 11
+    sessions and the nightlies can be recomputed; open questions: does the nightly take volume from the trades
+    API as decided; is there a second Intrinio source for the best bid and ask.
   - SOURCE_VOLUME_RECONCILIATION_FAILED (PCR-UACT-I01, DLM-VWAP; 55 assets on 11-25) is the 2% day check against
     the official daily bar as first captured the night after; a preliminary bar is a recorded precedent (D-089).
     Is a nightly recomputed after the final bar: not established. Count it on history days.
