@@ -181,5 +181,14 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
   55–59 on the three nightlies). So it is not P-04 and not a nightly effect; the provider-fault record's "3–9 a
   day before 11-06" does not match the built days. A base-layer sensor against criterion 0. How many of its roles
   each asset loses, and why 2024-09-05 is clean: not established. SCIENCE, HIGH.
+  CORRECTION (same evening, the coordinator had not read the record): this is `PROVIDER_FAULTS.md` P-23, known
+  since 2026-11-20. Intrinio's replay files before 2025-11-26 hold 33–77% of the consolidated volume (median
+  short by 37–57% to 2025-09-03, 59–66% to 10-22, 16–31% to 11-25, ~0.3% after), have almost no quotes before
+  2025-09-04, and miss the closing auction print on 13–23% of sessions. D-411 withholds on it by the 2% day
+  check (`consolidated.rs` `RECONCILIATION_TOLERANCE`), the official-bar equality and the two-sided-book rule.
+  So for about 361 of phase 1's weekdays (to 2025-11-25) the tape-read sensors (PCR-UACT, DLM-VWAP, the tape
+  price family where the close is missing, the spreads before 2025-09-04) will be withheld as provider absences:
+  they cannot reach 80% over phase 1 on this source. The clean day 2024-09-05 is unexplained. FOR THE OWNER at
+  the evaluation: these sensors' population is in effect 2025-11-26 onward unless another source is found.
 - A rollback to an older core image is NOT one command: an older binary's migrate step refuses a database that
   holds migrations it lacks. A rollback needs a forward fix or a hand step. OPS.
