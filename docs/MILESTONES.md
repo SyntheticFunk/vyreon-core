@@ -75,8 +75,11 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   the gate register with firing counts, the run's costs, and a size for the conversion work. Not decided: it is
   "a good plan if necessary". If a second pass is chosen, its list of changes is written down, and kept short,
   before work starts.
-  Part of that evaluation (owner, 2026-11-27): list the base-layer sensors under 95% coverage; for each,
-  establish what it would take to reach 100% over the sample. A first draft over 23 days is in
+  Part of that evaluation (owner, 2026-11-27): a robust investigation of every base-layer sensor that is not at
+  100% coverage (the owner first said under 95%, then tightened it: "That is a strict standard, but i mean look
+  what we just found"): for each, the gate or cause with its origin and evidence base, the published standard
+  that applies, and what it would take to reach 100% over the sample. Each investigation is scoped to one sensor
+  and carries its evidence (see VS-V03 and CDD-MACRO01 in the catalog for the shape). A first draft over 23 days is in
   `~/claude-artifacts/checks/phase1-run/base-coverage-latest.tsv` (query beside it; it misses the company, FIELD
   and M0-PRINT-SIZE layouts: build the proper count from `core.withheld_tally` with totals before the evaluation).
   The owner's reason: the universe is meant to grow to the full market, so a sensor must cope with thin chains

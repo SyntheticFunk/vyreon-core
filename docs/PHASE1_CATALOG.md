@@ -521,3 +521,18 @@ Each line is something that happened only because an agent looked or acted. Stat
   about 292–338) accepts the unit label "Index 2017=100" or a check that the twelve 2017 values average within 0.5
   of 100. The data is present: this is a guard, not an absence. Which half of the guard fails, and since when,
   is not established. A candidate for the short list of any second pass: one input, one condition. SCIENCE, HIGH.
+- **VS-V03 gives up on thin chains by a row count, not by its fit** (2026-11-27; the owner's intent for the
+  sensor: "a robust local IV level by expiry, smile skew slope, and residual dispersion in log moneyness space.
+  That should handle sparse chains"). In code (`h3-v03/src/lib.rs` 43–51 and the fit's comment at 124, read by
+  the coordinator): one expiry (the first standard monthly 14 to 365 days out); a window in log-moneyness scaled
+  by the strike spacing (the owner's D-086 and D-093; D-093 records 337 to 459 cells at 80%); then at least 3 rows
+  with 1 each side for the level and at least 7 rows with 2 each side for the slope, else INSUFFICIENT_ELIGIBLE.
+  The gate register traces 7, 2, 3 and 1 to D-029 (2026-09-29), an engineering choice on 12 assets over
+  2026-08-14..09-18 with no reason stated for the numbers (the register's reading of the decision text). Fires
+  so far on 9 assets over 4 days (DBA, EMB, HYG, INDA, TIP among them). The universe is meant to grow to the full
+  market, so this does not generalise. Candidate published methods, FROM MEMORY, each to be checked against its
+  source before use: at-the-money-forward IV interpolated in total variance between the bracketing strikes
+  (level; needs two quotes); the 25-delta risk reversal and butterfly convention (needs quotes near 25 delta); SVI
+  and SSVI (Gatheral; Gatheral and Jacquier: one fitted curve, SSVI pooling across expiries, the most forgiving;
+  the owner's 2026-10-14 investigation used a pooled same-day SSVI); Cboe's VIX and SKEW methodology (needs a wide
+  strip). Decision order: a published standard first. SCIENCE, HIGH.
