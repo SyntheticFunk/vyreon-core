@@ -257,3 +257,13 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
   captures' cutoffs 14. The 11-25 nightly that afternoon: 168 min = 44, 36, 19, 8.5, 59.5. Options and quotes took
   the same time with and without eight other blocks sharing the budget: what limits them is not established. A
   history day still idles 14 min for ACT01's window (once per block, by D-457). OPS.
+- **Why runtimes vary** (stored reports of the 23 published base days, 2026-11-26): compute is 86 to 328 min; the
+  variation is all in two stages, intent B (40–164 min) and intent A's history nodes (21–140). Where task-minutes
+  are stored (12 days), each stage's wall time is its task-minutes over about 7 on every day (intent B 6.9–7.3,
+  intent A 7.0–7.5): the 8 threads stay busy, so it is not idle time or a queueing effect. What varies is the
+  task-minutes themselves, for the same task list: intent B 277 to 589 (2024-07-23 against 2024-08-13, one
+  build). Not established: whether a task takes longer because the node gives less CPU (shared vCPUs; a next
+  day's download in the same pod) or because the day holds more work (contracts, expiries). The stored pair per
+  task does not hold CPU-minutes; the worker's task-times log does (kept in `run-logs` from build a51cb572):
+  compare CPU-minutes with task-minutes per stage on the run's first days. A later day of a block skips most of
+  intent A (11–13 task-minutes against 283–598). OPS.
