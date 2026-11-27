@@ -97,6 +97,15 @@ Context is lost over time; the files are the memory. Sessions run for days on th
   alike. One audit per release. The loop is `tools/audit/` (README: audit, triage, fix, real day; no second audit
   round). Findings are
   claims to verify, from either reviewer; neither does code work.
+- **Decided is not built (owner, 2026-11-27, after the trades-API reconciliation was found decided on 2026-11-04
+  and never built).** Three states, never blurred, in the records and in every status report: decided; built (its
+  commit and its test); verified on a real day (the date and where it shows in real output).
+  - A decision entry carries its state and keeps it current.
+  - A record that describes behaviour (`PROVIDER_FAULTS.md`'s handling, these rules, "Rules in force") is in the
+    present tense only when the code does it; otherwise it says "decided, not built".
+  - The decided-not-built sweep runs at every release, beside the audits (first run:
+    `~/claude-artifacts/checks/decided-not-built-2026-11-27*.md`); its list goes to the owner.
+  - To build: core reports a decision that has stayed "decided" too long, as it reports an open problem.
 - One status document, `docs/MILESTONES.md`, kept short: mutable current state. Git is the
   history, so merge by default. Where a rebase or other clean-up of pushed history is really needed, first
   preserve the record (the old commits' hashes and subjects in a file under `docs/`, and a tag on the
