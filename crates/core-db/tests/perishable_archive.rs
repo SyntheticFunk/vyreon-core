@@ -99,6 +99,21 @@ async fn a_published_days_perishables_are_requested_verified_kept_and_frozen() {
     let (read, lines) = core_db::census::withheld(&client, PROFILE, "2025-12-10", "2025-12-10", None).await.unwrap();
     // (its five slots withhold nothing; the reasons' three grains were read on production's 2026-11-25, C-096)
     assert_eq!((read, lines.len()), (core_db::census::Read { days: 1, slots: 5 }, 0));
+    // C-097: the watch counts what each published revision withholds, once; the census then reads the counts
+    // and says the same; the day has no flag (its build has no earlier day to compare, nothing is withheld), and
+    // the run and the timings read its stored report
+    let counted_at = watch::now(&client).await.unwrap();
+    assert!(core_db::runview::count_uncounted(&mut client, PROFILE, &counted_at, None).await.unwrap());
+    let counted: i64 = client.query_one("SELECT count(*) FROM core.withheld_counted", &[]).await.unwrap().get(0);
+    let published: i64 = client.query_one("SELECT count(*) FROM vyreon.day_revision WHERE published_at IS NOT NULL", &[]).await.unwrap().get(0);
+    assert_eq!((counted, counted > 0), (published, true));
+    assert!(core_db::runview::count_uncounted(&mut client, PROFILE, &counted_at, None).await.unwrap(), "counted once");
+    assert_eq!(core_db::census::withheld(&client, PROFILE, "2025-12-10", "2025-12-10", None).await.unwrap(), (read, lines));
+    assert_eq!(core_db::runview::day_flags(&client, base).await.unwrap(), (core_db::runview::DayFlags::default(), true));
+    let run = core_db::runview::run(&client, PROFILE, &counted_at).await.unwrap();
+    assert_eq!((run.published, run.refusals, run.withheld.len()), (1, 0, 0));
+    let timings = core_db::runview::timings(&client, PROFILE, None).await.unwrap();
+    eprintln!("RUNVIEW {run:?} {timings:?}");
 
     // the request is recorded and answered with an upload URL for its content-addressed key,
     // valid ten minutes from the database's now, signing the length, Content-MD5 and SHA-256

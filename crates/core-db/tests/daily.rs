@@ -215,7 +215,7 @@ async fn a_failed_queueing_is_a_problem_before_the_digest() {
     assert_eq!(open, [stopped]);
     let digest: String = client.query_one("SELECT message FROM core.notice WHERE once = 'digest 2025-12-11'", &[]).await.unwrap().get(0);
     // C-091: three lines; the daily runs stopped are the coordinator's problem, not the owner's
-    assert!(digest.starts_with("⚠️ 1 problem open, the coordinator is on it · Thu Dec 11\nDatabase: ") && digest.ends_with("\nNothing needs you"), "{digest}");
+    assert!(digest.starts_with("⚠️ 1 problem open, the coordinator is on it · Thu Dec 11\nDatabase: ") && digest.ends_with("\nNothing needs you\nLast 24 h: no day published"), "{digest}");
     // queueing works again: the session is queued and the problem resolves
     client.batch_execute("DROP FUNCTION vyreon.ensure_months(date, date); ALTER FUNCTION vyreon.ensure_months_kept(date, date) RENAME TO ensure_months;").await.unwrap();
     let change = watch::tick(&mut client, &s, "2025-12-11 16:01:00+00").await.unwrap();

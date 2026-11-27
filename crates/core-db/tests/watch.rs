@@ -582,7 +582,7 @@ async fn a_failing_part_of_the_check_stops_only_itself() {
     let said = posts(&client).await;
     let digest = said.last().unwrap();
     // C-091: three lines; the pause and the failing parts are the coordinator's
-    assert!(digest.starts_with("⚠️ 3 problems open, the coordinator is on them · ") && digest.ends_with("\nNothing needs you"), "the digest is posted and counts them: {said:?}");
+    assert!(digest.starts_with("⚠️ 3 problems open, the coordinator is on them · ") && digest.contains("\nNothing needs you\nLast 24 h: "), "the digest is posted and counts them: {said:?}");
     let _ = &failing;
     client.batch_execute("ALTER TABLE core.queue_control_away RENAME TO queue_control").await.unwrap();
     let change = watch::tick(&mut client, &s, "2025-12-12 09:01:00-06").await.unwrap();
@@ -995,7 +995,8 @@ async fn the_digest_counts_the_ordered_passes_in_committed_batches_and_survives_
     watch::tick(&mut client, &s, now).await.unwrap();
     assert_eq!(tallied(&client).await, pending.len() as i64, "every revision counted, each once");
     let posted: String = client.query_one("SELECT message FROM core.notice WHERE once = 'digest 2026-11-20'", &[]).await.unwrap().get(0);
-    assert_eq!(posted.lines().count(), 3, "C-091: the posted digest is three lines: {posted}");
+    // C-091: the posted digest is three lines; C-097: then the run's own
+    assert_eq!(posted.lines().skip(3).collect::<Vec<_>>(), ["Last 24 h: 1 day published", "Provider refusals in 24 h: 0"], "{posted}");
     // the full digest (`vyreon-core digest`) from the same counts
     let digest = core_db::plain::plain(&watch::digest(&mut client, &s, now).await.unwrap());
     let counted = client

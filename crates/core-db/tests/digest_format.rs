@@ -208,10 +208,16 @@ async fn a_failure_is_a_problem_with_its_cause_and_the_digest_is_three_lines() {
     let digest = watch::digest_post(&mut client, &settings, &now, &open).await.unwrap();
     eprintln!("DIGEST:\n{digest}\n");
     let lines: Vec<&str> = digest.lines().collect();
-    assert_eq!(lines.len(), 3, "{digest}");
+    // C-097: the three lines, then the run's own (here: its days were published more than a day before `now`)
+    assert_eq!(lines.len(), 4, "{digest}");
     assert!(lines[0].starts_with("⚠️ 1 problem open, the coordinator is on it · "), "{digest}");
     assert_eq!(lines[1], "Database: 0 of 2 days kept (current build)");
     assert_eq!(lines[2], "Nothing needs you");
+    assert_eq!(lines[3], "Last 24 h: no day published");
+    // C-097: the run's lines failing to read (here: its counts' table gone) never stops the digest: the three stand
+    client.batch_execute("DROP TABLE core.withheld_tally CASCADE").await.unwrap();
+    let without = watch::digest_post(&mut client, &settings, &now, &open).await.unwrap();
+    assert_eq!(without.lines().collect::<Vec<_>>(), lines[..3], "{without}");
     assert_eq!(
         watch::digest_lines("Thu Nov 26", &["the spend is not known (the billing token is missing), so the ceiling is not watched".into()], 2, "Database: 20 of 597 days kept (current build)"),
         "🔴 Needs you · Thu Nov 26\nDatabase: 20 of 597 days kept (current build)\nNeeds you: the spend is not known (the billing token is missing), so the ceiling is not watched"
