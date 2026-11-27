@@ -74,6 +74,13 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
     was stripped; the worker-death line; days published per progress post; the spend line's age and no negative
     rate; whole readings withheld beside the "% of readings"). Verified by the coordinator: full suite 283 passed,
     0 failed. Not run against production. Releases together with core-s6 (it contains it).
+  - TO DO, from the decided-not-built sweep (owner, 2026-11-27: "1-4 are very much to be done if possible";
+    catalog entry "Decided and not built"): (1) the live-day trades-API capture, its use to be designed again
+    under the 2026-11-26 direction (publish with the gate recorded, a robust definition) before it is built;
+    (2) done: `PROVIDER_FAULTS.md` P-04 corrected; (3) D-404's skip-and-state for the EVC history view
+    (`day.rs:1150`); (4) D-396's missing rows against the snapshot, first establishing whether it is the cause of
+    VS-O04's unknown open interest (D-517); (5) the recompute rule (core's planner still selects by method
+    version): before recompute is switched back on, or replaced by deliberate scoped recomputes. None started.
   - engine: none yet. Known and not started: the reference check's own log is in no archive (D-566 note); the
     stage-1 audit's leftover operations findings (catalog items 11–30).
 - NOT scheduled yet: the ordered passes (the history layer). The plan says once, oldest-first, after the day layer;
