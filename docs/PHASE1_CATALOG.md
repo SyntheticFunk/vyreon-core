@@ -280,3 +280,15 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
 - **Memory on the canary:** the container's cgroup peak is 12,291 MiB against its 12 GiB limit; it counts file
   cache, so it does not show how near the processes came to the limit (6,268 MiB the parent, 7,002 MiB the
   largest child; whether they overlapped is not recorded). No restart. WATCH memory deaths in the run. OPS.
+- **2026-11-27 02:55 MT: a worker was killed for memory in a reference check** (pod day-block-kbrvz-8c6xp, job
+  30089, the re-run of 2026-11-25 on c2397caa; OOMKilled, exit 137, 12 GiB limit). The day had published at 02:12
+  and stays published; the kill came 42 minutes into its reference check (8 jobs), run alone on the block's last
+  day. Core said it on the alerts channel ("killed for lack of memory"). Lost: that day's reference report (the
+  list still shows the afternoon nightly's, job 30062) and the check's own log, which is in no archive (the
+  evening audit's engine finding C7, documented, not fixed). The same session's check completed that afternoon
+  in 35 minutes, when 28 assets had no ACT01 capture; the canary's (a 2025 day, no event source) took 91 minutes
+  and completed. Hypothesis: the reference suite's work on a session with full ACT01 and EXQ01 captures needs
+  more than the node gives at 8 jobs. If so the nightlies are the days at risk, and in a block a check runs
+  beside the next day's work, so a kill there costs the day in progress and a cold start. Pod log kept:
+  `~/claude-artifacts/checks/oom-2026-11-27/`. Re-runs of reference checks are off for the run. WATCH: every
+  nightly's check; memory deaths in blocks. OPS, HIGH.

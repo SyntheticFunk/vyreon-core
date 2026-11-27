@@ -53,6 +53,9 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   the afternoon's nightly), 9 provider absences; ACT01 back on all but 2 assets (LQD, MDY: MISSING_REQUIRED_INPUT
   on 2 roles); PCR-UQTR-I01 publishes (no date-gate reason left); `run-logs`, `act01-auto`, `exq01-events` KEPT;
   no provider refusal recorded. Its reference check was still running at 02:42 (job 30089, draining).
+- 02:55 MT: the 11-25 re-run's pod was killed for memory 42 minutes into its reference check, after the day had
+  published (job 30089 DONE; its reference report is missing; catalogued, HIGH; core alerted). Not acted on:
+  nothing stops publishing. Watch the nightly's check (next session queued Sat 06:30 MT) and block pods.
 - A release script still polls at its step 12 for those two pods' ends (detached; harmless; `--from 12` resumes
   it if it died).
 - THE COORDINATOR'S JOB NOW: monitor, catalogue (`docs/PHASE1_CATALOG.md`), investigate only what stops days
