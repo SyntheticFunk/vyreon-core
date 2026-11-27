@@ -4076,3 +4076,20 @@ Tests: `budget_tape.rs` (the reserve at the ask, the bounded count, the endpoint
 refused, `the_census_reads_every_schemas_withholdings` on seven real bodies of the nightlies), `budget::tests`,
 `runview::tests`. Not verified on real data: a real refusal's words; the reserve at an ask on the cluster; the
 recount's time over the built days.
+
+## C-099 The grants of any rolling second are bounded (2026-11-27; off unless set)
+2026-11-27 10:01 and 10:07 MT, eight phase-1 blocks running: Intrinio refused 228 requests (HTTP 429, "You have
+exceeded the limits for how frequently you can make API calls", no headers) on 3 workers, while core had counted
+1,340 to 1,599 requests in the minutes before and 753 in the minute of the first burst; Intrinio's own usage
+counter agreed with core's and states 2,000 a minute; the droplet was idle. So the minute does not explain the
+refusals (nor did it on 11-25). The leases of the minute before show bursts: 67 requests used within 0.5 s by one
+worker, 21 within 0.8 s, three workers at once. 2,000 a minute is 33 a second (the owner, 2026-11-27: "it could
+literally be 60 min / 2000 requests converted to seconds"). Hypothesis, not proven: the provider refuses over a
+window shorter than a minute.
+`Budget::per_second` (`VYREON_CORE_INTRINIO_PER_SECOND`, 0 = off, the default): in `budget::draw`, the grants of the
+last rolling second sum to no more than it; a draw gets what the second has left, or waits (0.05 to 1 s) without
+recording budget pressure (that is the minute's, and stops the scaler). A worker's gate already takes a smaller
+lease than it asked and waits when told to (at least 100 ms), so nothing changes in the engine. Bounding grants
+bounds the sends a little late, never early; one grant may still be sent at once (30 in an instant at most).
+Cost: more draws (a worker comes back about once a second while downloading). Test
+`budget_tape.rs::the_grants_of_a_second_are_bounded`. Not run on the cluster.

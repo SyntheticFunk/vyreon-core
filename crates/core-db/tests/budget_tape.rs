@@ -295,3 +295,28 @@ async fn a_refusal_halves_the_ceiling_and_the_daily_session_keeps_a_reserve() {
     assert_eq!(budget::committed(&client).await.unwrap(), 0);
     scratch.drop().await;
 }
+
+/// C-099 (2026-11-27 10:01 MT: Intrinio refused 228 requests while core counted 753 to 1,599 in the minute; single
+/// leases of 67 requests had been used within half a second). With a bound a second, the grants of any rolling
+/// second sum to no more than it: a worker asking 600 gets 30, the next asker waits under a second, and that wait
+/// is not the minute's pressure (the scaler goes on starting pods).
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn the_grants_of_a_second_are_bounded() {
+    let (scratch, mut client) = migrated("budget_second").await;
+    let budget = Budget { per_minute: 1800, per_second: 30, ..Budget::default() };
+    assert_eq!(granted(budget::draw(&mut client, budget, "day-a", 600).await.unwrap()).1, 30);
+    match budget::draw(&mut client, budget, "day-b", 600).await.unwrap() {
+        Grant::Wait { seconds } => assert!((0.05..=1.0).contains(&seconds), "{seconds}"),
+        g => panic!("the second's room is used: {g:?}"),
+    }
+    let now: String = client.query_one("SELECT now()::text", &[]).await.unwrap().get(0);
+    assert!(budget::pressed(&client, &now).await.unwrap().is_none(), "a second's wait is not the minute's pressure");
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+    assert_eq!(granted(budget::draw(&mut client, budget, "day-b", 12).await.unwrap()).1, 12);
+    assert_eq!(granted(budget::draw(&mut client, budget, "day-a", 600).await.unwrap()).1, 18, "what the second has left");
+    // off (0): as before
+    let off = Budget { per_minute: 1800, ..Budget::default() };
+    assert_eq!(granted(budget::draw(&mut client, off, "day-c", 600).await.unwrap()).1, 600);
+    scratch.drop().await;
+}

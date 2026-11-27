@@ -133,7 +133,7 @@
 //!                                                     VYREON_CORE_WORKER_TOKEN_SHA256 (required: the SHA-256 of the
 //!                                                     workers' shared token), VYREON_CORE_LISTEN (0.0.0.0:8080),
 //!                                                     VYREON_CORE_SPOOL (the temp dir), VYREON_CORE_LEASE_SECONDS (300),
-//!                                                     VYREON_CORE_INTRINIO_PER_MINUTE (1800), VYREON_CORE_INTRINIO_DAILY_RESERVE (0),
+//!                                                     VYREON_CORE_INTRINIO_PER_MINUTE (1800), VYREON_CORE_INTRINIO_DAILY_RESERVE (0), VYREON_CORE_INTRINIO_PER_SECOND (0: off),
 //!                                                     VYREON_CORE_WEBHOOK_FILE
 //!                                                     (a file holding the Discord webhook URL; without it the posts wait).
 //!                                                     VYREON_CORE_PROGRESS_WEBHOOK_FILE (C-065, optional: a file holding a
@@ -1114,6 +1114,7 @@ async fn serve() -> Result<(), String> {
     let mut budget = core_db::budget::Budget::default();
     budget.per_minute = setting("VYREON_CORE_INTRINIO_PER_MINUTE", budget.per_minute)?;
     budget.daily_reserve = setting("VYREON_CORE_INTRINIO_DAILY_RESERVE", budget.daily_reserve)?;
+    budget.per_second = setting("VYREON_CORE_INTRINIO_PER_SECOND", budget.per_second)?;
     let config = core_api::Config {
         worker_token_sha256: digest.to_ascii_lowercase(),
         spool: std::env::var_os("VYREON_CORE_SPOOL").map_or_else(std::env::temp_dir, Into::into),
