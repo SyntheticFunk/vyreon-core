@@ -83,6 +83,8 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
     version): before recompute is switched back on, or replaced by deliberate scoped recomputes. None started.
   - engine: none yet. Known and not started: the reference check's own log is in no archive (D-566 note); the
     stage-1 audit's leftover operations findings (catalog items 11–30).
+- 11:26 MT: 11 blocks running, 1 queued, 3 days published on this build (2026-09-17, 2026-09-18, 2024-07-09), no
+  restart, no refusal since 10:07. First pace inside a block: about 195 min a day (catalog).
 - NOT scheduled yet: the ordered passes (the history layer). The plan says once, oldest-first, after the day layer;
   schedule them when the day layer is well under way (`vyreon-core schedule ordered-pass`), not before reading
   C-046/C-062.

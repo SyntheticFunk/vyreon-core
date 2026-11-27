@@ -384,3 +384,10 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
   Also: core's OCC volume check is a hand-run tool nothing schedules; `format=parquet` on the reader API is
   absent; there is no canary job and `release.sh` does not refuse without a real day; the D-140 rule on a missing
   bar is unimplemented. SCIENCE / OPS.
+- **The pace inside a block, first measurement (job 30091, its second day 2026-09-18, 2026-11-27):** 195 min from
+  one day's publication to the next day's start of compute: plan and surfaces 51, intents 9, intent B 104, then
+  30 min waiting for the previous day's reference check to finish (it runs beside the day and is joined before
+  the next day starts). The cold first day took 286 min. One day on one block, with other blocks starting beside
+  it: not yet a rate. If it held, 50 days are about 6.8 days of wall time per block and the whole day layer
+  about a week with 12 blocks, near 2,000 node-hours ($330 at $0.167/h, by arithmetic). The 30-minute join is a
+  sixth of the cycle. OPS.
