@@ -89,6 +89,14 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   engine ships as the build phase 1 is queued on (its first block under core's ramp is its real day). STILL OWED
   under the same rule: the stage-1 audit's catalogued real findings (catalog items 6–30): the operations ones
   next; the science ones need method versions and wait for the fix pass unless the owner says otherwise.
+- **Core image 60bf58a released 22:08 MT (C-098, merged core-s4):** all 14 real core findings of the evening
+  audit fixed plus the uncertain one (real); the coordinator reran the suite: 280 passed, 0 failed. Migration 0070
+  (additive; truncates the withholding tally so the watch recounts). Two budget changes, both at findings: the
+  nightly's reserve is on from its ask; a lease whose validity ended over 10 minutes ago no longer counts. Both
+  running blocks kept their leases. Census after the fix on 11-25: 83 lines (61 before). Left, said by the fix:
+  `core.budget_lease` is never pruned (deleting rows is the owner's call); `watch::FAULT` reads one body schema
+  only, so an engine fault stated inside a company or FIELD body would not count for the stop rule or the gate
+  (hypothesis; it touches the gate).
 - Audit reports are in (21:24 MT; Codex and Gemini, core and engine); two fresh readers triage them into
   `~/claude-artifacts/audits/2026-11-26-evening/triage/`. D-567 and C-097 were NOT in the audited diffs.
 - Proposals for the fix pass (not decided) and the cost of a single-sensor recompute are in
