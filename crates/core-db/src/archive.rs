@@ -206,6 +206,24 @@ fn check(r: &Request) -> Result<(), LeaseError> {
     Ok(())
 }
 
+/// C-096: a day's logs are kept whether it published or not: a day block's, for a session of its job. C-098
+/// (audit 2026-11-26, core 14): a session of the calendar (a date inside the block's range that is no session
+/// reached the archive's foreign key and answered as core's failure, not the worker's refused request).
+async fn logs_session(tx: &impl GenericClient, lease: &work::Held, session: &str) -> Result<(), LeaseError> {
+    let within: bool = tx
+        .query_one(
+            "SELECT $1::text::date BETWEEN $2::text::date AND $3::text::date AND EXISTS (SELECT FROM core.session s WHERE s.session = $1::text::date)",
+            &[&session, &lease.first_session, &lease.last_session],
+        )
+        .await
+        .map_err(|e| LeaseError::Failed(db(e)))?
+        .get(0);
+    if lease.kind != "DAY_BLOCK" || !within {
+        return Err(LeaseError::Refused(format!("{session} is not a session of day block {}: a day's logs are kept by the block that worked on it", lease.job_id)));
+    }
+    Ok(())
+}
+
 /// Takes a worker's request to archive one object of a day its job published (a day block's
 /// lease) at `now` (the database's clock): the archive kept already, the session frozen, or an
 /// upload URL for the object's key, the request recorded (REQUESTED; a request for an archive
@@ -215,17 +233,8 @@ pub async fn request(client: &mut Client, spaces: &Spaces, token: &str, r: &Requ
     let failed = |e: tokio_postgres::Error| LeaseError::Failed(db(e));
     let tx = client.transaction().await.map_err(failed)?;
     let lease = work::held(&tx, token).await?;
-    let logs = r.category == RUN_LOGS;
-    if logs {
-        // C-096: a day's logs are kept whether it published or not: a day block's, for a session of its job
-        let within: bool = tx
-            .query_one("SELECT $1::text::date BETWEEN $2::text::date AND $3::text::date", &[&r.session, &lease.first_session, &lease.last_session])
-            .await
-            .map_err(failed)?
-            .get(0);
-        if lease.kind != "DAY_BLOCK" || !within {
-            return Err(LeaseError::Refused(format!("{} is not a session of day block {}: a day's logs are kept by the block that worked on it", r.session, lease.job_id)));
-        }
+    if r.category == RUN_LOGS {
+        logs_session(&tx, &lease, &r.session).await?;
     } else {
         published_by(&tx, &lease, &r.session).await?;
     }
@@ -334,8 +343,10 @@ pub(crate) async fn published_by(tx: &impl GenericClient, lease: &work::Held, se
 /// archive was requested, and the (session, category) is counted missing from this report
 /// (`missing`), whatever `VYREON_CORE_ARCHIVE_FROM` says.
 pub async fn unpacked(client: &mut Client, token: &str, category: &str, session: &str, why: &str, now: &str) -> Result<(), LeaseError> {
-    if !CATEGORIES.contains(&category) {
-        return Err(LeaseError::Refused(format!("{category} is not a perishable category ({})", CATEGORIES.join(", "))));
+    // C-098 (audit 2026-11-26, core 10): the logs too (a failed packing of them left no word why); they are never
+    // counted missing (`missing` reads the perishable categories only)
+    if !CATEGORIES.contains(&category) && category != RUN_LOGS {
+        return Err(LeaseError::Refused(format!("{category} is not a perishable category ({}, {RUN_LOGS})", CATEGORIES.join(", "))));
     }
     if !core_contract::is_date(session) {
         return Err(LeaseError::Refused(format!("{session} is not a date written YYYY-MM-DD")));
@@ -343,7 +354,11 @@ pub async fn unpacked(client: &mut Client, token: &str, category: &str, session:
     let failed = |e: tokio_postgres::Error| LeaseError::Failed(db(e));
     let tx = client.transaction().await.map_err(failed)?;
     let lease = work::held(&tx, token).await?;
-    published_by(&tx, &lease, session).await?;
+    if category == RUN_LOGS {
+        logs_session(&tx, &lease, session).await?;
+    } else {
+        published_by(&tx, &lease, session).await?;
+    }
     // sent again after its answer was lost: the one record stands (audit round x, 17)
     tx.execute(
         "INSERT INTO core.perishable_unpacked (session, category, failure, reported_at, job_id, engine_build, worker)
