@@ -501,3 +501,9 @@ Each line is something that happened only because an agent looked or acted. Stat
   the block's cycle is the check, not the compute (2 h), so these blocks could run at half the pace or less.
   Memory during a check is near the limit: the one kill so far was in a check. WATCH: how long these three take;
   kills. OPS, HIGH (it bears on the finish date).
+- **The records checkpoint at 23 days (2026-11-27 16:45 MT): the run leaves its records.** Of 23 published days:
+  `run-logs` KEPT for 23, a full run report (`fill`, `memory`) for 23, the withholding tally for 23; step history
+  for every lease; 644 refusals recorded. One thing does not scale: `vyreon-core faults` over the 23 days took
+  121 s to print its first line (it took 0.6 s a day before the audit fix made it read every body schema; it re-reads the
+  bodies instead of the stored tally). At that rate a census of 597 days is not usable. To fix on the unreleased
+  core branch: the command reads `core.withheld_tally`. OPS.
