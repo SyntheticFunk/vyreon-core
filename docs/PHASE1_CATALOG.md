@@ -450,3 +450,7 @@ Each line is something that happened only because an agent looked or acted. Stat
 | Judging whether the run is healthy enough to continue | by hand; numeric stop conditions owed |
 | Reading a pod's logs to explain a slow or lost step | by hand; `run-logs` are kept, nothing reads them |
 | Checking what DigitalOcean actually charges against the spend line | by hand; the line lags a day |
+- **A core restart kills a worker that is in its first minute** (2026-11-27 11:56 MT, the C-099 release): pod
+  day-block-dh8dc-csl9t (job 30102, started 11:55) was fetching tape caches from core, got "error sending
+  request" and exited 1. The eleven running blocks rode through the same restart (as they did five times before).
+  The job waits for its dead lease to expire. A release during the ramp can hit a starting pod. OPS.
