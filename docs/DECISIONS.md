@@ -4093,3 +4093,34 @@ lease than it asked and waits when told to (at least 100 ms), so nothing changes
 bounds the sends a little late, never early; one grant may still be sent at once (30 in an instant at most).
 Cost: more draws (a worker comes back about once a second while downloading). Test
 `budget_tape.rs::the_grants_of_a_second_are_bounded`. Not run on the cluster.
+
+## C-100 What the channels said wrongly or left out on 2026-11-26/27 (owner, 2026-11-27; words and reads only)
+The owner pasted the two channels of the first night of the run. Five things read wrongly or were missing; each is
+fixed in the words, with the real text as its test. Nothing in scheduling, leases, publishing or the budget.
+1. **Sentences with holes** (`plain.rs`). "release: (owner): the date gate…", "release:: the evening audit's…",
+   "Daily runs stopped: was withdrawn". The plain-words net took a code or a build's name and left its punctuation
+   and the sentence without its subject. Now a removed code takes its own punctuation; "build <name>" reads "the
+   build" (in a parenthesis of its own it still goes whole); a bare name after a preposition or beside an arrow reads
+   "another build", "the old build → the new build"; "<name>'s" reads "that build's"; code ranges ("D-515..D-522",
+   "C-069/C-070") go as one; "hand-over 25" keeps its word; a number after "jobs:" is a quantity and stays. Run over
+   every problem and log text of the last seven days in production: none left reading broken by the patterns
+   searched.
+2. **A worker's stop** (`deaths.rs`). "about 52 min of work to redo; nothing left to redo" (a worker killed in its
+   reference check after its only day had published). The time to redo is said only when the job is redone; a day
+   block whose job was done says "its day had published; only what ran after it (its reference check) is lost".
+3. **Days published** (`progress.rs`). The progress channel said blocks starting and finishing, not days landing.
+   Each window's post gains one line before "Running now" when days published in it: "Published: 3 days (Sep 18,
+   2026; …) · 5 of 597 kept", six by name, then counted; on the morning's post without the count (its first line
+   states it). It is news: a window with nothing but published days posts. Not one line a day (C-091 stands).
+4. **The spend line** (`spend.rs`). "-$1.62 a day over the last 23 h": DigitalOcean's month-to-date had fallen
+   between two readings of one figure 13 hours old. A rate below nothing reads "rate not known (DigitalOcean's
+   figure fell between its readings)", and a figure over 3 hours old has its age beside it. Words only: the spend
+   the alerts watch is computed as before (a negative rate already added nothing). Core holds no price, so no
+   estimate of its own is said.
+5. **"% of readings measured"** (`progress::database_line`, the digest's second line). The share counts a reading
+   as withheld only when it carries the engine's fault marker, so a day read 100% with whole sensors absent. The
+   owner's number stays as it is; beside it, from C-097's counts (`core.withheld_tally`, slot grain, the engine's own
+   reasons left out), over the kept days whose withholdings are counted: "· 131 whole readings withheld a day for
+   stated reasons". Read apart and only where its tables are, so it can never fail the line. On production: the
+   canary day's revisions 259/260 hold 128 (SAI-EXQ01 and M0-PRINT-SIZE on 64 each); the new build's first two
+   days 129 and 132.
