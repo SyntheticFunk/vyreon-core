@@ -35,6 +35,32 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   (75%, D-404):** per history window, a rule. **Day hold (10%):** per day, a rule (`exports.rs`).
 
 ## Resume here (new session, 2026-11-26 16:00 MT; the handoff below verified against the cluster)
+
+**STATE AT 2026-11-26 20:10 MT (read this first; it supersedes the NEXT steps further down where they differ).**
+- The 11-25 nightly published 19:28 MT and ended 20:05 MT (job 30062; its ordered pass 30063 done). The queue is
+  idle; nothing is released yet. Running build still 714e47a3; core image still the old one.
+- Found on that nightly (catalog, "During the run"): the download idled 59.5 min for EXQ01's cutoff; ACT01 lost 28
+  assets to HTTP 429 (140 engine faults) at 1,540–1,770 counted requests a minute. Intrinio's usage endpoint:
+  one limit, 2,000 a fixed minute for the account. Which limit refused: NOT KNOWN.
+- Owner's calls this evening: (1) EXQ01 wait shortened (done as 30 min, not the 15 approved: the largest capture
+  on record took 18 min; engine D-564, fd319730, pushed on `worker`); (2) re-run 11-25 beside the canary to
+  recover the 28 assets (trades data lasts to about 12-02); (3) budget: record refusals, back off, reserve for the
+  nightly, every user under one count; ceiling stays 1,900 unless these give no answer (then 1,750 or 1,800);
+  (4) instrumentation 1–5 before the run (logs kept, fuller per-day report, step history, fault census, provider
+  ledger); (5) "stop reactively attacking issues": from here everything else is a catalog line.
+- BUILT, NOT MERGED: core branch `core-s2` (worktree `/home/diggz/wt/core-s1`, head 7ae990c): C-095 (refusals
+  recorded, ceiling halved 5 min after a 429, nightly reserve 600, PROVIDER_THROTTLED) and C-096 (`run-logs`
+  archive category, `core.lease_step_log`, `vyreon-core faults` and `steps`); migrations 0067, 0068; suite 276
+  passed, 0 failed. Engine: a fork works in `/home/diggz/wt/eng-s1` on E1 (refusal reports to core), E2 (ACT01
+  retries up to 30 min on throttling), E3 (pack and upload `run-logs` per day), E4 (per-day report: download
+  parts, idle waits, memory, refusals). Its report is not in yet: verify it before merging.
+- NOT SOLVED: the droplet's capture (`vyreon-capture.timer`, 12:00 and 02:00 UTC; 12:00 ran 2 h 43 min on 11-26,
+  ACT01 and EXQ01 included, paced by itself) uses the same key outside core's count. Core is ClusterIP: the
+  droplet cannot draw from it. Options for the owner: retire the droplet's capture once the cluster's archive is
+  verified to hold the same (recommended), or expose core. Catalogued; not worked.
+- THEN: merge `core-s2` into main and eng-s1 into `worker`; one Codex + Gemini audit of this batch (blockers
+  only); build both images; core release, `backfill stop`, worker release with new evidence; canary on
+  2025-12-10 and the 11-25 re-run in parallel; freeze; phase 1.
 - **The handoff's "cluster runs only core plus the nightly" was false (proven, core log + core.recompute_plan):** at
   14:43 MT the billing token made spend known, which released C-079's held recompute (plan 7); at 14:44:48 it queued
   17 sessions as 8 full day blocks on 714e47a3 (2024-07-16..09-05, 2026-11-23..24). **Cancelled 2026-11-26 ~15:58 MT**

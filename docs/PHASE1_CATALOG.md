@@ -99,3 +99,12 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
   ceiling. Hypothesis: the provider's real limit for those endpoints, or per second, is lower than 2,000 a minute.
   Count 429s per day in the run. OPS / PROVIDER.
 - The 11-25 nightly's timings are not a clean benchmark: it shared the request budget with eight blocks.
+- **The droplet's capture runs outside core's request count** (`vyreon-capture.timer`, 12:00 and 02:00 UTC; the
+  12:00 run took 2 h 43 min on 11-26 and fetches ACT01 and EXQ01 as the cluster's nightly does). Not running when
+  the 11-25 refusals came (21:07 UTC). Core is not reachable from the droplet. FOR THE OWNER: retire it once the
+  cluster's archive is verified, or expose core. OPS.
+- **The slot share ("% of readings") does not count role and coordinate withholdings.** The census on 11-25:
+  DLM-UNUSUALNESS / role / INSUFFICIENT_HISTORY 13,657 on 64 assets, and 30+ further lines. What is expected on a
+  nightly and what is not is a question for the population (`vyreon-core faults`). SCIENCE / OPS.
+- A core test failed once under load and passed alone (`watch.rs::a_problem_opens_while_the_digest_counts`, a
+  timing assertion). TESTS.
