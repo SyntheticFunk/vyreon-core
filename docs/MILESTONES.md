@@ -100,6 +100,9 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
     stage-1 audit's leftover operations findings (catalog items 11–30).
 - 11:26 MT: 11 blocks running, 1 queued, 3 days published on this build (2026-09-17, 2026-09-18, 2024-07-09), no
   restart, no refusal since 10:07. First pace inside a block: about 195 min a day (catalog).
+- 12:18 MT: all 12 blocks running (job 30102 recovered by itself, attempt 2, pod day-block-fhj6v-85xnn); 5 days
+  published on this build, 0 engine faults; no provider refusal since 11:45 with the per-second bound at 30 (the
+  most granted in any second: 30; 1,200 to 1,620 requests a minute).
 - NOT scheduled yet: the ordered passes (the history layer). The plan says once, oldest-first, after the day layer;
   schedule them when the day layer is well under way (`vyreon-core schedule ordered-pass`), not before reading
   C-046/C-062.

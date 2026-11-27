@@ -454,6 +454,11 @@ Each line is something that happened only because an agent looked or acted. Stat
   day-block-dh8dc-csl9t (job 30102, started 11:55) was fetching tape caches from core, got "error sending
   request" and exited 1. The eleven running blocks rode through the same restart (as they did five times before).
   The job waits for its dead lease to expire. A release during the ramp can hit a starting pod. OPS.
+  RECOVERED BY ITSELF, no one acting (owner asked to be told): pod died 11:56; lease ended EXPIRED 12:06:12 and
+  the job was queued again; core posted "a block (Jul 8 – Sep 16) ... stopped at 12:06: the worker exited with an
+  error (code 1); about 11 min of work to redo; it starts again by itself" at 12:07; a new pod
+  (day-block-fhj6v-85xnn) claimed it at 12:18:39, attempt 2. 23 minutes lost on one block: 10.5 for the lease to
+  expire, 12.5 until the next pod claimed (the ramp's spacing and a pod's start).
 - **The gate register** (read-only inventory, 2026-11-27, `~/claude-artifacts/checks/gate-register-2026-11-27.md`;
   the agent's reading: NOT yet verified by the coordinator; engine `worker` at 760a8760). 84 rows. Of 41
   candidate gates (thresholds 17, count minimums 12, consistency checks 10, dates 2): origin owner 12, a published
