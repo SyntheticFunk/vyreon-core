@@ -309,3 +309,12 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
   land in a second; core bounds the minute, nothing bounds the second. If so, lowering the minute ceiling does
   not help and pacing requests inside a lease would. Cost while it lasts: core halves the ceiling for five
   minutes after each refusal. WATCH: refusals per hour and whether any capture gives up. OPS / PROVIDER, HIGH.
+- **The spend line lags by up to a day and can read backwards** (2026-11-27 10:36 MT): core's hourly readings all
+  carry DigitalOcean's `generated_at` 2026-11-27 03:43 UTC (21:43 MT the evening before), and the month-to-date
+  figure fell from 384.41 to 376.38 between two of them, so the line says "-$1.62 a day" with nine worker nodes
+  running. Core reads what DigitalOcean serves; the figure is DigitalOcean's and is refreshed about daily. So a
+  runaway cost shows a day late. By arithmetic, not measurement: 9 `s-8vcpu-16gb` nodes at $0.167/h are $1.50/h,
+  12 are $2.00/h (about $48 a day), beside the core node and the database. OPS.
+- Words on the channels (owner's paste, 2026-11-27): the plain-words rule (C-091) leaves holes where an id was
+  ("release: (owner): ...", "Daily runs stopped: was withdrawn"); the memory kill's line says "about 52 min of work
+  to redo; nothing left to redo"; the progress channel does not say when a day publishes. OPS.
