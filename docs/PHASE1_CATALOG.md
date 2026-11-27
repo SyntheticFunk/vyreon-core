@@ -46,6 +46,13 @@ defined to survive incomplete input where the mathematics allows (a ratio such a
 random message loss; a total such as volume is not, and can come from the official bar); (3) the gated sensors are
 recomputed with their gates as annotations before the catalog is read, from the tapes core already caches. The
 first pass runs as built: it gives how often each rule fires.
+A candidate standard for same-day sensors, for the fix pass (not adopted): D-404 already takes 40 CFR Part 50
+(Appendix K §2.3(a) and (d), Appendix T §3.1(b)): a history window needs 75% of its sessions and is computed on
+what is available, stated. Its scope is history windows only; a same-day input that is missing still withholds, and
+the tape's volume check is 2% (D-089). Whether the same completeness logic fits a day's own input (a VWAP from a
+tape holding at least 75% of the official volume, the share stated) is to be fitted on the population, not ruled.
+The owner: "neither you nor I can simply do some sort of blanket ruling... what we need to do is generate N samples,
+and then fit our sensors to reality."
 
 ## Criteria (draft, for the owner)
 0. **The intent's own test** (`PRODUCT_INTENT.md`, "Continuous by construction", owner 2026-10-30): "each sensor
