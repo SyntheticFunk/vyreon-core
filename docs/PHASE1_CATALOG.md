@@ -24,6 +24,13 @@ hypothesis = not yet.
   test is the ordered passes after the day layer is built; that pass is part of the characterization, read with
   the census like the day layer, and its faults are catalog lines too.
 - A fresh session once phase 1 runs.
+- **Approved by the owner for after the run starts** (2026-11-26: "you shouldn't have to go looking"; core only,
+  from stored data, so not before the canary): (1) a timing and fault summary in the daily digest (median day,
+  share by stage, a block's first day, the census's top lines); (2) alerts from thresholds, not judgment (a day
+  at twice the median, a sensor's coverage under its own norm; the numeric stop conditions are the first);
+  (3) every thing found only by looking becomes a check. The list of those, so far: the nightly's idle hour
+  (no alert yet); ACT01 lost to throttling (PROVIDER_THROTTLED, C-095); the recompute blocks queued by a new
+  build's methods (said in the log only).
 
 ## Criteria (draft, for the owner)
 0. **The intent's own test** (`PRODUCT_INTENT.md`, "Continuous by construction", owner 2026-10-30): "each sensor
