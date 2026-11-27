@@ -11,7 +11,24 @@ TESTS (a test that does not prove what it claims), PROVIDER (goes to `PROVIDER_F
 **Status:** OPEN unless marked. Proven = verified in code or data by the coordinator or a second reader;
 hypothesis = not yet.
 
+## Rules for the run (owner, 2026-11-26 evening: "all sensible and authorized")
+- **The pre-canary line:** after the C-095/C-096 and D-564..D-566 batch, a change goes in before or during the run
+  only if it prevents losing evidence that cannot be had again, or stops days publishing. Everything else is a line
+  here, whoever thinks of it.
+- The audit of that batch runs beside the canary, not before it.
+- **Checkpoint after the first 10–20 days publish:** the run's record works (logs in the archive, step history,
+  the census, refusals recorded). The run does not pause for it.
+- Numeric stop conditions are proposed after the first day, from measured rates.
+- A fresh session once phase 1 runs.
+
 ## Criteria (draft, for the owner)
+0. **The intent's own test** (`PRODUCT_INTENT.md`, "Continuous by construction", owner 2026-10-30): "each sensor
+   publishes on at least 80% of asset-days, reached through numerical stability, never by filling; a miss is
+   diagnosed (engine → rework, provider → stated absence, structural → not applicable). Sensors that read their
+   own history (percentiles, unusualness, changes over time) can only be judged on the built database: their
+   coverage is measured after the rebuild." Read per sensor over the population; the census needs each sensor's
+   total (roles and coordinates published, not only withheld) to state that share: to add after the run, from
+   stored data.
 1. An absence is correct when the provider or the market gives no basis (structural): stays, stated.
 2. A rule that withholds on clean inputs, fires only on its origin dates, or is contradicted by the population:
    retire or replace by a published standard.
@@ -103,6 +120,10 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
   12:00 run took 2 h 43 min on 11-26 and fetches ACT01 and EXQ01 as the cluster's nightly does). Not running when
   the 11-25 refusals came (21:07 UTC). Core is not reachable from the droplet. FOR THE OWNER: retire it once the
   cluster's archive is verified, or expose core. OPS.
+- **Withholdings on most assets that are not about history** (census, 11-25 alone, one day is no population):
+  PCR-UACT-I01 and DLM-VWAP / SOURCE_VOLUME_RECONCILIATION_FAILED on 55 assets; PCR-UQTR-I01 /
+  QUOTE_COMPLETENESS_UNVERIFIED on 64; CDD-MACRO01 / INVALID_REQUIRED_INPUT on 64; VS-V03-MATCHED-NATIVE /
+  INSUFFICIENT_ELIGIBLE on 25. If these hold across the run they are against criterion 0. SCIENCE.
 - **The slot share ("% of readings") does not count role and coordinate withholdings.** The census on 11-25:
   DLM-UNUSUALNESS / role / INSUFFICIENT_HISTORY 13,657 on 64 assets, and 30+ further lines. What is expected on a
   nightly and what is not is a question for the population (`vyreon-core faults`). SCIENCE / OPS.

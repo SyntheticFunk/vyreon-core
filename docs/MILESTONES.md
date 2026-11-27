@@ -58,9 +58,12 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   ACT01 and EXQ01 included, paced by itself) uses the same key outside core's count. Core is ClusterIP: the
   droplet cannot draw from it. Options for the owner: retire the droplet's capture once the cluster's archive is
   verified to hold the same (recommended), or expose core. Catalogued; not worked.
-- THEN: merge `core-s2` into main and eng-s1 into `worker`; one Codex + Gemini audit of this batch (blockers
-  only); build both images; core release, `backfill stop`, worker release with new evidence; canary on
-  2025-12-10 and the 11-25 re-run in parallel; freeze; phase 1.
+- Owner, later the same evening: ceiling 1,800 (core-s2 2fe13a2: the droplet's capture cannot be counted); the
+  droplet's capture stays through phase 1 (its purpose is the nightly's safety net; it held all 64 ACT01 assets
+  for 11-25); the run's rules and criterion 0 are at the top of `docs/PHASE1_CATALOG.md` (authorized).
+- THEN: merge `core-s2` into main and eng-s1 into `worker`; build both images; core release, `backfill stop`, worker release with new evidence; canary on
+  2025-12-10 and the 11-25 re-run in parallel, the Codex + Gemini audit of this batch beside them (blockers
+  only); freeze; phase 1; the checkpoint after 10–20 days.
 - **The handoff's "cluster runs only core plus the nightly" was false (proven, core log + core.recompute_plan):** at
   14:43 MT the billing token made spend known, which released C-079's held recompute (plan 7); at 14:44:48 it queued
   17 sessions as 8 full day blocks on 714e47a3 (2024-07-16..09-05, 2026-11-23..24). **Cancelled 2026-11-26 ~15:58 MT**
