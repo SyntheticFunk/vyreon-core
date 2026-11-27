@@ -292,3 +292,20 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
   beside the next day's work, so a kill there costs the day in progress and a cold start. Pod log kept:
   `~/claude-artifacts/checks/oom-2026-11-27/`. Re-runs of reference checks are off for the run. WATCH: every
   nightly's check; memory deaths in blocks. OPS, HIGH.
+- **2026-11-27 10:01 and 10:07 MT: the first recorded provider refusals** (`core.provider_refusal`: 228 HTTP 429 on
+  3 of 8 running blocks, two bursts of 179 and 49; PROVIDER_THROTTLED alerted by itself; no job failed). What the
+  record shows:
+  - Intrinio's words, the same on every one: "You have exceeded the limits for how frequently you can make API
+    calls. Please contact support if you need a higher limit." No rate-limit header, no Retry-After. Nothing the
+    failure classifier reads as fatal, no secret: the evening audit's worry about the body is settled.
+  - Core's own count of requests in the minutes before: 1,340, 1,367, 1,341, 1,599, 1,399, then 753 in the minute
+    of the first burst. Never near 2,000. Intrinio's usage endpoint read at 10:09 agreed with core's count for
+    that minute (697 at 54 s against core's 736) and lists a one-minute limit of 2,000 per access code (`api`,
+    `opra_historical_intervals`, `us_fundamentals`, ...), each far under.
+  - The droplet's capture was not running (it finished at 12:02 UTC).
+  - 126 of the 228 were on `/securities/{NVDA,MSFT,AMD}/prices`, each from a single worker within a minute.
+  So the one-minute count does not explain the refusals, on this day or on 11-25. Hypothesis (not tested): a
+  shorter window. A worker that gets a budget lease may send up to 600 requests at once, so several hundred can
+  land in a second; core bounds the minute, nothing bounds the second. If so, lowering the minute ceiling does
+  not help and pacing requests inside a lease would. Cost while it lasts: core halves the ceiling for five
+  minutes after each refusal. WATCH: refusals per hour and whether any capture gives up. OPS / PROVIDER, HIGH.

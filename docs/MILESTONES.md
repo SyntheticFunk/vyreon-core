@@ -48,6 +48,10 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   counted withheld, 0 engine faults; 286 min as a block's cold first day). Core's gate opened by itself ("published
   a real day clean") and the second block started at 07:30; the ramp adds one about every 20 minutes as the budget
   allows. Day 2 (2026-09-18) went straight into compute: its download had run beside day 1.
+- 10:01 and 10:07 MT: the first recorded provider refusals (228 on 3 workers, with 8 blocks running); the alert
+  fired by itself; core halved the ceiling as designed; no job failed. Intrinio's body read (generic words, no
+  headers; nothing fatal, no secret). The minute count does not explain them (core counted 753 to 1,599; the
+  droplet idle). Catalogued, HIGH, with the hypothesis of a per-second limit. Not acted on.
 - NOT scheduled yet: the ordered passes (the history layer). The plan says once, oldest-first, after the day layer;
   schedule them when the day layer is well under way (`vyreon-core schedule ordered-pass`), not before reading
   C-046/C-062.
