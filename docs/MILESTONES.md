@@ -75,7 +75,17 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
 - Audits of the evening batch started 20:53 MT (Codex and Gemini; scopes `core-evening.md`, `engine-evening.md` in
   `~/claude-artifacts/audits/scopes-2026-11-27/`; reports in `~/claude-artifacts/audits/2026-11-26-evening/`).
   Triage blockers only.
-- **Owner's ruling, 2026-11-26 evening: the date gate on replay quotes (D-411 gate 3, `QUOTE_UNVERIFIED_FROM`)
+- **Engine build `c2397caa+3933cc2a6d95` released 21:26 MT (D-567: the date gate retired; verified by the
+  coordinator: 755 passed, 0 failed; tape caches stay valid).** The hand-over moved the 11-25 re-run to it: job
+  30089, running since about 21:28 beside the canary (job 30086 on a51cb572, draining: it finishes its day; the
+  release script waits at its step 12 until then, background task). So: the canary proves a51cb572; 30089 is
+  c2397caa's first real day and core's gate for it. Phase 1 is queued on c2397caa after 30089 publishes clean, with
+  NOTHING held out (the gate is gone). Evidence `~/claude-artifacts/cluster-scratch/evidence-c2397caa.json`.
+- Audit reports are in (21:24 MT; Codex and Gemini, core and engine); two fresh readers triage them into
+  `~/claude-artifacts/audits/2026-11-26-evening/triage/`. D-567 and C-097 were NOT in the audited diffs.
+- The owner's design for the fix pass and the single-sensor recompute ("the scalpel") are at the top and the end
+  of `docs/PHASE1_CATALOG.md`.
+- (superseded by the lines above) the date gate on replay quotes (D-411 gate 3, `QUOTE_UNVERIFIED_FROM`)
   "should not exist".** A fork prepares its retirement on engine branch `eng-s2` (worktree `/home/diggz/wt/eng-s1`,
   D-567), first establishing whether cached tapes before 2026-11-06 stay valid. Not merged. When phase 1 is
   queued, HOLD OUT 2026-11-06..2026-11-20 until that ships, so those sessions are computed once.
