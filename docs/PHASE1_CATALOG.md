@@ -175,3 +175,11 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
     7 days can never use.
   - DLM-PCR-HISTORY / HISTORY_OF_ANOTHER_METHOD_VERSION points at a VS-O06 label change between 11-24 and 11-25.
     Inferred.
+- **PCR-UACT-I01's volume reconciliation fails on almost every asset on almost every published day, 2024 days
+  included** (verified by query, 2026-11-26, 23 published base days: 62–64 of 63–64 assets carry
+  SOURCE_VOLUME_RECONCILIATION_FAILED on at least one role on every 2024 day but one; 2024-09-05 has none;
+  55–59 on the three nightlies). So it is not P-04 and not a nightly effect; the provider-fault record's "3–9 a
+  day before 11-06" does not match the built days. A base-layer sensor against criterion 0. How many of its roles
+  each asset loses, and why 2024-09-05 is clean: not established. SCIENCE, HIGH.
+- A rollback to an older core image is NOT one command: an older binary's migrate step refuses a database that
+  holds migrations it lacks. A rollback needs a forward fix or a hand step. OPS.

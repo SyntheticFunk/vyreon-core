@@ -79,7 +79,10 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   "should not exist".** A fork prepares its retirement on engine branch `eng-s2` (worktree `/home/diggz/wt/eng-s1`,
   D-567), first establishing whether cached tapes before 2026-11-06 stay valid. Not merged. When phase 1 is
   queued, HOLD OUT 2026-11-06..2026-11-20 until that ships, so those sessions are computed once.
-- In progress: core branch `core-s3` (worktree `/home/diggz/wt/core-s1`), a fork building C-097 (the tally of
+- **Core update released 20:57 MT: image d2c0bb2 (C-097, merged core-s3):** withholdings counted per revision,
+  a "To watch" line for flagged days, the digest's Run lines, `vyreon-core timings`. The canary's lease (job
+  30086, pod day-block-pzmdf-kfqkf, started 20:53) survived the restart. A waiter reports when 30086 ends.
+- (done, superseded by the line above) core branch `core-s3` (worktree `/home/diggz/wt/core-s1`), a fork building C-097 (the tally of
   withholdings, per-day flags, the digest's Run block, `vyreon-core timings`); read-only over stored data; ships
   as a core update when verified.
 - THEN: merge `core-s2` into main and eng-s1 into `worker`; build both images; core release, `backfill stop`, worker release with new evidence; canary on
