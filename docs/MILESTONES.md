@@ -52,6 +52,18 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   fired by itself; core halved the ceiling as designed; no job failed. Intrinio's body read (generic words, no
   headers; nothing fatal, no secret). The minute count does not explain them (core counted 753 to 1,599; the
   droplet idle). Catalogued, HIGH, with the hypothesis of a per-second limit. Not acted on.
+- **Fixes during the run (owner, 2026-11-27):** fixes are made on branches as found; nothing is released (no
+  engine image, no core image) until phase 1's day layer is done, except the per-second request bound if provider
+  refusals recur. **Unreleased fixes, kept current here:**
+  - core `core-s6` (worktree `/home/diggz/wt/core-s1`, head 9386217): C-099, the grants of any rolling second
+    bounded (`VYREON_CORE_INTRINIO_PER_SECOND`, off unless set; intended value 30). Verified by the coordinator:
+    full suite 281 passed, 0 failed. To release: merge into main, add the setting to `deploy/k8s/20-core.yaml`,
+    build, `release.sh --core`.
+  - core `core-s7` (same worktree, from core-s6; a fork is working, NOT verified yet): C-100, the channels'
+    wording (holes where an id was stripped; the worker-death line; days published per progress post; the spend
+    line's age and no negative rate; whole readings withheld beside the "% of readings").
+  - engine: none yet. Known and not started: the reference check's own log is in no archive (D-566 note); the
+    stage-1 audit's leftover operations findings (catalog items 11–30).
 - NOT scheduled yet: the ordered passes (the history layer). The plan says once, oldest-first, after the day layer;
   schedule them when the day layer is well under way (`vyreon-core schedule ordered-pass`), not before reading
   C-046/C-062.
