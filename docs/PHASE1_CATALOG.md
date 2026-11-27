@@ -513,3 +513,11 @@ Each line is something that happened only because an agent looked or acted. Stat
   day's compute at the lowest priority and, by the record, did most of its work only afterwards. Why the last
   stretch took nearly three hours with eight processes busy is not established. The other two blocks were still
   waiting at 16:55 (115 and 114 min).
+- **CDD-MACRO01: the industrial-production series is delivered and refused by a unit-label guard, on every asset
+  on every day.** Verified 2026-11-27 in the published bodies (AAPL, 2024-07-09 and 2026-09-17, build 760a8760;
+  `series_evidence`): CPIAUCNS and FEDFUNDS are SUPPORTED / MATCHED; INDPRO has 1,306 rows returned and
+  `metadata_gate` = `support_state` = WITHHELD_WRONG_UNIT. From the stored tally: INVALID_REQUIRED_INPUT on 63 to
+  64 assets on 23 of 23 published days. The guard (D-044, amended by D-508 on 2026-11-25; `h3-macro/src/lib.rs`
+  about 292–338) accepts the unit label "Index 2017=100" or a check that the twelve 2017 values average within 0.5
+  of 100. The data is present: this is a guard, not an absence. Which half of the guard fails, and since when,
+  is not established. A candidate for the short list of any second pass: one input, one condition. SCIENCE, HIGH.
