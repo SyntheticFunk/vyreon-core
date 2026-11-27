@@ -143,3 +143,19 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
   nightly and what is not is a question for the population (`vyreon-core faults`). SCIENCE / OPS.
 - A core test failed once under load and passed alone (`watch.rs::a_problem_opens_while_the_digest_counts`, a
   timing assertion). TESTS.
+- **From the sensor trace** (`docs/SENSORS.md` section 4; the agent's reading unless marked verified). SCIENCE:
+  - PCR-UQTR-I01 is withheld on every asset for every session from 2026-11-06 by a date constant (D-411 gate 3,
+    provider fault P-04: the replay book's width is not verified). Verified in code
+    (`h3-replay/src/official.rs:60`). 100% withheld on phase 1's last sessions and on every nightly until a
+    quote-completeness check exists.
+  - SOURCE_VOLUME_RECONCILIATION_FAILED (PCR-UACT-I01, DLM-VWAP; 55 assets on 11-25) is the 2% day check against
+    the official daily bar as first captured the night after; a preliminary bar is a recorded precedent (D-089).
+    Is a nightly recomputed after the final bar: not established. Count it on history days.
+  - CDD-MACRO01 / INVALID_REQUIRED_INPUT on 64 assets: 8 roles each points at one series (INDPRO), not delivered
+    or failing a metadata gate that D-508 changed on 2026-11-25. Inferred.
+  - DLM-IV-TERM / OUTSIDE_VALIDATED_SURFACE_WINDOW is unconditional for tenors 7, 14 and 180 (private roles):
+    leave it out of coverage ratios.
+  - DLM-EXPECTED-MOVE / WIDE_STRADDLE_QUOTE: a 25% half-spread limit plus a surface fallback a front expiry under
+    7 days can never use.
+  - DLM-PCR-HISTORY / HISTORY_OF_ANOTHER_METHOD_VERSION points at a VS-O06 label change between 11-24 and 11-25.
+    Inferred.

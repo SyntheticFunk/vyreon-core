@@ -61,6 +61,12 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
 - Owner, later the same evening: ceiling 1,800 (core-s2 2fe13a2: the droplet's capture cannot be counted); the
   droplet's capture stays through phase 1 (its purpose is the nightly's safety net; it held all 64 ACT01 assets
   for 11-25); the run's rules and criterion 0 are at the top of `docs/PHASE1_CATALOG.md` (authorized).
+- `docs/SENSORS.md` (2026-11-26): the map of all 94 measurements (inputs, parents, withholding reasons, the
+  11-25 census read against it). Read it before judging a sensor's withholding; add what the run teaches there.
+- MERGED since: core-s2 into main (7e697a7); eng-s1 into `worker` (a51cb572, pushed; the coordinator reran the
+  eight touched crates: 949 passed, 0 failed). Evidence: `~/claude-artifacts/cluster-scratch/evidence-a51cb572.json`.
+  Owner: the self-reporting work (digest summary, per-day flags from thresholds) goes in BEFORE the canary, built
+  while the worker image builds; core is rebuilt once at the end.
 - THEN: merge `core-s2` into main and eng-s1 into `worker`; build both images; core release, `backfill stop`, worker release with new evidence; canary on
   2025-12-10 and the 11-25 re-run in parallel, the Codex + Gemini audit of this batch beside them (blockers
   only); freeze; phase 1; the checkpoint after 10–20 days.
