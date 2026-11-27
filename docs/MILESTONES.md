@@ -97,6 +97,12 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   `core.budget_lease` is never pruned (deleting rows is the owner's call); `watch::FAULT` reads one body schema
   only, so an engine fault stated inside a company or FIELD body would not count for the stop rule or the gate
   (hypothesis; it touches the gate).
+- **Engine fixes ready, NOT released (22:40 MT):** `worker` = 760a8760 (D-568: the evening audit's 18 real
+  engine findings, operations only, no label moved; the coordinator reran the eight crates: 955 passed, 0 failed);
+  image `vyreon-worker:760a8760` built; evidence `~/claude-artifacts/cluster-scratch/evidence-760a8760.json`.
+  Core main also holds 48cafad (a republished day's logs accepted), not yet in a released image. RELEASE BOTH
+  only after jobs 30086 and 30089 have ended (the c2397caa release script still waits at its step 12 for 30086 to
+  finish its day; do not overlap releases). Then queue phase 1 on the 760a8760 build under the ramp.
 - Audit reports are in (21:24 MT; Codex and Gemini, core and engine); two fresh readers triage them into
   `~/claude-artifacts/audits/2026-11-26-evening/triage/`. D-567 and C-097 were NOT in the audited diffs.
 - Proposals for the fix pass (not decided) and the cost of a single-sensor recompute are in
