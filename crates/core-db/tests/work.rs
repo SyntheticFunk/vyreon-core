@@ -2627,7 +2627,9 @@ async fn a_failure_message_with_a_credential_is_never_kept() {
         .collect();
     assert!(kept.iter().any(|t| t.contains("(not kept: it carried a credential pattern, an unredacted api_key=)")), "{kept:?}");
     assert!(!kept.iter().any(|t| t.contains("OmRlYWRiZWVm")), "{kept:?}");
-    assert_eq!(count(&client, "SELECT count(*) FROM core.queue_control WHERE paused").await, 1, "the tape job out of attempts paused the queue");
+    // C-101: a tape job out of attempts pauses nothing; it stands FAILED and is logged
+    assert_eq!(count(&client, "SELECT count(*) FROM core.queue_control WHERE paused").await, 0, "a tape job out of attempts pauses nothing");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.job WHERE kind = 'TAPE' AND state = 'FAILED'").await, 1);
     scratch.drop().await;
 }
 
@@ -2740,5 +2742,117 @@ async fn a_day_before_the_job_is_not_answered_as_already_published() {
     let r = publish_for_lease(&mut client, &path, &next.token).await;
     assert!(matches!(&r, Err(LeaseError::Refused(m)) if m.contains("expects 2025-12-11")), "{r:?}");
     std::fs::remove_file(&path).unwrap();
+    scratch.drop().await;
+}
+
+/// C-101 (owner, 2026-11-26: "the nightly should never get paused. that is a essential thing to keep going";
+/// 2026-11-27: "the system needs to eventually function without you"). Until now a tape job out of attempts and
+/// a bundle core refused each paused the whole queue until someone ran `queue resume`. Now each is contained to
+/// its job and day: tape jobs failing one after another pause nothing, are alerted (JOB_FAILED), and no longer
+/// hold the day blocks (a block's own fill captures the tapes core has no cache of); the nightly's work is
+/// still handed out beside them; a refused bundle leaves its day one more attempt, and the second refusal sets
+/// the day aside as any day out of attempts (C-094), the rest of the queue going on.
+#[tokio::test]
+#[ignore = "requires a disposable PostgreSQL server (VYREON_CORE_TEST_PG)"]
+async fn nothing_pauses_the_queue_by_itself() {
+    let (scratch, mut client, b, _) = ready("no_pause").await;
+    admit(&client, &b).await;
+    let paused = "SELECT count(*) FROM core.queue_control WHERE paused";
+    work::schedule(&mut client, Kind::Tape, PROFILE, &b, "2025-12-10", "2025-12-12", 1).await.unwrap();
+    work::schedule(&mut client, Kind::DayBlock, PROFILE, &b, "2025-12-10", "2025-12-12", 1).await.unwrap();
+    // the nightly's work: the last session's tape and day (priority 1, C-051)
+    client.execute("UPDATE core.job SET priority = 1 WHERE first_session = '2025-12-12'", &[]).await.unwrap();
+    assert!(work::claim(&mut client, Kind::DayBlock, &b, "day-1", HOUR).await.unwrap().is_none(), "the day blocks wait for the queued tapes");
+    // two backfill tape jobs fail for the last time, one after the other (the backfill's are taken first by a
+    // worker that is not the daily one only when no daily job is claimable: fail each by its session)
+    let why = "replay_capture failed: the provider's listing of the session's tape is gone";
+    for session in ["2025-12-10", "2025-12-11"] {
+        loop {
+            let job: i64 = client.query_one("SELECT job_id FROM core.job WHERE kind = 'TAPE' AND first_session = $1::text::date", &[&session]).await.unwrap().get(0);
+            let state: String = client.query_one("SELECT state FROM core.job WHERE job_id = $1", &[&job]).await.unwrap().get(0);
+            if state == "FAILED" {
+                break;
+            }
+            // hold the other tapes back so this session's is the one claimed
+            client.execute("UPDATE core.job SET state = 'CANCELLED' WHERE kind = 'TAPE' AND state = 'QUEUED' AND job_id <> $1", &[&job]).await.unwrap();
+            let claim = work::claim(&mut client, Kind::Tape, &b, "tape-1", HOUR).await.unwrap().unwrap();
+            client.execute("UPDATE core.job SET state = 'QUEUED' WHERE kind = 'TAPE' AND state = 'CANCELLED'", &[]).await.unwrap();
+            assert_eq!(claim.job_id, job);
+            work::fail(&mut client, &claim.token, &format!("tape {session}"), why, "").await.unwrap();
+        }
+        assert_eq!(count(&client, paused).await, 0, "a tape job out of attempts pauses nothing ({session})");
+    }
+    let said: Vec<String> = client
+        .query("SELECT message FROM core.notice WHERE message LIKE 'Tape job for %' ORDER BY notice_id", &[])
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    let job10: i64 = client.query_one("SELECT job_id FROM core.job WHERE kind = 'TAPE' AND first_session = '2025-12-10'", &[]).await.unwrap().get(0);
+    assert_eq!(said.len(), 2);
+    assert_eq!(
+        said[0],
+        format!("Tape job for 2025-12-10 failed for the last time (job {job10}): tape 2025-12-10: {why}. Nothing is paused: the day blocks capture that session's tapes themselves.")
+    );
+    // both are alerted, each once, and the queue is not a problem
+    let s = watch::Settings { profile: PROFILE.into(), deadlines_from: None, volume_bytes: None, deadline_hour: 10, daily: None, archive: None, refcheck_from: None, backup_days: None, spend: None, recompute: None, refcheck_rerun_hours: None, phase: None };
+    let now = watch::now(&client).await.unwrap();
+    let change = watch::check(&mut client, &s, &now).await.unwrap();
+    let failed: Vec<&String> = change.opened.iter().filter(|o| o.starts_with("Tape job for ")).collect();
+    assert_eq!(failed.len(), 2, "{:?}", change.opened);
+    assert!(failed[0].starts_with("Tape job for 2025-12-10 failed for the last time: "), "{failed:?}");
+    assert!(!change.opened.iter().any(|o| o.starts_with("Work queue paused")), "{:?}", change.opened);
+    // the nightly's tape job is still handed out while the failed ones stand
+    let nightly = work::claim_as(&mut client, Kind::Tape, &b, "tape-daily", HOUR, true).await.unwrap().unwrap();
+    assert_eq!(nightly.sessions, ["2025-12-12"]);
+    // the failed tapes hold no day block: the first two days are claimable, the third waits for its running tape
+    let day = work::claim(&mut client, Kind::DayBlock, &b, "day-1", HOUR).await.unwrap().unwrap();
+    assert_eq!(day.sessions, ["2025-12-10"]);
+    let next = work::claim(&mut client, Kind::DayBlock, &b, "day-2", HOUR).await.unwrap().unwrap();
+    assert_eq!(next.sessions, ["2025-12-11"]);
+    assert!(work::claim(&mut client, Kind::DayBlock, &b, "day-3", HOUR).await.unwrap().is_none(), "the nightly's day waits for its tape, which is running");
+
+    // a bundle core refuses: the first refusal leaves the day one more attempt
+    async fn refuse(client: &Client, token: String) -> bool {
+        let held = work::held(client, &token).await.unwrap();
+        work::bundle_refused(client, &held, "unreadable bundle: unexpected end of file").await.unwrap()
+    }
+    assert!(!refuse(&client, day.token.clone()).await, "not held at the first refusal");
+    assert!(!refuse(&client, day.token.clone()).await, "the same lease's second bundle is the same refusal");
+    assert_eq!(count(&client, "SELECT count(*) FROM core.bundle_refusal").await, 1);
+    let stop = "stop: 2025-12-10 not published: refused by vyreon-core: 422 Unprocessable Entity: unreadable bundle: unexpected end of file";
+    assert!(work::fail(&mut client, &day.token, "day 2025-12-10", stop, "").await.unwrap(), "queued once more");
+    assert_eq!(count(&client, paused).await, 0);
+    // the second attempt's bundle is refused too: the day is held and set aside, the queue goes on
+    let again = work::claim(&mut client, Kind::DayBlock, &b, "day-1", HOUR).await.unwrap().unwrap();
+    assert_eq!((again.job_id, again.sessions.clone()), (day.job_id, vec!["2025-12-10".to_owned()]));
+    assert!(refuse(&client, again.token.clone()).await, "held at the second refusal");
+    assert!(!work::fail(&mut client, &again.token, "day 2025-12-10", stop, "").await.unwrap(), "not queued again");
+    let state: String = client.query_one("SELECT state FROM core.job WHERE job_id = $1", &[&day.job_id]).await.unwrap().get(0);
+    assert_eq!(state, "FAILED");
+    assert_eq!(count(&client, paused).await, 0, "a refused bundle pauses nothing");
+    let log: Vec<String> = client
+        .query("SELECT message FROM core.notice WHERE message LIKE 'Bundle of %' ORDER BY notice_id", &[])
+        .await
+        .unwrap()
+        .iter()
+        .map(|r| r.get(0))
+        .collect();
+    assert_eq!(
+        log,
+        [
+            format!("Bundle of 2025-12-10 refused by core (job {}, day-1): unreadable bundle: unexpected end of file; the day is tried once more. Nothing is paused.", day.job_id),
+            format!(
+                "Bundle of 2025-12-10 refused by core (job {}, day-1): unreadable bundle: unexpected end of file; refused again: nothing more is tried on that day until a new build or `vyreon-core queue retry-failed`. Nothing is paused.",
+                day.job_id
+            ),
+        ]
+    );
+    let now = watch::now(&client).await.unwrap();
+    let change = watch::check(&mut client, &s, &now).await.unwrap();
+    assert!(change.opened.iter().any(|o| o.starts_with("Day 2025-12-10 failed for the last time: ")), "{:?}", change.opened);
+    // the other day's block is still running under its lease, untouched
+    assert_eq!(count(&client, "SELECT count(*) FROM core.lease WHERE ended_at IS NULL AND worker = 'day-2'").await, 1);
     scratch.drop().await;
 }

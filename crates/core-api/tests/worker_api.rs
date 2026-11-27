@@ -338,14 +338,21 @@ async fn a_refused_bundle_pauses_the_queue_and_a_failing_worker_sends_its_log() 
     let r = s.http.post(format!("{}/worker/v1/days", s.url)).bearer_auth(token).body(bytes).send().await.unwrap();
     assert_eq!(r.status(), StatusCode::UNPROCESSABLE_ENTITY);
     assert!(r.json::<Value>().await.unwrap()["error"].as_str().unwrap().contains("unreadable bundle"));
+    // C-101: the refusal is contained to that job's day: recorded, one more attempt left, nothing paused, and the
+    // other day's block is still handed out
     let status = work::status(&admin).await.unwrap();
-    assert_eq!(status["paused"], true);
-    assert!(status["pause_reason"].as_str().unwrap().contains("(day-1): bundle refused: unreadable bundle"), "{status}");
-    // the pause and its notice were written together
+    assert_eq!(status["paused"], false);
     let notice: String = admin.query_one("SELECT message FROM core.notice WHERE NOT post ORDER BY notice_id DESC LIMIT 1", &[]).await.unwrap().get(0);
-    assert!(notice.starts_with("Queue paused: job ") && notice.contains("bundle refused: unreadable bundle"), "{notice}");
-    assert_eq!(s.claim("day-block", &s.base_build, "day-2").await.status(), StatusCode::NO_CONTENT);
-    assert_eq!(s.post("/lease/heartbeat", token, json!({})).await.1["paused"], true, "the worker learns of the pause");
+    assert!(notice.starts_with("Bundle of 2025-12-10 refused by core (job ") && notice.contains("day-1): unreadable bundle") && notice.ends_with("; the day is tried once more. Nothing is paused."), "{notice}");
+    let (attempts, max, held): (i32, i32, bool) = {
+        let r = admin.query_one("SELECT j.attempts, j.max_attempts, r.held FROM core.bundle_refusal r JOIN core.job j USING (job_id)", &[]).await.unwrap();
+        (r.get(0), r.get(1), r.get(2))
+    };
+    assert_eq!((attempts, held), (max - 1, false), "one more attempt, not held");
+    let other = s.claim("day-block", &s.base_build, "day-2").await;
+    assert_eq!(other.status(), StatusCode::OK, "the queue goes on");
+    assert_eq!(other.json::<Value>().await.unwrap()["sessions"], json!(["2025-12-11"]));
+    assert_eq!(s.post("/lease/heartbeat", token, json!({})).await.1["paused"], false);
     assert_eq!(admin.query_one("SELECT count(*) FROM vyreon.day_revision", &[]).await.unwrap().get::<_, i64>(0), 0);
 
     // an upload over the size limit is turned away
