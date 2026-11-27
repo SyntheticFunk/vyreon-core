@@ -148,6 +148,12 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
     provider fault P-04: the replay book's width is not verified). Verified in code
     (`h3-replay/src/official.rs:60`). 100% withheld on phase 1's last sessions and on every nightly until a
     quote-completeness check exists.
+    NOT REMOVED (owner asked 2026-11-26, "if that's simple to remove"): the cause is ongoing, not one day.
+    `PROVIDER_FAULTS.md` P-04: from 2026-11-06 the replay files' best bid/ask is about twice as wide as before
+    (SPY median relative spread 1.36e-5 on 11-05, 2.63e-5 on 11-12) and carry 1–10% less volume; reported to
+    Intrinio. Without the gate the published widths would be about double the real ones. It touches 11 of
+    phase 1's 597 sessions and every nightly. The same fault is the SOURCE_VOLUME_RECONCILIATION_FAILED line
+    below (the 2% gate fails 56–63 of 64 a day from 11-06, 3–9 before).
   - SOURCE_VOLUME_RECONCILIATION_FAILED (PCR-UACT-I01, DLM-VWAP; 55 assets on 11-25) is the 2% day check against
     the official daily bar as first captured the night after; a preliminary bar is a recorded precedent (D-089).
     Is a nightly recomputed after the final bar: not established. Count it on history days.
