@@ -52,6 +52,17 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   fired by itself; core halved the ceiling as designed; no job failed. Intrinio's body read (generic words, no
   headers; nothing fatal, no secret). The minute count does not explain them (core counted 753 to 1,599; the
   droplet idle). Catalogued, HIGH, with the hypothesis of a per-second limit. Not acted on.
+- **PLAN OF RECORD AFTER THE DAY LAYER (owner, 2026-11-27; supersedes the older "one large fix pass" wording
+  where they differ):**
+  1. Populate the database (phase 1's day layer, then the history passes).
+  2. Test-integrate Reporter against core and list the measurements that are blocked; an empty plot is blocking.
+     It reads only, so it may start on the days already published, before step 1 ends (the history-based
+     readings need the history passes).
+  3. Build the single-sensor recompute (today a scoped recompute costs almost a full day each: catalog).
+  4. Repair the blocked sensors in priority order: fix, then recompute that sensor (a gap from a one-off failure
+     is recomputed straight away).
+  5. The remaining catalogued issues.
+  The owner's aim: an MVP that publishes. Coverage of 80% per sensor allows about one missing day a week.
 - **Fixes during the run (owner, 2026-11-27):** fixes are made on branches as found; nothing is released (no
   engine image, no core image) until phase 1's day layer is done, except the per-second request bound if provider
   refusals recur. **Unreleased fixes, kept current here:**
