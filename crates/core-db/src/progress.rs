@@ -580,24 +580,34 @@ async fn compose(c: &mut impl GenericClient, profile: &str, phase: Option<&(Stri
     // against its build's usual day, idle for the captures' cutoffs, refused by the provider, a withholding on
     // many more assets than usual) is said once; a day with nothing is not. A day whose withholdings are not
     // counted yet waits `runview::FLAG_WAIT_MINUTES` for them. A failure here is logged, never the window's.
-    let days: Vec<(String, String, i64, bool)> = match c
-        .query(
-            &format!(
+    // C-098: under a savepoint of its own, as each day's flags below: on a transaction (the preview's) a failed
+    // statement would otherwise fail every statement after it, the window's own among them
+    let listed = match c.transaction().await {
+        Ok(tx) => {
+            let r = tx
+                .query(
+                    &format!(
                 "SELECT d.published_at::text, d.represented_date::text, d.revision_id,
                         d.published_at <= $2::text::timestamptz - make_interval(secs => $4::float8 * 60)
                  FROM vyreon.day_revision d
                  WHERE d.profile_id = $3 AND d.base_revision IS NULL AND d.state = 'PUBLISHED'
                    AND d.published_at > $1::text::timestamptz AND d.published_at <= $2::text::timestamptz AND {fresh}
                  ORDER BY d.published_at, d.revision_id",
-                fresh = not_shown("day", "d.revision_id")
-            ),
-            &[&from, &end, &profile, &crate::runview::FLAG_WAIT_MINUTES],
-        )
-        .await
-    {
+                        fresh = not_shown("day", "d.revision_id")
+                    ),
+                    &[&from, &end, &profile, &crate::runview::FLAG_WAIT_MINUTES],
+                )
+                .await
+                .map_err(db);
+            let _ = tx.rollback().await;
+            r
+        }
+        Err(e) => Err(db(e)),
+    };
+    let days: Vec<(String, String, i64, bool)> = match listed {
         Ok(rows) => rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3))).collect(),
         Err(e) => {
-            eprintln!("vyreon-core: the published days' flags were not read (the progress post goes on): {}", db(e));
+            eprintln!("vyreon-core: the published days' flags were not read (the progress post goes on): {e}");
             Vec::new()
         }
     };

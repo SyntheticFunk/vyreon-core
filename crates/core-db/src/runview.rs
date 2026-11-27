@@ -12,8 +12,10 @@ fn db(e: tokio_postgres::Error) -> String {
     e.as_db_error().map_or_else(|| e.to_string(), |d| d.message().to_owned())
 }
 
-/// The revisions one counting statement reads (each is a day's bodies; 2026-11-25's three took 0.6 s).
-pub const COUNT_BATCH: usize = 6;
+/// The revisions one counting statement reads (each is a day's bodies; 2026-11-25's three took 5.9 s on
+/// production once every schema's withholdings were read, C-098 9, the base alone 1.6 s; the statement's limit is
+/// `watch::TALLY_LIMITS`' 60 s).
+pub const COUNT_BATCH: usize = 3;
 /// A day is slow when its compute is over this many times its build's usual day.
 pub const SLOW_FACTOR: f64 = 2.0;
 /// The usual is the median over at most this many earlier days, and needs at least `USUAL_MIN`.
@@ -76,7 +78,7 @@ pub async fn count_uncounted(c: &mut impl GenericClient, profile: &str, now: &st
             tx.execute(
                 &format!(
                     "INSERT INTO core.withheld_tally (revision_id, measurement_id, grain, reason, n, objects)
-                     WITH m AS (SELECT m.revision_id, m.measurement_id, m.object_id, m.represented_date, m.body->'measurement'->'value' AS v
+                     WITH m AS (SELECT m.revision_id, m.measurement_id, m.object_id, m.represented_date, m.body AS b
                                 FROM vyreon.measurement m WHERE m.revision_id = ANY($1)),
                           r AS ({})
                      SELECT revision_id, measurement_id, grain, reason, count(*)::int, array_agg(DISTINCT object_id ORDER BY object_id) FROM r GROUP BY 1, 2, 3, 4",
@@ -132,7 +134,7 @@ impl DayFlags {
             None => {}
         }
         for (measurement, reason, assets, usual) in &self.unusual {
-            parts.push(format!("unusual withholding: {measurement} ({}) on {assets} assets (usual {usual})", reason_words(reason)));
+            parts.push(format!("unusual withholding: {} ({}) on {assets} assets (usual {usual})", said(measurement), reason_words(reason)));
         }
         parts
     }
@@ -140,7 +142,14 @@ impl DayFlags {
 
 /// A stated reason in lower-case words ("SOURCE_VOLUME_RECONCILIATION_FAILED": "source volume reconciliation failed").
 pub fn reason_words(reason: &str) -> String {
-    reason.replace('_', " ").to_lowercase()
+    said(reason).replace('_', " ").to_lowercase()
+}
+
+/// C-098 (the class of audit 2026-11-26's core 1, read for in this unaudited module): a word a worker's body or
+/// report supplied (a measurement, a reason, a stage's name) as a post says it: one line, at most 80
+/// characters, nothing a credential pattern matches.
+pub fn said(word: &str) -> String {
+    crate::watch::one_line(word, 80)
 }
 
 /// The flags of the published day whose base revision is `base`, and whether its withholdings were counted
@@ -274,12 +283,15 @@ pub fn run_lines(r: &Run) -> Vec<String> {
     if let (Some(d), Some(c)) = (r.download, r.compute) {
         first.push_str(&format!(" · a usual day: {} download, {} compute", hours(d), hours(c)));
         if let Some(stage) = &r.longest {
-            first.push_str(&format!(" (longest step: {stage})"));
+            first.push_str(&format!(" (longest step: {})", said(stage)));
         }
     }
-    let mut lines = vec![first, format!("Provider refusals in 24 h: {}", crate::progress::thousands(r.refusals))];
+    // C-098 (audit 2026-11-26, core 17): core holds the reports that reached it, a lower bound (a worker sends at
+    // most 8 at once and drops the rest)
+    let refusals = if r.refusals > 0 { format!("at least {}", crate::progress::thousands(r.refusals)) } else { "0".to_owned() };
+    let mut lines = vec![first, format!("Provider refusals in 24 h: {refusals}")];
     if !r.withheld.is_empty() {
-        let parts: Vec<String> = r.withheld.iter().map(|(m, reason, assets)| format!("{m}: {} on {assets} assets a day", reason_words(reason))).collect();
+        let parts: Vec<String> = r.withheld.iter().map(|(m, reason, assets)| format!("{}: {} on {assets} assets a day", said(m), reason_words(reason))).collect();
         lines.push(format!("Most withheld: {}", parts.join("; ")));
     }
     lines
@@ -408,6 +420,10 @@ mod tests {
         );
         let block = DayFlags { refused: Some((45, true)), ..DayFlags::default() };
         assert_eq!(flagged_line("2024-07-15", &block).unwrap(), "To watch: Jul 15, 2024 · provider refused 45 requests so far in its block");
+        // C-098: a word of a body or a report is said on one line, and never a credential
+        let odd = DayFlags { unusual: vec![("X\nY".into(), "A_B\nC".into(), 20, 0)], ..DayFlags::default() };
+        assert_eq!(flagged_line("2024-07-15", &odd).unwrap(), "To watch: Jul 15, 2024 · unusual withholding: X (a b) on 20 assets (usual 0)");
+        assert!(!run_lines(&Run { published: 1, download: Some(1.0), compute: Some(1.0), longest: Some("stage api_key=abcdef0123".into()), ..Run::default() })[0].contains("abcdef"));
     }
 
     /// C-097: the digest's run lines; with no day published, one line.
@@ -430,6 +446,7 @@ mod tests {
                 "Most withheld: PCR-UQTR-I01: quote completeness unverified on 64 assets a day; CDD-MACRO01: invalid required input on 64 assets a day",
             ]
         );
+        assert_eq!(run_lines(&Run { published: 1, refusals: 1_240, ..Run::default() })[1], "Provider refusals in 24 h: at least 1,240");
         let one = Run { published: 1, ..Run::default() };
         assert_eq!(run_lines(&one), ["Last 24 h: 1 day published", "Provider refusals in 24 h: 0"]);
     }
