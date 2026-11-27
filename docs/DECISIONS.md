@@ -4021,3 +4021,58 @@ compute, longest step intent B (T); on 2026-11-25 PCR-UQTR-I01's QUOTE_COMPLETEN
 against a usual 0. Not seen on a real report: `fill.cutoff_wait_seconds` and `block_refusals_so_far` (no published
 day carries them yet). Tests: `runview::tests`, `perishable_archive.rs`, `digest_format.rs` (the counts' table gone,
 the digest's three lines stand), `watch.rs`, `daily.rs`.
+
+## C-098 Audit of the evening batch (Codex and Gemini, 2026-11-26): every real finding fixed (owner's standing rule)
+Reports and triage: `~/claude-artifacts/audits/2026-11-26-evening/` (`core-evening.md`, `agy/core-evening.agy.md`,
+`triage/core-evening.triage.md`; its row numbers below). 17 findings: 14 real, 2 by decision, 1 uncertain; none a
+blocker, none a wrong number in `vyreon.*`. The owner, the same evening: "as a standing rule, fix anything you find
+in audits ... I'd rather fix things asap than let them exist quietly." Migration 0070 (additive; it locks only
+`core.withheld_tally`, `core.withheld_counted` and `core.perishable_unpacked`).
+1. **A line end in a refusal's message restarted core** (G1): fixed. `budget::refusal_text` stores every word of a
+   refusal as one line with no control character; the alert says the message through `one_line`.
+2. **The backfill starved under repeated 429s** (G2): by decision (C-095 2 and 3, C-073); nothing changed.
+3. **Scans of the never-pruned `core.budget_lease` inside the budget's lock** (C4, G3, S1): fixed without a new
+   index. `COMMITTED` and `CEILING` read it through its `valid_until` index, bounded to leases whose validity ended
+   in the last ten minutes (an older one made its last request over ten minutes ago; the latest release on record
+   came 2.5 s BEFORE its lease's end). On production, 98,051 rows: 13.8 ms to 0.06 ms and 15.5 ms to 0.06 ms
+   (EXPLAIN ANALYZE, read-only). The table is still not pruned: its rows are the request ledger, and deleting data
+   is the owner's.
+4. **The nightly's reserve came on only after a grant** (C3, G4): fixed. A draw by the daily session's worker is
+   recorded (`core.budget_daily_ask`) and switches the reserve on for two minutes, granted or not. BUDGET
+   BEHAVIOUR: the backfill is held to the ceiling less the reserve a lease-length sooner than before.
+5. **The alert's "core counted X to Y requests a minute"** (C1): fixed wording: "core held X to Y requests against
+   its ceiling (leases granted, spent or not)".
+6. **A refusal's message and headers were stored and said unchecked for a credential** (C2, G8): fixed
+   (`refusal_text` keeps nothing `evidence::unredacted` matches; the endpoint's query is dropped first).
+7. **A NUL failed the insert and lost the record** (C2, G9): fixed with 1.
+8. **A killed pod's day in flight leaves no run-logs** (C5, G5): by decision (engine D-566); not a core fix.
+9. **The census read `measurement.value` alone** (C6): fixed. `census::stated` reads each body schema where it
+   states a withholding (the module's head lists them), with two more grains, `cell` (of a FIELD array) and
+   `array` (a company array). Production, 2026-11-25's three revisions: 61 lines and 21,224 statements before,
+   83 and 22,210 after, no earlier line changed; the day's base alone takes 1.6 s, the three 5.9 s (0.6 s
+   before), so the watch counts 3 revisions a statement, not 6. The counts (C-097) are truncated by 0070 and
+   counted again by the watch.
+10. **A failed packing of the logs could not be reported** (C7): fixed (`archive::unpacked` takes `run-logs`,
+    for a session of the block; never counted missing).
+11. **The census's header and lines were separate snapshots** (C8, G11): fixed (one REPEATABLE READ read).
+12. **`committed` was read before the row was stored** (C9): fixed (one statement).
+13. **A carried row counted for the build that carried it** (G6): fixed. With a build asked, a row is its
+    computing build's (`carried_from_revision`'s), and the bodies are read, not the counts.
+14. **A date inside a block's range that is no session answered as core's failure** (G7): fixed (refused).
+15. **0068 seeded no step for leases running at its rollout** (G10): past; nothing to change.
+16. **An older image cannot run after a newer migration** (both): recorded (`PHASE1_CATALOG.md`); 0070 adds one.
+17. **The refusal count is of the reports that reached core** (Codex, uncertain): settled by reading the worker:
+    real (`core_client.rs` `REFUSAL_POSTS`: at most 8 at once, the rest dropped). The alert, the digest and
+    `vyreon-core budget` say "at least"; a day's own count is its report's.
+Read for the same classes in the unaudited C-097 (`runview.rs`, `progress.rs`): a word of a body or a report (a
+measurement, a reason, a stage's name) is said through `runview::said` (one line, cut, no credential); the list of
+days to flag is read under a savepoint, as each day's flags were (on a transaction a failed statement would have
+failed the window's own). Its work in the tick was already bounded and its failures logged.
+Not changed, noticed by the triage: `watch::FAULT` reads `measurement.value` only, so an engine fault stated
+inside a company or FIELD body would not count for the stop rule or the gate (hypothesis, not traced; it touches the
+gate, so it is the owner's to order).
+Tests: `budget_tape.rs` (the reserve at the ask, the bounded count, the endpoint's query),
+`watch.rs::the_providers_rate_refusals_are_said`, `perishable_archive.rs` (the logs' not-packed report, a Saturday
+refused, `the_census_reads_every_schemas_withholdings` on seven real bodies of the nightlies), `budget::tests`,
+`runview::tests`. Not verified on real data: a real refusal's words; the reserve at an ask on the cluster; the
+recount's time over the built days.

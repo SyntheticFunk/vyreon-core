@@ -114,6 +114,15 @@ pub const ENGINE_FAULT_BODY_XLB: &str = include_str!("../fixtures/engine-fault-b
 /// database 2026-11-25): withheld whole, its roles' reason ENGINE_FAULT, no terminal reason.
 pub const ENGINE_FAULT_BODY_ARKK: &str = include_str!("../fixtures/engine-fault-body-2024-08-15-ARKK-PCR-UPATH-I01.json");
 
+/// Seven bodies of 2026-11-24/25 as the nightly published them (revisions 218 and 256, read-only from the
+/// cluster's database 2026-11-26, each `body_text` verbatim: its SHA-256 with a line end is the stored
+/// `body_sha256`), one of each schema that states a withholding outside `measurement.value` and one that
+/// states none: `[{measurement_id, object_id, represented_date, body_sha256, body_text}]`. BABA's CDD-CAPVAL01
+/// and TSM's CDD-EVENTS01 (`H5-COMPANY-OWNER-RESULT@1`), FIELD-OPTBR01 (a FIELD body), AAPL's M0-PRINT-SIZE of
+/// 11-24 (`H4-PRINT-MEASUREMENT@1`, withheld) and SPY's of 11-25 (supported), DBA's SAI-ACT01-INTRADAY
+/// (`H5-DIRECT-OWNER-MEASUREMENT@1`, its `array_ref_coordinates`), EMB's VS-V03-CURRENT (`H4-V03-MEASUREMENT@1`).
+pub const CENSUS_BODIES_2026_11_25: &str = include_str!("../fixtures/census-bodies-2026-11-25.json");
+
 /// IBIT's M0-GAMMA of 2024-08-15 as phase 1 published it (revision 183): withheld whole, its result id
 /// ending `/engine-fault` like every withheld slot's, its reason the provider's (EMPTY_DELIVERED_POPULATION:
 /// IBIT's options were not listed yet).

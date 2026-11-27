@@ -61,7 +61,7 @@
 //!                                                     blocks wait for the tapes up to their last session; run again, it
 //!                                                     queues only what is missing
 //!   vyreon-core faults <profile> <first> <last> [<build>]   C-096: what the published days withhold, by measurement,
-//!                                                     grain (slot, role, coordinate) and stated reason (tab-separated)
+//!                                                     grain (slot, role, coordinate, cell, array) and stated reason (tab-separated)
 //!   vyreon-core steps <job>                           C-096: a job's steps, lease by lease, with how long each lasted
 //!   vyreon-core timings <profile> [<build>]           C-097: the published days' timings from their stored reports: the
 //!                                                     download, the compute, a worker's first day against its later
@@ -1081,7 +1081,10 @@ async fn budget_ledger(hours: &str) -> Result<(), String> {
         None => println!("not pressed: no draw waited in the last {:.0} min (KEDA starts pods for all claimable work)", core_db::budget::PRESSURE_MINUTES),
     }
     let refusals = core_db::budget::refusals(&client, hours).await?;
-    println!("the provider's refusals in the last {hours} h (C-095): {}", if refusals.is_empty() { "none" } else { "" });
+    println!(
+        "the provider's refusals in the last {hours} h (C-095; the reports that reached core, a lower bound: a worker sends at most 8 at once): {}",
+        if refusals.is_empty() { "none" } else { "" }
+    );
     for (endpoint, status, n, workers, least, most, words) in refusals {
         println!("  HTTP {status} {endpoint}: {n} on {workers} workers; core had {least} to {most} committed; its last words: {}", words.as_deref().unwrap_or("(none)"));
     }

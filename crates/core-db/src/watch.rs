@@ -1088,7 +1088,9 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
         };
         found.push(Found { kind: "PROVIDER_ERRORS", key: "intrinio".into(), summary, command: "vyreon-core evidence list".into(), detail: None });
     }
-    // C-095: the provider refusing requests for their rate (HTTP 429), as the workers reported each one
+    // C-095: the provider refusing requests for their rate (HTTP 429), as the workers reported each one. C-098
+    // (audit 2026-11-26, core 17, settled by reading the worker): "at least", for a worker sends at most 8
+    // reports at once and drops the rest (engine D-565, `core_client.rs` `REFUSAL_POSTS`)
     let t = c
         .query_one(
             "SELECT count(*), count(DISTINCT worker), min(committed), max(committed),
@@ -1101,12 +1103,14 @@ async fn provider(c: &impl GenericClient, now: &str, open: &[Open], found: &mut 
         .map_err(db)?;
     let (n, workers, least, most, words): (i64, i64, Option<i32>, Option<i32>, Option<String>) = (t.get(0), t.get(1), t.get(2), t.get(3), t.get(4));
     if n > 0 {
-        let words = words.map_or_else(String::new, |w| format!("; its words: \"{}\"", w.chars().take(120).collect::<String>()));
+        // C-098 (audit 2026-11-26, core 1): one line, cut, never a credential (a line end in a stored message failed
+        // the summary's check, and with it the whole check, each minute until core was restarted)
+        let words = words.map(|w| one_line(&w, 120)).filter(|w| !w.is_empty()).map_or_else(String::new, |w| format!("; its words: \"{w}\""));
         found.push(Found {
             kind: "PROVIDER_THROTTLED",
             key: "intrinio".into(),
             summary: format!(
-                "The provider (Intrinio) refused {n} requests for their rate (HTTP 429) on {workers} workers in the last 30 minutes, while core counted {} to {} requests a minute{words}",
+                "The provider (Intrinio) refused at least {n} requests for their rate (HTTP 429) on {workers} workers in the last 30 minutes, while core held {} to {} requests against its ceiling (leases granted, spent or not){words}",
                 least.unwrap_or(0),
                 most.unwrap_or(0)
             ),
