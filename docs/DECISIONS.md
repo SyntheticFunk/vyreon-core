@@ -3970,3 +3970,24 @@ Not done here: the droplet's capture timers (12:00 and 02:00 UTC) and laptop too
 count; the refusals' record will show whether that matters. The engine's side (the report, ACT01's longer patience)
 is engine D-565. Tests: `budget_tape.rs::a_refusal_halves_the_ceiling_and_the_daily_session_keeps_a_reserve`,
 `watch.rs::the_providers_rate_refusals_are_said`, `worker_api.rs`, `budget::tests`. Not yet seen on a real refusal.
+
+## C-096 What the phase-1 run leaves behind for the catalog: logs, step history, the census (owner, 2026-11-26)
+The owner, on instrumentation for the run ("recording ALL faults"): keep every pod's logs, record what the per-day
+report lacks, keep the step history, a fault census, a provider-anomaly ledger. Core's side:
+1. **A day's logs are kept** (`archive::RUN_LOGS`, category `run-logs`, the perishables' own path through a signed
+   Spaces URL; 0068): for any session of a day block's job, published or not; never counted missing, never frozen.
+   Until now only a failed attempt left evidence (121 records, none of a day that published). The engine packs and
+   sends them (engine D-565/D-566).
+2. **Step history** (`core.lease_step_log`, a trigger on `core.lease_step`): one row each time a lease's step or
+   wait changes; `vyreon-core steps <job>` prints them with how long each lasted.
+3. **The census** (`census::withheld`, `vyreon-core faults <profile> <first> <last> [<build>]`): what the published
+   days withhold, by measurement, grain (slot, role, coordinate) and stated reason, with counts, assets, days and
+   examples; ENGINE for the engine's own reasons, STATED for the rest. It judges nothing. Read on production's
+   2026-11-25 (0.6 s for the day): 30+ lines, the largest DLM-UNUSUALNESS / role / INSUFFICIENT_HISTORY 13,657 on
+   64 assets; the slot share the progress post states ("% of readings") does not count role and coordinate
+   withholdings.
+4. **The provider-anomaly ledger** is the census's STATED lines plus `core.provider_refusal` (C-095) and
+   `PROVIDER_FAULTS.md`: no new table; a stated reason does not always name the provider endpoint behind it.
+The per-day report's new fields (download parts, idle waits, memory, refusals) are the engine's; core stores the
+report as sent. Tests: `perishable_archive.rs` (logs before publication, a session outside the block refused, the
+step history, the census on the real slice).
