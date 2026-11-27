@@ -476,3 +476,9 @@ Each line is something that happened only because an agent looked or acted. Stat
   those of one stage of a worker's download (options intervals of ACT01, fundamentals, security prices, option
   snapshots), not the bulk of the traffic. Hypothesis, untested: a limit on those endpoints or on a short burst
   to one of them. No capture is known to have been lost. WATCH. OPS / PROVIDER.
+  Concurrency is NOT ruled out (owner's question, 2026-11-27). From `core.budget_lease` since 07:30 MT, by how many
+  workers were drawing in a minute: 1 worker, 137 minutes, none with refusals; 2 workers, 73 minutes, 1 with; 3
+  workers, 56 minutes, 4 with; 4 workers, 32 minutes, 2 with; 5 workers, 2 minutes, none. Every refusal came with
+  two or more workers downloading at once. Seven minutes with refusals in all: suggestive, not a result. Core
+  counts requests granted; nothing records how many requests are in flight at one moment, which is what a
+  concurrency limit would act on.
