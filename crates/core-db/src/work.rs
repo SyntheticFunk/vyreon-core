@@ -829,7 +829,7 @@ pub const FAILED_DAYS_NOTED: i64 = 3;
 /// after a failure): there is nothing left to claim. A day block out of attempts keeps only the
 /// day it stopped on: the days before it are done, the days after it become a new queued block,
 /// and no count of failed days pauses the queue (C-094). An ordered pass out of attempts
-/// stays FAILED without a pause; a tape job pauses the queue at once (the day blocks wait on it).
+/// stays FAILED without a pause; so does a tape job (C-101: the day blocks capture its tapes themselves).
 /// Returns true when the job was queued again.
 async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<bool, String> {
     // C-074: a republish's base waits STAGED for its day-local revision; an attempt that ends without
@@ -941,7 +941,16 @@ async fn requeue(db_client: &impl GenericClient, job: i64, why: &str) -> Result<
         return Ok(false);
     }
     if kind != "DAY_BLOCK" {
-        pause(db_client, &format!("job {job} failed for the last time: {why}")).await?;
+        // C-101 (owner, 2026-11-26: "the nightly should never get paused"): a tape job out of attempts no longer
+        // pauses the queue. It stays FAILED and is alerted (JOB_FAILED); the day blocks no longer wait on it
+        // (`core.claimable_job`, 0071): a block's own fill captures the tapes core holds no cache of (engine
+        // D-358), and a day whose tape cannot be had stops with its own cause, as any day does (C-094).
+        let day: String = db_client.query_one("SELECT first_session::text FROM core.job WHERE job_id = $1", &[&job]).await.map_err(db)?.get(0);
+        notice::log(
+            db_client,
+            &format!("Tape job for {day} failed for the last time (job {job}): {why}. Nothing is paused: the day blocks capture that session's tapes themselves."),
+        )
+        .await?;
         return Ok(false);
     }
     // the days before the failed one: a finished job of their own
@@ -1582,6 +1591,48 @@ pub async fn fail(client: &mut Client, token: &str, stage: &str, message: &str, 
     let again = requeue(&tx, lease.job_id, &format!("{stage}: {message}")).await.map_err(LeaseError::Failed)?;
     tx.commit().await.map_err(failed)?;
     Ok(again)
+}
+
+/// C-101 (owner, 2026-11-26: "the nightly should never get paused"; 2026-11-27: "the system needs to eventually
+/// function without you"): a bundle core refused (a failed check, `publish::Error::Refused`) no longer pauses the
+/// queue. It is recorded (`core.bundle_refusal`) and contained to its job's day, the way C-075 holds a day its
+/// input plan refused: the first refusal leaves the job one more attempt (a body changed on the way is refused
+/// too, and the next attempt's bundle may pass); a second refusal of the same job's day spends its attempts, so
+/// the attempt's end (the worker's `fail`, or its lease expiring) sets the day aside as any day out of attempts
+/// (C-094: FAILED, alerted JOB_FAILED with the worker's stop message, the rest of its block queued again, the
+/// build going on). Returns whether the day is held.
+pub async fn bundle_refused(c: &impl GenericClient, lease: &Held, why: &str) -> Result<bool, String> {
+    let why = crate::watch::one_line(&scrubbed(why), 300);
+    let day = lease.next_session.clone().unwrap_or_else(|| lease.first_session.clone());
+    let earlier: i64 = c
+        .query_one("SELECT count(*) FROM core.bundle_refusal WHERE job_id = $1 AND session = $2::text::date AND lease_id <> $3", &[&lease.job_id, &day, &lease.lease_id])
+        .await
+        .map_err(db)?
+        .get(0);
+    let hold = earlier > 0;
+    let new = c
+        .execute(
+            "INSERT INTO core.bundle_refusal (job_id, lease_id, session, why, held) VALUES ($1, $2, $3::text::date, $4, $5) ON CONFLICT (lease_id) DO NOTHING",
+            &[&lease.job_id, &lease.lease_id, &day, &why, &hold],
+        )
+        .await
+        .map_err(db)?;
+    // held: every attempt spent; else at most one more
+    c.execute(
+        "UPDATE core.job SET attempts = GREATEST(attempts, max_attempts - CASE WHEN $2 THEN 0 ELSE 1 END) WHERE job_id = $1",
+        &[&lease.job_id, &hold],
+    )
+    .await
+    .map_err(db)?;
+    if new == 1 {
+        let what = if hold {
+            "refused again: nothing more is tried on that day until a new build or `vyreon-core queue retry-failed`"
+        } else {
+            "the day is tried once more"
+        };
+        notice::log(c, &format!("Bundle of {day} refused by core (job {}, {}): {why}; {what}. Nothing is paused.", lease.job_id, lease.worker)).await?;
+    }
+    Ok(hold)
 }
 
 /// C-075: how the engine says a day was refused by its input plan (`stop: <date> not published: <date>

@@ -302,8 +302,7 @@ async fn publish_day(State(app): Shared, headers: HeaderMap, body: Body) -> Repl
         })),
         Err(e) => {
             if e.0 == StatusCode::UNPROCESSABLE_ENTITY {
-                // a failed check: nothing more is claimed until someone has looked; the pause and
-                // its notice are one transaction (C-027's outbox)
+                // a failed check: the refusal and its log line are one transaction (C-027's outbox)
                 let mut client = app.db().await?;
                 let client: &mut Client = &mut client;
                 let tx = client.transaction().await.map_err(|e| failed(e.to_string()))?;
@@ -313,7 +312,9 @@ async fn publish_day(State(app): Shared, headers: HeaderMap, body: Body) -> Repl
                     tx.commit().await.map_err(|e| failed(e.to_string()))?;
                     return Err(ApiError(StatusCode::GONE, format!("no live lease has this token: its drained day is done ({})", e.1)));
                 }
-                work::pause(&tx, &format!("job {} ({}): bundle refused: {}", lease.job_id, lease.worker, e.1)).await.map_err(failed)?;
+                // C-101: a refused bundle is contained to its job's day (recorded, one more attempt, then held);
+                // the queue is not paused. The worker is answered 422 as before and stops its day.
+                work::bundle_refused(&tx, &lease, &e.1).await.map_err(failed)?;
                 tx.commit().await.map_err(|e| failed(e.to_string()))?;
             }
             Err(e)
