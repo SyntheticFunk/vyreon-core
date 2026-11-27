@@ -490,3 +490,14 @@ Each line is something that happened only because an agent looked or acted. Stat
   points at that endpoint when several workers call it together. No job failed; the days of the blocks hit so far
   publish with 0 engine faults. Pace over the last hour: 3 days published by 12 blocks. WATCH whether the
   episodes slow the run (each halves the ceiling for five minutes and sends ACT01 into its retries).
+- **Blocks idle for hours waiting on a reference check (2026-11-27 16:28 MT; core raised NO_PROGRESS by itself for
+  job 30093).** A day's reference check runs beside the next day and must finish before the day after starts
+  ("joined"). Three of the twelve blocks were waiting on one with nothing else to do: 2024-09-18's block for 170
+  min (its check of 2024-09-18 had run 213 min and was still working: 8 processes at 97% CPU, caches written
+  minutes before; the pod held 10.4 of its 12 GiB), 2024-11-27's for 89 min, 2025-02-12's for 87 min. The seven
+  checks that have completed on this build took 44 to 127 min (188 to 335 CPU-minutes). Earlier builds' records
+  show the same split on 2024 days: 19 to 81 min for some, 192 to 358 min (1,300 to 2,150 CPU-minutes) for
+  others; which family of checks is slow is not established. The check's deadline is 600 min. Cost: on such a day
+  the block's cycle is the check, not the compute (2 h), so these blocks could run at half the pace or less.
+  Memory during a check is near the limit: the one kill so far was in a check. WATCH: how long these three take;
+  kills. OPS, HIGH (it bears on the finish date).

@@ -115,6 +115,9 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   deaths, pods and restarts, peak process memory, median compute and download minutes, requests and budget waits
   in the last hour, open problems. Run it at every check. Per-day detail stays in core (each day's run report,
   `vyreon-core steps <job>`, `vyreon-core timings`, `core.provider_refusal`).
+- 16:28 MT: 22 days published, 0 engine faults, 12 blocks running, no restart; no refusal since 14:44. THREE
+  blocks are idle waiting on long reference checks (2024-09-18's for 170 min; core raised NO_PROGRESS for job
+  30093): catalogued, HIGH; not acted on (the checks are working, deadline 600 min).
 - NOT scheduled yet: the ordered passes (the history layer). The plan says once, oldest-first, after the day layer;
   schedule them when the day layer is well under way (`vyreon-core schedule ordered-pass`), not before reading
   C-046/C-062.
