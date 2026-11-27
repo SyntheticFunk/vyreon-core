@@ -128,6 +128,10 @@ spec:
             # provider's limit for the whole account, every node shares it; 1,900 (owner, 2026-11-21)
             - name: VYREON_CORE_INTRINIO_PER_MINUTE
               value: "1900"
+            # C-095 (owner, 2026-11-26): requests a minute kept free for the daily session's work while it is
+            # drawing (the nightly holds the only inputs that cannot be fetched later); the backfill sees 1,300 then
+            - name: VYREON_CORE_INTRINIO_DAILY_RESERVE
+              value: "600"
             # The reference check (C-054): from this session a published day with no report is a
             # problem; phase 1's first session
             - name: VYREON_CORE_REFCHECK_FROM
