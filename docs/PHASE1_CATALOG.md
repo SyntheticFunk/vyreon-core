@@ -267,3 +267,16 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
   task does not hold CPU-minutes; the worker's task-times log does (kept in `run-logs` from build a51cb572):
   compare CPU-minutes with task-minutes per stage on the run's first days. A later day of a block skips most of
   intent A (11–13 task-minutes against 283–598). OPS.
+- **The canary day (2025-12-10, revisions 259/260, build a51cb572), census:** SAI-EXQ01 and M0-PRINT-SIZE
+  EVENT_SOURCE_NOT_RETAINED on all 64 (a history day keeps no event source; by the owner's 2026-11-04 decision);
+  CDD-MACRO01 INVALID_REQUIRED_INPUT on all 64 (so not a nightly effect: it is there on a 2025 day too);
+  PCR-UACT-I01 and DLM-VWAP SOURCE_VOLUME_RECONCILIATION_FAILED on 7 assets (BABA, EFA, EWY, TLT, TSM and two
+  more), as P-23's record says for the era after 2025-11-26; VS-V03 INSUFFICIENT_ELIGIBLE on 7. SCIENCE.
+- **The "% of readings" figure does not count stated absences at slot level either:** on the canary day the tally
+  says 0 of 2,853 withheld while SAI-EXQ01 and M0-PRINT-SIZE are withheld whole on 64 assets each (128 slots). The
+  tally's "withheld" counts slots carrying the engine-fault marker (`watch.rs` `COUNTED`), not every withheld
+  slot. So a day can read "100% of readings" with whole sensors absent. Read by the coordinator in the SQL and on
+  this day; what the figure was meant to be is the owner's to say. OPS, HIGH (it is the owner's headline number).
+- **Memory on the canary:** the container's cgroup peak is 12,291 MiB against its 12 GiB limit; it counts file
+  cache, so it does not show how near the processes came to the limit (6,268 MiB the parent, 7,002 MiB the
+  largest child; whether they overlapped is not recorded). No restart. WATCH memory deaths in the run. OPS.

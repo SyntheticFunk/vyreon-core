@@ -103,6 +103,13 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   Core main also holds 48cafad (a republished day's logs accepted), not yet in a released image. RELEASE BOTH
   only after jobs 30086 and 30089 have ended (the c2397caa release script still waits at its step 12 for 30086 to
   finish its day; do not overlap releases). Then queue phase 1 on the 760a8760 build under the ramp.
+- **CANARY PUBLISHED 2026-11-27 01:08 MT (job 30086, 2025-12-10, build a51cb572, one cold day): 252 min** =
+  download 98, plan and surfaces 35, intents 30, intent B 89, publish 1. Base revision 259 (2,853 slots) and
+  day-local 260 (1,105): 0 engine faults, 0 counted withheld; no restart; no provider refusal. `run-logs` KEPT
+  (4.0 MB) and `act01-auto` KEPT; the run report carries the new fields (fill parts, cutoff wait 841 s, memory,
+  refusals {}). Memory: the container's peak reads 12,291 MiB against a 12 GiB limit (the cgroup's figure counts
+  file cache); the processes peaked at 6,268 MiB and the largest child at 7,002 MiB. Its reference check was
+  running at 01:16. The engine can complete a block.
 - Audit reports are in (21:24 MT; Codex and Gemini, core and engine); two fresh readers triage them into
   `~/claude-artifacts/audits/2026-11-26-evening/triage/`. D-567 and C-097 were NOT in the audited diffs.
 - Proposals for the fix pass (not decided) and the cost of a single-sensor recompute are in
