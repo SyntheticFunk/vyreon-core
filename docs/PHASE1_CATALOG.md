@@ -34,7 +34,7 @@ Sources: engine `docs/DECISIONS.md` D-562, D-563; core `docs/DECISIONS.md` C-094
    half a cent; HYG 16d and UNG 30d sit beside the 30-day point). Count per day in the run. Census file:
    `~/claude-artifacts/checks/forward-bounds-census-2026-11-26.txt` (not a pool replay: DBA/UUP use the file's amounts).
    Seven saved sessions (248 asset-days): 32 of 3,964 expiries withheld (0.8%); per day 7, 2, 0, 0, 0, 11, 12
-   (12-10, 12-16, 12-22, 12-24, 12-26, 01-14, 03-20; the four middle days hold ~10 assets each).
+   (12-10, 12-16, 12-22, 12-24, 12-26, 01-14, 03-20; the four middle days hold 14 assets each, the others 64).
 4. **Parabolic SAR:** TA-Lib reverses on a touch, the engine on a cross (suite ruling #7 hides it); 4 cases in 13 saved
    days (EEM). Changes published SAR and trend values if adopted. Agent finding, TA-Lib source read; not re-verified.
 5. **Hammer candlesticks** (rulings #6, #39): own rules vs TA-Lib's CDLHAMMER (10-bar averages). TA-Lib wholesale or
