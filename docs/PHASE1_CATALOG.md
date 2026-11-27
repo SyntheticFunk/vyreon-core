@@ -221,3 +221,18 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
   quotes included for a tape sensor), intent A's history nodes (2,744 s) and one job per day. FIRST ENGINEERING ITEM
   OF THE FIX PASS, before any sensor change: fetch only the inputs a sensor reads (core caches the reduced tapes),
   skip the stages it does not depend on (`docs/SENSORS.md` section 3), run scoped days in blocks. OPS, HIGH.
+- **Audit of the evening batch, core** (Codex and Gemini, 2026-11-26; triage
+  `~/claude-artifacts/audits/2026-11-26-evening/triage/core-evening.triage.md`): 17 findings, 14 real, 2 by
+  decision, 1 uncertain; NO BLOCKER. C-097 and engine D-567 were not in the audited diff. Catalogued, OPS:
+  - The census reads only `body.measurement.value`, so it misses FIELD and company-schema withholdings
+    (FIELD-FDDIM01, CDD-EVENTS01 on the frozen 2025-12-10 exports). Bodies are stored: recoverable; the tally
+    (C-097) shares the path and needs a recount when fixed. READ THE CENSUS AS A LOWER BOUND until then.
+  - A refusal message holding a newline or NUL would fail the watch's summary and restart core
+    (`watch.rs:1104`); the released worker strips control characters, so it cannot send one. Fix with the next
+    core release.
+  - `budget::draw` scans the never-pruned `core.budget_lease` inside its lock; cost at the run's row counts is
+    unmeasured. WATCH at the 10–20 day checkpoint (draw latency).
+  - A pod evicted or killed for memory leaves no `run-logs` for its day in flight (the upload needs a live
+    lease); its death, cause, steps and refusals are still recorded. Known and stated by D-566.
+  - After a 429 the backfill may get little or nothing for minutes (ceiling halved, less the nightly's reserve):
+    by decision (C-095); how long in practice is unmeasured.
