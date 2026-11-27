@@ -75,6 +75,12 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   the gate register with firing counts, the run's costs, and a size for the conversion work. Not decided: it is
   "a good plan if necessary". If a second pass is chosen, its list of changes is written down, and kept short,
   before work starts.
+  Part of that evaluation (owner, 2026-11-27): list the base-layer sensors under 95% coverage; for each,
+  establish what it would take to reach 100% over the sample. A first draft over 23 days is in
+  `~/claude-artifacts/checks/phase1-run/base-coverage-latest.tsv` (query beside it; it misses the company, FIELD
+  and M0-PRINT-SIZE layouts: build the proper count from `core.withheld_tally` with totals before the evaluation).
+  The owner's reason: the universe is meant to grow to the full market, so a sensor must cope with thin chains
+  and sparse points, measuring in one standardized way over time.
   The owner's aim: an MVP that publishes. Coverage of 80% per sensor allows about one missing day a week.
 - **Fixes during the run (owner, 2026-11-27):** fixes are made on branches as found; nothing is released (no
   engine image, no core image) until phase 1's day layer is done, except the per-second request bound if provider
