@@ -252,3 +252,8 @@ Seen before the canary, on the 11-25 nightly (job 30062, build 714e47a3; logs co
     full disk could delay the perishables' archive. Rare (37 MB of logs on job 30062).
   - EXQ01 could outrun its 30-minute margin under contention: by decision (D-564); the nightly's reserve is
     meant to prevent it.
+- **Benchmark, the canary's download (job 30086, 2025-12-10, a cold single day, 2026-11-26 evening; from
+  `vyreon-core steps`):** 98 min = options 39, quotes 35, carry/macro/company/ACT01 9, EXQ01 under 1, idle for the
+  captures' cutoffs 14. The 11-25 nightly that afternoon: 168 min = 44, 36, 19, 8.5, 59.5. Options and quotes took
+  the same time with and without eight other blocks sharing the budget: what limits them is not established. A
+  history day still idles 14 min for ACT01's window (once per block, by D-457). OPS.
