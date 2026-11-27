@@ -507,3 +507,9 @@ Each line is something that happened only because an agent looked or acted. Stat
   121 s to print its first line (it took 0.6 s a day before the audit fix made it read every body schema; it re-reads the
   bodies instead of the stored tally). At that rate a census of 597 days is not usable. To fix on the unreleased
   core branch: the command reads `core.withheld_tally`. OPS.
+  First of the three finished (2024-09-18, job 30093): the report says "suite 217 min, 396 CPU min"; the block
+  waited 175 min after publishing its second day (13:38 to 16:33 MT) and then went on. 396 CPU-minutes is in the
+  range of the quick checks (188 to 335), so this check was long in wall time, not in work: it ran beside the
+  day's compute at the lowest priority and, by the record, did most of its work only afterwards. Why the last
+  stretch took nearly three hours with eight processes busy is not established. The other two blocks were still
+  waiting at 16:55 (115 and 114 min).
