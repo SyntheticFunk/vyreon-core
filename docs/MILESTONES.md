@@ -120,6 +120,21 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   each difference a lesson, a guard without basis, a gap or unclear / a measurement on the built days where one
   can decide it / how others compute it / the definition of record. Files:
   `~/claude-artifacts/checks/reconciliation-*-2026-11-28.md`.
+  **Decided for the rebuild, 2026-11-28 afternoon (owner; each DECIDED, NOT BUILT unless a commit is named):**
+  - The 2% tape-against-official volume check is removed ("it doesnt really come from anywhere and is just a
+    arbitrary 2%"): the tape volume publishes with the official figure and their ratio recorded beside it. The
+    check compared whole-day tape volume with the daily figure while the sensor publishes regular-hours bins;
+    the tolerance was chosen by pass rate (0.1%, then 2%). Change it in `official::apply`, not in
+    `consolidated.rs` (inside the reader's code identity). Measured effect on the 93 days: PCR-UACT-I01 43.0% to
+    94.5%, no asset under 80%.
+  - The reference check runs on its own node, on a random spread of dates (owner: "a major win"): the REFCHECK
+    job that exists (it downloads and computes the day again, about four node-hours a checked day); the in-block
+    check is off for the rebuild.
+  - Core: the coverage scorecard as a built-in command and digest line; a tally of recorded flags (once the
+    engine's flag has a shape); an alert when a sensor goes from published to withheld on nearly every asset.
+  - NOT adopted: keeping intermediate results (it filled the owner's disk in earlier testing).
+  - Being verified, not decided: whether taking the history pieces out of the backfill day also removes the
+    first-day option download (39 min) and lets days run in any order.
   Still under discussion, NOT decided: which standards to adopt (volume scope: regular session or the whole
   consolidated day; the macro series as levels, rates of change or both; point-in-time vintages), and whether a
   few known-wrong cases stay withheld. The owner asked for a reading of `/home/diggz/market-research` (the
