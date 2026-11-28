@@ -121,6 +121,10 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
     worker (`VYREON_REFCHECK_JOBS=6` in `50-keda.yaml` for `day-block`, `day-block-daily`, `refcheck`), after four
     workers were OOMKilled in a check (8 processes of ~1.5 GiB plus the worker against a 12 GiB pod). A manifest
     change only; it reaches workers started after it is applied. NOT applied, not run. Contains core-s8.
+  - TO DO (core, observability rule): a watch check for a measurement that goes from published to withheld on
+    nearly every asset between two days (CDD-MACRO01's industrial-production input changed base on 2026-11-24 and
+    part of the sensor was blank on all 64 for four days with no notice). TO DO (engine): the macro unit guard's
+    governed base (the series now reads 2022 = 100 by an agent's provider read, to re-check), then re-capture.
   - TO DO (engine): the worker sizes the suite's process count from the memory it has; the suite's own log goes
     to the archive; profile the suite's single-process first stage (hours on the 2024-09..2025-02 dates).
   - TO DO, from the decided-not-built sweep (owner, 2026-11-27: "1-4 are very much to be done if possible";
