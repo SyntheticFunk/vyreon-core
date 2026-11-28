@@ -105,6 +105,12 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
     `work::pause` is the operator's command (`vyreon-core/src/main.rs:458`). It changes what the queue hands out:
     NOT run on the cluster; a day block capturing its own tapes after a failed tape job has not been watched.
     Contains core-s6 and core-s7.
+  - core `core-s9` (same worktree, from core-s8, head 514f57a): C-102, the reference suite runs 6 processes on a
+    worker (`VYREON_REFCHECK_JOBS=6` in `50-keda.yaml` for `day-block`, `day-block-daily`, `refcheck`), after four
+    workers were OOMKilled in a check (8 processes of ~1.5 GiB plus the worker against a 12 GiB pod). A manifest
+    change only; it reaches workers started after it is applied. NOT applied, not run. Contains core-s8.
+  - TO DO (engine): the worker sizes the suite's process count from the memory it has; the suite's own log goes
+    to the archive; profile the suite's single-process first stage (hours on the 2024-09..2025-02 dates).
   - TO DO, from the decided-not-built sweep (owner, 2026-11-27: "1-4 are very much to be done if possible";
     catalog entry "Decided and not built"): (1) the live-day trades-API capture, its use to be designed again
     under the 2026-11-26 direction (publish with the gate recorded, a robust definition) before it is built;
