@@ -94,6 +94,16 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   3. A canary-style small block before scaling again.
   4. The reference check on a random spread of dates, not every day.
   5. Built properly, not hurried (owner).
+  **The coverage target for the fix pass (owner, 2026-11-28):** 90% or better preferred; the floor is 80%, "one
+  day per week". Counted by complete readings (a day counts only if the sensor's full reading published), and
+  applied PER SENSOR FOR EVERY ASSET, not as an average over assets (owner: "the second is where im at
+  internally because of the same product claim": one method across one consistent universe). An asset a sensor
+  genuinely cannot apply to is stated not applicable and left out of the count. Each family with a coverage
+  problem gets the reconciliation the VS pilot is trying out (as designed / as built / each difference a lesson,
+  a guard without basis or a gap / the definition of record), with the aim of reaching the target; where a
+  sensor struggles on an asset (UUP is the example), look at how others compute the same value. For VS-V03 the
+  owner's direction: three eligible quotes at distinct moneyness is the minimum (the fewest for which level,
+  slope and residual dispersion all exist), a thin chain publishing with a warning.
   Still under discussion, NOT decided: which standards to adopt (volume scope: regular session or the whole
   consolidated day; the macro series as levels, rates of change or both; point-in-time vintages), and whether a
   few known-wrong cases stay withheld. The owner asked for a reading of `/home/diggz/market-research` (the
