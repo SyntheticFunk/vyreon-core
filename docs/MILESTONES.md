@@ -129,6 +129,22 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   day); core has no drain outside a build hand-over (C-077), so the stop ended the days in flight. The nightly
   (priority 1: 30110, 30111, 30103) is untouched. `backfill resume` clears the flag; blocks are scheduled again
   by hand.
+  **THE ORDER FROM HERE (owner, 2026-11-28):**
+  1. Finish the coverage work: the family reconciliations (volatility done; tape-read intraday, option activity
+     and trades, company and macro in progress; cross-asset FIELD and the derived sensors get their own look
+     after these), then the fixes they lead to.
+  2. Build the full phase 1 once, with every sensor publishing: a canary block first, then scale; the reference
+     check on a random spread of dates.
+  3. Run the history passes on top of it, and examine the history layer by the same coverage statistics (complete
+     readings, per sensor for every asset, the 80% floor and 90% preferred): owner, "We will have to do the same
+     coverage statistics examination on the history passes too".
+  4. Integrate Reporter against the built database and list what is blocked (an empty plot is blocking): step 2
+     of the plan of record below.
+  5. Then the reader-facing work: the free reports structured for direct citation; a marketing page for the paid
+     reports built on their workflow relief (speed, signal triage, historical context).
+  The plan of record's steps 3 to 7 below (single-sensor recompute, repairs in priority order, the catalogued
+  issues, the "what needed an agent" list, the sweep's unsettled items) still stand; where they overlap this
+  order, this order is the newer.
   **Method for the second pass (owner, 2026-11-28: "for all sensors for the next build we want to systematically
   go through and undo whatever guards are causing them to be withheld"; started the same day, before 100 days):**
   1. Sort every stated withholding reason (36 on the non-FIELD sensors over 92 days:
