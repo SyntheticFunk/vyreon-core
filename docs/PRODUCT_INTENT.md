@@ -1,4 +1,4 @@
-Copied from vyreon-engine `docs/PRODUCT_INTENT.md` at the `engine-v1` tag (2026-11-10). The engine copy is canonical; references to `docs/DECISIONS.md` mean the engine's.
+Copied from vyreon-engine `docs/PRODUCT_INTENT.md` on the `worker` branch (2026-11-28; first copied at the `engine-v1` tag, 2026-11-10). The engine copy is canonical; references to `docs/DECISIONS.md` mean the engine's.
 
 This document is the ultimate guide (owner, 2026-10-18): the standing rules at the top of
 `docs/DECISIONS.md` and every dated decision yield to it.
@@ -31,6 +31,25 @@ should lean into it:
   measure market structure), cited. Every reading should be one a practitioner
   would find reasonable; a standard that would make a sensor unstable or
   routinely withheld comes to the owner with the evidence.
+- **The engine does not judge the market (owner, 2026-11-28; this governs what
+  "correctness" means everywhere in this document and in the decisions).** It
+  never fills, defaults, smooths or guesses, and it withholds only what it can
+  show is not the day's data: absent, stamped for another day or instrument, or
+  arithmetically undefined. A value that is merely unexpected is published as
+  measured. Checks that compare, count or reconcile record what they observed
+  and never withhold. Verification against independent references happens
+  beside the product and is reported. A change in a source's own definition
+  (a rebased index) is a break in the series: the value publishes, the break is
+  marked, and the sensor's history restarts there.
+- **The definitions must carry this (owner, 2026-11-28).** Each sensor's
+  mathematics is robust by construction: thin or sparse inputs, a wider spread
+  or a stressed day produce a value with a wider stated uncertainty, not a
+  blank. Where a definition cannot do that, the definition is reworked, by an
+  established standard where one exists. A guard is not added in its place.
+  Why (owner): in pursuing "no wrong numbers" the engine gained many arbitrary
+  guards against "wrong" where it could not itself identify wrong; a guard that
+  cannot name what its number is wrong against knows only that the number is
+  unexpected.
 Success is not guaranteed; this is the bet. Profitable, not invulnerable.
 The free/paid report is the first product, meant to reach sustainable revenue
 and fund further experiments; the engine, history and API are the reusable

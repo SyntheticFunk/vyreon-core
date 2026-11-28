@@ -6,8 +6,17 @@ Intrinio request budget, the point-in-time security universe, and the cluster th
 The engine computes; core schedules, stores and serves. The measurements are the product.
 
 ## Priorities (owner, 2026-11-22; full authority: docs/PRODUCT_INTENT.md)
-1. **No wrong numbers.** Withhold with an honest reason rather than fill, default or guess; this outranks
-   coverage, speed and cost.
+1. **The engine does not judge the market (owner, 2026-11-28; replaces "No wrong numbers", which had grown into
+   arbitrary guards against a "wrong" the engine could not itself identify).** It never fills, defaults, smooths
+   or guesses, and it withholds only what it can show is not the day's data: absent, stamped for another day or
+   instrument, or arithmetically undefined. A value that is merely unexpected is published as measured. Checks
+   that compare, count or reconcile record what they observed and never withhold. Verification against
+   independent references happens beside the product and is reported. A change in a source's own definition (a
+   rebased index) is a break in the series: the value publishes, the break is marked, the sensor's history
+   restarts there. **The definitions must carry this:** each sensor's mathematics is robust by construction (thin
+   or sparse inputs, a wider spread or a stressed day give a value with a wider stated uncertainty, not a blank);
+   where a definition cannot do that it is reworked, by an established standard where one exists; a guard is not
+   added in its place. The test for any withholding: wrong against what?
 2. **Decision order: established standards > product intent > the owner's judgement.** Match the
    published standard or market convention and cite it; intent decides what the standards leave open;
    the owner decides the rest, brought with a recommendation and its reason.
