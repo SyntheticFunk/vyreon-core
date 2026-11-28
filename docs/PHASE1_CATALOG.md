@@ -559,3 +559,4 @@ Each line is something that happened only because an agent looked or acted. Stat
   19:31 MT: 32 days published, 2 in the last hour. The check of 2025-02-12 finished: "suite 298 min, 668 CPU min"; its block waited about 265 min and went on (job 30095). 2024-11-27 still holds its block (271 min); 2024-09-19 is at 60 min. Job 30100 is downloading after its memory kill. No refusals, no new deaths.
   20:02 MT: 36 days published, 4 in the last hour. Six of twelve blocks are waiting on a joined reference check: 2024-11-27 (302 min), 2024-09-19 (91 min), 2025-07-11 (22), 2025-12-02 (17), 2026-04-27 (12), 2026-09-22 (3). No refusals, no new deaths.
   20:33 MT: 38 days published, 6 in the last hour. The four short waits of 20:02 cleared. Still waiting: 2024-11-27 (333 min), 2024-09-19 (122 min). No refusals, no new deaths.
+  21:04 MT: 40 days published, 3 in the last hour. Still waiting: 2024-11-27 (364 min), 2024-09-19 (153 min). No refusals, no new deaths.
