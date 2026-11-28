@@ -134,6 +134,11 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
 - 16:28 MT: 22 days published, 0 engine faults, 12 blocks running, no restart; no refusal since 14:44. THREE
   blocks are idle waiting on long reference checks (2024-09-18's for 170 min; core raised NO_PROGRESS for job
   30093): catalogued, HIGH; not acted on (the checks are working, deadline 600 min).
+- Found 2026-11-28 06:24 MT (`core.job` 30104–30108, `vyreon.day_revision`): five ordered passes DID run on this
+  build, for 2024-07-09, -10, -11, -12 and -15. They were created Fri 11:11 MT and each ran when its day
+  published, taking 1 to 4 min from the day's publication to the derived revision. How they came to be created
+  (which command or automatic step, and why only these five) is not established; the days from 2024-07-16 are the
+  17 the NOT_DERIVED problem lists. So the line below is true of every other session, not of these five.
 - NOT scheduled yet: the ordered passes (the history layer). The plan says once, oldest-first, after the day layer;
   schedule them when the day layer is well under way (`vyreon-core schedule ordered-pass`), not before reading
   C-046/C-062.
