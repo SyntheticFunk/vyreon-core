@@ -4155,3 +4155,13 @@ hold no day block, a bundle refused twice sets its day aside), `work.rs::a_failu
 never_kept`, `worker_api.rs` (a truncated bundle: refused, recorded, nothing paused, the other day handed out).
 Not run on the cluster; a day block capturing a whole session's tapes itself after a failed tape job has not been
 watched on a real day.
+
+## C-102 — The reference suite runs 6 processes on a worker, not the node's 8 (2026-11-28; owner: "set to 6")
+*State: built (deploy commit on `core-s9`, `50-keda.yaml`: `VYREON_REFCHECK_JOBS=6` on `day-block`, `day-block-daily`
+and `refcheck`). Not released; not verified on a real day.*
+Evidence (PHASE1_CATALOG, 2026-11-27/28): four day-block workers were OOMKilled 11 to 21 min into a reference
+check that had started after its day ended. Read on a live pod (check of 2025-02-14): suite processes of about
+1.53 GiB resident each, the worker process about 1.7 GiB, the pod's `memory.peak` at its 12 GiB limit. 8 × 1.53 +
+1.7 = 13.9 GiB; 7 gives 12.4; 6 gives 10.9. On quicker dates the processes were 0.6 GiB. The basis is one sample
+of five processes. A worker reads the setting at start, so it reaches new workers only. Better, not built: the
+worker sizes the count from the memory it has (engine side).
