@@ -36,7 +36,7 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
 
 ## Resume here (new session, 2026-11-26 16:00 MT; the handoff below verified against the cluster)
 
-**PHASE 1 IS RUNNING (2026-11-27 02:42 MT). Read this block first; the 2026-11-26 blocks below are history.**
+**PHASE 1, FIRST BUILD: STOPPED 2026-11-28 12:09 MT AT 93 DAYS BY THE EVALUATION (it ran from 2026-11-27 02:42 MT). The fix pass and a second build come next; only the nightly runs. Read this block first; the 2026-11-26 blocks below are history.**
 - Running build: engine `760a8760+93486ee1fd46` (released 02:39 MT: stage 1 + D-564..D-568, the date gate
   retired, the evening audit's findings fixed); core image `9982f6a` (C-086..C-098). Ceiling 1,800; nightly
   reserve 600; recompute OFF for the run.
@@ -84,6 +84,25 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   and M0-PRINT-SIZE layouts: build the proper count from `core.withheld_tally` with totals before the evaluation).
   The owner's reason: the universe is meant to grow to the full market, so a sensor must cope with thin chains
   and sparse points, measuring in one standardized way over time.
+  **EVALUATION DECIDED (owner, 2026-11-28, at 93 published days; "the evaluation is looking pretty well decided by
+  the coverage statistics in my eyes"; "yes to draining the backfill, yes to recording these decisions"):**
+  1. A second pass: ONE build of the database with all sensors publishing. This build (760a8760) is not carried
+     to the end. Its 93 days (plus the nightlies) stay as the evidence for the fix pass.
+  2. What withholds: a genuine provider absence. Everything else is market data and publishes; a check that
+     fires is recorded as a flag beside the value (owner: "Genuine provider faults = withhold, but beyond that,
+     market data is market data"). Not more guard rails: robust sensor definitions (owner).
+  3. A canary-style small block before scaling again.
+  4. The reference check on a random spread of dates, not every day.
+  5. Built properly, not hurried (owner).
+  Still under discussion, NOT decided: which standards to adopt (volume scope: regular session or the whole
+  consolidated day; the macro series as levels, rates of change or both; point-in-time vintages), and whether a
+  few known-wrong cases stay withheld. The owner asked for a reading of `/home/diggz/market-research` (the
+  product's original design) before choosing.
+  **Backfill stopped 2026-11-28 12:09 MT** (`vyreon-core backfill stop`, the flag in `core.queue_control`): the
+  twelve day blocks 30091–30102 cancelled as LEASED. NOTE: the owner approved a DRAIN (each worker finishing its
+  day); core has no drain outside a build hand-over (C-077), so the stop ended the days in flight. The nightly
+  (priority 1: 30110, 30111, 30103) is untouched. `backfill resume` clears the flag; blocks are scheduled again
+  by hand.
   **Method for the second pass (owner, 2026-11-28: "for all sensors for the next build we want to systematically
   go through and undo whatever guards are causing them to be withheld"; started the same day, before 100 days):**
   1. Sort every stated withholding reason (36 on the non-FIELD sensors over 92 days:
