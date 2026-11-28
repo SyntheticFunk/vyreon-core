@@ -276,6 +276,10 @@ spec:
             env:
               - {name: VYREON_HOME, value: /work}
               - {name: VYREON_REFCHECK_MINUTES, value: "600"}
+              # C-102 (2026-11-28): the reference suite's processes. Unset, the worker takes the node's 8 processors;
+              # on the 2024-09..2025-02 dates each suite process held ~1.5 GiB and the worker ~1.7 GiB, so 8 is 13.9 GiB
+              # against this pod's 12 GiB (four workers OOMKilled in a check, 11-27/28). 6 is 10.9 GiB.
+              - {name: VYREON_REFCHECK_JOBS, value: "6"}
               - {name: VYREON_OPTION_EOD_SOURCE, value: bulk}
               - {name: VYREON_ACT01_IN_FLIGHT, value: "2"}   # 2026-11-23 phase 1: ACT01 cohorts ran past their 180 s window under the shared budget
               - {name: VYREON_OVERLAP_SURFACES, value: "off"}   # C-085: speed-only overlaps off (engine D-405), lowering a day's memory peak
@@ -382,6 +386,10 @@ spec:
               - {name: VYREON_WORKER_DAILY, value: "0"}
               - {name: VYREON_HOME, value: /work}
               - {name: VYREON_REFCHECK_MINUTES, value: "600"}
+              # C-102 (2026-11-28): the reference suite's processes. Unset, the worker takes the node's 8 processors;
+              # on the 2024-09..2025-02 dates each suite process held ~1.5 GiB and the worker ~1.7 GiB, so 8 is 13.9 GiB
+              # against this pod's 12 GiB (four workers OOMKilled in a check, 11-27/28). 6 is 10.9 GiB.
+              - {name: VYREON_REFCHECK_JOBS, value: "6"}
               - {name: VYREON_OPTION_EOD_SOURCE, value: bulk}
               - {name: VYREON_ACT01_IN_FLIGHT, value: "2"}   # 2026-11-23 phase 1: ACT01 cohorts ran past their 180 s window under the shared budget
               - {name: VYREON_OVERLAP_SURFACES, value: "off"}   # C-085: speed-only overlaps off (engine D-405), lowering a day's memory peak
@@ -584,6 +592,10 @@ spec:
             env:
               - {name: VYREON_HOME, value: /work}
               - {name: VYREON_REFCHECK_MINUTES, value: "600"}
+              # C-102 (2026-11-28): the reference suite's processes. Unset, the worker takes the node's 8 processors;
+              # on the 2024-09..2025-02 dates each suite process held ~1.5 GiB and the worker ~1.7 GiB, so 8 is 13.9 GiB
+              # against this pod's 12 GiB (four workers OOMKilled in a check, 11-27/28). 6 is 10.9 GiB.
+              - {name: VYREON_REFCHECK_JOBS, value: "6"}
               - {name: VYREON_OPTION_EOD_SOURCE, value: bulk}
               - {name: VYREON_ACT01_IN_FLIGHT, value: "2"}
               - {name: VYREON_CORE_URL, value: "http://vyreon-core:8080"}
