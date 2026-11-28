@@ -84,6 +84,18 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   and M0-PRINT-SIZE layouts: build the proper count from `core.withheld_tally` with totals before the evaluation).
   The owner's reason: the universe is meant to grow to the full market, so a sensor must cope with thin chains
   and sparse points, measuring in one standardized way over time.
+  **Method for the second pass (owner, 2026-11-28: "for all sensors for the next build we want to systematically
+  go through and undo whatever guards are causing them to be withheld"; started the same day, before 100 days):**
+  1. Sort every stated withholding reason (36 on the non-FIELD sensors over 92 days:
+     `~/claude-artifacts/checks/phase1-run/withholding-reasons-latest.tsv`) into three classes, each with its code
+     location, its decision and its evidence base, by reading the code and not the reason's name: (i) a guard (the
+     data is present and the engine declines); (ii) missing on our side (an input not captured or fetched);
+     (iii) missing at the provider (a stated absence). Read-only; three agents by family, results in
+     `~/claude-artifacts/checks/reason-classes-2026-11-28-*.md`, each verified before it is used.
+  2. Guards become recorded flags, so the value publishes; class (ii) is investigated; class (iii) stands.
+  3. Rebuild, then judge each sensor on its published values (coverage by complete readings; FIELD apart, as a
+     derived cross-section).
+  Whether and when the rebuild happens is still the 100-day evaluation's decision.
   The owner's aim: an MVP that publishes. Coverage of 80% per sensor allows about one missing day a week.
 - **Fixes during the run (owner, 2026-11-27):** fixes are made on branches as found; nothing is released (no
   engine image, no core image) until phase 1's day layer is done, except the per-second request bound if provider
