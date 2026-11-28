@@ -96,6 +96,22 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   3. Rebuild, then judge each sensor on its published values (coverage by complete readings; FIELD apart, as a
      derived cross-section).
   Whether and when the rebuild happens is still the 100-day evaluation's decision.
+  **The owner's directions for that fix pass (2026-11-28, on the three reason-class files; "something to be done
+  for the after-100-counts fix pass"; "My ideal result is that we build the database anyway, then we can
+  investigate oddities"):**
+  1. QUOTE_BOOK_ONE_SIDED: a provider absence; it stands.
+  2. The 2% volume check (SOURCE_VOLUME_RECONCILIATION_FAILED): goes.
+  3. The "no certificate" reasons: publish and report honestly what could not be certified; still to investigate.
+  4. Tape against the official bar: investigate before deciding.
+  5. Option-chain reasons: an established standard where one exists; a maths or definition correction where it
+     is a zero denominator.
+  6. A rebased input series (the macro sensor): a robust, standard way to handle rebasing.
+  7. Company sensors: examine how each withholding is classed; filings are sparse by nature.
+  General (owner): "wherever we are having issues publishing data we need to look for established standards";
+  the aim is generalizable sensors that can be turned on and left on. Standards research with sources:
+  `~/claude-artifacts/checks/standards-2026-11-28.md` (in progress). The three class files are agents' readings:
+  each row is verified before it is acted on (verified so far: the dates of rows 1 and 2, PATH-L03-L07's zero
+  denominator, the macro input's change on 2026-11-24).
   The owner's aim: an MVP that publishes. Coverage of 80% per sensor allows about one missing day a week.
 - **Fixes during the run (owner, 2026-11-27):** fixes are made on branches as found; nothing is released (no
   engine image, no core image) until phase 1's day layer is done, except the per-second request bound if provider
