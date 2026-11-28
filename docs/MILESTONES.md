@@ -104,6 +104,22 @@ after `date`. Record each item as it lands, with its commit; prune again by tagg
   sensor struggles on an asset (UUP is the example), look at how others compute the same value. For VS-V03 the
   owner's direction: three eligible quotes at distinct moneyness is the minimum (the fewest for which level,
   slope and residual dispersion all exist), a thin chain publishing with a warning.
+  **VS-V03: the October recommendation is adopted (owner, 2026-11-28; DECIDED, NOT BUILT).** Level and skew are
+  read from the pooled same-day surface at fixed maturities (30, 60, 90 days) instead of a local fit on one
+  monthly expiry; the matched and change sensors become five-session changes of those readings. Three lines of
+  evidence, in the catalog: the October research (split-half of daily changes: surface level 0.96, skew 0.93,
+  local estimators 0.60–0.81; `market-research/reports/IV_SURFACE_MEASUREMENT_RESEARCH.md` 14–34, 252–258); the
+  built days (V03 against the surface: level correlation 0.995; slope 0.83; day-to-day skew moves agree on liquid
+  names at about 0.85 and not on thin ones); vendor practice (OptionMetrics and SSVI pool across strikes and
+  expiries and read at standard points; an agent's research). Open within it: what becomes of the per-expiry
+  local fit (the research kept a per-expiry profile under M0-IV-PROFILE; the owner's three-quote minimum applies
+  to any local fit that remains); IV60 and IV90 no longer discarded on IV30's state; the warning beside a thin
+  name's value (EMB and UUP: the research's own test called their pooled values noise).
+  **The pilot's method is the pattern for every other family (owner: "a good example of how to judge our
+  correctness against our intent and past work"):** as designed (market-research, quoted) / as built (code) /
+  each difference a lesson, a guard without basis, a gap or unclear / a measurement on the built days where one
+  can decide it / how others compute it / the definition of record. Files:
+  `~/claude-artifacts/checks/reconciliation-*-2026-11-28.md`.
   Still under discussion, NOT decided: which standards to adopt (volume scope: regular session or the whole
   consolidated day; the macro series as levels, rates of change or both; point-in-time vintages), and whether a
   few known-wrong cases stay withheld. The owner asked for a reading of `/home/diggz/market-research` (the
