@@ -43,8 +43,11 @@ Context is lost over time; the files are the memory. Sessions run for days on th
 
 ## Authority
 - `docs/PRODUCT_INTENT.md` is the ultimate guide (a copy of the engine's; the engine's is canonical).
-- Science belongs to the engine: `/home/diggz/vyreon-engine` (tag `engine-v1`), its
-  `docs/DECISIONS.md` ("Rules in force" at the top) and `AGENTS.md`. Core never computes,
+- Science belongs to the engine. Its current line is the `worker` branch, checked out at
+  `/home/diggz/vyreon-engine-worker`: read ITS `docs/PRODUCT_INTENT.md`, `docs/DECISIONS.md` ("Rules in force" at
+  the top) and `AGENTS.md`. The older checkout `/home/diggz/vyreon-engine` (branch `engine-v1-remediation`, tag
+  `engine-v1`) is the same repository at an earlier state and still carries rules the owner removed on
+  2026-11-28; do not read rules from it. Core never computes,
   fills, smooths or alters a measurement; it stores and serves exactly what the engine publishes,
   including every absence with its state and reason.
 - Core engineering decisions go in `docs/DECISIONS.md` here (short, dated, with reasons). When
